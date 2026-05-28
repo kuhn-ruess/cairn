@@ -37,7 +37,7 @@ services:
       BKTODO_MONGO_HOST: mongo
       BKTODO_MONGO_DB: bktodo
       BKTODO_SECRET_KEY: change-me-in-production
-    command: ["gunicorn", "--bind", "0.0.0.0:8004", "--workers", "3", "wsgi:app"]
+    command: ["gunicorn", "--bind", "0.0.0.0:8004", "--workers", "3", "--timeout", "600", "wsgi:app"]
     depends_on:
       - mongo
 
