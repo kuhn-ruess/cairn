@@ -205,7 +205,12 @@
     }
     const pid = row.dataset.projectId;
     if (pid) {
-      return { url: `/projects/${pid}/delete`, selector: `.tree-project[data-project-id="${pid}"]` };
+      // Match by tag of the hovered row so the project-list <tr>, the
+      // tree-view .tree-project <li>, and any future container all
+      // resolve to a CSS selector that matches their actual element.
+      const tag = (row.tagName || "").toLowerCase();
+      const selector = `${tag}[data-project-id="${pid}"]`;
+      return { url: `/projects/${pid}/delete`, selector };
     }
     const tag = row.dataset.tagName;
     if (tag) {

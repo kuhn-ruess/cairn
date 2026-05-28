@@ -24,7 +24,8 @@
   document.addEventListener("mouseover", (ev) => {
     const row = ev.target.closest && ev.target.closest(
       ".task-row[data-task-id], .tree-task[data-task-id], "
-      + ".tree-project[data-project-id], .tag-row[data-tag-name]"
+      + ".tree-project[data-project-id], .tag-row[data-tag-name], "
+      + "tr[data-project-id]"
     );
     if (row) lastHoveredRow = row;
   });

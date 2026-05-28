@@ -2,7 +2,7 @@
 {% set page_project_sidebar = true %}
 {% block title %}Projects · Cairn{% endblock %}
 {% macro project_row(p, depth=0) %}
-  <tr>
+  <tr data-project-id="{{ p.pk }}">
     <td>
       <input type="checkbox" class="form-check-input bulk-check"
              value="{{ p.pk }}" data-bulk-scope="projects">
@@ -101,6 +101,12 @@
               data-inspector-url="{{ url_for('projects.edit', project_id=p.pk) }}"
               data-inspector-title="{{ p.name }}"
               title="Open inspector"><i class="bi bi-info-circle"></i></button>
+      <button type="button" class="btn btn-sm btn-outline-danger hover-action item-delete-btn"
+              data-project-id="{{ p.pk }}"
+              data-row-selector="tr[data-project-id='{{ p.pk }}']"
+              title="Delete {{ p.kind }} + its contents (d)">
+        <i class="bi bi-trash"></i>
+      </button>
     </td>
   </tr>
 {% endmacro %}
