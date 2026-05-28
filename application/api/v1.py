@@ -485,3 +485,39 @@ def me():
 @api_v1_bp.errorhandler(ValueError)
 def _value_error(exc):
     return jsonify({"error": str(exc)}), 400
+
+
+# ---------------- docs ----------------
+
+@api_v1_bp.get("/openapi.json")
+def openapi_spec():
+    """Public OpenAPI 3.0 spec describing every /api/v1 endpoint."""
+    from application.api.openapi import build_openapi_spec
+    return jsonify(build_openapi_spec())
+
+
+@api_v1_bp.get("/docs")
+def swagger_ui():
+    """Swagger UI rendered from the spec above. Loaded from the
+    public CDN — no extra Python dependency for the docs page."""
+    from flask import render_template_string
+    html = """<!doctype html>
+<html lang=\"en\"><head><meta charset=\"utf-8\">
+<title>Cairn API · Swagger</title>
+<link rel=\"stylesheet\"
+      href=\"https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css\">
+<style>body{margin:0;background:#1d2021;}</style>
+</head><body>
+<div id=\"swagger-ui\"></div>
+<script src=\"https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js\"></script>
+<script>
+window.addEventListener('load', () => {
+  SwaggerUIBundle({
+    url: '/api/v1/openapi.json',
+    dom_id: '#swagger-ui',
+    deepLinking: true,
+    persistAuthorization: true,
+  });
+});
+</script></body></html>"""
+    return render_template_string(html)
