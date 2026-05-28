@@ -47,6 +47,17 @@
     <input type="search" class="form-control form-control-sm ps-search"
            placeholder="Filter…" autocomplete="off">
     <ul class="nav flex-column ps-list">
+      {# When the user is on a perspective (next / flagged / waiting /
+         someday / search …), clicking a sidebar project should FILTER
+         that perspective to the project's subtree — not navigate
+         away. We detect "perspective mode" by the request path and
+         build links accordingly. #}
+      {% set _filter_paths = (
+        '/tasks/next', '/tasks/flagged', '/tasks/waiting',
+        '/tasks/someday', '/tasks/search', '/tasks/assigned',
+        '/tasks/completed',
+      ) %}
+      {% set _filter_mode = request.path in _filter_paths %}
       <li class="ps-drop-target" data-target-project="">
         <a class="nav-link py-1 ps-row {% if current_pk == 'inbox' %}active{% endif %}"
            href="{{ url_for('tasks.inbox') }}"
@@ -60,8 +71,8 @@
         {% if (_visible is none) or ((p.pk|string) in _visible) %}
           <li class="ps-drop-target" data-target-project="{{ p.pk }}"
               data-project-id="{{ p.pk }}">
-            <a class="nav-link py-1 ps-row {% if current_pk and current_pk == (p.pk|string) %}active{% endif %}"
-               href="{{ url_for('projects.detail', project_id=p.pk) }}"
+            <a class="nav-link py-1 ps-row {% if (current_pk and current_pk == (p.pk|string)) or (_filter_mode and request.args.get('project') == (p.pk|string)) %}active{% endif %}"
+               href="{% if _filter_mode %}{{ request.path }}?project={{ p.pk }}{% else %}{{ url_for('projects.detail', project_id=p.pk) }}{% endif %}"
                style="padding-left: {{ depth * 14 + 8 }}px;"
                data-project-name="{{ p.name|lower }}"
                title="{{ p.name }}">

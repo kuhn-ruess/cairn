@@ -309,6 +309,47 @@ def process_inbox_save(task_id):
     return redirect(url_for("tasks.process_inbox", task_id=str(remaining[0].pk)))
 
 
+def _scoped_project_pks(user, project_id: str | None) -> list | None:
+    """Helper: if ``?project=<pk>`` was passed, walk the chain and
+    return every descendant pk so a perspective can be filtered to
+    "this project + everything nested under it". Returns ``None`` when
+    no filter is requested. ``"inbox"`` means parent=None.
+    """
+    if not project_id:
+        return None
+    if project_id == "inbox":
+        return ["inbox"]
+    root = Item.objects(pk=project_id).first()
+    if not root or not root.can_be_viewed_by(user):
+        return []
+    out = [root.pk]
+    frontier = [root.pk]
+    while frontier:
+        kids = list(Item.objects(parent__in=frontier).only("pk"))
+        if not kids:
+            break
+        new_pks = [k.pk for k in kids]
+        out.extend(new_pks)
+        frontier = new_pks
+    return out
+
+
+def _filter_by_project(qs, user, *, mode="tasks"):
+    """Apply ``?project=<id>`` filter to a perspective queryset.
+
+    ``mode='tasks'`` filters Item kind=task to those whose parent is
+    in the requested project's subtree.
+    """
+    pids = _scoped_project_pks(user, (request.args.get("project") or "").strip())
+    if pids is None:
+        return qs
+    if pids == ["inbox"]:
+        return qs.filter(parent=None)
+    if not pids:
+        return qs.none()
+    return qs.filter(parent__in=pids)
+
+
 @tasks_bp.route("/inbox")
 @login_required
 def inbox():
@@ -606,8 +647,8 @@ def next_actions():
     entries are kept in the list but rendered greyed out, so the user
     can still see what's coming next."""
     user = current_user._get_current_object()
-    tasks = Item.objects(
-        _scope(user), status="next"
+    tasks = _filter_by_project(
+        Item.objects(_scope(user), status="next"), user,
     ).order_by("+due_date", "+sort_order")
     return render_template(
         "tasks/list.html", title="Next", perspective="next", tasks=tasks
@@ -656,7 +697,9 @@ def scheduled():
 @login_required
 def waiting():
     user = current_user._get_current_object()
-    tasks = Item.objects(_scope(user), status="waiting").order_by("+due_date")
+    tasks = _filter_by_project(
+        Item.objects(_scope(user), status="waiting"), user,
+    ).order_by("+due_date")
     return render_template(
         "tasks/list.html", title="Waiting", perspective="waiting", tasks=tasks
     )
@@ -665,8 +708,9 @@ def waiting():
 @login_required
 def flagged():
     user = current_user._get_current_object()
-    tasks = Item.objects(
-        _scope(user), status__nin=["done", "dropped"], flagged=True
+    tasks = _filter_by_project(
+        Item.objects(_scope(user), status__nin=["done", "dropped"], flagged=True),
+        user,
     ).order_by("+due_date")
     return render_template(
         "tasks/list.html", title="Flagged", perspective="flagged", tasks=tasks
@@ -676,7 +720,9 @@ def flagged():
 @login_required
 def someday():
     user = current_user._get_current_object()
-    tasks = Item.objects(_scope(user), status="someday").order_by("-updated_at")
+    tasks = _filter_by_project(
+        Item.objects(_scope(user), status="someday"), user,
+    ).order_by("-updated_at")
     return render_template(
         "tasks/list.html", title="Someday / Maybe", perspective="someday", tasks=tasks
     )
@@ -685,8 +731,9 @@ def someday():
 @login_required
 def assigned_to_me():
     user = current_user._get_current_object()
-    tasks = Item.objects(
-        assigned_to=user, status__nin=["done", "dropped"]
+    tasks = _filter_by_project(
+        Item.objects(assigned_to=user, status__nin=["done", "dropped"]),
+        user,
     ).order_by("+due_date")
     return render_template(
         "tasks/list.html", title="Assigned to me", perspective="assigned", tasks=tasks
@@ -696,7 +743,9 @@ def assigned_to_me():
 @login_required
 def completed():
     user = current_user._get_current_object()
-    tasks = Item.objects(_scope(user), status="done").order_by("-completed_at").limit(200)
+    tasks = _filter_by_project(
+        Item.objects(_scope(user), status="done"), user,
+    ).order_by("-completed_at").limit(200)
     return render_template(
         "tasks/list.html", title="Completed", perspective="completed", tasks=tasks
     )
@@ -708,12 +757,15 @@ def search():
     q = (request.args.get("q") or "").strip()
     if not q:
         return render_template("tasks/list.html", title="Search", perspective="search", tasks=[])
-    tasks = Item.objects(
-        _scope(user) & (
-            Q(title__icontains=q)
-            | Q(note__icontains=q)
-            | Q(external_ref__icontains=q)
-        )
+    tasks = _filter_by_project(
+        Item.objects(
+            _scope(user) & (
+                Q(title__icontains=q)
+                | Q(note__icontains=q)
+                | Q(external_ref__icontains=q)
+            )
+        ),
+        user,
     ).order_by("-updated_at").limit(200)
     return render_template(
         "tasks/list.html",
