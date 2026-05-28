@@ -1,0 +1,287 @@
+{% extends "layout/base.html" %}
+{% set page_project_sidebar = true %}
+{% set _ns = namespace(pks=[]) %}
+{% for t in tasks %}
+  {% set _par = t.parent %}
+  {% if _par and _par.is_section %}{% set _par = _par.parent %}{% endif %}
+  {% if _par and (_par.pk|string) not in _ns.pks %}
+    {% set _ns.pks = _ns.pks + [_par.pk|string] %}
+  {% endif %}
+{% endfor %}
+{% set page_affected_pks = _ns.pks %}
+{% block title %}{{ title }} · Cairn{% endblock %}
+
+{% set grouping_options = [
+  ('none',     'List',        'bi-list-ul'),
+  ('status',   'Status',      'bi-tag-fill'),
+  ('priority', 'Priority',    'bi-flag'),
+  ('tag',      'Tag',         'bi-tag'),
+  ('project',  'Project',     'bi-folder'),
+  ('due',      'Due date',    'bi-calendar-event'),
+] %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-2">
+  <h1 class="h4 mb-0 me-auto">{{ title }} <span class="text-muted small">({{ tasks|length }})</span></h1>
+  <a href="{{ url_for('tasks.create') }}" class="btn btn-sm btn-primary"
+     data-inspector-url="{{ url_for('tasks.create') }}"
+     data-inspector-title="New task">
+    <i class="bi bi-plus-lg"></i> New task
+  </a>
+</div>
+
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  <div class="btn-group btn-group-sm" role="group">
+    <a class="btn btn-outline-secondary" href="?date={{ prev_iso }}&days={{ days }}"
+       title="Previous"><i class="bi bi-chevron-left"></i></a>
+    <a class="btn {% if is_today_now %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}"
+       href="{{ url_for('tasks.today') }}">Today</a>
+    <a class="btn btn-outline-secondary" href="?date={{ next_iso }}&days={{ days }}"
+       title="Next"><i class="bi bi-chevron-right"></i></a>
+  </div>
+  <input type="date" class="form-control form-control-sm w-auto"
+         value="{{ start_date.isoformat() }}"
+         onchange="window.location='?date='+this.value+'&days={{ days }}'">
+
+  <span class="text-muted small ms-2">Range:</span>
+  <div class="btn-group btn-group-sm" role="group">
+    {% for n, label in [(1, '1 d'), (3, '3 d'), (7, '1 w'), (14, '2 w')] %}
+      <a class="btn btn-sm {% if days == n %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}"
+         href="?date={{ start_date.isoformat() }}&days={{ n }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="today-toolbar d-flex flex-wrap align-items-center gap-2 mb-3">
+  <span class="text-muted small">Group by:</span>
+  <div class="btn-group btn-group-sm" role="group">
+    {% for value, label, icon in grouping_options %}
+      <a href="?group={{ value }}{% if active_tag %}&tag={{ active_tag }}{% endif %}"
+         class="btn btn-sm {% if grouping == value %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}">
+        <i class="bi {{ icon }}"></i> {{ label }}
+      </a>
+    {% endfor %}
+  </div>
+
+  {% with view_key='today', view_label='Today' %}
+    {% include "tasks/_display_dropdown.html" %}
+  {% endwith %}
+
+  <span class="text-muted small ms-2">Filter tag:</span>
+  <div class="dropdown">
+    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+      {% if active_tag %}
+        {% set at = current_user.tag_by_name(active_tag) %}
+        <span class="tag-chip" style="--tag-color: {{ at.color if at else '#6c757d' }};">
+          {% if at and at.is_context %}@{% endif %}{{ active_tag }}
+        </span>
+      {% else %}
+        <i class="bi bi-tags"></i> all
+      {% endif %}
+    </button>
+    <ul class="dropdown-menu" style="max-height: 320px; overflow-y: auto;">
+      <li><a class="dropdown-item" href="?group={{ grouping }}&tag=">
+        <i class="bi bi-x-circle"></i> All tasks (no filter)
+      </a></li>
+      {% if all_tags %}<li><hr class="dropdown-divider"></li>{% endif %}
+      {% for t in all_tags %}
+        <li><a class="dropdown-item d-flex align-items-center gap-2"
+               href="?group={{ grouping }}&tag={{ t.name }}">
+          <span class="cal-swatch" style="background: {{ t.color }}; width: 12px; height: 12px;"></span>
+          {{ t }}
+        </a></li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+
+{% macro cal_event_row(ev) %}
+  <div class="cal-event" style="border-left-color: {{ ev.calendar_color }};">
+    <span class="cal-event-time">
+      {% if ev.all_day %}all day{% else %}{{ ev.start|localdt }} – {{ ev.end|localdt }}{% endif %}
+    </span>
+    <span class="cal-event-title">
+      {% if ev.url %}<a href="{{ ev.url }}" target="_blank" rel="noopener">{{ ev.title }}</a>
+      {% else %}{{ ev.title }}{% endif %}
+    </span>
+    {% if ev.location %}<span class="cal-event-loc"><i class="bi bi-geo-alt"></i> {{ ev.location }}</span>{% endif %}
+    <span class="cal-event-cal" style="color: {{ ev.calendar_color }};">{{ ev.calendar_name }}</span>
+  </div>
+{% endmacro %}
+
+{% if calendar_events %}
+  <div class="calendar-events mb-3">
+    <h2 class="h6 text-muted small text-uppercase mb-2">
+      <i class="bi bi-calendar3"></i> Calendar ({{ calendar_events|length }})
+    </h2>
+    {% if events_by_day %}
+      {% for day, evs in events_by_day|dictsort %}
+        <div class="cal-day-header text-muted small mt-2 mb-1">
+          <i class="bi bi-calendar-day"></i>
+          {{ day.strftime('%A · %-d %b') }}
+        </div>
+        {% for ev in evs %}{{ cal_event_row(ev) }}{% endfor %}
+      {% endfor %}
+    {% else %}
+      {% for ev in calendar_events %}{{ cal_event_row(ev) }}{% endfor %}
+    {% endif %}
+  </div>
+{% elif next_event %}
+  <div class="alert alert-light cal-empty-hint mb-3">
+    <i class="bi bi-calendar3 text-muted"></i>
+    No calendar events today.
+    <span class="text-muted small ms-2">
+      Next: <strong>{{ next_event.title }}</strong>
+      · {{ next_event.start|localdt }}
+      · <span style="color: {{ next_event.calendar_color }};">{{ next_event.calendar_name }}</span>
+    </span>
+  </div>
+{% endif %}
+
+{# Projects-with-dates flow into the chosen grouping now (see
+   tasks.today: ``merged = filtered + projects_with_dates``). The
+   standalone section would render them a second time. Keep it only
+   for ``grouping == 'flat'`` if we ever add one. #}
+{% if false %}
+  <section class="mb-3">
+    <h2 class="h6 text-muted small text-uppercase mb-2">
+      <i class="bi bi-folder"></i> Projects ({{ projects_with_dates|length }})
+    </h2>
+    {% for sp in projects_with_dates %}
+      <div class="task-row sp-row" data-sp-id="{{ sp.pk }}">
+        <div class="d-flex align-items-center gap-1">
+          <span style="width: 1.25rem;"></span>
+          <span style="width: 1.25rem;"></span>
+          <i class="bi bi-folder text-muted"></i>
+        </div>
+        <div>
+          <a class="task-title text-decoration-none text-body"
+             href="{{ url_for('projects.detail', project_id=sp.pk) }}"
+             data-inspector-url="{{ url_for('projects.edit', project_id=sp.pk) }}"
+             data-inspector-title="{{ sp.name }}">
+            {% if sp.color %}<span class="proj-dot" style="background: {{ sp.color }};"></span>{% endif %}
+            {{ sp.name }}
+          </a>
+          <div class="task-meta">
+            {% for tag_name in sp.tags %}
+              {% set t = current_user.tag_by_name(tag_name) %}
+              <span class="tag-chip" style="--tag-color: {{ t.color if t else '#6c757d' }};">
+                {% if t and t.is_context %}@{% endif %}{{ tag_name }}
+              </span>
+            {% endfor %}
+            {% if sp.due_date %}
+              <span class="{{ 'overdue' if sp.due_date < now_utc() else '' }}">
+                <i class="bi bi-calendar-event"></i> {{ sp.due_date|relativedate }}
+              </span>
+            {% endif %}
+            {% if sp.plan_date %}
+              {% set is_today_plan = sp.plan_date.date() == now_utc().date() %}
+              <span class="plan-chip {{ 'plan-today' if is_today_plan else '' }}">
+                <i class="bi bi-bookmark-star"></i>
+                {% if is_today_plan %}today's plan{% else %}plan {{ sp.plan_date|relativedate }}{% endif %}
+              </span>
+            {% endif %}
+          </div>
+        </div>
+        <div></div>
+      </div>
+    {% endfor %}
+  </section>
+{% endif %}
+
+{% if not groups and not projects_with_dates %}
+  <p class="text-muted">Nothing on your plate today. 🪨</p>
+{% endif %}
+
+{% set view_key = 'today' %}
+{% macro render_project_rows(items) %}
+  {% for sp in items %}
+    <div class="task-row sp-row" data-sp-id="{{ sp.pk }}">
+      <div class="d-flex align-items-center gap-1">
+        <span style="width: 1.25rem;"></span>
+        <span style="width: 1.25rem;"></span>
+        <i class="bi {{ 'bi-folder2-open text-warning' if sp.is_folder else 'bi-folder text-muted' }}"></i>
+      </div>
+      <div>
+        <a class="task-title text-decoration-none text-body"
+           href="{{ url_for('projects.detail', project_id=sp.pk) }}"
+           data-inspector-url="{{ url_for('projects.edit', project_id=sp.pk) }}"
+           data-inspector-title="{{ sp.name }}">
+          {% if sp.color %}<span class="proj-dot" style="background: {{ sp.color }};"></span>{% endif %}
+          {{ sp.name }}
+        </a>
+        <div class="task-meta">
+          {% if sp.due_date %}
+            <span class="{{ 'overdue' if sp.due_date < now_utc() else '' }}">
+              <i class="bi bi-calendar-event"></i> {{ sp.due_date|relativedate }}
+            </span>
+          {% endif %}
+          {% if sp.plan_date %}
+            <span class="plan-chip">
+              <i class="bi bi-bookmark-star"></i> plan {{ sp.plan_date|relativedate }}
+            </span>
+          {% endif %}
+        </div>
+      </div>
+      <div></div>
+    </div>
+  {% endfor %}
+{% endmacro %}
+
+{% for label, icon, group_items, target_project_id in groups %}
+  {# Split each group into tasks vs projects so the row renderer
+     doesn't treat a project as a checkbox-able task. #}
+  {% set _ts = [] %}
+  {% set _ps = [] %}
+  {% for it in group_items %}
+    {% if it.kind == 'task' %}{% set _ = _ts.append(it) %}
+    {% else %}{% set _ = _ps.append(it) %}{% endif %}
+  {% endfor %}
+  {% if grouping == 'none' %}
+    {% set tasks = _ts %}{% include "tasks/_list_body.html" %}
+    {{ render_project_rows(_ps) }}
+  {% else %}
+    {% set _hinfo = proj_header_info.get(target_project_id) if (grouping == 'project' and target_project_id) else None %}
+    {% set _depth = label.count(' / ') if grouping == 'project' else 0 %}
+    <div class="section-block mt-3" style="{% if _depth %}margin-left: {{ _depth * 1.25 }}rem;{% endif %}">
+      <div class="section-header d-flex align-items-center">
+        <i class="bi {{ icon }} me-2"></i>
+        <h3 class="h6 mb-0 me-auto">
+          {% if grouping == 'project' and target_project_id %}
+            {% if _depth %}
+              <span class="text-muted small me-1">{{ label.rsplit(' / ', 1)[0] }} /</span>
+              <a class="text-decoration-none"
+                 href="{{ url_for('projects.detail', project_id=target_project_id) }}">{{ label.rsplit(' / ', 1)[-1] }}</a>
+            {% else %}
+              <a class="text-decoration-none"
+                 href="{{ url_for('projects.detail', project_id=target_project_id) }}">{{ label }}</a>
+            {% endif %}
+          {% else %}
+            {{ label }}
+          {% endif %}
+          <span class="text-muted">({{ group_items|length }})</span>
+          {% if _hinfo %}
+            {% if _hinfo.due_date %}
+              <span class="badge text-bg-warning ms-1 align-middle">
+                <i class="bi bi-calendar-event"></i> due {{ _hinfo.due_date|relativedate }}
+              </span>
+            {% endif %}
+            {% if _hinfo.plan_date %}
+              <span class="badge text-bg-info ms-1 align-middle">
+                <i class="bi bi-bookmark-star"></i> plan {{ _hinfo.plan_date|relativedate }}
+              </span>
+            {% endif %}
+          {% endif %}
+        </h3>
+      </div>
+      {% if _ts %}
+        {% set tasks = _ts %}{% include "tasks/_list_body.html" %}
+      {% endif %}
+      {{ render_project_rows(_ps) }}
+      {% if not _ts and not _ps %}
+        <p class="text-muted small mb-0 mt-1 ps-3">No tasks today in this project.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+{% endfor %}
+{% endblock %}

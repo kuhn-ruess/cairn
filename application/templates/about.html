@@ -1,0 +1,29 @@
+{% extends "layout/base.html" %}
+{% block title %}About · Cairn{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">About Cairn</h1>
+
+<div class="card mb-3" style="max-width: 720px;">
+  <div class="card-body">
+    <p class="mb-1"><strong>Cairn</strong> <span class="text-muted">v{{ app_version }}</span></p>
+    <p class="text-muted small mb-0">
+      GTD-style task and project manager. Self-hostable, with optional
+      Todoist and Zammad import.
+    </p>
+  </div>
+</div>
+
+<div class="card" style="max-width: 720px;">
+  <div class="card-body">
+    <h2 class="h6 text-muted small text-uppercase mb-2">Impressum</h2>
+    <p class="mb-1">
+      <a href="https://bastian-kuhn.de/impressum/" target="_blank" rel="noopener noreferrer">
+        bastian-kuhn.de/impressum <i class="bi bi-box-arrow-up-right small"></i>
+      </a>
+    </p>
+    <p class="text-muted small mb-0">
+      Hosted by Bastian Kuhn. Source + contact details on the linked page.
+    </p>
+  </div>
+</div>
+{% endblock %}

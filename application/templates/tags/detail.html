@@ -1,0 +1,15 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ tag }} · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <h1 class="h4 mb-0 me-auto">
+    <span class="tag-chip" style="--tag-color: {{ tag.color }}; padding: .35rem .75rem; font-size: 1rem;">{{ tag }}</span>
+    {% if tag.on_hold %}<span class="badge text-bg-warning">on hold</span>{% endif %}
+  </h1>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('tags.edit', tag_name=tag.name) }}">
+    <i class="bi bi-pencil"></i> Edit
+  </a>
+</div>
+<h2 class="h6 text-muted">Open tasks</h2>
+{% include "tasks/_list_body.html" %}
+{% endblock %}

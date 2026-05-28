@@ -1,0 +1,36 @@
+{% extends "layout/base.html" %}
+{% set page_project_sidebar = true %}
+{% set page_affected_pks = affected_pks %}
+{% block title %}{{ perspective.name }} · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <h1 class="h4 mb-0 me-auto">
+    <i class="bi {{ perspective.icon }}" style="color: {{ perspective.color }};"></i>
+    {{ perspective.name }}
+    <span class="text-muted small ms-2">{{ total }} task{{ '' if total == 1 else 's' }}</span>
+  </h1>
+  {% with view_key='cp:' ~ perspective.pid, view_label=perspective.name %}
+    {% include "tasks/_display_dropdown.html" %}
+  {% endwith %}
+  <a href="{{ url_for('custom_perspectives.edit', pid=perspective.pid) }}"
+     class="btn btn-sm btn-outline-secondary ms-2">
+    <i class="bi bi-pencil"></i> Edit
+  </a>
+  <a href="{{ url_for('custom_perspectives.index') }}"
+     class="btn btn-sm btn-outline-secondary ms-2">
+    <i class="bi bi-list-ul"></i> All
+  </a>
+</div>
+
+{% if not groups %}
+  <p class="text-muted">No tasks match this perspective.</p>
+{% else %}
+  {% set view_key = 'cp:' ~ perspective.pid %}
+  {% for label, icon, tasks, target_project_id in groups %}
+    <section class="mb-4">
+      <h2 class="h6 text-muted mb-2"><i class="bi {{ icon }}"></i> {{ label }}</h2>
+      {% include "tasks/_list_body.html" %}
+    </section>
+  {% endfor %}
+{% endif %}
+{% endblock %}

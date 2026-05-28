@@ -1,0 +1,154 @@
+{# Project / Folder / Section inspector. Fields show/hide based on kind. #}
+{% if just_saved %}
+  <div class="inspector-saved-banner"><i class="bi bi-check2-circle"></i> Saved</div>
+{% endif %}
+<form method="post" action="{{ form_action }}" data-inspector-form
+      class="inspector-form" novalidate>
+  {{ form.hidden_tag() }}
+
+  <div class="inspector-section">
+    {{ form.kind.label(class="form-label small text-uppercase text-muted") }}
+    {{ form.kind(class="form-select form-select-sm") }}
+    <div class="form-text" id="kind-hint"></div>
+  </div>
+
+  <div class="inspector-section">
+    <label class="form-label small text-uppercase text-muted" id="name-label">Name</label>
+    <div class="d-flex gap-2 align-items-stretch">
+      <input type="color" id="proj-color-picker"
+             value="{{ form.color.data or '#928374' }}"
+             class="form-control form-control-color"
+             title="Project color"
+             style="width: 2.8rem; padding: .25rem;">
+      {{ form.name(class="form-control form-control-lg", placeholder="Name", id="proj-name-input") }}
+      {{ form.color(type="hidden", id="proj-color-hex") }}
+    </div>
+  </div>
+
+  <div class="inspector-section">
+    {{ form.note.label(class="form-label small text-uppercase text-muted") }}
+    {{ form.note(class="form-control", rows="3") }}
+  </div>
+
+  <div class="inspector-section" data-show-for="project,folder,section">
+    {{ form.parent.label(class="form-label small text-uppercase text-muted") }}
+    {{ form.parent(class="form-select form-select-sm",
+                    size="6",
+                    **{"data-searchable-select": "1",
+                       "data-searchable-placeholder": "Search containers…"}) }}
+    <div class="form-text" id="parent-hint"></div>
+  </div>
+
+  <div class="inspector-section grid-2" data-show-for="project">
+    <div>
+      {{ form.project_type.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.project_type(class="form-select form-select-sm") }}
+    </div>
+    <div>
+      {{ form.status.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.status(class="form-select form-select-sm") }}
+    </div>
+  </div>
+
+  <div class="inspector-section" data-show-for="project">
+    {{ form.review_interval_days.label(class="form-label small text-uppercase text-muted") }}
+    {{ form.review_interval_days(class="form-control form-control-sm") }}
+  </div>
+
+  <div class="inspector-section" data-show-for="project,section">
+    {{ form.tags.label(class="form-label small text-uppercase text-muted") }}
+    {{ form.tags(class="form-select form-select-sm", size="5") }}
+    <div class="form-text">⌘/Ctrl-click for multi-select.</div>
+  </div>
+
+  <div class="inspector-section grid-2" data-show-for="project,section">
+    <div>
+      {{ form.due_date.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.due_date(class="form-control form-control-sm") }}
+    </div>
+    <div>
+      {{ form.plan_date.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.plan_date(class="form-control form-control-sm") }}
+    </div>
+  </div>
+
+  <div class="inspector-section" data-show-for="project,folder">
+    {{ form.members.label(class="form-label small text-uppercase text-muted") }}
+    {{ form.members(class="form-select form-select-sm", size="5") }}
+    <div class="form-text">Members can see and act on this project.</div>
+  </div>
+</form>
+
+<div class="inspector-footer">
+  {% if project %}
+    <form method="post" action="{{ url_for('projects.convert_to_task', project_id=project.pk) }}"
+          class="m-0" data-inspector-side
+          data-confirm="Demote this project to a task? Its tasks and sub-projects move up one level.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-sm btn-outline-secondary" title="Convert to task">
+        <i class="bi bi-check2-square"></i>
+      </button>
+    </form>
+    <form method="post" action="{{ url_for('projects.delete', project_id=project.pk) }}"
+          class="m-0" data-inspector-side
+          data-confirm="Delete this project? Tasks will become unassigned.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-sm btn-outline-danger">
+        <i class="bi bi-trash"></i> Delete
+      </button>
+    </form>
+  {% endif %}
+  <div class="ms-auto d-flex gap-2">
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-bs-dismiss="offcanvas">Cancel</button>
+    <button type="button" class="btn btn-sm btn-primary"
+            onclick="document.querySelector('form[data-inspector-form]').requestSubmit()">
+      <span class="save-label">Save</span>
+    </button>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Sync color picker → hidden form input on every change.
+  const picker = document.getElementById("proj-color-picker");
+  const hex = document.getElementById("proj-color-hex");
+  if (picker && hex) {
+    if (hex.value) picker.value = hex.value;
+    picker.addEventListener("input", () => { hex.value = picker.value; });
+  }
+  const sel = document.querySelector('select[name="kind"]');
+  if (!sel) return;
+  const nameLabel = document.getElementById("name-label");
+  const nameInput = document.getElementById("proj-name-input");
+  const kindHint = document.getElementById("kind-hint");
+  const parentHint = document.getElementById("parent-hint");
+  const saveLabel = document.querySelector(".save-label");
+  const kindHints = {
+    project: "Has its own tasks, status, type and review interval.",
+    folder:  "Organisational container only — can't hold tasks directly.",
+    section: "Inline group inside its parent project.",
+  };
+  const parentHints = {
+    project: "Optional — place this project inside a folder or another project.",
+    folder:  "Optional — folders can nest inside other folders.",
+    section: "Required — pick the project this section belongs to.",
+  };
+  const nameLabels = { project: "Project name", folder: "Folder name", section: "Section name" };
+
+  function update() {
+    const kind = sel.value;
+    document.querySelectorAll("[data-show-for]").forEach((el) => {
+      const allowed = el.dataset.showFor.split(",").map((s) => s.trim());
+      el.style.display = allowed.includes(kind) ? "" : "none";
+    });
+    if (nameLabel) nameLabel.textContent = nameLabels[kind] || "Name";
+    if (nameInput) nameInput.placeholder = nameLabels[kind] || "Name";
+    if (kindHint) kindHint.textContent = kindHints[kind] || "";
+    if (parentHint) parentHint.textContent = parentHints[kind] || "";
+    if (saveLabel) saveLabel.textContent = "Save " + (kind === "section" ? "section" : kind === "folder" ? "folder" : "project");
+  }
+  sel.addEventListener("change", update);
+  update();
+})();
+</script>

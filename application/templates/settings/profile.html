@@ -1,0 +1,100 @@
+{% extends "layout/base.html" %}
+{% block title %}Profile · Cairn{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">Profile &amp; preferences</h1>
+
+<form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="card mb-4" style="max-width: 720px;">
+    <div class="card-body">
+      <h2 class="h6 mb-3"><i class="bi bi-person-circle"></i> Account</h2>
+      <div class="mb-3">
+        <label class="form-label" for="profile-display-name">Display name</label>
+        <input id="profile-display-name" name="display_name" type="text"
+               maxlength="128" class="form-control form-control-sm"
+               value="{{ current_user.display_name or '' }}"
+               placeholder="How you'd like to be addressed">
+        <div class="form-text small">Shown in the navbar and on comments. Optional — falls back to your email.</div>
+      </div>
+      <div class="mb-1">
+        <label class="form-label" for="profile-email">Email</label>
+        <input id="profile-email" name="email" type="email" required
+               class="form-control form-control-sm"
+               value="{{ current_user.email }}">
+        <div class="form-text small">Used to sign in and for password resets.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-4" style="max-width: 720px;">
+    <div class="card-body">
+      <h2 class="h6 mb-2"><i class="bi bi-globe2"></i> Timezone</h2>
+      <p class="text-muted small mb-3">
+        Used when Cairn pushes tasks to Google Calendar — the wall-clock
+        time you pick in the task form is interpreted in this timezone.
+        Leave empty to use the server default
+        (<code>{{ server_default }}</code>).
+      </p>
+      <select name="timezone" class="form-select form-select-sm" style="max-width: 360px;">
+        <option value="">— use server default ({{ server_default }}) —</option>
+        {% for tz in timezones %}
+          <option value="{{ tz }}"
+            {% if current_user.timezone == tz %}selected{% endif %}>
+            {{ tz }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <div class="card mb-4" style="max-width: 720px;">
+    <div class="card-body">
+      <h2 class="h6 mb-2"><i class="bi bi-trash3"></i> Cleanup of completed tasks</h2>
+      <p class="text-muted small mb-3">
+        Automatically delete tasks that are <strong>done</strong> or
+        <strong>dropped</strong> after this many days. Set to <code>0</code>
+        to keep them forever. The sweep runs nightly on the server.
+      </p>
+      <div class="d-flex gap-2 align-items-center">
+        <input type="number" name="retention_days" min="0" max="3650"
+               value="{{ current_user.completed_task_retention_days or 0 }}"
+               class="form-control form-control-sm" style="max-width: 8rem;">
+        <span class="text-muted small">days (0 = never)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-4" style="max-width: 720px;">
+    <div class="card-body">
+      <h2 class="h6 mb-2"><i class="bi bi-list-task"></i> Task row display</h2>
+      <p class="text-muted small mb-3">
+        Pick which bits of metadata show up next to each task in lists.
+        Title, checkbox and flag toggle are always visible.
+      </p>
+      <div class="row g-2">
+        {% for key, label, hint in task_row_fields %}
+          <div class="col-md-6">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox"
+                     id="trow-{{ key }}"
+                     name="task_row_visible" value="{{ key }}"
+                     {% if current_user.show_field(key) %}checked{% endif %}>
+              <label class="form-check-label" for="trow-{{ key }}">
+                {{ label }}
+                <div class="form-text small">{{ hint }}</div>
+              </label>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <button class="btn btn-primary">Save profile</button>
+</form>
+
+<div class="mt-4 small text-muted" style="max-width: 720px;">
+  Looking for your password? <a href="{{ url_for('settings.change_password') }}">Change password →</a>
+</div>
+{% endblock %}

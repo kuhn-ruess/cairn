@@ -1,0 +1,14 @@
+Flask==3.0.3
+mongoengine==0.29.1
+Flask-Login==0.6.3
+Flask-WTF==1.2.1
+WTForms==3.1.2
+email-validator==2.2.0
+Werkzeug==3.0.4
+python-dateutil==2.9.0
+icalendar==5.0.13
+cryptography==43.0.1
+python-dotenv==1.0.1
+gunicorn==23.0.0
+markdown==3.7
+bleach==6.1.0

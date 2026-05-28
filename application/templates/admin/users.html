@@ -1,0 +1,61 @@
+{% extends "layout/base.html" %}
+{% block title %}Users · Cairn admin{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <h1 class="h4 mb-0 me-auto"><i class="bi bi-shield-lock"></i> Users</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.data_model') }}">
+    <i class="bi bi-diagram-3"></i> Data model
+  </a>
+</div>
+<p class="text-muted small">
+  Set per-account level. Promoting someone to <code>team_admin</code>
+  automatically creates a team they own.
+</p>
+
+<div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Email</th>
+        <th>Level</th>
+        <th>Team</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+        <tr>
+          <td><strong>{{ u.username }}</strong>
+            {% if u == current_user %}<span class="text-muted small">(you)</span>{% endif %}
+          </td>
+          <td class="small text-muted">{{ u.email }}</td>
+          <td>
+            <form method="post" action="{{ url_for('admin.set_level', user_id=u.pk) }}"
+                  class="d-inline-flex gap-2">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <select name="level" class="form-select form-select-sm" style="width: 11rem;">
+                {% for lvl in levels %}
+                  <option value="{{ lvl }}" {% if u.level == lvl %}selected{% endif %}>{{ lvl }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-sm btn-outline-secondary">Apply</button>
+            </form>
+          </td>
+          <td class="small">{{ u.team.name if u.team else '—' }}</td>
+          <td>
+            {% if u != current_user %}
+              <form method="post" action="{{ url_for('admin.delete_user', user_id=u.pk) }}"
+                    onsubmit="return confirm('Delete {{ u.username }} and all their data? This cannot be undone.');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-danger"
+                        title="Delete user + their data"><i class="bi bi-trash"></i></button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,145 @@
+{# Always emit the .task-list container so SortableJS has a drop target,
+   even when the section/group is empty.
+   Optional include var: view_key (string) — when set, per-view task-row
+   overrides apply. #}
+{% set _vk = view_key|default(none) %}
+<div class="task-list {% if not tasks %}is-empty{% endif %}"
+     data-bulk-scope="tasks"
+     {% if target_project_id is defined and target_project_id is not none %}data-target-project="{{ target_project_id }}"{% endif %}
+     {% if target_status is defined and target_status is not none %}data-target-status="{{ target_status }}"{% endif %}>
+  {% if not tasks %}
+    {% if target_project_id is defined and target_project_id is not none %}
+      <p class="task-empty-hint text-muted small mb-0">Drop tasks here</p>
+    {% else %}
+      <p class="text-muted small mb-0">Nothing here.</p>
+    {% endif %}
+  {% else %}
+    {% for task in tasks %}
+      {% set _depth = task._depth|default(0) %}
+      <div class="task-row
+                   {{ 'done' if task.status == 'done' else '' }}
+                   {{ 'is-next' if task.status == 'next' else '' }}
+                   {{ 'blocked' if task.is_blocked() else '' }}
+                   {{ 'subtask' if _depth > 0 else '' }}
+                   {% if task.priority %}task-priority-{{ task.priority }}{% endif %}"
+           {% if _depth > 0 %}style="padding-left: {{ _depth * 12 }}px;"{% endif %}
+           data-task-id="{{ task.pk }}" data-task-status="{{ task.status }}">
+        <div class="d-flex align-items-center gap-1">
+          <i class="bi bi-grip-vertical text-muted task-handle" title="Drag to reorder"></i>
+          {% if task._has_children|default(false) %}
+            <button type="button" class="btn btn-link p-0 task-collapse-toggle"
+                    data-item-id="{{ task.pk }}"
+                    title="{{ 'Expand' if task._collapsed else 'Collapse' }} sub-tasks">
+              <i class="bi {{ 'bi-chevron-right' if task._collapsed else 'bi-chevron-down' }}"></i>
+            </button>
+          {% else %}
+            <span class="task-collapse-spacer"></span>
+          {% endif %}
+          <input type="checkbox" class="form-check-input bulk-check"
+                 value="{{ task.pk }}" data-bulk-scope="tasks">
+          <form method="post" action="{% if task.status == 'done' %}{{ url_for('tasks.reopen', task_id=task.pk) }}{% else %}{{ url_for('tasks.complete', task_id=task.pk) }}{% endif %}" class="m-0" data-task-complete-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-link p-0" type="submit" title="{% if task.status == 'done' %}Reopen{% else %}Complete{% endif %}">
+              <i class="bi {% if task.status == 'done' %}bi-check-circle-fill text-success{% else %}bi-circle{% endif %} fs-5"></i>
+            </button>
+          </form>
+        </div>
+        <div>
+          <a class="task-title text-decoration-none text-body"
+             href="{{ url_for('tasks.detail', task_id=task.pk) }}"
+             data-inspector-url="{{ url_for('tasks.edit', task_id=task.pk) }}"
+             data-inspector-title="{{ task.title }}">
+            {% if task.flagged and current_user.show_field('flag', view_key=_vk) %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
+            {{ task.title }}
+          </a>
+          {% if task.status == 'next' and current_user.show_field('next_chip', view_key=_vk) %}
+            <span class="next-chip" title="Next action">NEXT</span>
+          {% endif %}
+          <div class="task-meta">
+            {% if task.project and current_user.show_field('project', view_key=_vk) %}
+              <a class="badge text-bg-light text-decoration-none" href="{{ url_for('projects.detail', project_id=task.project.pk) }}">
+                {% if task.project.color %}
+                  <span class="proj-dot" style="background: {{ task.project.color }};"></span>
+                {% else %}
+                  <i class="bi bi-folder"></i>
+                {% endif %}
+                {{ task.project.name }}
+              </a>
+            {% endif %}
+            {% if current_user.show_field('tags', view_key=_vk) %}
+              {% for tag_name in task.tags %}
+                {% set t = current_user.tag_by_name(tag_name) %}
+                <span class="tag-chip" style="--tag-color: {{ t.color if t else '#6c757d' }};">
+                  {% if t and t.is_context %}@{% endif %}{{ tag_name }}
+                </span>
+              {% endfor %}
+            {% endif %}
+            {% if task.due_date and current_user.show_field('due_date', view_key=_vk) %}
+              <span class="{{ 'overdue' if task.due_date < now_utc() else '' }}">
+                <i class="bi bi-calendar-event"></i> {{ task.due_date|relativedate }}
+              </span>
+            {% endif %}
+            {% if task.repeat_every_days %}
+              {% set _unit = task.repeat_unit or 'day' %}
+              {% set _unit_label =
+                  ({'day': ('day', 'days'),
+                    'weekday': ('weekday', 'weekdays'),
+                    'weekend': ('weekend day', 'weekend days'),
+                    'week': ('week', 'weeks'),
+                    'month': ('month', 'months'),
+                    'year': ('year', 'years')})[_unit] %}
+              <span class="repeat-chip" title="Repeats every {{ task.repeat_every_days }} {{ _unit_label[0] if task.repeat_every_days == 1 else _unit_label[1] }}">
+                <i class="bi bi-arrow-repeat"></i>
+                {% if task.repeat_every_days == 1 %}{{ _unit_label[0] }}{% else %}{{ task.repeat_every_days }} {{ _unit_label[1] }}{% endif %}
+              </span>
+            {% endif %}
+            {% if task.defer_date and task.defer_date > now_utc() and current_user.show_field('defer_chip', view_key=_vk) %}
+              <span class="deferred-chip" title="Deferred until {{ task.defer_date|localdt }}">
+                <i class="bi bi-hourglass-split"></i> defer {{ task.defer_date|relativedate }}
+              </span>
+            {% endif %}
+            {% if task.plan_date and current_user.show_field('plan_chip', view_key=_vk) %}
+              {% set is_today_plan = task.plan_date.date() == now_utc().date() %}
+              <span class="plan-chip {{ 'plan-today' if is_today_plan else '' }}"
+                    title="Plan to work on {{ task.plan_date|localdt }}">
+                <i class="bi bi-bookmark-star"></i>
+                {% if is_today_plan %}today's plan{% else %}plan {{ task.plan_date|relativedate }}{% endif %}
+              </span>
+            {% endif %}
+            {% if current_user.show_field('assignee', view_key=_vk) %}
+              {% if task.assigned_to and task.assigned_to != current_user %}
+                <span class="badge text-bg-info"><i class="bi bi-person"></i> {{ task.assigned_to }}</span>
+              {% elif task.assigned_to == current_user and task.assigned_by and task.assigned_by != current_user %}
+                <span class="badge text-bg-warning"><i class="bi bi-person-arms-up"></i> from {{ task.assigned_by }}</span>
+              {% endif %}
+            {% endif %}
+            {% if task.status not in ['open', 'next', 'done'] and current_user.show_field('status_badge', view_key=_vk) %}
+              <span class="badge text-bg-secondary">{{ task.status }}</span>
+            {% endif %}
+            {% if task.comments and current_user.show_field('comments', view_key=_vk) %}
+              <span class="task-comment-count" title="{{ task.comments|length }} comment(s)">
+                <i class="bi bi-chat-left-text"></i> {{ task.comments|length }}
+              </span>
+            {% endif %}
+          </div>
+          {% if task.note and current_user.show_field('note', view_key=_vk) %}
+            <div class="task-note small text-muted mt-1">{{ task.note|markdown }}</div>
+          {% endif %}
+        </div>
+        <div class="d-flex align-items-center gap-1">
+          <a class="task-open btn btn-sm btn-link text-muted p-0"
+             href="{{ url_for('tasks.detail', task_id=task.pk) }}"
+             title="Open task detail page">
+            <i class="bi bi-box-arrow-up-right"></i>
+          </a>
+          <form method="post" action="{{ url_for('tasks.toggle_flag', task_id=task.pk) }}" class="d-inline m-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-link p-0" title="Toggle flag">
+              <i class="bi {{ 'bi-flag-fill text-warning' if task.flagged else 'bi-flag' }}"></i>
+            </button>
+          </form>
+        </div>
+      </div>
+    {% endfor %}
+  {% endif %}
+</div>

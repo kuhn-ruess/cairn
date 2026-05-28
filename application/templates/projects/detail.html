@@ -1,0 +1,443 @@
+{% extends "layout/base.html" %}
+{% set page_project_sidebar = true %}
+{% block title %}{{ project.name }} · Cairn{% endblock %}
+
+{# Render sub-project rows that belong under ``container_pk``. They live
+   inside a .task-list so SortableJS treats them as draggable items in
+   the shared "bktodo-tasks" group. The container's data-target-project
+   carries the *destination* container's pk so a drop here re-parents
+   the project under that container. #}
+{% macro subproject_rows(items, target_project_id, view_key=None) %}
+  {% if items %}
+    <div class="task-list sp-list" data-target-project="{{ target_project_id }}">
+      {% for sp in items %}
+        {% set sp_kids = (subproject_children or {}).get(sp.pk) %}
+        {% set sp_has_open_kids = sp_kids and not sp._collapsed %}
+        <div class="task-row sp-row{% if sp_has_open_kids %} sp-row-with-kids{% endif %}" data-sp-id="{{ sp.pk }}">
+          <div class="d-flex align-items-center gap-1">
+            <i class="bi bi-grip-vertical text-muted task-handle" title="Drag to move"></i>
+            {% if sp._has_children|default(false) %}
+              <button type="button" class="btn btn-link p-0 task-collapse-toggle"
+                      data-item-id="{{ sp.pk }}"
+                      title="{{ 'Expand' if sp._collapsed else 'Collapse' }} sub-tasks">
+                <i class="bi {{ 'bi-chevron-right' if sp._collapsed else 'bi-chevron-down' }}"></i>
+              </button>
+            {% else %}
+              <span class="task-collapse-spacer"></span>
+            {% endif %}
+            {% if sp.is_folder %}
+              <i class="bi bi-folder2-open text-warning"></i>
+            {% else %}
+              <i class="bi bi-folder text-muted"></i>
+            {% endif %}
+          </div>
+          <div>
+            <a class="task-title text-decoration-none text-body"
+               href="{{ url_for('projects.detail', project_id=sp.pk) }}">
+              {% if sp.color %}<span class="proj-dot" style="background: {{ sp.color }};"></span>{% endif %}
+              {{ sp.name }}
+            </a>
+            <a class="task-inspector-btn" href="{{ url_for('projects.edit', project_id=sp.pk) }}"
+               data-inspector-url="{{ url_for('projects.edit', project_id=sp.pk) }}"
+               data-inspector-title="{{ sp.name }}"
+               title="Open inspector">
+              <i class="bi bi-info-circle"></i>
+            </a>
+            <div class="task-meta">
+              <span>
+                {{ "folder" if sp.is_folder else sp.project_type }}
+                {% if sp.project_type == 'sequential' %}
+                  <i class="bi bi-arrow-down-up" title="sequential"></i>
+                {% endif %}
+              </span>
+              {% for tag_name in sp.tags %}
+                {% set t = current_user.tag_by_name(tag_name) %}
+                <span class="tag-chip" style="--tag-color: {{ t.color if t else '#6c757d' }};">
+                  {% if t and t.is_context %}@{% endif %}{{ tag_name }}
+                </span>
+              {% endfor %}
+              {% if sp.due_date %}
+                <span class="{{ 'overdue' if sp.due_date < now_utc() else '' }}">
+                  <i class="bi bi-calendar-event"></i> {{ sp.due_date|relativedate }}
+                </span>
+              {% endif %}
+              {% if sp.plan_date %}
+                {% set is_today_plan = sp.plan_date.date() == now_utc().date() %}
+                <span class="plan-chip {{ 'plan-today' if is_today_plan else '' }}"
+                      title="Plan to work on {{ sp.plan_date|localdt }}">
+                  <i class="bi bi-bookmark-star"></i>
+                  {% if is_today_plan %}today's plan{% else %}plan {{ sp.plan_date|relativedate }}{% endif %}
+                </span>
+              {% endif %}
+              {% if sp.status not in ['active', 'completed'] %}
+                <span class="badge text-bg-secondary">{{ sp.status }}</span>
+              {% endif %}
+              {% if sp.members %}
+                <span><i class="bi bi-people"></i> {{ sp.members|length }}</span>
+              {% endif %}
+            </div>
+          </div>
+          <div>
+            <a class="btn btn-sm btn-link text-muted p-0 sp-open"
+               href="{{ url_for('projects.detail', project_id=sp.pk) }}"
+               title="Open project">
+              <i class="bi bi-box-arrow-up-right"></i>
+            </a>
+          </div>
+        </div>
+        {# Direct task children — render indented right under their
+           sub-project so the group reads as one block. Skip when the
+           sub-project is collapsed for this user. #}
+        {% if sp_has_open_kids %}
+          {% set kid_groups = (subproject_groups or {}).get(sp.pk) %}
+          <div class="sp-children">
+            {% if kid_groups %}
+              {% for grp in kid_groups %}
+                <h6 class="task-subgroup-header text-muted small mt-2 mb-1">
+                  <i class="bi {{ grp[1] }} me-1"></i>{{ grp[0] }}
+                  <span class="text-muted">({{ grp[2]|length }})</span>
+                </h6>
+                {% with tasks = grp[2], target_status = "open" %}
+                  {% include "tasks/_list_body.html" %}
+                {% endwith %}
+              {% endfor %}
+            {% else %}
+              {% with tasks = sp_kids, target_status = "open" %}
+                {% include "tasks/_list_body.html" %}
+              {% endwith %}
+            {% endif %}
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endmacro %}
+
+{% macro task_groups(bucket, target_project_id=None, view_key=None) %}
+  {# Sub-projects sit at the top of the bucket in their own draggable
+     list. Tasks render below — either flat (open bucket) or split into
+     sub-groups when a secondary grouping is on. Both lists share the
+     SortableJS group so cross-type drops re-parent correctly. #}
+  {{ subproject_rows(bucket['subprojects'] or [], target_project_id, view_key=view_key) }}
+  {% if bucket['open_groups'] %}
+    {% for grp in bucket['open_groups'] %}
+      <h5 class="task-subgroup-header text-muted small mt-3 mb-1">
+        <i class="bi {{ grp[1] }} me-1"></i>{{ grp[0] }}
+        <span class="text-muted">({{ grp[2]|length }})</span>
+      </h5>
+      {% with tasks = grp[2], target_status = "open" %}
+        {% include "tasks/_list_body.html" %}
+      {% endwith %}
+    {% endfor %}
+  {% else %}
+    {% with tasks = bucket['open'], target_status = "open" %}
+      {% include "tasks/_list_body.html" %}
+    {% endwith %}
+  {% endif %}
+  {% set optional = [
+    ('someday', 'Someday / Maybe', bucket['someday'], 'someday'),
+    ('done', 'Completed', bucket['done'], 'done'),
+    ('dropped', 'Dropped', bucket['dropped'], 'dropped'),
+  ] %}
+  {% for key, label, tasks, status in optional if tasks %}
+    <h4 class="text-muted small text-uppercase mt-3 mb-1">{{ label }} <span class="text-muted">({{ tasks|length }})</span></h4>
+    {% with target_status = status %}
+      {% include "tasks/_list_body.html" %}
+    {% endwith %}
+  {% endfor %}
+{% endmacro %}
+
+{# Sections are always the outer container — these options control the
+   secondary grouping applied INSIDE each section. #}
+{% set grouping_options = [
+  ('none',     'Flat',     'bi-list-ul'),
+  ('priority', 'Priority', 'bi-flag'),
+  ('status',   'Status',   'bi-tag-fill'),
+  ('tag',      'Tag',      'bi-tag'),
+  ('due',      'Due date', 'bi-calendar-event'),
+] %}
+
+{% block content %}
+{% set view_key = 'project:' ~ project.pk|string %}
+<div class="d-flex align-items-start mb-3">
+  <div class="me-auto project-header">
+    {% if ancestors %}
+      <nav aria-label="breadcrumb" class="project-breadcrumb">
+        <a href="{{ url_for('projects.index') }}" class="crumb crumb-root" title="All projects">
+          <i class="bi bi-house"></i>
+        </a>
+        {% for a in ancestors %}
+          <span class="crumb-sep">/</span>
+          <a href="{{ url_for('projects.detail', project_id=a.pk) }}" class="crumb">
+            {% if a.is_folder %}<i class="bi bi-folder2-open"></i>
+            {% elif a.is_section %}<i class="bi bi-bookmark"></i>
+            {% else %}<i class="bi bi-folder"></i>{% endif %}
+            {{ a.name }}
+          </a>
+        {% endfor %}
+      </nav>
+    {% endif %}
+    <h1 class="h4 mb-1 project-title">
+      {% if project.is_folder %}<i class="bi bi-folder2-open text-warning"></i>
+      {% elif project.is_section %}<i class="bi bi-bookmark text-info"></i>
+      {% else %}<i class="bi bi-folder-fill text-warning"></i>{% endif %}
+      {{ project.name }}
+      <span class="project-mode">{{ project.project_type }}</span>
+      {% if project.status != 'active' %}
+        <span class="project-mode project-mode-{{ project.status }}">{{ project.status }}</span>
+      {% endif %}
+    </h1>
+    <div class="text-muted small">
+      Owner: {{ project.owner }}
+      {% if project.members %}· Members: {% for m in project.members %}{{ m }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+      {% if project.next_review_at %}· Next review {{ project.next_review_at|localdt }}{% endif %}
+    </div>
+  </div>
+  <div class="btn-group view-mode-switch me-2">
+    {% set view_modes = [('list', 'bi-list-ul', 'List'),
+                         ('kanban', 'bi-kanban', 'Kanban'),
+                         ('calendar', 'bi-calendar3', 'Calendar')] %}
+    {% for value, icon, label in view_modes %}
+      <form method="post" action="{{ url_for('projects.set_view_mode', project_id=project.pk) }}"
+            class="m-0 d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="view" value="{{ value }}">
+        <button type="submit" title="{{ label }} view"
+                class="btn btn-sm {% if view_mode == value %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+          <i class="bi {{ icon }}"></i>
+        </button>
+      </form>
+    {% endfor %}
+  </div>
+  <div class="btn-group">
+    <a class="btn btn-primary" href="{{ url_for('tasks.create', project=project.pk) }}"
+       data-inspector-url="{{ url_for('tasks.create', project=project.pk) }}"
+       data-inspector-title="New task in {{ project.name }}">
+      <i class="bi bi-plus-lg"></i> Task
+    </a>
+    <a class="btn btn-outline-secondary"
+       href="{{ url_for('projects.create', section=1, parent=project.pk) }}"
+       data-inspector-url="{{ url_for('projects.create', section=1, parent=project.pk) }}"
+       data-inspector-title="New section in {{ project.name }}">
+      <i class="bi bi-bookmark-plus"></i> Section
+    </a>
+    <a class="btn btn-outline-secondary"
+       href="{{ url_for('projects.create', parent=project.pk) }}"
+       data-inspector-url="{{ url_for('projects.create', parent=project.pk) }}"
+       data-inspector-title="New project in {{ project.name }}">
+      <i class="bi bi-folder-plus"></i> Project
+    </a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('projects.edit', project_id=project.pk) }}"
+       data-inspector-url="{{ url_for('projects.edit', project_id=project.pk) }}"
+       data-inspector-title="{{ project.name }}">
+      <i class="bi bi-pencil"></i>
+    </a>
+    {% if project.owner == current_user %}
+      <a class="btn btn-outline-secondary"
+         href="{{ url_for('projects.import_csv', project_id=project.pk) }}"
+         title="Import CSV into this project">
+        <i class="bi bi-cloud-upload"></i>
+      </a>
+    {% endif %}
+    {% if project.owner == current_user %}
+      <div class="dropdown ms-1">
+        <button class="btn btn-outline-secondary dropdown-toggle"
+                data-bs-toggle="dropdown" data-bs-auto-close="outside"
+                title="Public share">
+          <i class="bi {% if project.share_enabled %}bi-globe text-success{% else %}bi-share{% endif %}"></i>
+        </button>
+        <div class="dropdown-menu dropdown-menu-end p-3" style="min-width: 360px;">
+          <h6 class="small text-uppercase text-muted mb-2">Public share link</h6>
+          {% if project.share_enabled and project.share_token %}
+            {% set share_url = url_for('public.project', token=project.share_token, _external=True) %}
+            <p class="small mb-2 text-muted">
+              Anyone with this link sees a read-only status dashboard with
+              all <strong>non-internal</strong> tasks and comments.
+            </p>
+            <div class="input-group input-group-sm mb-2">
+              <input type="text" class="form-control" readonly
+                     value="{{ share_url }}"
+                     onclick="this.select();">
+              <button type="button" class="btn btn-outline-secondary"
+                      onclick="navigator.clipboard.writeText('{{ share_url }}'); this.innerHTML='<i class=&quot;bi bi-check2&quot;></i>';"
+                      title="Copy link">
+                <i class="bi bi-clipboard"></i>
+              </button>
+            </div>
+            <div class="d-flex gap-2">
+              <form method="post" action="{{ url_for('projects.share_toggle', project_id=project.pk) }}" class="m-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="regenerate">
+                <button class="btn btn-sm btn-outline-secondary">
+                  <i class="bi bi-arrow-clockwise"></i> Regenerate
+                </button>
+              </form>
+              <form method="post" action="{{ url_for('projects.share_toggle', project_id=project.pk) }}" class="m-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="disable">
+                <button class="btn btn-sm btn-outline-danger">
+                  <i class="bi bi-x-circle"></i> Disable
+                </button>
+              </form>
+            </div>
+          {% else %}
+            <p class="small mb-2 text-muted">
+              Share the project's status with people outside Cairn. The
+              link reveals non-internal tasks + non-internal comments.
+            </p>
+            <form method="post" action="{{ url_for('projects.share_toggle', project_id=project.pk) }}" class="m-0">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="enable">
+              <button class="btn btn-sm btn-primary">
+                <i class="bi bi-globe"></i> Enable public link
+              </button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="d-flex align-items-center mb-3 flex-wrap gap-2">
+  <span class="text-muted small">Group by:</span>
+  <div class="btn-group btn-group-sm" role="group">
+    {% for value, label, icon in grouping_options %}
+      <form method="post" action="{{ url_for('projects.set_grouping', project_id=project.pk) }}"
+            class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="group" value="{{ value }}">
+        <button type="submit" class="btn btn-sm {% if grouping == value %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+          <i class="bi {{ icon }}"></i> {{ label }}
+        </button>
+      </form>
+    {% endfor %}
+  </div>
+  {% if grouping == 'tag' %}
+    <form method="post" action="{{ url_for('projects.set_grouping', project_id=project.pk) }}"
+          class="m-0 d-flex align-items-center gap-1">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="group" value="tag">
+      <select name="grouping_tag" class="form-select form-select-sm"
+              style="width: auto;" onchange="this.form.submit();">
+        <option value="">— every tag —</option>
+        {% for t in current_user.tags|sort(attribute='name') %}
+          <option value="{{ t.name }}"
+            {% if project.task_grouping_tag == t.name %}selected{% endif %}>
+            @{{ t.name }}
+          </option>
+        {% endfor %}
+      </select>
+    </form>
+  {% endif %}
+  {% if project.project_type == 'sequential' %}
+    <form method="post" action="{{ url_for('projects.toggle_show_blocked', project_id=project.pk) }}"
+          class="m-0 ms-auto">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-sm btn-link" type="submit" title="Sequential project — only the first available action is shown by default">
+        {% if project.show_blocked_tasks %}
+          <i class="bi bi-eye-slash"></i> Hide blocked
+        {% else %}
+          <i class="bi bi-eye"></i> Show blocked
+        {% endif %}
+      </button>
+    </form>
+  {% endif %}
+  {% if grouping != 'section' %}
+    <a class="btn btn-sm btn-link {% if project.project_type != 'sequential' %}ms-auto{% endif %}"
+       href="?group={{ grouping }}&completed={% if show_completed %}0{% else %}1{% endif %}">
+      {% if show_completed %}Hide{% else %}Show{% endif %} completed
+    </a>
+  {% endif %}
+  {% if sub_projects and grouping != 'subproject' %}
+    <a class="btn btn-sm btn-link"
+       href="?group={{ grouping }}&completed={% if show_completed %}1{% endif %}&descendants={% if include_descendants %}0{% else %}1{% endif %}"
+       title="Roll up tasks from sub-projects into this view">
+      {% if include_descendants %}Hide{% else %}Include{% endif %} sub-project tasks
+    </a>
+  {% endif %}
+  <div class="ms-auto">
+    {% with view_key='project:' ~ project.pk|string, view_label=project.name %}
+      {% include "tasks/_display_dropdown.html" %}
+    {% endwith %}
+  </div>
+</div>
+
+{% if project.note %}
+  <div class="card mb-3 project-note-card">
+    <div class="card-body" style="white-space: pre-wrap;">
+      <div class="text-muted small text-uppercase mb-1"><i class="bi bi-journal-text"></i> Note</div>
+      <div class="md-body">{{ project.note|markdown }}</div>
+    </div>
+  </div>
+{% endif %}
+
+{# Sub-projects render inline as task-like rows inside each section
+   bucket below — they are draggable into sections via SortableJS. #}
+
+{% if view_mode == 'kanban' %}
+  {% include "projects/_kanban.html" %}
+{% elif view_mode == 'calendar' %}
+  {% include "projects/_calendar.html" %}
+{% else %}
+  {% set root_bucket = section_buckets[None] %}
+  {% set root_subprojects = subprojects_by_section.get(None) or [] %}
+  {% if root_bucket['open'] or root_bucket['someday'] or root_bucket['done'] or root_bucket['dropped'] or root_subprojects %}
+    <div class="section-block">
+      <div class="section-header d-flex align-items-center">
+        <h3 class="h6 mb-0 me-auto">No section</h3>
+      </div>
+      {# subproject rows are rendered inside task_groups for both buckets. #}
+      {{ task_groups(root_bucket, target_project_id=project.pk|string, view_key=view_key) }}
+    </div>
+  {% endif %}
+  {% for s in sections %}
+    <div class="section-block mt-4" data-section-id="{{ s.pk }}">
+      <div class="section-header d-flex align-items-center">
+        <h3 class="h6 mb-0 me-auto">
+          <a href="{{ url_for('projects.detail', project_id=s.pk) }}"
+             class="text-decoration-none text-body">{{ s.name }}</a>
+          {% if s.project_type == 'sequential' %}
+            <span class="badge text-bg-secondary ms-2"
+                  title="Only the first available action shows by default">sequential</span>
+          {% endif %}
+        </h3>
+        {% if s.project_type == 'sequential' %}
+          <form method="post" action="{{ url_for('projects.toggle_show_blocked', project_id=s.pk) }}"
+                class="m-0" data-section-toggle>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-link text-muted" type="submit"
+                    title="Show / hide blocked tasks in this section">
+              {% if s.show_blocked_tasks %}
+                <i class="bi bi-eye-slash"></i>
+              {% else %}
+                <i class="bi bi-eye"></i>
+              {% endif %}
+            </button>
+          </form>
+        {% endif %}
+        <a class="btn btn-sm btn-link text-muted" href="{{ url_for('projects.edit', project_id=s.pk) }}"
+           data-inspector-url="{{ url_for('projects.edit', project_id=s.pk) }}"
+           data-inspector-title="{{ s.name }}" title="Edit section">
+          <i class="bi bi-pencil"></i>
+        </a>
+        <a class="btn btn-sm btn-link" href="{{ url_for('tasks.create', project=s.pk) }}"
+           data-inspector-url="{{ url_for('tasks.create', project=s.pk) }}"
+           data-inspector-title="New task in {{ s.name }}" title="New task">
+          <i class="bi bi-plus-lg"></i>
+        </a>
+      </div>
+      {% if s.note %}
+        <div class="section-note text-muted small mb-2 mt-1 md-body">
+          {{ s.note|markdown }}
+        </div>
+      {% endif %}
+      {{ task_groups(section_buckets[s.pk|string], target_project_id=s.pk|string, view_key=view_key) }}
+    </div>
+  {% endfor %}
+  {% if not sections and not root_bucket['open'] and not root_bucket['someday'] and not root_bucket['done'] and not root_bucket['dropped'] %}
+    <p class="text-muted">No tasks in this project yet.</p>
+  {% endif %}
+{% endif %}
+
+{% endblock %}

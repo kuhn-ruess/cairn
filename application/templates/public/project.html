@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ project.name }}</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <style>
+    .public-wrap { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+    .public-title { font-weight: 600; letter-spacing: -.01em; margin: 0; }
+    .public-sub { color: var(--gv-fg4); font-size: .85rem; margin-top: .25rem; }
+    .public-note { color: var(--gv-fg3); white-space: pre-wrap;
+                   margin: 1.25rem 0 2rem; padding-left: 1rem;
+                   border-left: 3px solid var(--gv-bg2); font-size: .95rem; }
+    .public-section { margin-top: 2rem; }
+    .public-section h2 { font-size: .75rem; text-transform: uppercase;
+                         letter-spacing: .08em; color: var(--gv-fg4);
+                         margin: 0 0 .5rem; }
+    .public-task { display: block; padding: .55rem .25rem;
+                   border-bottom: 1px solid var(--gv-bg1);
+                   color: var(--gv-fg1); text-decoration: none; }
+    .public-task:hover { background: var(--gv-bg0-soft); color: var(--gv-fg0); }
+    .public-task-title { font-weight: 500; }
+    .public-task-parent { font-weight: 400; color: var(--gv-blue-br);
+                          font-size: .8rem; margin-left: .35rem;
+                          background: var(--gv-bg1); padding: 0 .4rem;
+                          border-radius: .25rem; }
+    .public-task-meta { display: flex; flex-wrap: wrap; gap: .9rem;
+                        font-size: .8rem; color: var(--gv-fg4);
+                        margin-top: .2rem; }
+    .public-task-meta .overdue { color: var(--gv-red-br); }
+    .public-footer { text-align: center; color: var(--gv-fg4);
+                     font-size: .75rem; margin-top: 3rem; }
+  </style>
+</head>
+<body class="bg-body">
+<div class="public-wrap">
+  <header>
+    <h1 class="public-title h3">{{ project.name }}</h1>
+    <div class="public-sub">
+      <strong>{{ project_status_label }}</strong>
+      · {{ total }} task{{ '' if total == 1 else 's' }}
+      · read-only share
+    </div>
+  </header>
+
+  {% if project.note %}
+    <div class="public-note md-body">{{ project.note|markdown }}</div>
+  {% endif %}
+
+  {% if not groups %}
+    <p class="text-muted">No tasks to show.</p>
+  {% endif %}
+
+  {% for status, bucket in groups.items() %}
+    <section class="public-section">
+      <h2><i class="bi {{ bucket.icon }}"></i> {{ bucket.label }} <span class="text-muted">· {{ bucket.tasks|length }}</span></h2>
+      {% for task in bucket.tasks %}
+        {% set public_comments = task.comments | selectattr("is_public") | list %}
+        <a class="public-task" href="{{ url_for('public.task', token=token, task_id=task.pk) }}">
+          <div class="public-task-title">
+            {% if task.flagged %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
+            {% if task.priority %}<span class="priority-p{{ task.priority }}">P{{ task.priority }}</span>{% endif %}
+            {{ task.title }}
+            {% if task.project and task.project.pk != project.pk %}
+              <span class="public-task-parent">in {{ task.project.name }}</span>
+            {% endif %}
+          </div>
+          <div class="public-task-meta">
+            {% if task.due_date %}
+              <span class="{% if task.due_date.date() < now_utc().date() and task.status != 'done' %}overdue{% endif %}">
+                <i class="bi bi-calendar-event"></i> {{ task.due_date|date }}
+              </span>
+            {% endif %}
+            {% if task.plan_date %}
+              <span><i class="bi bi-bookmark-star"></i> {{ task.plan_date|date }}</span>
+            {% endif %}
+            {% if task.completed_at %}
+              <span><i class="bi bi-check2"></i> {{ task.completed_at|date }}</span>
+            {% endif %}
+            {% if public_comments %}
+              <span><i class="bi bi-chat-left-text"></i> {{ public_comments|length }}</span>
+            {% endif %}
+            {% if task.note %}
+              <span class="text-truncate" style="max-width: 24rem;">— {{ task.note }}</span>
+            {% endif %}
+          </div>
+        </a>
+      {% endfor %}
+    </section>
+  {% endfor %}
+
+  <div class="public-footer">
+    Powered by <strong>Cairn</strong>
+  </div>
+</div>
+</body>
+</html>

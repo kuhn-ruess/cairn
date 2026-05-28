@@ -1,0 +1,132 @@
+{% extends "layout/base.html" %}
+{% block title %}Help · Cairn{% endblock %}
+
+{% macro kbd(keys) %}
+  {% for k in keys %}<kbd>{{ k }}</kbd>{% if not loop.last %} <span class="text-muted">+</span> {% endif %}{% endfor %}
+{% endmacro %}
+
+{% block content %}
+<h1 class="h4 mb-3"><i class="bi bi-keyboard"></i> Keyboard shortcuts</h1>
+<p class="text-muted small">
+  Hover or click on any task row to start. Shortcuts that act on a
+  <em>selection</em> need at least one selected task.
+</p>
+
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card"><div class="card-body">
+      <h2 class="h6 text-muted text-uppercase small mb-3">Selection</h2>
+      <dl class="row mb-0">
+        <dt class="col-5">{{ kbd(["⌘", "click"]) }} / {{ kbd(["Ctrl", "click"]) }}</dt>
+        <dd class="col-7">Toggle selection on a row</dd>
+        <dt class="col-5">{{ kbd(["Shift", "click"]) }}</dt>
+        <dd class="col-7">Select a range from the last clicked row</dd>
+        <dt class="col-5">{{ kbd(["⌘", "A"]) }} / {{ kbd(["Ctrl", "A"]) }}</dt>
+        <dd class="col-7">Select all visible items</dd>
+        <dt class="col-5">{{ kbd(["Esc"]) }}</dt>
+        <dd class="col-7">Clear the current selection</dd>
+      </dl>
+    </div></div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card"><div class="card-body">
+      <h2 class="h6 text-muted text-uppercase small mb-3">Quick actions on tasks</h2>
+      <p class="text-muted small mb-2">
+        Act on the current selection, or — if nothing is selected — on the task
+        your mouse is hovering over.
+      </p>
+      <dl class="row mb-0">
+        <dt class="col-5">{{ kbd(["N"]) }}</dt>
+        <dd class="col-7">Toggle <span class="next-chip">NEXT</span> ⇄ Inbox</dd>
+        <dt class="col-5">{{ kbd(["F"]) }}</dt>
+        <dd class="col-7">Toggle <em>flag</em></dd>
+        <dt class="col-5">{{ kbd(["I"]) }}</dt>
+        <dd class="col-7">Move to <em>Inbox</em></dd>
+        <dt class="col-5">{{ kbd(["W"]) }}</dt>
+        <dd class="col-7">Mark as <em>Waiting</em></dd>
+        <dt class="col-5">{{ kbd(["S"]) }}</dt>
+        <dd class="col-7">Move to <em>Someday/Maybe</em></dd>
+        <dt class="col-5">{{ kbd(["D"]) }}</dt>
+        <dd class="col-7">Mark <em>Done</em></dd>
+        <dt class="col-5">{{ kbd(["Delete"]) }} / {{ kbd(["⌫"]) }}</dt>
+        <dd class="col-7">Delete (asks for confirmation)</dd>
+      </dl>
+    </div></div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card"><div class="card-body">
+      <h2 class="h6 text-muted text-uppercase small mb-3">Inspector</h2>
+      <dl class="row mb-0">
+        <dt class="col-5">click on task title</dt>
+        <dd class="col-7">Open the inspector for that task</dd>
+        <dt class="col-5">click on project name</dt>
+        <dd class="col-7">Open the inspector for the project</dd>
+        <dt class="col-5">{{ kbd(["Esc"]) }} (inspector)</dt>
+        <dd class="col-7">Close inspector — main list refreshes if anything was saved</dd>
+      </dl>
+    </div></div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card"><div class="card-body">
+      <h2 class="h6 text-muted text-uppercase small mb-3">Drag &amp; drop</h2>
+      <dl class="row mb-0">
+        <dt class="col-5"><i class="bi bi-grip-vertical"></i> handle</dt>
+        <dd class="col-7">Drag tasks to reorder within a list</dd>
+        <dt class="col-5">drag → other section</dt>
+        <dd class="col-7">Moves the task into that section's project</dd>
+        <dt class="col-5">tree view</dt>
+        <dd class="col-7">Same handles work across the whole project tree</dd>
+      </dl>
+    </div></div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card"><div class="card-body">
+      <h2 class="h6 text-muted text-uppercase small mb-3">Global navigation</h2>
+      <dl class="row mb-0">
+        <dt class="col-5">{{ kbd(["q"]) }}</dt>
+        <dd class="col-7">Quick-add task</dd>
+        <dt class="col-5">{{ kbd(["p"]) }}</dt>
+        <dd class="col-7">Command bar — jump to project / task</dd>
+        <dt class="col-5">{{ kbd(["/"]) }}</dt>
+        <dd class="col-7">Focus the navbar search</dd>
+        <dt class="col-5">{{ kbd(["?"]) }}</dt>
+        <dd class="col-7">Show the quick shortcut card</dd>
+        <dt class="col-5">{{ kbd(["g"]) }} then {{ kbd(["h"]) }}/{{ kbd(["i"]) }}/{{ kbd(["t"]) }}…</dt>
+        <dd class="col-7">
+          Go to Home / Inbox / Today / Forecast (<kbd>u</kbd>) /
+          Next (<kbd>n</kbd>) / Flagged (<kbd>f</kbd>) /
+          Waiting (<kbd>w</kbd>) / Someday (<kbd>s</kbd>) /
+          Projects (<kbd>p</kbd>) / Review (<kbd>r</kbd>)
+        </dd>
+      </dl>
+    </div></div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card"><div class="card-body">
+      <h2 class="h6 text-muted text-uppercase small mb-3">GTD status legend</h2>
+      <dl class="row mb-0 small">
+        <dt class="col-4">Inbox</dt>
+        <dd class="col-8">Captured but untriaged — default for new + imported tasks.</dd>
+        <dt class="col-4"><span class="next-chip">NEXT</span></dt>
+        <dd class="col-8">Actively engaging — set explicitly via <kbd>N</kbd>.</dd>
+        <dt class="col-4">Waiting</dt>
+        <dd class="col-8">Blocked on someone / something external.</dd>
+        <dt class="col-4">Someday</dt>
+        <dd class="col-8">Maybe later — out of view by default.</dd>
+        <dt class="col-4">Done / Dropped</dt>
+        <dd class="col-8">Completed or abandoned.</dd>
+      </dl>
+      <p class="text-muted small mt-2 mb-0">
+        <i class="bi bi-hourglass-split"></i> A <em>Defer date</em> in the future
+        blocks the task regardless of status — it greys out in lists and lives
+        in the <em>Scheduled</em> perspective until the date hits.
+      </p>
+    </div></div>
+  </div>
+</div>
+{% endblock %}

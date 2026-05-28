@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Simple Helper for cairn dev jobs.
+#
+# Auto-detects the container runtime (docker preferred, podman fallback).
+# Override with CONTAINER_RUNTIME=docker or CONTAINER_RUNTIME=podman.
+set -euo pipefail
+
+# Project name stays as the legacy "bktodo" so the existing MongoDB
+# volume (bktodo_mongo-data) keeps being mounted — switching it would
+# spin up a fresh empty database. Container names follow.
+PROJECT=bktodo
+APPLICATION=bktodo-app-1
+
+RUNTIME="${CONTAINER_RUNTIME:-}"
+if [ -z "$RUNTIME" ]; then
+    if command -v docker >/dev/null 2>&1; then
+        RUNTIME=docker
+    elif command -v podman >/dev/null 2>&1; then
+        RUNTIME=podman
+    else
+        echo "Neither docker nor podman found on PATH." >&2
+        exit 1
+    fi
+fi
+
+case "$RUNTIME" in
+    docker) COMPOSE=(docker compose) ;;
+    podman) COMPOSE=(podman-compose) ;;
+    *) echo "Unsupported CONTAINER_RUNTIME: $RUNTIME" >&2; exit 1 ;;
+esac
+
+compose() {
+    "${COMPOSE[@]}" -f docker-compose.yml -f docker-compose.local.yml -p "$PROJECT" "$@"
+}
+
+case "${1:-}" in
+"up")
+    compose rm -f
+    compose up --build --force-recreate
+    ;;
+"start")
+    compose start
+    ;;
+"stop")
+    compose stop
+    ;;
+"restart")
+    compose stop
+    compose start
+    ;;
+"down")
+    compose down --rmi local --remove-orphans
+    ;;
+"cairn")
+    shift
+    "$RUNTIME" exec -it "$APPLICATION" ./cairn "$@"
+    ;;
+"logs")
+    echo "Start Container Logs"
+    "$RUNTIME" logs -f "$APPLICATION"
+    ;;
+"shell")
+    echo "Start Container Shell"
+    "$RUNTIME" exec -it "$APPLICATION" sh
+    ;;
+"create_user")
+    if [ -z "${2:-}" ] || [ -z "${3:-}" ]; then
+        echo "Usage: ./helper create_user USERNAME EMAIL" >&2
+        exit 1
+    fi
+    "$RUNTIME" exec -it "$APPLICATION" ./cairn create-user "$2" "$3"
+    ;;
+"issue_token")
+    if [ -z "${2:-}" ]; then
+        echo "Usage: ./helper issue_token USERNAME [NAME]" >&2
+        exit 1
+    fi
+    "$RUNTIME" exec -it "$APPLICATION" ./cairn issue-token "$2" ${3:+--name "$3"}
+    ;;
+"seed_demo")
+    if [ -z "${2:-}" ]; then
+        echo "Usage: ./helper seed_demo USERNAME" >&2
+        exit 1
+    fi
+    "$RUNTIME" exec -it "$APPLICATION" ./cairn seed-demo "$2"
+    ;;
+"bve")
+    python3 -m venv ENV
+    ;;
+*)
+    echo "Simple Helper for cairn Jobs."
+    echo "Runtime: $RUNTIME (override with CONTAINER_RUNTIME=docker|podman)"
+    echo
+    echo "Commands:"
+    echo "  up                              build + start (foreground)"
+    echo "  down                            stop and remove containers/images"
+    echo "  start | stop | restart          lifecycle"
+    echo "  logs                            tail app logs"
+    echo "  shell                           open shell in app container"
+    echo "  cairn <args...>                run cairn CLI inside the container"
+    echo "  create_user USERNAME EMAIL      create a user"
+    echo "  issue_token USERNAME [NAME]     mint an API token"
+    echo "  seed_demo USERNAME              seed demo data for a user"
+    echo "  bve                             create a local python venv in ./ENV"
+    ;;
+esac

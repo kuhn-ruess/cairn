@@ -1,0 +1,119 @@
+{% extends "layout/base.html" %}
+{% block title %}Sidebar perspectives · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-1">
+  <h1 class="h4 mb-0 me-auto">Sidebar perspectives</h1>
+  <form method="post" action="{{ url_for('settings.perspective_reset') }}" class="m-0">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-counterclockwise"></i> Reset to default
+    </button>
+  </form>
+</div>
+<p class="text-muted small">
+  Click the eye to show or hide a perspective. Drag the visible ones to reorder.
+</p>
+
+<form method="post" id="perspectivesForm">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="card mb-3">
+    <div class="card-header py-2">
+      <h2 class="h6 mb-0">
+        <i class="bi bi-eye-fill text-success"></i> Visible
+        <span class="text-muted small">({{ visible|length }})</span>
+      </h2>
+    </div>
+    <ul id="visibleList" class="list-group list-group-flush perspective-list">
+      {% for p in visible %}
+        <li class="list-group-item d-flex align-items-center gap-2"
+            data-key="{{ p.key }}">
+          <i class="bi bi-grip-vertical text-muted handle"></i>
+          <i class="bi {{ p.icon }}"></i>
+          <span class="me-auto">{{ p.label }}</span>
+          <button type="button"
+                  onclick="document.getElementById('toggle-{{ p.key }}').submit()"
+                  class="btn btn-sm btn-link text-success p-0"
+                  title="Hide from sidebar">
+            <i class="bi bi-eye-fill"></i>
+          </button>
+        </li>
+      {% else %}
+        <li class="list-group-item text-muted small text-center py-3">
+          Nothing visible — click the eyes below to show some perspectives.
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <button type="submit" class="btn btn-primary mb-3">
+    <i class="bi bi-save"></i> Save order
+  </button>
+  <div id="visibleInputs"></div>
+</form>
+
+{% if hidden %}
+  <div class="card mb-3">
+    <div class="card-header py-2">
+      <h2 class="h6 mb-0">
+        <i class="bi bi-eye-slash text-muted"></i> Hidden
+        <span class="text-muted small">({{ hidden|length }})</span>
+      </h2>
+    </div>
+    <ul class="list-group list-group-flush perspective-list">
+      {% for p in hidden %}
+        <li class="list-group-item d-flex align-items-center gap-2 text-muted">
+          <i class="bi bi-eye-slash text-muted" style="opacity: .5;"></i>
+          <i class="bi {{ p.icon }}"></i>
+          <span class="me-auto">{{ p.label }}</span>
+          <button type="button"
+                  onclick="document.getElementById('toggle-{{ p.key }}').submit()"
+                  class="btn btn-sm btn-link p-0"
+                  title="Show in sidebar">
+            <i class="bi bi-eye"></i>
+          </button>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+{# One small form per perspective for the toggle button to submit. #}
+{% for p in visible + hidden %}
+  <form id="toggle-{{ p.key }}" method="post"
+        action="{{ url_for('settings.perspective_toggle', key=p.key) }}"
+        class="d-none">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  </form>
+{% endfor %}
+
+<script>
+(function () {
+  const visibleList = document.getElementById("visibleList");
+  const form = document.getElementById("perspectivesForm");
+  const inputs = document.getElementById("visibleInputs");
+
+  function init() {
+    if (typeof Sortable === "undefined") return;
+    new Sortable(visibleList, {
+      handle: ".handle",
+      animation: 150,
+      ghostClass: "perspective-ghost",
+    });
+  }
+  if (typeof Sortable !== "undefined") init();
+  else document.addEventListener("DOMContentLoaded", init);
+
+  form.addEventListener("submit", () => {
+    inputs.innerHTML = "";
+    visibleList.querySelectorAll("li[data-key]").forEach((li) => {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "visible[]";
+      input.value = li.dataset.key;
+      inputs.appendChild(input);
+    });
+  });
+})();
+</script>
+{% endblock %}

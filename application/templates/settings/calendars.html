@@ -1,0 +1,220 @@
+{% extends "layout/base.html" %}
+{% block title %}Calendars · Cairn{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">External calendars</h1>
+
+{% if writable %}
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2 class="h6 mb-2"><i class="bi bi-pencil-square"></i> Write tasks back to a calendar</h2>
+      <p class="text-muted small mb-3">
+        When a task gets a due or plan date, Cairn creates a matching
+        event in the chosen calendar.
+      </p>
+      <form method="post" action="{{ url_for('settings.calendar_write_settings') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-3 align-items-end">
+          <div class="col-md-5">
+            <label class="form-label small">Target calendar</label>
+            <select name="write_target" class="form-select form-select-sm">
+              <option value="">— don't write —</option>
+              {% for w in writable %}
+                <option value="{{ w.pk }}"
+                  {% if current_user.calendar_write_target == w.pk|string %}selected{% endif %}>
+                  {{ w.name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="write_due"
+                     id="writeDue"
+                     {% if current_user.calendar_write_due %}checked{% endif %}>
+              <label class="form-check-label small" for="writeDue">
+                Sync <strong>due</strong> dates
+              </label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="write_plan"
+                     id="writePlan"
+                     {% if current_user.calendar_write_plan %}checked{% endif %}>
+              <label class="form-check-label small" for="writePlan">
+                Sync <strong>plan</strong> dates
+              </label>
+            </div>
+          </div>
+          <div class="col-md-4 text-end">
+            <button class="btn btn-sm btn-primary">Save</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endif %}
+
+{% if calendars %}
+  <div class="card mb-4">
+    <div class="card-header py-2 d-flex align-items-center">
+      <h2 class="h6 mb-0 me-auto"><i class="bi bi-eye"></i> Read events into Today</h2>
+      {% if calendars|selectattr('provider', 'equalto', 'google')|list %}
+        <form method="post" action="{{ url_for('settings.calendar_google_refresh_list') }}"
+              class="m-0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm btn-outline-secondary" title="Pull the latest calendar list from Google">
+            <i class="bi bi-arrow-clockwise"></i> Refresh from Google
+          </button>
+        </form>
+      {% endif %}
+    </div>
+    <ul class="list-group list-group-flush">
+      {% for cal in calendars %}
+        <li class="list-group-item d-flex align-items-center gap-3">
+          <span class="cal-swatch" style="background: {{ cal.color }};"></span>
+          <div class="me-auto">
+            <div class="fw-semibold">{{ cal.name }}</div>
+            <div class="small text-muted">
+              <span class="badge text-bg-light">{{ cal.provider }}</span>
+              {% if cal.provider == "google" %}
+                {{ cal.account_email or 'connected' }} · {{ 'read/write' if cal.can_write else 'read-only' }}
+              {% else %}
+                read-only iCal
+              {% endif %}
+              {% if cal.last_synced_at %}· last fetch {{ cal.last_synced_at|localdt }}{% endif %}
+              {% if cal.last_error %}
+                · <span class="text-danger" title="{{ cal.last_error }}">error</span>
+              {% endif %}
+            </div>
+          </div>
+          <form method="post" action="{{ url_for('settings.calendar_toggle_today', cal_id=cal.pk) }}" class="m-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm {% if cal.show_in_today %}btn-success{% else %}btn-outline-secondary{% endif %}">
+              <i class="bi bi-{{ 'eye-fill' if cal.show_in_today else 'eye-slash' }}"></i>
+              {% if cal.show_in_today %}in Today{% else %}hidden{% endif %}
+            </button>
+          </form>
+          <form method="post" action="{{ url_for('settings.calendar_test', cal_id=cal.pk) }}" class="m-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-secondary" title="Fetch the next 7 days now">
+              <i class="bi bi-arrow-clockwise"></i>
+            </button>
+          </form>
+          {# Only iCal subscriptions have an individual delete — Google
+             calendars come from the connected account and would just be
+             re-added by the next refresh. Use "Disconnect Google" below
+             to remove all Google calendars together. #}
+          {% if cal.provider == "ical" %}
+            <form method="post" action="{{ url_for('settings.calendar_delete', cal_id=cal.pk) }}"
+                  class="m-0"
+                  onsubmit="return confirm('Unsubscribe from this calendar?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-sm btn-outline-danger"
+                      title="Unsubscribe">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+<div class="card integration-card mb-4 {% if not google_ready %}integration-disabled{% endif %}">
+  <div class="card-body d-flex align-items-center gap-3">
+    {% include "layout/_icon_google_calendar.svg" %}
+    <div class="me-auto">
+      <h2 class="h5 mb-1">Google Calendar</h2>
+      <div class="small text-muted">
+        Sync events into Today and write your bktodo tasks back as
+        calendar events.
+      </div>
+    </div>
+    {% set has_google = calendars|selectattr('provider', 'equalto', 'google')|list %}
+    {% if google_ready and has_google %}
+      <a href="{{ url_for('settings.calendar_google_connect') }}"
+         class="btn btn-outline-secondary"
+         title="Re-authorise (e.g. after a permission change)">
+        <i class="bi bi-arrow-clockwise"></i> Reconnect
+      </a>
+      <form method="post" action="{{ url_for('settings.calendar_google_disconnect') }}"
+            class="m-0 ms-2"
+            onsubmit="return confirm('Disconnect Google? Removes all Google calendar entries here. Tokens are forgotten — you can re-connect anytime.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-danger" type="submit">
+          <i class="bi bi-x-circle"></i> Disconnect
+        </button>
+      </form>
+    {% elif google_ready %}
+      <a href="{{ url_for('settings.calendar_google_connect') }}"
+         class="btn btn-primary">
+        <i class="bi bi-link-45deg"></i> Connect
+      </a>
+    {% else %}
+      <span class="badge text-bg-secondary" title="Admin needs to set BKTODO_GOOGLE_CLIENT_ID + BKTODO_GOOGLE_CLIENT_SECRET in .env">
+        not enabled
+      </span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <h2 class="h6 mb-2">
+      <i class="bi bi-link-45deg text-muted"></i> Subscribe via iCal URL
+    </h2>
+    <p class="text-muted small mb-3">
+      Read-only subscription via secret iCal URL — for any calendar that
+      isn't on the connected Google account (work calendars, iCloud,
+      Outlook, holiday feeds, …).
+    </p>
+
+    <form method="post" action="{{ url_for('settings.calendar_ical_new') }}">
+      {{ ical_form.hidden_tag() }}
+      <div class="mb-2">
+        {{ ical_form.ical_url.label(class="form-label small") }}
+        {{ ical_form.ical_url(class="form-control",
+                               placeholder="https://calendar.google.com/calendar/ical/.../basic.ics") }}
+        <div class="form-text small">
+          Name + colour are auto-detected from the calendar if you leave them empty.
+        </div>
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col-sm-7">
+          {{ ical_form.name.label(class="form-label small") }}
+          {{ ical_form.name(class="form-control form-control-sm",
+                             placeholder="auto-detect") }}
+        </div>
+        <div class="col-sm-3">
+          {{ ical_form.color.label(class="form-label small") }}
+          {{ ical_form.color(class="form-control form-control-color form-control-sm") }}
+        </div>
+        <div class="col-sm-2 d-flex align-items-end">
+          <div class="form-check">
+            {{ ical_form.show_in_today(class="form-check-input") }}
+            {{ ical_form.show_in_today.label(class="form-check-label small") }}
+          </div>
+        </div>
+      </div>
+      {{ ical_form.submit(class="btn btn-outline-primary btn-sm") }}
+    </form>
+
+    <details class="mt-3 small text-muted">
+      <summary>Where do I find the iCal URL?</summary>
+      <ul class="mt-2 ps-3">
+        <li><strong>Google Calendar:</strong>
+          <a href="https://calendar.google.com/calendar/u/0/r/settings" target="_blank" rel="noopener">
+            open settings
+          </a> → pick the calendar in the sidebar → scroll to
+          <em>Integrate calendar</em> → copy <em>Secret address in iCal format</em>.
+        </li>
+        <li><strong>iCloud Calendar:</strong> right-click the calendar →
+          Share → enable <em>Public Calendar</em> → copy the URL (replace
+          <code>webcal://</code> with <code>https://</code>).</li>
+        <li><strong>Outlook.com:</strong> Settings → Calendar → Shared
+          calendars → publish → copy the ICS link.</li>
+      </ul>
+    </details>
+  </div>
+</div>
+{% endblock %}

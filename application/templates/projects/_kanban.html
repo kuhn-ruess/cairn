@@ -1,0 +1,76 @@
+{# Kanban view: one column per section, plus the root project itself. #}
+<div class="kanban-board">
+  {% macro kanban_column(col_id, name, icon_cls, tasks, is_root=False) %}
+    <div class="kanban-column" data-target-project="{{ col_id }}">
+      <div class="kanban-col-header">
+        <i class="bi {{ icon_cls }}"></i>
+        <span class="kanban-col-name">{{ name }}</span>
+        <span class="kanban-col-count">{{ tasks|length }}</span>
+        <a class="kanban-col-add" title="Quick-add here"
+           data-bs-toggle="modal" data-bs-target="#quickAddModal"
+           data-quickadd-project="{{ col_id }}">
+          <i class="bi bi-plus-lg"></i>
+        </a>
+      </div>
+      <div class="kanban-cards task-list" data-bulk-scope="tasks"
+           data-target-project="{{ col_id }}">
+        {% for t in tasks %}
+          <div class="kanban-card task-row {{ 'blocked' if t.is_blocked() else '' }} {{ 'is-next' if t.status == 'next' else '' }}"
+               data-task-id="{{ t.pk }}" data-task-status="{{ t.status }}">
+            <i class="bi bi-grip-vertical text-muted task-handle"></i>
+            <input type="checkbox" class="form-check-input bulk-check d-none"
+                   value="{{ t.pk }}" data-bulk-scope="tasks">
+            <a class="kanban-card-title text-decoration-none text-body"
+               href="{{ url_for('tasks.edit', task_id=t.pk) }}"
+               data-inspector-url="{{ url_for('tasks.edit', task_id=t.pk) }}"
+               data-inspector-title="{{ t.title }}">
+              {% if t.flagged %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
+              {% if t.priority %}<span class="priority-p{{ t.priority }}">P{{ t.priority }}</span>{% endif %}
+              {{ t.title }}
+            </a>
+            <div class="kanban-card-meta">
+              {% for tag_name in t.tags %}
+                {% set tg = current_user.tag_by_name(tag_name) %}
+                <span class="tag-chip" style="--tag-color: {{ tg.color if tg else '#6c757d' }};">
+                  {% if tg and tg.is_context %}@{% endif %}{{ tag_name }}
+                </span>
+              {% endfor %}
+              {% if t.due_date %}
+                <span class="{{ 'overdue' if t.due_date < now_utc() else '' }}">
+                  <i class="bi bi-calendar-event"></i> {{ t.due_date|relativedate }}
+                </span>
+              {% endif %}
+              {% if t.plan_date %}
+                <span class="text-muted small">
+                  <i class="bi bi-bookmark-star"></i> plan {{ t.plan_date|relativedate }}
+                </span>
+              {% endif %}
+              {% if t.comments %}
+                <span class="task-comment-count">
+                  <i class="bi bi-chat-left-text"></i> {{ t.comments|length }}
+                </span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endmacro %}
+
+  {{ kanban_column(project.pk|string, project.name,
+                   'bi-folder-fill text-warning',
+                   section_buckets[None]['open'], is_root=True) }}
+  {% for s in sections %}
+    {{ kanban_column(s.pk|string, s.name, 'bi-bookmark text-info',
+                     section_buckets[s.pk|string]['open']) }}
+  {% endfor %}
+
+  <div class="kanban-add-column">
+    <a class="kanban-add-link"
+       href="{{ url_for('projects.create', section=1, parent=project.pk) }}"
+       data-inspector-url="{{ url_for('projects.create', section=1, parent=project.pk) }}"
+       data-inspector-title="New section in {{ project.name }}">
+      <i class="bi bi-plus-lg"></i> Add section
+    </a>
+  </div>
+</div>

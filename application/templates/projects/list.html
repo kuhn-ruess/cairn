@@ -1,0 +1,167 @@
+{% extends "layout/base.html" %}
+{% set page_project_sidebar = true %}
+{% block title %}Projects · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <h1 class="h4 mb-0 me-auto">Projects</h1>
+  <a href="{{ url_for('projects.index', show_inactive=(0 if show_inactive else 1)) }}"
+     class="btn btn-sm {{ 'btn-secondary' if show_inactive else 'btn-outline-secondary' }}"
+     title="{{ 'Hide on hold / completed / dropped' if show_inactive else 'Show on hold / completed / dropped' }}">
+    <i class="bi {{ 'bi-eye-slash' if show_inactive else 'bi-eye' }}"></i>
+    {{ 'Active only' if show_inactive else 'Show all' }}
+  </a>
+  <div class="btn-group">
+    <a href="{{ url_for('projects.create') }}" class="btn btn-sm btn-primary"
+       data-inspector-url="{{ url_for('projects.create') }}"
+       data-inspector-title="New project">
+      <i class="bi bi-plus-lg"></i> New project
+    </a>
+    <button type="button" class="btn btn-sm btn-primary dropdown-toggle dropdown-toggle-split"
+            data-bs-toggle="dropdown" aria-expanded="false">
+      <span class="visually-hidden">More</span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li><a class="dropdown-item" href="{{ url_for('projects.create') }}"
+             data-inspector-url="{{ url_for('projects.create') }}"
+             data-inspector-title="New project">
+        <i class="bi bi-folder"></i> New project
+      </a></li>
+      <li><a class="dropdown-item"
+             href="{{ url_for('projects.create', folder=1) }}"
+             data-inspector-url="{{ url_for('projects.create', folder=1) }}"
+             data-inspector-title="New folder">
+        <i class="bi bi-folder2-open text-warning"></i> New folder
+      </a></li>
+    </ul>
+  </div>
+</div>
+  <table class="table align-middle">
+    <thead><tr>
+      <th></th>
+      <th>Name</th><th>Type</th><th>Status</th><th>Next review</th><th>Members</th><th></th>
+    </tr></thead>
+    <tbody>
+      <tr class="table-active">
+        <td></td>
+        <td>
+          <i class="bi bi-inbox text-muted me-1"></i>
+          <a href="{{ url_for('tasks.inbox') }}" class="text-decoration-none fw-semibold">
+            Inbox
+          </a>
+          <span class="text-muted small ms-2">virtual · tasks without a project</span>
+        </td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td class="row-actions text-nowrap">
+          <a href="{{ url_for('tasks.inbox') }}" class="btn btn-sm btn-outline-secondary hover-action"
+             title="Open Inbox to move tasks">
+            <i class="bi bi-box-arrow-up-right"></i>
+          </a>
+        </td>
+      </tr>
+      {% if not projects %}
+        <tr><td colspan="7" class="text-muted small">No projects yet — tasks live in the Inbox above.</td></tr>
+      {% endif %}
+      {% for depth, p in projects %}
+        <tr>
+          <td>
+            <input type="checkbox" class="form-check-input bulk-check"
+                   value="{{ p.pk }}" data-bulk-scope="projects">
+          </td>
+          <td style="padding-left: {{ (depth * 24) + 12 }}px;">
+            {% if depth > 0 %}<span class="text-muted me-1">└</span>{% endif %}
+            {% if p.color %}
+              <span class="proj-dot" style="background: {{ p.color }};"></span>
+            {% elif p.is_folder %}
+              <i class="bi bi-folder2-open text-warning me-1"></i>
+            {% elif p.is_section %}
+              <i class="bi bi-bookmark text-info me-1"></i>
+            {% else %}
+              <i class="bi bi-folder text-muted me-1"></i>
+            {% endif %}
+            <a href="{{ url_for('projects.detail', project_id=p.pk) }}"
+               class="text-decoration-none">{{ p.name }}</a>
+          </td>
+          <td>
+            {% if p.is_folder %}
+              <span class="text-muted small">folder</span>
+            {% elif p.is_section %}
+              <span class="text-muted small">section</span>
+            {% else %}
+              <span class="badge text-bg-light">{{ p.project_type }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if p.is_folder or p.is_section %}
+              <span class="text-muted">—</span>
+            {% else %}
+              <span class="badge text-bg-secondary">{{ p.status }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if p.is_folder or p.is_section %}
+              <span class="text-muted">—</span>
+            {% else %}
+              {{ p.next_review_at|localdt if p.next_review_at else '—' }}
+            {% endif %}
+          </td>
+          <td class="small text-muted">
+            {% if p.is_folder or p.is_section %}—
+            {% elif p.members %}{{ p.members|length }} member(s)
+            {% else %}—{% endif %}
+          </td>
+          <td class="row-actions text-nowrap">
+            {# Contextual "+" — folders add child projects/folders/sections;
+               regular projects + sections add a task via quick-add. #}
+            {% if p.is_folder %}
+              <div class="dropdown d-inline-block">
+                <button type="button" class="btn btn-sm btn-outline-secondary hover-action dropdown-toggle"
+                        data-bs-toggle="dropdown" title="Add inside this folder">
+                  <i class="bi bi-plus-lg"></i>
+                </button>
+                <ul class="dropdown-menu">
+                  <li><a class="dropdown-item"
+                         href="{{ url_for('projects.create', parent=p.pk) }}"
+                         data-inspector-url="{{ url_for('projects.create', parent=p.pk) }}"
+                         data-inspector-title="New project in {{ p.name }}">
+                    <i class="bi bi-folder text-muted"></i> Project
+                  </a></li>
+                  <li><a class="dropdown-item"
+                         href="{{ url_for('projects.create', parent=p.pk, folder=1) }}"
+                         data-inspector-url="{{ url_for('projects.create', parent=p.pk, folder=1) }}"
+                         data-inspector-title="New folder in {{ p.name }}">
+                    <i class="bi bi-folder2-open text-warning"></i> Folder
+                  </a></li>
+                </ul>
+              </div>
+            {% else %}
+              <button type="button"
+                      class="btn btn-sm btn-outline-secondary hover-action"
+                      data-bs-toggle="modal" data-bs-target="#quickAddModal"
+                      data-quickadd-project="{{ p.pk }}"
+                      title="Quick-add task in {{ p.name }}">
+                <i class="bi bi-plus-lg"></i>
+              </button>
+              {% if not p.is_section %}
+                <a class="btn btn-sm btn-outline-secondary hover-action"
+                   href="{{ url_for('projects.create', parent=p.pk, section=1) }}"
+                   data-inspector-url="{{ url_for('projects.create', parent=p.pk, section=1) }}"
+                   data-inspector-title="New section in {{ p.name }}"
+                   title="Add section here">
+                  <i class="bi bi-bookmark-plus"></i>
+                </a>
+              {% endif %}
+            {% endif %}
+            <a class="btn btn-sm btn-outline-secondary hover-action"
+               href="{{ url_for('projects.edit', project_id=p.pk) }}"
+               data-inspector-url="{{ url_for('projects.edit', project_id=p.pk) }}"
+               data-inspector-title="{{ p.name }}"
+               title="Edit"><i class="bi bi-pencil"></i></a>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

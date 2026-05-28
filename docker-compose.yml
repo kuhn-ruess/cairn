@@ -1,0 +1,25 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: bktodo
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "5004:5004"
+    environment:
+      BKTODO_MONGO_HOST: mongo
+      BKTODO_MONGO_DB: bktodo
+      BKTODO_SECRET_KEY: change-me-in-production
+    depends_on:
+      - mongo
+
+volumes:
+  mongo-data:

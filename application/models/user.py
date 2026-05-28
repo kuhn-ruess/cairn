@@ -1,0 +1,321 @@
+"""User and API token models."""
+import secrets
+from datetime import datetime, timezone
+
+from bson import ObjectId
+from flask_login import UserMixin
+from mongoengine import (
+    BooleanField,
+    DateTimeField,
+    Document,
+    EmailField,
+    EmbeddedDocument,
+    EmbeddedDocumentListField,
+    IntField,
+    ListField,
+    MapField,
+    ObjectIdField,
+    ReferenceField,
+    StringField,
+)
+from werkzeug.security import check_password_hash, generate_password_hash
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class ApiToken(EmbeddedDocument):
+    """Personal API token, embedded on the owning user.
+
+    Embedded (not a top-level Document) so a user request that already
+    holds the ``User`` object can authorise without a second DB round
+    trip; token lookup uses the ``api_tokens.token`` index on User.
+    """
+    pk_ref = ObjectIdField(default=lambda: ObjectId())  # stable id for revoke / display
+    name = StringField(max_length=128, default="default")
+    token = StringField(required=True)
+    created_at = DateTimeField(default=_utcnow)
+    last_used_at = DateTimeField()
+    revoked = BooleanField(default=False)
+
+    def mark_used(self) -> None:
+        self.last_used_at = _utcnow()
+
+
+class User(UserMixin, Document):
+    meta = {
+        "collection": "users",
+        # ``team`` indexed so bulk team-membership ops stay fast.
+        # ``api_tokens.token`` indexed so token-based auth stays a
+        # single keyed lookup (the embedded layout doesn't change the
+        # underlying B-tree shape).
+        "indexes": ["email", "username", "team", "api_tokens.token"],
+    }
+
+    username = StringField(required=True, unique=True, max_length=64)
+    email = EmailField(required=True, unique=True)
+    display_name = StringField(max_length=128)
+    password_hash = StringField(required=True)
+    is_active_user = BooleanField(default=True)
+    is_admin = BooleanField(default=False)
+    created_at = DateTimeField(default=_utcnow)
+    last_login_at = DateTimeField()
+
+    # Account tier — controls limits and capabilities.
+    #   free         — solo, capped at FREE_PROJECT_LIMIT projects, no sharing
+    #   premium      — solo, no project cap, may belong to a team
+    #   team_admin   — owns one team, can invite members and share within it
+    #   global_admin — full admin, the only role that can grant levels
+    level = StringField(
+        choices=["free", "premium", "team_admin", "global_admin"],
+        default="free",
+    )
+    # The team this user belongs to (set by accepting an invite). For
+    # ``team_admin`` this is also the team they own.
+    team = ReferenceField("Team")
+
+    # Saved per-user secrets (encrypted at rest via services.crypto).
+    # The corresponding OAuth client / API client lives in app config so
+    # users never touch credentials.
+    todoist_token = StringField()
+    show_todoist_sync = BooleanField(default=False)
+    last_todoist_sync_at = DateTimeField()
+
+    # Zammad import — URL + token live with the user so each user can
+    # point at their own ticketing instance.
+    zammad_url = StringField()
+    zammad_token = StringField()
+    # Cairn-side tag attached to every Zammad-imported task. The sync
+    # queries Cairn for tasks carrying this tag to know what already
+    # exists, then updates the ones still in Zammad and drops the
+    # orphans. Empty disables the orphan-cleanup pass.
+    zammad_label = StringField()
+    show_zammad_sync = BooleanField(default=False)
+    last_zammad_sync_at = DateTimeField()
+
+    # Password reset
+    password_reset_token = StringField()
+    password_reset_expires_at = DateTimeField()
+
+    # Calendar write-back: which connected calendar to push tasks to and
+    # which date fields trigger event creation.
+    calendar_write_target = StringField()  # ExternalCalendar.pk as string
+    calendar_write_due = BooleanField(default=False)
+    calendar_write_plan = BooleanField(default=False)
+
+    # IANA timezone (e.g. ``Europe/Berlin``) used to interpret naive
+    # datetimes coming from the datetime-local form input when we push
+    # events to Google Calendar. Empty → use the server's configured
+    # ``DEFAULT_TZ``.
+    timezone = StringField(default="")
+
+    # Task-row display: list of field keys the user wants HIDDEN in the
+    # task list rows. Empty (default) = show everything. Stored as a
+    # blocklist so newly-added fields show up without a migration.
+    task_row_hidden = ListField(StringField())
+
+    # Per-view overrides of ``task_row_hidden``. Map key → list of
+    # hidden fields. Missing key → fall back to the global setting
+    # above. View keys are short strings (built-in perspective keys, or
+    # ``cp:<pid>`` for custom perspectives).
+    task_row_hidden_by_view = MapField(ListField(StringField()))
+
+    # Retention: delete done/dropped tasks N days after they closed.
+    # ``0`` keeps everything forever (default). Sweep is run by
+    # ``cairn cleanup-completed-tasks`` (cron-able).
+    completed_task_retention_days = IntField(default=0, min_value=0)
+
+    # Items the user has collapsed in tree views (sub-task children
+    # hidden under their parent). Stored as a list of string PKs so a
+    # single read returns the whole set per request.
+    collapsed_items = ListField(StringField())
+
+    # Today perspective preferences (persisted across sessions).
+    today_grouping = StringField(default="none")
+    today_filter_tag = StringField()  # Tag.pk to filter Today to a single tag, optional
+
+    # Custom sidebar perspective ordering. Empty = use the canonical default
+    # (all perspectives shown). When non-empty, only these keys are shown,
+    # in this exact order.
+    sidebar_perspectives = ListField(StringField())
+
+    # User-defined custom perspectives (max 20 enforced on save).
+    from application.models.perspective import CustomPerspective as _CP  # noqa: E402
+    custom_perspectives = EmbeddedDocumentListField(_CP)
+
+    # Tags live inside the user — see application.models.tag for the
+    # rationale. Stored as embedded so a user's full tag set is one read.
+    from application.models.tag import Tag as _Tag  # noqa: E402
+    tags = EmbeddedDocumentListField(_Tag)
+
+    # API tokens (embedded — see ApiToken docstring).
+    api_tokens = EmbeddedDocumentListField("ApiToken")
+
+    # External calendars (embedded — every per-user query that touches
+    # them now reuses the User document already in scope).
+    from application.models.calendar import ExternalCalendar as _ExternalCalendar  # noqa: E402
+    calendars = EmbeddedDocumentListField(_ExternalCalendar)
+
+    def save(self, *args, **kwargs):
+        # Enforce the 20-perspective ceiling at the model layer so the API
+        # path can't sneak around the form.
+        if self.custom_perspectives and len(self.custom_perspectives) > 20:
+            raise ValueError("A user can keep at most 20 custom perspectives.")
+        return super().save(*args, **kwargs)
+
+    # ---------- tag helpers ----------
+
+    def tag_by_name(self, name: str):
+        if not name:
+            return None
+        lname = name.lower()
+        for t in self.tags or []:
+            if t.name.lower() == lname:
+                return t
+        return None
+
+    def tag_names(self) -> list[str]:
+        return [t.name for t in (self.tags or [])]
+
+    def show_field(self, name: str, view_key: str | None = None) -> bool:
+        """Whether the named field should render in task-row metadata.
+
+        When ``view_key`` is set and there's a per-view override, that
+        wins over the global ``task_row_hidden`` blocklist.
+        """
+        if view_key and self.task_row_hidden_by_view:
+            override = self.task_row_hidden_by_view.get(view_key)
+            if override is not None:
+                return name not in override
+        return name not in (self.task_row_hidden or [])
+
+    def has_view_override(self, view_key: str) -> bool:
+        return bool(self.task_row_hidden_by_view and
+                    view_key in self.task_row_hidden_by_view)
+
+    # ---------- level helpers ----------
+
+    @property
+    def is_global_admin(self) -> bool:
+        return self.level == "global_admin"
+
+    @property
+    def is_team_admin(self) -> bool:
+        return self.level in ("team_admin", "global_admin")
+
+    @property
+    def can_share_projects(self) -> bool:
+        # Premium-and-up users plus anyone in a team can share within it.
+        return self.team is not None or self.is_team_admin
+
+    def ensure_tags(self, names) -> int:
+        """Add any tag names from ``names`` that the user doesn't already
+        have. Returns how many new tags were created. Used by the
+        assignment-inherits-tags path."""
+        from application.models.tag import Tag as _Tag
+        added = 0
+        for name in names or []:
+            if not name:
+                continue
+            if not self.tag_by_name(name):
+                self.tags.append(_Tag(name=name, color="#6c757d", is_context=False))
+                added += 1
+        return added
+
+    def set_password(self, raw: str) -> None:
+        self.password_hash = generate_password_hash(raw)
+
+    def check_password(self, raw: str) -> bool:
+        return check_password_hash(self.password_hash, raw)
+
+    def issue_password_reset(self, hours_valid: int = 2) -> str:
+        """Generate a fresh reset token, store it with an expiry, return it.
+
+        The token is short-lived (default 2 hours) and single-use — the
+        reset view clears it after a successful password change.
+        """
+        from datetime import timedelta
+        self.password_reset_token = secrets.token_urlsafe(32)
+        self.password_reset_expires_at = _utcnow() + timedelta(hours=hours_valid)
+        self.save()
+        return self.password_reset_token
+
+    def consume_password_reset(self) -> None:
+        self.password_reset_token = ""
+        self.password_reset_expires_at = None
+        self.save()
+
+    def password_reset_valid(self, token: str) -> bool:
+        if not token or not self.password_reset_token:
+            return False
+        if not secrets.compare_digest(token, self.password_reset_token):
+            return False
+        if not self.password_reset_expires_at:
+            return False
+        return self.password_reset_expires_at > _utcnow()
+
+    @property
+    def is_active(self) -> bool:  # Flask-Login hook
+        return bool(self.is_active_user)
+
+    def get_id(self) -> str:
+        return str(self.pk)
+
+    # ---------- calendar helpers ----------
+
+    def find_calendar(self, pk_str: str):
+        """Lookup an embedded calendar by its ``pk_ref`` (string form)."""
+        if not pk_str:
+            return None
+        for cal in self.calendars or []:
+            if str(cal.pk_ref) == str(pk_str):
+                return cal
+        return None
+
+    def add_calendar(self, **kwargs):
+        from application.models.calendar import ExternalCalendar
+        cal = ExternalCalendar(**kwargs)
+        self.calendars.append(cal)
+        self.save()
+        return cal
+
+    def remove_calendar(self, pk_str: str) -> bool:
+        keep = [c for c in (self.calendars or []) if str(c.pk_ref) != str(pk_str)]
+        if len(keep) == len(self.calendars or []):
+            return False
+        self.calendars = keep
+        self.save()
+        return True
+
+    def issue_api_token(self, name: str = "default") -> "ApiToken":
+        """Mint and persist a new embedded API token for this user."""
+        tok = ApiToken(name=name, token=secrets.token_urlsafe(32))
+        self.api_tokens.append(tok)
+        self.save()
+        return tok
+
+    def find_api_token(self, raw: str) -> "ApiToken | None":
+        for t in self.api_tokens or []:
+            if t.token == raw and not t.revoked:
+                return t
+        return None
+
+    @staticmethod
+    def by_api_token(raw: str) -> "tuple[User, ApiToken] | None":
+        """Lookup the owning user + active token for a raw string.
+
+        Uses the ``api_tokens.token`` index so this stays a single keyed
+        Mongo query. Returns ``None`` when there's no match (revoked
+        tokens count as no match).
+        """
+        if not raw:
+            return None
+        user = User.objects(api_tokens__token=raw).first()
+        if user is None:
+            return None
+        tok = user.find_api_token(raw)
+        return (user, tok) if tok else None
+
+    def __str__(self) -> str:
+        return self.display_name or self.email or self.username

@@ -1,0 +1,73 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ team.name }} · Team{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3"><i class="bi bi-people"></i> {{ team.name }}</h1>
+
+{% if can_manage %}
+  <div class="card mb-4" style="max-width: 600px;">
+    <div class="card-body">
+      <h2 class="h6 mb-2"><i class="bi bi-envelope-plus"></i> Invite a member</h2>
+      <form method="post" action="{{ url_for('teams.invite') }}" class="d-flex gap-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="email" name="email" required placeholder="email@example.com"
+               class="form-control form-control-sm">
+        <button class="btn btn-sm btn-primary">Create invite</button>
+      </form>
+      <div class="form-text small">
+        You'll get a link to send them. They can accept after signing in
+        or registering.
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+<div class="card mb-4" style="max-width: 720px;">
+  <div class="card-header py-2">
+    <h2 class="h6 mb-0"><i class="bi bi-person-check"></i> Members ({{ members.count() }})</h2>
+  </div>
+  <ul class="list-group list-group-flush">
+    {% for m in members %}
+      <li class="list-group-item d-flex align-items-center">
+        <div class="me-auto">
+          <strong>{{ m.username }}</strong>
+          {% if m == team.admin %}<span class="badge text-bg-warning ms-1">admin</span>{% endif %}
+          <div class="small text-muted">{{ m.email }} · {{ m.level }}</div>
+        </div>
+        {% if can_manage and m != team.admin %}
+          <form method="post" action="{{ url_for('teams.remove_member', user_id=m.pk) }}"
+                onsubmit="return confirm('Remove {{ m.username }} from the team?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-x"></i></button>
+          </form>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+</div>
+
+{% if can_manage and invites %}
+<div class="card mb-4" style="max-width: 720px;">
+  <div class="card-header py-2">
+    <h2 class="h6 mb-0"><i class="bi bi-hourglass-split"></i> Pending invites</h2>
+  </div>
+  <ul class="list-group list-group-flush">
+    {% for inv in invites %}
+      <li class="list-group-item d-flex align-items-center">
+        <div class="me-auto">
+          <strong>{{ inv.email }}</strong>
+          <div class="small text-muted">
+            expires {{ inv.expires_at|localdt }}
+            · <code style="font-size: .7rem;">{{ url_for('teams.accept', token=inv.token, _external=True) }}</code>
+          </div>
+        </div>
+        <form method="post" action="{{ url_for('teams.revoke_invite', invite_id=inv.pk) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm btn-outline-danger"
+                  title="Revoke invite"><i class="bi bi-x"></i></button>
+        </form>
+      </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% endblock %}

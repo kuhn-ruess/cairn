@@ -1,0 +1,140 @@
+{% extends "layout/base.html" %}
+{% block title %}Process inbox · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <h1 class="h4 mb-0 me-auto">
+    <i class="bi bi-inbox"></i> Process inbox
+    <span class="text-muted small ms-2">{{ idx + 1 }} / {{ queue|length }}</span>
+  </h1>
+  <a href="{{ url_for('tasks.inbox') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-x"></i> Exit
+  </a>
+</div>
+
+<div class="progress mb-3" style="height: 4px;">
+  <div class="progress-bar bg-success" role="progressbar"
+       style="width: {{ ((idx + 1) / queue|length * 100)|round(0) }}%"></div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-body">
+        <form method="post" action="{{ url_for('tasks.process_inbox_save', task_id=task.pk) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <div class="mb-3">
+            {{ form.title.label(class="form-label small text-uppercase text-muted") }}
+            {{ form.title(class="form-control form-control-lg") }}
+          </div>
+
+          <div class="mb-3">
+            {{ form.note.label(class="form-label small text-uppercase text-muted") }}
+            {{ form.note(class="form-control", rows="3") }}
+          </div>
+
+          <div class="row g-2 mb-3">
+            <div class="col-md-6">
+              {{ form.project.label(class="form-label small text-uppercase text-muted") }}
+              {{ form.project(class="form-select form-select-sm",
+                              size="5",
+                              **{"data-searchable-select": "1",
+                                 "data-searchable-placeholder": "Search projects…"}) }}
+              <div class="form-text small">
+                Don't see the right project?
+                <a href="{{ url_for('projects.create') }}"
+                   data-inspector-url="{{ url_for('projects.create') }}"
+                   data-inspector-title="New project">Create one</a> first.
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="mb-2">
+                {{ form.status.label(class="form-label small text-uppercase text-muted") }}
+                {{ form.status(class="form-select form-select-sm") }}
+              </div>
+              <div class="mb-2">
+                {{ form.priority.label(class="form-label small text-uppercase text-muted") }}
+                {{ form.priority(class="form-select form-select-sm") }}
+              </div>
+              <div class="form-check">
+                {{ form.flagged(class="form-check-input") }}
+                {{ form.flagged.label(class="form-check-label") }}
+              </div>
+            </div>
+          </div>
+
+          <div class="row g-2 mb-3">
+            <div class="col-md-4">
+              {{ form.defer_date.label(class="form-label small text-uppercase text-muted") }}
+              {{ form.defer_date(class="form-control form-control-sm") }}
+            </div>
+            <div class="col-md-4">
+              {{ form.due_date.label(class="form-label small text-uppercase text-muted") }}
+              {{ form.due_date(class="form-control form-control-sm") }}
+            </div>
+            <div class="col-md-4">
+              {{ form.plan_date.label(class="form-label small text-uppercase text-muted") }}
+              {{ form.plan_date(class="form-control form-control-sm") }}
+            </div>
+          </div>
+
+          <div class="mb-3">
+            {{ form.tags.label(class="form-label small text-uppercase text-muted") }}
+            {{ form.tags(class="form-select form-select-sm", size="4") }}
+            <div class="form-text small">⌘/Ctrl-click for multi-select.</div>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-check2"></i> Save &amp; next
+            </button>
+            {% if next_task %}
+              <a class="btn btn-outline-secondary"
+                 href="{{ url_for('tasks.process_inbox', task_id=next_task.pk) }}">
+                <i class="bi bi-skip-forward"></i> Skip
+              </a>
+            {% else %}
+              <a class="btn btn-outline-secondary" href="{{ url_for('dashboard.home') }}">
+                <i class="bi bi-skip-forward"></i> Skip (last)
+              </a>
+            {% endif %}
+            <div class="btn-group ms-auto">
+              <form method="post" action="{{ url_for('tasks.complete', task_id=task.pk) }}" class="m-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-success">
+                  <i class="bi bi-check-circle"></i> Mark done
+                </button>
+              </form>
+              <form method="post" action="{{ url_for('tasks.delete', task_id=task.pk) }}" class="m-0 ms-2"
+                    onsubmit="return confirm('Delete this task?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-danger">
+                  <i class="bi bi-trash"></i> Delete
+                </button>
+              </form>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <aside class="col-lg-4">
+    <div class="card">
+      <div class="card-header py-2">
+        <h2 class="h6 mb-0">Inbox queue ({{ queue|length }})</h2>
+      </div>
+      <ul class="list-group list-group-flush" style="max-height: 60vh; overflow-y: auto;">
+        {% for q in queue %}
+          <li class="list-group-item py-2 {% if q.pk == task.pk %}list-group-item-warning{% endif %}">
+            <a class="text-decoration-none text-body small"
+               href="{{ url_for('tasks.process_inbox', task_id=q.pk) }}">
+              {{ q.title|truncate(72) }}
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </aside>
+</div>
+{% endblock %}

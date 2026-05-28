@@ -1,0 +1,21 @@
+{# Inline-rendered new project block for the drag-merge feature.
+   Behaves like a section block: editable name in the header, a
+   .task-list as drop target so more tasks can land in this project. #}
+<div class="section-block merged-block" data-section-id="{{ project.pk }}">
+  <div class="section-header d-flex align-items-center gap-2">
+    <input type="text"
+           class="form-control form-control-sm merged-name-input"
+           value="{{ project.name }}"
+           data-project-id="{{ project.pk }}"
+           autofocus
+           style="max-width: 18rem;">
+    <a class="btn btn-sm btn-link text-muted ms-auto"
+       href="{{ url_for('projects.detail', project_id=project.pk) }}"
+       title="Open project">
+      <i class="bi bi-box-arrow-up-right"></i>
+    </a>
+  </div>
+  {% with target_project_id = target_project_id, target_status = "open" %}
+    {% include "tasks/_list_body.html" %}
+  {% endwith %}
+</div>

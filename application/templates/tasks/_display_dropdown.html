@@ -1,0 +1,46 @@
+{# Toolbar dropdown to override which task-row metadata fields show.
+   Required context:
+     view_key — short, stable string identifying this view
+     view_label — human-readable name for the dropdown header
+#}
+{% set has_override = current_user.has_view_override(view_key) %}
+<div class="dropdown">
+  <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+          data-bs-toggle="dropdown" data-bs-auto-close="outside"
+          title="Choose which task fields show in this view">
+    <i class="bi bi-eye"></i> Display
+    {% if has_override %}<span class="badge text-bg-secondary ms-1">custom</span>{% endif %}
+  </button>
+  <form method="post" action="{{ url_for('settings.display_override', view_key=view_key) }}"
+        class="dropdown-menu dropdown-menu-end p-3" style="min-width: 280px;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ request.full_path }}">
+    <div class="small text-muted mb-2">
+      Override fields for <strong>{{ view_label }}</strong>. Other views
+      stay on your <a href="{{ url_for('settings.profile') }}">global setting</a>.
+    </div>
+    {% set fields = [
+      ('flag','Flag'),('priority','Priority chip'),('next_chip','NEXT chip'),
+      ('project','Project'),('tags','Tags'),('due_date','Due date'),
+      ('defer_chip','Defer chip'),('plan_chip','Plan chip'),
+      ('assignee','Assignee'),('status_badge','Status badge'),
+      ('comments','Comment count'),('note','Note'),
+    ] %}
+    {% for key, label in fields %}
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox"
+               id="disp-{{ view_key }}-{{ key }}"
+               name="task_row_visible" value="{{ key }}"
+               {% if current_user.show_field(key, view_key=view_key) %}checked{% endif %}>
+        <label class="form-check-label" for="disp-{{ view_key }}-{{ key }}">{{ label }}</label>
+      </div>
+    {% endfor %}
+    <div class="d-flex gap-2 mt-2">
+      <button class="btn btn-sm btn-primary">Save for this view</button>
+      {% if has_override %}
+        <button class="btn btn-sm btn-outline-secondary" name="reset" value="1"
+                formnovalidate>Use global</button>
+      {% endif %}
+    </div>
+  </form>
+</div>

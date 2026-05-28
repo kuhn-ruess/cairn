@@ -1,0 +1,53 @@
+{# Calendar view: month grid with tasks pinned to their due/plan date. #}
+<div class="task-calendar">
+  <div class="calendar-toolbar d-flex align-items-center mb-2">
+    <a class="btn btn-sm btn-outline-secondary"
+       href="?view=calendar&month={{ calendar.prev }}">
+      <i class="bi bi-chevron-left"></i>
+    </a>
+    <h2 class="h5 mb-0 mx-3">{{ calendar.month.strftime('%B %Y') }}</h2>
+    <a class="btn btn-sm btn-outline-secondary"
+       href="?view=calendar&month={{ calendar.next }}">
+      <i class="bi bi-chevron-right"></i>
+    </a>
+    <a class="btn btn-sm btn-link ms-2" href="?view=calendar">Today</a>
+  </div>
+
+  <div class="calendar-grid">
+    {% for label in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] %}
+      <div class="calendar-weekday">{{ label }}</div>
+    {% endfor %}
+    {% for week in calendar.weeks %}
+      {% for day in week %}
+        <div class="calendar-day {{ 'out-of-month' if not day.in_month else '' }} {{ 'is-today' if day.is_today else '' }}">
+          <div class="calendar-day-num">{{ day.date.day }}</div>
+          {% if day.tasks %}
+            <div class="calendar-day-tasks">
+              {% for t in day.tasks[:4] %}
+                <a class="calendar-task-pill {{ 'done' if t.status == 'done' else '' }} {{ 'blocked' if t.is_blocked() else '' }}"
+                   href="{{ url_for('tasks.edit', task_id=t.pk) }}"
+                   data-inspector-url="{{ url_for('tasks.edit', task_id=t.pk) }}"
+                   data-inspector-title="{{ t.title }}"
+                   title="{{ t.title }}">
+                  {% if t.flagged %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
+                  {{ t.title }}
+                </a>
+              {% endfor %}
+              {% if day.tasks|length > 4 %}
+                <span class="calendar-more">+{{ day.tasks|length - 4 }} more</span>
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% endfor %}
+  </div>
+
+  {% if calendar.no_date %}
+    <h3 class="h6 text-muted small text-uppercase mt-4">
+      <i class="bi bi-dash-circle"></i> Unscheduled ({{ calendar.no_date|length }})
+    </h3>
+    {% set tasks = calendar.no_date %}
+    {% include "tasks/_list_body.html" %}
+  {% endif %}
+</div>

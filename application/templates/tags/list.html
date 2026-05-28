@@ -1,0 +1,30 @@
+{% extends "layout/base.html" %}
+{% block title %}Tags · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <h1 class="h4 mb-0 me-auto">Tags / Contexts</h1>
+  <a href="{{ url_for('tags.create') }}" class="btn btn-sm btn-primary">
+    <i class="bi bi-plus-lg"></i> New tag
+  </a>
+</div>
+{% if not tags %}
+  <p class="text-muted">No tags yet — create one for each context (@home, @office, @errands…).</p>
+{% else %}
+  <ul class="list-unstyled tag-tree">
+    {% for depth, tag in tags %}
+      <li style="padding-left: {{ depth * 20 }}px;" class="d-flex align-items-center gap-2 py-1 tag-row">
+        {% if depth > 0 %}<span class="text-muted">└</span>{% endif %}
+        <a class="tag-chip text-decoration-none" style="background: {{ tag.color }};"
+           href="{{ url_for('tags.detail', tag_name=tag.name) }}">
+          {{ tag }}{% if tag.on_hold %} <i class="bi bi-pause-circle"></i>{% endif %}
+        </a>
+        <a class="btn btn-sm btn-link text-muted p-0 ms-1 hover-action"
+           href="{{ url_for('tags.create', parent=tag.name) }}"
+           title="Add a child tag under {{ tag.name }}">
+          <i class="bi bi-plus-lg"></i> child
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}

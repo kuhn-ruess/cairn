@@ -1,0 +1,62 @@
+{% extends "layout/base.html" %}
+{% block title %}Home · Cairn{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4">Good to see you, {{ current_user }}</h1>
+
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-md-4 col-xl-2">
+    <a class="card text-decoration-none text-body shadow-sm" href="{{ url_for('tasks.inbox') }}">
+      <div class="card-body">
+        <div class="small text-muted">Inbox</div>
+        <div class="display-6">{{ inbox_count }}</div>
+      </div>
+    </a>
+  </div>
+  <div class="col-sm-6 col-md-4 col-xl-2">
+    <a class="card text-decoration-none text-body shadow-sm" href="{{ url_for('tasks.today') }}">
+      <div class="card-body">
+        <div class="small text-muted">Today</div>
+        <div class="display-6">{{ today_count }}</div>
+      </div>
+    </a>
+  </div>
+  <div class="col-sm-6 col-md-4 col-xl-2">
+    <a class="card text-decoration-none text-body shadow-sm" href="{{ url_for('tasks.flagged') }}">
+      <div class="card-body">
+        <div class="small text-muted">Flagged</div>
+        <div class="display-6">{{ flagged_count }}</div>
+      </div>
+    </a>
+  </div>
+  <div class="col-sm-6 col-md-4 col-xl-2">
+    <a class="card text-decoration-none text-body shadow-sm" href="{{ url_for('tasks.waiting') }}">
+      <div class="card-body">
+        <div class="small text-muted">Waiting</div>
+        <div class="display-6">{{ waiting_count }}</div>
+      </div>
+    </a>
+  </div>
+  <div class="col-sm-6 col-md-4 col-xl-2">
+    <a class="card text-decoration-none text-body shadow-sm" href="{{ url_for('review.index') }}">
+      <div class="card-body">
+        <div class="small text-muted">Due for review</div>
+        <div class="display-6">{{ due_review }}</div>
+      </div>
+    </a>
+  </div>
+</div>
+
+{% if inbox_preview %}
+  <h2 class="h5 mt-4"><i class="bi bi-inbox"></i> Inbox to process
+    <a class="btn btn-sm btn-link" href="{{ url_for('tasks.inbox') }}">see all</a>
+  </h2>
+  {% set tasks = inbox_preview %}
+  {% include "tasks/_list_body.html" %}
+{% endif %}
+
+<h2 class="h5 mt-4"><i class="bi bi-arrow-right-circle"></i> Next actions
+  <a class="btn btn-sm btn-link" href="{{ url_for('tasks.next_actions') }}">see all</a>
+</h2>
+{% set tasks = next_actions %}
+{% include "tasks/_list_body.html" %}
+{% endblock %}

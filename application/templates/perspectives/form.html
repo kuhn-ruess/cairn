@@ -1,0 +1,297 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ "Edit" if perspective else "New" }} perspective · Cairn{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">{{ "Edit perspective" if perspective else "New perspective" }}</h1>
+
+<form method="post" novalidate id="perspective-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-6">
+      <label class="form-label">Name</label>
+      <input type="text" name="name" required maxlength="80"
+             class="form-control"
+             value="{{ perspective.name if perspective else '' }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Icon</label>
+      <select name="icon" class="form-select">
+        {% set icons = [
+          ("bi-star","Star"),("bi-bullseye","Target"),("bi-lightning","Lightning"),
+          ("bi-bookmark","Bookmark"),("bi-calendar2-week","Week"),("bi-flag","Flag"),
+          ("bi-eye","Eye"),("bi-funnel","Funnel"),("bi-inbox","Inbox"),
+          ("bi-clock","Clock"),("bi-hash","Hash"),("bi-collection","Collection"),
+        ] %}
+        {% for key, label in icons %}
+          <option value="{{ key }}" {% if perspective and perspective.icon == key %}selected{% endif %}>
+            {{ label }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Color</label>
+      <div class="d-flex gap-2 align-items-center">
+        <input type="color" name="color"
+               value="{{ perspective.color if perspective else '#fabd2f' }}"
+               class="form-control form-control-color">
+      </div>
+    </div>
+  </div>
+
+  <fieldset class="mb-4">
+    <legend class="h6">Filters</legend>
+    <div class="d-flex align-items-center gap-3 mb-2">
+      <label class="form-label mb-0">Match</label>
+      <select name="root_op" class="form-select form-select-sm" style="width:auto;">
+        <option value="and" {% if not perspective or perspective.root_op == "and" %}selected{% endif %}>ALL of these (AND)</option>
+        <option value="or"  {% if perspective and perspective.root_op == "or" %}selected{% endif %}>ANY of these (OR)</option>
+      </select>
+    </div>
+    <div id="clause-list">
+      {% if perspective and perspective.clauses %}
+        {% for c in perspective.clauses %}
+          {% if c.kind == "leaf" %}
+            <div class="clause-row row g-2 mb-2 align-items-center"
+                 data-field="{{ c.field }}" data-op="{{ c.op }}" data-value='{{ c.value|safe }}'>
+              <!-- filled by JS on load -->
+            </div>
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="add-clause">
+      <i class="bi bi-plus-lg"></i> Add filter
+    </button>
+  </fieldset>
+
+  <fieldset class="mb-4">
+    <legend class="h6">Grouping &amp; sort</legend>
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Group by</label>
+        <select name="grouping" class="form-select" id="grouping-select">
+          {% for g in grouping_modes %}
+            <option value="{{ g }}" {% if perspective and perspective.grouping == g %}selected{% endif %}>
+              {{ g.replace("_", " ").capitalize() }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4" id="grouping-tag-wrap" style="display:none;">
+        <label class="form-label">Tag to group by</label>
+        <select name="grouping_tag" class="form-select">
+          <option value="">— pick a tag —</option>
+          {% for t in user_tags %}
+            <option value="{{ t.name }}"
+              {% if perspective and perspective.grouping_tag == t.name %}selected{% endif %}>
+              @{{ t.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Sort</label>
+        <select name="sort" class="form-select">
+          {% for s in sort_fields %}
+            <option value="{{ s }}" {% if perspective and perspective.sort == s %}selected{% endif %}>
+              {{ s.replace("_", " ") }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </fieldset>
+
+  <fieldset class="mb-4">
+    <legend class="h6">Options</legend>
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" id="in_sidebar"
+             name="in_sidebar" value="1"
+             {% if not perspective or perspective.in_sidebar %}checked{% endif %}>
+      <label class="form-check-label" for="in_sidebar">Show in sidebar</label>
+    </div>
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" id="include_completed"
+             name="include_completed" value="1"
+             {% if perspective and perspective.include_completed %}checked{% endif %}>
+      <label class="form-check-label" for="include_completed">Include completed / dropped</label>
+    </div>
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" id="show_blocked"
+             name="show_blocked" value="1"
+             {% if not perspective or perspective.show_blocked %}checked{% endif %}>
+      <label class="form-check-label" for="show_blocked">Show blocked tasks (greyed out)</label>
+    </div>
+  </fieldset>
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary">Save perspective</button>
+    <a href="{{ url_for('custom_perspectives.index') }}" class="btn btn-outline-secondary">Cancel</a>
+  </div>
+</form>
+
+<script id="filter-fields-data" type="application/json">{{ filter_fields|tojson }}</script>
+<script id="ops-by-type-data" type="application/json">{{ ops_by_type|tojson }}</script>
+<script id="user-tags-data" type="application/json">{{ user_tags|map(attribute='name')|list|tojson }}</script>
+
+<script>
+(function () {
+  const FIELDS = JSON.parse(document.getElementById("filter-fields-data").textContent);
+  const OPS = JSON.parse(document.getElementById("ops-by-type-data").textContent);
+  const TAG_NAMES = JSON.parse(document.getElementById("user-tags-data").textContent);
+
+  const list = document.getElementById("clause-list");
+  const addBtn = document.getElementById("add-clause");
+  const groupingSelect = document.getElementById("grouping-select");
+  const groupingTagWrap = document.getElementById("grouping-tag-wrap");
+
+  function fieldType(key) {
+    const row = FIELDS.find(f => f[0] === key);
+    return row ? row[2] : "text";
+  }
+  function opLabel(op) {
+    return {
+      is: "is", is_not: "is not", in: "is one of",
+      is_true: "is set / true", is_false: "is unset / false",
+      lte: "≤", gte: "≥",
+      has: "contains tag", not_has: "doesn't have tag",
+      is_descendant_of: "is descendant of",
+      before: "before", after: "after", on: "on",
+      within_days: "within N days", overdue: "is overdue", in_past: "in past",
+      contains: "contains", equals: "equals",
+    }[op] || op;
+  }
+
+  function valueInput(field, currentValue) {
+    const t = fieldType(field);
+    if (t === "bool") return null; // op alone is enough
+    if (t === "status") {
+      const sel = document.createElement("select");
+      sel.className = "form-select form-select-sm";
+      ["open","next","waiting","scheduled","someday","done","dropped"].forEach(s => {
+        const o = document.createElement("option");
+        o.value = JSON.stringify(s); o.textContent = s;
+        if (currentValue === o.value) o.selected = true;
+        sel.appendChild(o);
+      });
+      return sel;
+    }
+    if (t === "priority") {
+      const sel = document.createElement("select");
+      sel.className = "form-select form-select-sm";
+      [1,2,3,4].forEach(n => {
+        const o = document.createElement("option");
+        o.value = JSON.stringify(n); o.textContent = "P" + n;
+        if (currentValue === o.value) o.selected = true;
+        sel.appendChild(o);
+      });
+      return sel;
+    }
+    if (t === "tag") {
+      const sel = document.createElement("select");
+      sel.className = "form-select form-select-sm";
+      TAG_NAMES.forEach(name => {
+        const o = document.createElement("option");
+        o.value = JSON.stringify(name); o.textContent = "@" + name;
+        if (currentValue === o.value) o.selected = true;
+        sel.appendChild(o);
+      });
+      return sel;
+    }
+    if (t === "kind") {
+      const sel = document.createElement("select");
+      sel.className = "form-select form-select-sm";
+      [["task","Task"],["project","Project"],["section","Section"],["folder","Folder"]].forEach(([v, label]) => {
+        const o = document.createElement("option");
+        o.value = JSON.stringify(v); o.textContent = label;
+        if (currentValue === o.value) o.selected = true;
+        sel.appendChild(o);
+      });
+      return sel;
+    }
+    if (t === "date") {
+      const inp = document.createElement("input");
+      inp.type = "text"; inp.className = "form-control form-control-sm";
+      inp.placeholder = "YYYY-MM-DD or N (days)";
+      try { inp.value = currentValue ? JSON.parse(currentValue) : ""; } catch { inp.value = ""; }
+      return inp;
+    }
+    // text default
+    const inp = document.createElement("input");
+    inp.type = "text"; inp.className = "form-control form-control-sm";
+    try { inp.value = currentValue ? JSON.parse(currentValue) : ""; } catch { inp.value = ""; }
+    return inp;
+  }
+
+  function rebuildRow(row, fieldKey, opKey, valueRaw) {
+    row.innerHTML = "";
+    row.className = "clause-row row g-2 mb-2 align-items-center";
+
+    const c1 = document.createElement("div"); c1.className = "col-md-4";
+    const fieldSel = document.createElement("select");
+    fieldSel.name = "clause_field[]"; fieldSel.className = "form-select form-select-sm";
+    FIELDS.forEach(([key, label]) => {
+      const o = document.createElement("option");
+      o.value = key; o.textContent = label;
+      if (key === fieldKey) o.selected = true;
+      fieldSel.appendChild(o);
+    });
+    c1.appendChild(fieldSel);
+
+    const c2 = document.createElement("div"); c2.className = "col-md-3";
+    const opSel = document.createElement("select");
+    opSel.name = "clause_op[]"; opSel.className = "form-select form-select-sm";
+    (OPS[fieldType(fieldSel.value)] || []).forEach(op => {
+      const o = document.createElement("option");
+      o.value = op; o.textContent = opLabel(op);
+      if (op === opKey) o.selected = true;
+      opSel.appendChild(o);
+    });
+    c2.appendChild(opSel);
+
+    const c3 = document.createElement("div"); c3.className = "col-md-4";
+    const vi = valueInput(fieldSel.value, valueRaw);
+    if (vi) { vi.name = "clause_value[]"; c3.appendChild(vi); }
+    else {
+      const hidden = document.createElement("input");
+      hidden.type = "hidden"; hidden.name = "clause_value[]"; hidden.value = "null";
+      c3.appendChild(hidden);
+    }
+
+    const c4 = document.createElement("div"); c4.className = "col-md-1 text-end";
+    const rm = document.createElement("button");
+    rm.type = "button"; rm.className = "btn btn-sm btn-outline-danger";
+    rm.innerHTML = '<i class="bi bi-x"></i>';
+    rm.onclick = () => row.remove();
+    c4.appendChild(rm);
+
+    row.appendChild(c1); row.appendChild(c2); row.appendChild(c3); row.appendChild(c4);
+
+    fieldSel.addEventListener("change", () => {
+      rebuildRow(row, fieldSel.value, null, null);
+    });
+  }
+
+  function addRow(field, op, value) {
+    const row = document.createElement("div");
+    list.appendChild(row);
+    rebuildRow(row, field || FIELDS[0][0], op, value);
+  }
+
+  // Initialise rows from server-rendered placeholders.
+  Array.from(list.querySelectorAll(".clause-row")).forEach(row => {
+    const f = row.dataset.field, op = row.dataset.op, v = row.dataset.value;
+    rebuildRow(row, f, op, v);
+  });
+
+  addBtn.addEventListener("click", () => addRow());
+
+  function toggleGroupingTag() {
+    groupingTagWrap.style.display = groupingSelect.value === "tag_specific" ? "" : "none";
+  }
+  groupingSelect.addEventListener("change", toggleGroupingTag);
+  toggleGroupingTag();
+})();
+</script>
+{% endblock %}

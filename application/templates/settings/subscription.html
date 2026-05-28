@@ -1,0 +1,39 @@
+{% extends "layout/base.html" %}
+{% block title %}Subscription · Cairn{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">Subscription</h1>
+
+<div class="card mb-4" style="max-width: 720px;">
+  <div class="card-body">
+    <h2 class="h6 mb-1">Current level</h2>
+    <p class="mb-2">
+      <span class="badge text-bg-primary text-uppercase">{{ current_level|replace('_', ' ') }}</span>
+    </p>
+    <p class="text-muted small mb-0">
+      To change tiers, ask a global admin to run
+      <code>./cairn set-level &lt;you&gt; &lt;tier&gt;</code> or open a request.
+    </p>
+  </div>
+</div>
+
+<div class="row g-3">
+  {% for tier in tiers %}
+    <div class="col-md-6">
+      <div class="card h-100 {% if tier.key == current_level %}border-primary{% endif %}">
+        <div class="card-body">
+          <h3 class="h6 mb-1">
+            {{ tier.label }}
+            {% if tier.key == current_level %}
+              <span class="badge text-bg-primary ms-1">You</span>
+            {% endif %}
+          </h3>
+          <p class="text-muted small mb-2">{{ tier.blurb }}</p>
+          <ul class="small mb-0 ps-3">
+            {% for li in tier.limits %}<li>{{ li }}</li>{% endfor %}
+          </ul>
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

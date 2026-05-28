@@ -1,0 +1,39 @@
+{% extends "layout/base.html" %}
+{% block title %}Sign in · Cairn{% endblock %}
+{% block anon_content %}
+<div class="row justify-content-center">
+  <div class="col-md-5 col-lg-4">
+    <h1 class="h3 mb-4 fw-semibold">
+      <i class="bi bi-triangle-fill"></i> Cairn
+    </h1>
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h2 class="h5 mb-3">Sign in</h2>
+        <form method="post" novalidate>
+          {{ form.hidden_tag() }}
+          <div class="mb-3">
+            {{ form.username.label(class="form-label") }}
+            {{ form.username(class="form-control") }}
+          </div>
+          <div class="mb-3">
+            {{ form.password.label(class="form-label") }}
+            {{ form.password(class="form-control") }}
+          </div>
+          <div class="form-check mb-3">
+            {{ form.remember(class="form-check-input") }}
+            {{ form.remember.label(class="form-check-label") }}
+          </div>
+          {{ form.submit(class="btn btn-primary w-100") }}
+          <p class="text-end small mt-2 mb-0">
+            <a href="{{ url_for('auth.forgot_password') }}">Forgot password?</a>
+          </p>
+        </form>
+        <hr>
+        <p class="small text-center mb-0">
+          No account? <a href="{{ url_for('auth.register') }}">Create one</a>.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

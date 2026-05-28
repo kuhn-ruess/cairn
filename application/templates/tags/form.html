@@ -1,0 +1,70 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ "Edit" if tag else "New" }} tag · Cairn{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">{{ "Edit tag" if tag else "New tag" }}</h1>
+<form method="post" novalidate>
+  {{ form.hidden_tag() }}
+  <div class="row g-3">
+    <div class="col-md-6">
+      {{ form.name.label(class="form-label") }}
+      {{ form.name(class="form-control") }}
+    </div>
+    <div class="col-md-6">
+      {{ form.color.label(class="form-label") }}
+      <div class="d-flex align-items-center gap-2">
+        <input type="color" id="tag-color-picker"
+               value="{{ form.color.data or '#6c757d' }}"
+               class="form-control form-control-color tag-color-picker">
+        {{ form.color(class="form-control tag-color-hex",
+                       id="tag-color-hex",
+                       placeholder="#rrggbb") }}
+      </div>
+      <div class="form-text">Pick a colour or type a hex code — both inputs stay in sync.</div>
+    </div>
+    <div class="col-12">
+      {{ form.parent.label(class="form-label") }}
+      {{ form.parent(class="form-select form-select-sm") }}
+      <div class="form-text">Optional — nest this tag under another to build tag groups.</div>
+    </div>
+    <div class="col-12">
+      <div class="form-check">
+        {{ form.is_context(class="form-check-input") }}
+        {{ form.is_context.label(class="form-check-label") }}
+      </div>
+      <div class="form-check">
+        {{ form.on_hold(class="form-check-input") }}
+        {{ form.on_hold.label(class="form-check-label") }}
+      </div>
+      <div class="form-check">
+        {{ form.exclusive_children(class="form-check-input") }}
+        {{ form.exclusive_children.label(class="form-check-label") }}
+        <div class="form-text small">
+          Useful for status-like groups (e.g. <em>Energy</em> → high / medium / low) — picking a new child tag automatically replaces a previous sibling on the task.
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="mt-4 d-flex gap-2">
+    {{ form.submit(class="btn btn-primary") }}
+    <a href="{{ url_for('tags.index') }}" class="btn btn-outline-secondary">Cancel</a>
+    {% if tag %}
+      <form method="post" action="{{ url_for('tags.delete', tag_name=tag.name) }}" class="ms-auto"
+            onsubmit="return confirm('Delete this tag?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-danger"><i class="bi bi-trash"></i> Delete</button>
+      </form>
+    {% endif %}
+  </div>
+</form>
+<script>
+(function () {
+  const picker = document.getElementById("tag-color-picker");
+  const hex = document.getElementById("tag-color-hex");
+  if (!picker || !hex) return;
+  picker.addEventListener("input", () => { hex.value = picker.value; });
+  hex.addEventListener("input", () => {
+    if (/^#[0-9a-f]{6}$/i.test(hex.value)) picker.value = hex.value;
+  });
+})();
+</script>
+{% endblock %}

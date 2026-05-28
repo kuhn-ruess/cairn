@@ -1,0 +1,60 @@
+{% extends "layout/base.html" %}
+{% block title %}Data model · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <h1 class="h4 mb-0 me-auto">Data model</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.users') }}">
+    <i class="bi bi-people"></i> Users
+  </a>
+</div>
+<p class="text-muted small">
+  Live introspection of mongoengine documents. Fields, types and indexes
+  are pulled straight from the model classes.
+</p>
+
+<nav class="mb-3">
+  {% for m in models %}
+    <a class="badge text-bg-secondary text-decoration-none me-1" href="#m-{{ m.name }}">{{ m.name }}</a>
+  {% endfor %}
+</nav>
+
+{% for m in models %}
+  <div class="card mb-4" id="m-{{ m.name }}">
+    <div class="card-header py-2 d-flex align-items-center gap-2">
+      <h2 class="h6 mb-0 me-auto">
+        <i class="bi {% if m.embedded %}bi-box-arrow-in-down{% else %}bi-box{% endif %}"></i> {{ m.name }}
+        <span class="text-muted small">— <code>{{ m.collection }}</code></span>
+        {% if m.embedded %}<span class="badge text-bg-secondary ms-1">embedded</span>{% endif %}
+      </h2>
+      <span class="text-muted small">{{ m.module }}</span>
+    </div>
+    {% if m.doc %}
+      <div class="card-body py-2 small text-muted" style="white-space: pre-wrap;">{{ m.doc }}</div>
+    {% endif %}
+    <div class="table-responsive">
+      <table class="table table-sm mb-0">
+        <thead class="text-muted small">
+          <tr><th>Field</th><th>Type</th><th>Details</th></tr>
+        </thead>
+        <tbody>
+          {% for name, ftype, extra in m.fields %}
+            <tr>
+              <td><code>{{ name }}</code></td>
+              <td><span class="badge text-bg-light">{{ ftype }}</span></td>
+              <td class="small text-muted">{{ extra }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if m.indexes %}
+      <div class="card-footer py-2 small">
+        <strong class="text-muted">Indexes:</strong>
+        {% for idx in m.indexes %}
+          <code class="me-2">{{ idx }}</code>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+{% endfor %}
+{% endblock %}

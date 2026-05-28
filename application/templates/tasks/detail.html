@@ -1,0 +1,173 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ task.title }} · Cairn{% endblock %}
+{% block content %}
+<header class="task-detail-header mb-3">
+  <div class="d-flex align-items-start gap-2">
+    <form method="post"
+          action="{% if task.status == 'done' %}{{ url_for('tasks.reopen', task_id=task.pk) }}{% else %}{{ url_for('tasks.complete', task_id=task.pk) }}{% endif %}"
+          class="m-0 mt-1">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-link p-0 task-detail-check" type="submit"
+              title="{% if task.status == 'done' %}Reopen{% else %}Mark done{% endif %}">
+        <i class="bi {% if task.status == 'done' %}bi-check-circle-fill text-success{% else %}bi-circle{% endif %} fs-4"></i>
+      </button>
+    </form>
+
+    <div class="me-auto">
+      <h1 class="h4 mb-1 task-detail-title">
+        {% if task.flagged %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
+        {% if task.priority %}<span class="priority-p{{ task.priority }} me-1">P{{ task.priority }}</span>{% endif %}
+        {{ task.title }}
+      </h1>
+      <div class="task-detail-meta small text-muted d-flex flex-wrap gap-2 align-items-center">
+        <span class="badge text-bg-secondary text-uppercase">{{ task.status }}</span>
+        {% if task.project %}
+          <span><i class="bi bi-folder"></i>
+            <a class="text-decoration-none"
+               href="{{ url_for('projects.detail', project_id=task.project.pk) }}">{{ task.project.name }}</a>
+          </span>
+        {% else %}
+          <span><i class="bi bi-inbox"></i>
+            <a class="text-decoration-none" href="{{ url_for('tasks.inbox') }}">Inbox</a>
+          </span>
+        {% endif %}
+        {% if task.due_date %}
+          <span class="{{ 'text-danger' if task.due_date < now_utc() else '' }}">
+            <i class="bi bi-calendar-event"></i> {{ task.due_date|relativedate }}
+            <span class="text-muted">({{ task.due_date|localdt }})</span>
+          </span>
+        {% endif %}
+        {% if task.defer_date %}
+          <span><i class="bi bi-hourglass-split"></i> defer {{ task.defer_date|relativedate }}</span>
+        {% endif %}
+        {% if task.estimated_minutes %}
+          <span><i class="bi bi-stopwatch"></i> {{ task.estimated_minutes }}m</span>
+        {% endif %}
+        {% if task.repeat_every_days %}
+          <span><i class="bi bi-arrow-repeat"></i>
+            every {{ task.repeat_every_days }} {{ (task.repeat_unit or 'day') }}{{ '' if task.repeat_every_days == 1 else 's' }}
+          </span>
+        {% endif %}
+        {% if task.assigned_to %}
+          <span><i class="bi bi-person-check"></i> {{ task.assigned_to }}</span>
+        {% endif %}
+        {% for tag_name in (task.tags or []) %}
+          {% set tg = current_user.tag_by_name(tag_name) %}
+          <a class="tag-chip text-decoration-none"
+             style="background: {{ tg.color if tg else '#6c757d' }};"
+             href="{{ url_for('tags.detail', tag_name=tag_name) }}">
+            {% if tg and tg.is_context %}@{% endif %}{{ tag_name }}
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="btn-group btn-group-sm task-detail-actions">
+      <a class="btn btn-primary"
+         href="{{ url_for('tasks.edit', task_id=task.pk) }}"
+         data-inspector-url="{{ url_for('tasks.edit', task_id=task.pk) }}"
+         data-inspector-title="{{ task.title }}"
+         title="Open inspector">
+        <i class="bi bi-sliders"></i> Inspector
+      </a>
+      <form method="post" action="{{ url_for('tasks.toggle_flag', task_id=task.pk) }}" class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-secondary" type="submit"
+                title="Toggle flag">
+          <i class="bi {% if task.flagged %}bi-flag-fill text-warning{% else %}bi-flag{% endif %}"></i>
+        </button>
+      </form>
+      <form method="post" action="{{ url_for('tasks.delete', task_id=task.pk) }}"
+            class="m-0" onsubmit="return confirm('Delete this task?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-danger" type="submit" title="Delete">
+          <i class="bi bi-trash"></i>
+        </button>
+      </form>
+    </div>
+  </div>
+</header>
+
+<div class="row g-4">
+  <div class="col-lg-8 task-detail-body">
+    {% if task.note %}
+      <section class="task-detail-section task-detail-note">
+        <h2 class="h6 text-muted small text-uppercase mb-2">Note</h2>
+        <div class="md-body">{{ task.note|markdown }}</div>
+      </section>
+    {% endif %}
+
+    <section class="task-detail-section">
+      <h2 class="h6 text-muted small text-uppercase mb-2">
+        Comments
+        <span class="text-muted">({{ task.comments|length }})</span>
+      </h2>
+      {% for c in task.comments %}
+        <div class="task-detail-comment {% if c.is_public %}is-public{% endif %}"
+             data-comment-index="{{ loop.index0 }}">
+          <div class="comment-avatar">{{ (c.author.display_name or c.author.username)[:1]|upper }}</div>
+          <div class="comment-body-wrap">
+            <div class="comment-header">
+              <strong class="comment-author">{{ c.author }}</strong>
+              <span class="comment-time">{{ c.created_at|localdt }}</span>
+              <button type="button"
+                      class="comment-visibility-toggle"
+                      data-task-id="{{ task.pk }}"
+                      data-index="{{ loop.index0 }}"
+                      data-public="{{ '1' if c.is_public else '0' }}"
+                      title="Click to toggle internal / public">
+                {% if c.is_public %}
+                  <span class="badge text-bg-success"><i class="bi bi-globe"></i> public</span>
+                {% else %}
+                  <span class="badge text-bg-secondary"><i class="bi bi-lock"></i> internal</span>
+                {% endif %}
+              </button>
+            </div>
+            <div class="comment-text md-body">{{ c.body|markdown }}</div>
+          </div>
+        </div>
+      {% else %}
+        <p class="text-muted small">No comments yet.</p>
+      {% endfor %}
+
+      <form method="post" action="{{ url_for('tasks.comment', task_id=task.pk) }}" class="task-detail-comment-form mt-3">
+        {{ comment_form.hidden_tag() }}
+        {{ comment_form.body(class="form-control form-control-sm mb-2", rows="2", placeholder="Add a comment…") }}
+        <div class="d-flex align-items-center">
+          <small class="text-muted me-auto">New comments are <strong>internal</strong> by default.</small>
+          {{ comment_form.submit(class="btn btn-sm btn-primary") }}
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <aside class="col-lg-4">
+    <section class="task-detail-section task-detail-side">
+      <h2 class="h6 text-muted small text-uppercase mb-2">Details</h2>
+      <dl class="task-detail-dl mb-0">
+        <dt>Owner</dt>
+        <dd>{{ task.owner }}</dd>
+        {% if task.assigned_to %}
+          <dt>Assignee</dt>
+          <dd>
+            {{ task.assigned_to }}
+            {% if task.assigned_by %}<span class="text-muted small">· by {{ task.assigned_by }} on {{ task.assigned_at|date }}</span>{% endif %}
+          </dd>
+        {% endif %}
+        <dt>Created</dt>
+        <dd>{{ task.created_at|localdt }}</dd>
+        <dt>Updated</dt>
+        <dd>{{ task.updated_at|localdt }}</dd>
+        {% if task.plan_date %}
+          <dt>Plan</dt>
+          <dd>{{ task.plan_date|localdt }}</dd>
+        {% endif %}
+        {% if task.completed_at %}
+          <dt>Completed</dt>
+          <dd>{{ task.completed_at|localdt }}</dd>
+        {% endif %}
+      </dl>
+    </section>
+  </aside>
+</div>
+{% endblock %}

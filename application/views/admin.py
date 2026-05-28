@@ -1,0 +1,134 @@
+"""Global admin pages — user management."""
+from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask_login import current_user, login_required
+
+from application.models.team import Team
+from application.models.user import User
+from application.services.permissions import global_admin_required
+
+admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
+
+LEVELS = ("free", "premium", "team_admin", "global_admin")
+
+
+@admin_bp.route("/users")
+@login_required
+@global_admin_required
+def users():
+    return render_template("admin/users.html",
+                           users=User.objects().order_by("+username"),
+                           levels=LEVELS)
+
+
+@admin_bp.route("/data-model")
+@login_required
+@global_admin_required
+def data_model():
+    """Introspect mongoengine documents and render their field map.
+
+    Useful for reviews and onboarding — every model with its fields,
+    types, indexes, and collection name pulled live from the class
+    metadata (so it can't drift from the code)."""
+    from application.models.item import Item, Comment
+    from application.models.calendar import ExternalCalendar
+    from application.models.team import Team, TeamInvite
+    from application.models.user import ApiToken
+    from application.models.tag import Tag
+    from application.models.perspective import CustomPerspective, FilterClause
+
+    docs = [
+        Item, Comment,
+        User, ApiToken, Tag, CustomPerspective, FilterClause, ExternalCalendar,
+        Team, TeamInvite,
+    ]
+
+    def describe(doc):
+        fields = []
+        for name, fld in doc._fields.items():
+            ftype = type(fld).__name__
+            extra_parts = []
+            if getattr(fld, "required", False):
+                extra_parts.append("required")
+            if getattr(fld, "unique", False):
+                extra_parts.append("unique")
+            choices = getattr(fld, "choices", None)
+            if choices:
+                shown = ", ".join(
+                    c[0] if isinstance(c, (tuple, list)) else str(c)
+                    for c in choices
+                )
+                extra_parts.append(f"choices={{{shown}}}")
+            inner = getattr(fld, "field", None)
+            if inner is not None:
+                extra_parts.append(f"of {type(inner).__name__}")
+            ref = getattr(fld, "document_type_obj", None) or getattr(fld, "document_type", None)
+            if ref is not None and ftype in ("ReferenceField", "EmbeddedDocumentField",
+                                              "EmbeddedDocumentListField"):
+                ref_name = ref.__name__ if hasattr(ref, "__name__") else str(ref)
+                extra_parts.append(f"→ {ref_name}")
+            fields.append((name, ftype, ", ".join(extra_parts)))
+        meta = getattr(doc, "_meta", {}) or {}
+        indexes = meta.get("indexes") or []
+        from mongoengine import Document as _D
+        is_embedded = not issubclass(doc, _D)
+        return {
+            "name": doc.__name__,
+            "collection": meta.get("collection") or ("(embedded)" if is_embedded else "—"),
+            "module": doc.__module__,
+            "doc": (doc.__doc__ or "").strip(),
+            "fields": fields,
+            "indexes": indexes,
+            "embedded": is_embedded,
+        }
+
+    return render_template(
+        "admin/data_model.html",
+        models=[describe(d) for d in docs],
+    )
+
+
+@admin_bp.route("/users/<user_id>/delete", methods=["POST"])
+@login_required
+@global_admin_required
+def delete_user(user_id):
+    """Bulk cascade-delete a user and everything they exclusively own."""
+    from application.services.cleanup import delete_user_cascade
+    target = User.objects(pk=user_id).first()
+    if not target:
+        abort(404)
+    if target == current_user._get_current_object():
+        flash("Refusing to delete your own account from the admin UI.", "danger")
+        return redirect(url_for("admin.users"))
+    counts = delete_user_cascade(target)
+    flash(
+        f"Deleted user — {counts.get('projects_owned', 0)} project(s), "
+        f"{counts.get('tasks_in_owned_projects', 0) + counts.get('loose_tasks', 0)} task(s), "
+        f"{counts.get('api_tokens', 0)} token(s).",
+        "info",
+    )
+    return redirect(url_for("admin.users"))
+
+
+@admin_bp.route("/users/<user_id>/level", methods=["POST"])
+@login_required
+@global_admin_required
+def set_level(user_id):
+    target = User.objects(pk=user_id).first()
+    if not target:
+        abort(404)
+    level = request.form.get("level")
+    if level not in LEVELS:
+        flash("Invalid level.", "danger")
+        return redirect(url_for("admin.users"))
+
+    target.level = level
+    # Promoting someone to team_admin auto-creates a team if they don't
+    # have one. Demoting from team_admin leaves the team untouched so
+    # historical memberships aren't lost.
+    if level == "team_admin" and not target.team:
+        team = Team(name=f"{target.display_name or target.username}'s team",
+                    admin=target).save()
+        target.team = team
+    target.save()
+    flash(f"{target.username} is now {level}.", "success")
+    return redirect(url_for("admin.users"))

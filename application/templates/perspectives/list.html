@@ -1,0 +1,81 @@
+{% extends "layout/base.html" %}
+{% block title %}Perspectives · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <h1 class="h4 mb-0 me-auto">Custom perspectives</h1>
+  <span class="text-muted small me-3">{{ perspectives|length }} / {{ max_perspectives }}</span>
+  {% if perspectives|length < max_perspectives %}
+    <a href="{{ url_for('custom_perspectives.create') }}" class="btn btn-primary btn-sm">
+      <i class="bi bi-plus-lg"></i> New perspective
+    </a>
+  {% endif %}
+</div>
+
+<p class="text-muted small">
+  Build saved views with your own filters and grouping. They show up in the
+  sidebar so you can flip to them with one click.
+</p>
+
+{% if perspectives %}
+<div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead>
+      <tr>
+        <th></th>
+        <th>Name</th>
+        <th>Filters</th>
+        <th>Grouping</th>
+        <th>Sidebar</th>
+        <th class="text-end">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in perspectives %}
+      <tr>
+        <td><i class="bi {{ p.icon }}" style="color: {{ p.color }};"></i></td>
+        <td>
+          <a href="{{ url_for('custom_perspectives.view', pid=p.pid) }}" class="fw-semibold">
+            {{ p.name }}
+          </a>
+        </td>
+        <td class="text-muted small">
+          {{ p.clauses|length }} clause{{ '' if p.clauses|length == 1 else 's' }}
+          · {{ p.root_op|upper }}
+        </td>
+        <td class="text-muted small">
+          {{ p.grouping }}
+          {% if p.grouping == "tag_specific" and p.grouping_tag %} · @{{ p.grouping_tag }}{% endif %}
+        </td>
+        <td>
+          {% if p.in_sidebar %}<i class="bi bi-eye text-success"></i>
+          {% else %}<i class="bi bi-eye-slash text-muted"></i>{% endif %}
+        </td>
+        <td class="text-end">
+          <a href="{{ url_for('custom_perspectives.view', pid=p.pid) }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-eye"></i>
+          </a>
+          <a href="{{ url_for('custom_perspectives.edit', pid=p.pid) }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-pencil"></i>
+          </a>
+          <form method="post" action="{{ url_for('custom_perspectives.delete', pid=p.pid) }}"
+                class="d-inline" onsubmit="return confirm('Delete this perspective?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-danger">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="p-4 text-center bg-body-tertiary rounded">
+  <p class="mb-2">No custom perspectives yet.</p>
+  <a href="{{ url_for('custom_perspectives.create') }}" class="btn btn-primary btn-sm">
+    Create your first perspective
+  </a>
+</div>
+{% endif %}
+{% endblock %}

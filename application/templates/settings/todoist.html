@@ -1,0 +1,91 @@
+{% extends "layout/base.html" %}
+{% block title %}Import from Todoist · Cairn{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-lg-7">
+    <h1 class="h4 mb-3">Import from Todoist</h1>
+    <p class="text-muted small">
+      Get a personal token from
+      <a href="https://app.todoist.com/app/settings/integrations/developer" target="_blank" rel="noopener">
+        Todoist → Settings → Integrations → Developer</a>.
+      The token is used once for this import and not stored anywhere.
+    </p>
+
+    <form method="post" novalidate>
+      {{ form.hidden_tag() }}
+      <div class="mb-3">
+        {{ form.token.label(class="form-label") }}
+        {{ form.token(class="form-control", autocomplete="off",
+                       placeholder="Leave empty to use the saved token" if current_user.todoist_token else "Paste your Todoist token") }}
+        {% if current_user.todoist_token %}
+          <div class="form-text text-success">
+            <i class="bi bi-shield-check"></i>
+            A token is saved for this account.
+            {% if current_user.last_todoist_sync_at %}
+              Last sync: {{ current_user.last_todoist_sync_at|localdt }}
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+      <div class="form-check mb-2">
+        {{ form.save_token(class="form-check-input") }}
+        {{ form.save_token.label(class="form-check-label") }}
+      </div>
+      <div class="form-check mb-3">
+        {{ form.show_sync_button(class="form-check-input") }}
+        {{ form.show_sync_button.label(class="form-check-label") }}
+      </div>
+      <hr>
+      <div class="form-check mb-2">
+        {{ form.include_completed(class="form-check-input") }}
+        {{ form.include_completed.label(class="form-check-label") }}
+      </div>
+      <div class="form-check mb-2">
+        {{ form.include_comments(class="form-check-input") }}
+        {{ form.include_comments.label(class="form-check-label") }}
+      </div>
+      <div class="form-check mb-3">
+        {{ form.dry_run(class="form-check-input") }}
+        {{ form.dry_run.label(class="form-check-label") }}
+      </div>
+      {{ form.submit(class="btn btn-primary") }}
+      <a href="{{ url_for('settings.index') }}" class="btn btn-outline-secondary">Back</a>
+    </form>
+
+    {% if stats %}
+      <h2 class="h6 mt-4">Import results</h2>
+      <table class="table table-sm">
+        <tbody>
+          <tr><th class="w-50">Projects created / updated</th><td>{{ stats.projects_created }} / {{ stats.projects_updated }}</td></tr>
+          <tr><th>Tags created / updated</th><td>{{ stats.tags_created }} / {{ stats.tags_updated }}</td></tr>
+          <tr><th>Tasks created / updated</th><td>{{ stats.tasks_created }} / {{ stats.tasks_updated }}</td></tr>
+          <tr><th>Comments imported</th><td>{{ stats.comments_imported }}</td></tr>
+        </tbody>
+      </table>
+      {% if stats.errors %}
+        <div class="alert alert-warning">
+          <strong>{{ stats.errors|length }} error(s):</strong>
+          <ul class="mb-0 small">
+            {% for err in stats.errors %}<li>{{ err }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h6">Mapping</h2>
+        <dl class="small mb-0">
+          <dt>Todoist project</dt><dd>→ bktodo Project (parallel)</dd>
+          <dt>Todoist section</dt><dd>→ encoded into task placement (Todoist sections aren't modeled natively)</dd>
+          <dt>Todoist label</dt><dd>→ Tag (is_context=false)</dd>
+          <dt>Todoist task</dt><dd>→ Task; priority inverted (Todoist 4→bktodo P1), recurrence stored as a note marker</dd>
+          <dt>Todoist comments</dt><dd>→ embedded Comments (you become the author)</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

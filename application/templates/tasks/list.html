@@ -1,0 +1,59 @@
+{% extends "layout/base.html" %}
+{% set page_project_sidebar = true %}
+{# Owning-project pks for the rendered tasks — the sidebar uses these
+   to filter to the relevant subset. Walk past sections so a task in a
+   section bubbles up to its parent project. #}
+{% set ns = namespace(pks=[]) %}
+{% for t in tasks %}
+  {% set p = t.parent %}
+  {% if p and p.is_section %}{% set p = p.parent %}{% endif %}
+  {% if p and (p.pk|string) not in ns.pks %}
+    {% set ns.pks = ns.pks + [p.pk|string] %}
+  {% endif %}
+{% endfor %}
+{% set page_affected_pks = ns.pks %}
+{% block title %}{{ title }} · Cairn{% endblock %}
+{% block content %}
+{% set view_key = perspective %}
+{% set view_label = title %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <h1 class="h4 mb-0 me-auto">{{ title }} <span class="text-muted small">({{ tasks|length }})</span></h1>
+  {% if view_key %}
+    {% include "tasks/_display_dropdown.html" %}
+  {% endif %}
+  {% if perspective == "inbox" and tasks %}
+    <a href="{{ url_for('tasks.process_inbox') }}" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-play-circle"></i> Process inbox
+    </a>
+  {% endif %}
+  <a href="{{ url_for('tasks.create') }}" class="btn btn-sm btn-primary"
+     data-inspector-url="{{ url_for('tasks.create') }}"
+     data-inspector-title="New task">
+    <i class="bi bi-plus-lg"></i> New task
+  </a>
+</div>
+
+{% if calendar_events is defined and calendar_events %}
+  <div class="calendar-events mb-3">
+    <h2 class="h6 text-muted small text-uppercase mb-2">
+      <i class="bi bi-calendar3"></i> Today's calendar ({{ calendar_events|length }})
+    </h2>
+    {% for ev in calendar_events %}
+      <div class="cal-event"
+           style="border-left-color: {{ ev.calendar_color }};">
+        <span class="cal-event-time">
+          {% if ev.all_day %}all day{% else %}{{ ev.start|localdt }} – {{ ev.end|localdt }}{% endif %}
+        </span>
+        <span class="cal-event-title">
+          {% if ev.url %}<a href="{{ ev.url }}" target="_blank" rel="noopener">{{ ev.title }}</a>
+          {% else %}{{ ev.title }}{% endif %}
+        </span>
+        {% if ev.location %}<span class="cal-event-loc"><i class="bi bi-geo-alt"></i> {{ ev.location }}</span>{% endif %}
+        <span class="cal-event-cal" style="color: {{ ev.calendar_color }};">{{ ev.calendar_name }}</span>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% include "tasks/_list_body.html" %}
+{% endblock %}

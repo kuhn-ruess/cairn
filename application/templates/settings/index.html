@@ -1,0 +1,85 @@
+{% extends "layout/base.html" %}
+{% block title %}Settings · Cairn{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">Settings</h1>
+
+<div class="row g-3">
+  <div class="col-md-6">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.profile') }}">
+      <div class="card-body">
+        <h2 class="h6"><i class="bi bi-person-gear"></i> Profile &amp; preferences</h2>
+        <p class="text-muted small mb-0">
+          Your display name, email, timezone, and which details show on
+          each task row in lists.
+        </p>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-6">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.change_password') }}">
+      <div class="card-body">
+        <h2 class="h6"><i class="bi bi-key"></i> Change password</h2>
+        <p class="text-muted small mb-0">
+          Set a new password for your account. Needs your current one to
+          confirm.
+        </p>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-6">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.subscription') }}">
+      <div class="card-body">
+        <h2 class="h6"><i class="bi bi-star"></i> Subscription</h2>
+        <p class="text-muted small mb-0">
+          Your account level, what each tier unlocks, and how to upgrade.
+        </p>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-6">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.todoist') }}">
+      <div class="card-body">
+        <h2 class="h6"><i class="bi bi-cloud-download"></i> Import from Todoist</h2>
+        <p class="text-muted small mb-0">
+          Pull your projects, labels, tasks and comments from Todoist using a
+          personal API token. Re-running merges instead of duplicating.
+        </p>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-6">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.zammad') }}">
+      <div class="card-body">
+        <h2 class="h6"><i class="bi bi-life-preserver"></i> Import from Zammad</h2>
+        <p class="text-muted small mb-0">
+          Pull tickets from a Zammad ticketing instance — URL + API token,
+          optional target project, sync by ticket id.
+        </p>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-6">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.calendars') }}">
+      <div class="card-body">
+        <h2 class="h6"><i class="bi bi-calendar3"></i> External calendars</h2>
+        <p class="text-muted small mb-0">
+          Connect Google Calendar (OAuth, read/write later) or subscribe to
+          any iCal URL (read-only). Pick which calendars appear in
+          <em>Today</em>.
+        </p>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-6">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.perspectives') }}">
+      <div class="card-body">
+        <h2 class="h6"><i class="bi bi-sliders"></i> Sidebar perspectives</h2>
+        <p class="text-muted small mb-0">
+          Choose which perspectives appear in your sidebar and in what
+          order.
+        </p>
+      </div>
+    </a>
+  </div>
+</div>
+{% endblock %}

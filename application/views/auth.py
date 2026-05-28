@@ -1,0 +1,130 @@
+"""Authentication blueprint."""
+from datetime import datetime, timezone
+
+from flask import Blueprint, current_app, flash, redirect, render_template, request, session, url_for
+from flask_login import current_user, login_required, login_user, logout_user
+from mongoengine import Q
+
+from application.forms import (
+    ForgotPasswordForm, LoginForm, RegisterForm, ResetPasswordForm,
+)
+from application.models.user import User
+
+auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
+
+
+@auth_bp.route("/login", methods=["GET", "POST"])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard.home"))
+
+    form = LoginForm()
+    if form.validate_on_submit():
+        identifier = form.username.data.strip()
+        user = User.objects(Q(username=identifier) | Q(email=identifier.lower())).first()
+        if user and user.check_password(form.password.data):
+            login_user(user, remember=form.remember.data)
+            user.last_login_at = datetime.now(timezone.utc)
+            user.save()
+            next_url = request.args.get("next") or url_for("dashboard.home")
+            return redirect(next_url)
+        flash("Invalid credentials.", "danger")
+    return render_template("auth/login.html", form=form)
+
+
+@auth_bp.route("/register", methods=["GET", "POST"])
+def register():
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard.home"))
+
+    form = RegisterForm()
+    if form.validate_on_submit():
+        if User.objects(username=form.username.data).first():
+            flash("Username already taken.", "danger")
+        elif User.objects(email=form.email.data.lower()).first():
+            flash("Email already registered.", "danger")
+        else:
+            user = User(
+                username=form.username.data.strip(),
+                email=form.email.data.lower().strip(),
+                display_name=form.display_name.data or form.username.data,
+            )
+            user.set_password(form.password.data)
+            user.save()
+            login_user(user)
+            # If they got here via an invite link, auto-redirect into the
+            # accept flow so they can complete it in one go.
+            pending = session.pop("pending_team_invite", None)
+            if pending:
+                flash("Welcome aboard — finish joining your team below.", "success")
+                return redirect(url_for("teams.accept", token=pending))
+            flash("Welcome aboard!", "success")
+            return redirect(url_for("dashboard.home"))
+    return render_template("auth/register.html", form=form)
+
+
+@auth_bp.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for("auth.login"))
+
+
+@auth_bp.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    """Kick off a password reset.
+
+    Always reports success to the user — never leak whether an account
+    exists. If SMTP is configured we email the link; otherwise we ask the
+    user to contact the admin (who can mint a link via the CLI).
+    """
+    from application.services.mail import send_email, smtp_configured
+
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard.home"))
+    form = ForgotPasswordForm()
+    sent = False
+    if form.validate_on_submit():
+        ident = form.identifier.data.strip()
+        user = User.objects(Q(username=ident) | Q(email=ident.lower())).first()
+        if user and user.is_active_user:
+            token = user.issue_password_reset()
+            reset_url = url_for("auth.reset_password", token=token, _external=True)
+            if smtp_configured():
+                send_email(
+                    user.email,
+                    "Cairn — password reset",
+                    f"Hi {user},\n\n"
+                    f"Use the link below within the next 2 hours to set a new "
+                    f"password. If you didn't request this, ignore this email.\n\n"
+                    f"{reset_url}\n\n— Cairn",
+                )
+            else:
+                current_app.logger.warning(
+                    "Password reset for %s issued — SMTP not configured. "
+                    "Admin: send the user this URL: %s",
+                    user.username, reset_url,
+                )
+        sent = True
+    return render_template(
+        "auth/forgot_password.html",
+        form=form, sent=sent,
+        smtp_ok=__import__("application.services.mail", fromlist=["smtp_configured"]).smtp_configured(),
+    )
+
+
+@auth_bp.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    if current_user.is_authenticated:
+        logout_user()
+    user = User.objects(password_reset_token=token).first()
+    if not user or not user.password_reset_valid(token):
+        return render_template("auth/reset_password.html", form=None, invalid=True)
+
+    form = ResetPasswordForm()
+    if form.validate_on_submit():
+        user.set_password(form.password.data)
+        user.consume_password_reset()
+        flash("Password updated — please sign in.", "success")
+        return redirect(url_for("auth.login"))
+    return render_template("auth/reset_password.html", form=form, invalid=False)

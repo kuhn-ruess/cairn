@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""Cairn CLI wrapper for source checkouts.
+
+Mirrors the cmdbsyncer pattern: a thin entrypoint that lets you run the
+management commands without typing ``flask --app wsgi:app cairn …`` every
+time. Run ``./cairn --help`` to see available commands.
+"""
+from application.cli import main
+
+if __name__ == "__main__":
+    main()

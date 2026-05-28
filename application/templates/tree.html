@@ -1,0 +1,119 @@
+{% extends "layout/base.html" %}
+{% block title %}Tree · Cairn{% endblock %}
+
+{% macro task_list(project_id, depth=0) %}
+  <ul class="tree-tasks list-unstyled mb-1"
+      style="margin-left: {{ depth * 18 + 14 }}px;"
+      data-target-project="{{ project_id or '' }}">
+    {% for t in tasks_by_project.get(project_id, []) %}
+      <li class="tree-task" data-task-id="{{ t.pk }}" data-task-status="{{ t.status }}">
+        <i class="bi bi-grip-vertical text-muted task-handle"></i>
+        <i class="bi bi-{% if t.flagged %}flag-fill text-warning{% else %}circle{% endif %} me-1"></i>
+        <a href="{{ url_for('tasks.edit', task_id=t.pk) }}"
+           data-inspector-url="{{ url_for('tasks.edit', task_id=t.pk) }}"
+           data-inspector-title="{{ t.title }}"
+           class="text-decoration-none text-body">{{ t.title }}</a>
+        {% if t.status == 'next' %}
+          <span class="next-chip ms-1">NEXT</span>
+        {% elif t.status not in ['open', 'done'] %}
+          <span class="badge text-bg-secondary ms-1">{{ t.status }}</span>
+        {% endif %}
+        {% if t.due_date %}
+          <span class="text-muted small ms-1">· {{ t.due_date|relativedate }}</span>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+{% endmacro %}
+
+{% macro project_node(p, depth) %}
+  <li class="tree-project" data-project-id="{{ p.pk }}">
+    <div class="tree-project-header" style="padding-left: {{ depth * 18 }}px;">
+      {% if p.is_section %}
+        <i class="bi bi-bookmark text-info"></i>
+      {% elif p.is_folder %}
+        <i class="bi bi-folder2-open text-warning"></i>
+      {% else %}
+        <i class="bi bi-folder text-muted"></i>
+      {% endif %}
+      <a href="{{ url_for('projects.detail', project_id=p.pk) }}"
+         class="text-decoration-none">{{ p.name }}</a>
+
+      <span class="tree-row-actions ms-auto">
+        {% if p.is_folder %}
+          <div class="dropdown d-inline-block">
+            <button type="button" class="tree-action-btn dropdown-toggle"
+                    data-bs-toggle="dropdown" title="Add inside this folder">
+              <i class="bi bi-plus-lg"></i>
+            </button>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="{{ url_for('projects.create', parent=p.pk) }}"
+                     data-inspector-url="{{ url_for('projects.create', parent=p.pk) }}"
+                     data-inspector-title="New project in {{ p.name }}">
+                <i class="bi bi-folder text-muted"></i> Project
+              </a></li>
+              <li><a class="dropdown-item" href="{{ url_for('projects.create', parent=p.pk, folder=1) }}"
+                     data-inspector-url="{{ url_for('projects.create', parent=p.pk, folder=1) }}"
+                     data-inspector-title="New folder in {{ p.name }}">
+                <i class="bi bi-folder2-open text-warning"></i> Folder
+              </a></li>
+            </ul>
+          </div>
+        {% else %}
+          <button type="button" class="tree-action-btn"
+                  data-bs-toggle="modal" data-bs-target="#quickAddModal"
+                  data-quickadd-project="{{ p.pk }}"
+                  title="Quick-add task here">
+            <i class="bi bi-plus-lg"></i>
+          </button>
+        {% endif %}
+        <a class="tree-action-btn" href="{{ url_for('projects.edit', project_id=p.pk) }}"
+           data-inspector-url="{{ url_for('projects.edit', project_id=p.pk) }}"
+           data-inspector-title="{{ p.name }}" title="Edit">
+          <i class="bi bi-pencil"></i>
+        </a>
+      </span>
+    </div>
+    {{ task_list(p.pk|string, depth + 1) }}
+    {% set children = by_parent.get(p.pk|string, []) %}
+    {% if children %}
+      <ul class="list-unstyled mb-0">
+        {% for c in children %}{{ project_node(c, depth + 1) }}{% endfor %}
+      </ul>
+    {% endif %}
+  </li>
+{% endmacro %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <h1 class="h4 mb-0 me-auto">Tree</h1>
+  <span class="text-muted small">Drag tasks to move them between projects/sections.</span>
+</div>
+
+<div class="tree-root">
+  {# Loose tasks (no project) #}
+  <div class="tree-project" data-project-id="">
+    <div class="tree-project-header">
+      <i class="bi bi-inbox text-muted"></i>
+      <span class="fw-semibold">Inbox / unassigned</span>
+      <span class="tree-row-actions ms-auto">
+        <button type="button" class="tree-action-btn"
+                data-bs-toggle="modal" data-bs-target="#quickAddModal"
+                data-quickadd-project=""
+                title="Quick-add to inbox">
+          <i class="bi bi-plus-lg"></i>
+        </button>
+      </span>
+    </div>
+    {{ task_list(None) }}
+  </div>
+
+  <ul class="list-unstyled mb-0 mt-3">
+    {% for p in by_parent.get(None, []) %}{{ project_node(p, 0) }}{% endfor %}
+  </ul>
+</div>
+
+{# Drag-and-drop is wired up by the global sortable-tasks.js loaded in
+   base.html. It initialises both .task-list (regular lists) and .tree-tasks
+   (this view) the same way, using the data-target-project attribute. #}
+{% endblock %}

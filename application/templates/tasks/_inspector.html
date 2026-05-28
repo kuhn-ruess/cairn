@@ -1,0 +1,233 @@
+{# Task form rendered inside the inspector offcanvas. Standalone (no extends). #}
+{% if just_saved %}
+  <div class="inspector-saved-banner"><i class="bi bi-check2-circle"></i> Saved</div>
+{% elif just_added_title %}
+  <div class="inspector-saved-banner">
+    <i class="bi bi-plus-circle-fill"></i> Added "{{ just_added_title }}" — type the next one
+  </div>
+{% endif %}
+<form method="post" action="{{ form_action }}" data-inspector-form
+      class="inspector-form" novalidate>
+  {{ form.hidden_tag() }}
+
+  <div class="inspector-section">
+    {{ form.title.label(class="form-label small text-uppercase text-muted") }}
+    {{ form.title(class="form-control form-control-lg",
+                   placeholder="What needs to happen?  e.g. ‘Call mom tomorrow @phone p1’",
+                   autofocus="autofocus") }}
+    {% if not task %}
+      <div class="form-text small text-muted mt-1">
+        Tokens get parsed automatically:
+        <code>@tag</code> · <code>#project</code> · <code>p1</code>…<code>p4</code> ·
+        <code>!</code> · <code>today</code> / <code>tomorrow</code> / <code>monday</code>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="inspector-section">
+    {{ form.note.label(class="form-label small text-uppercase text-muted") }}
+    {{ form.note(class="form-control", rows="3", placeholder="Notes, links, context…") }}
+  </div>
+
+  <div class="inspector-section grid-2">
+    <div>
+      {{ form.status.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.status(class="form-select form-select-sm") }}
+    </div>
+    <div>
+      {{ form.project.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.project(class="form-select form-select-sm",
+                       size="6",
+                       **{"data-searchable-select": "1",
+                          "data-searchable-placeholder": "Search projects…"}) }}
+    </div>
+  </div>
+
+  <div class="inspector-section">
+    {{ form.tags.label(class="form-label small text-uppercase text-muted") }}
+    {{ form.tags(class="form-select form-select-sm", size="5") }}
+    <div class="form-text">⌘/Ctrl-click for multi-select.</div>
+  </div>
+
+  <div class="inspector-section grid-2">
+    <div>
+      {{ form.defer_date.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.defer_date(class="form-control form-control-sm", id="defer_date") }}
+      <div class="quick-date-row btn-group btn-group-sm mt-1">
+        <button type="button" class="btn btn-outline-secondary"
+                data-quick-date="defer_date" data-set="today">Today</button>
+        <button type="button" class="btn btn-outline-secondary"
+                data-quick-date="defer_date" data-set="tomorrow">Tomorrow</button>
+        <button type="button" class="btn btn-outline-secondary"
+                data-quick-date="defer_date" data-set="next-monday">Next Mon</button>
+        <button type="button" class="btn btn-outline-secondary"
+                data-quick-date="defer_date" data-set="clear">×</button>
+      </div>
+    </div>
+    <div>
+      {{ form.due_date.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.due_date(class="form-control form-control-sm", id="due_date") }}
+      <div class="quick-date-row btn-group btn-group-sm mt-1">
+        <button type="button" class="btn btn-outline-secondary"
+                data-quick-date="due_date" data-set="today">Today</button>
+        <button type="button" class="btn btn-outline-secondary"
+                data-quick-date="due_date" data-set="tomorrow">Tomorrow</button>
+        <button type="button" class="btn btn-outline-secondary"
+                data-quick-date="due_date" data-set="in-week">+1w</button>
+        <button type="button" class="btn btn-outline-secondary"
+                data-quick-date="due_date" data-set="clear">×</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="inspector-section">
+    {{ form.plan_date.label(class="form-label small text-uppercase text-muted") }}
+    {{ form.plan_date(class="form-control form-control-sm", id="plan_date") }}
+    <div class="quick-date-row btn-group btn-group-sm mt-1">
+      <button type="button" class="btn btn-outline-secondary"
+              data-quick-date="plan_date" data-set="today">Today</button>
+      <button type="button" class="btn btn-outline-secondary"
+              data-quick-date="plan_date" data-set="evening">Evening</button>
+      <button type="button" class="btn btn-outline-secondary"
+              data-quick-date="plan_date" data-set="tomorrow">Tomorrow</button>
+      <button type="button" class="btn btn-outline-secondary"
+              data-quick-date="plan_date" data-set="clear">×</button>
+    </div>
+    <div class="form-text small mt-1">
+      When you intend to actually work on it — soft target, doesn't block.
+    </div>
+  </div>
+
+  <div class="inspector-section grid-2">
+    <div>
+      {{ form.priority.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.priority(class="form-select form-select-sm") }}
+    </div>
+    <div>
+      {{ form.estimated_minutes.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.estimated_minutes(class="form-control form-control-sm", placeholder="min") }}
+    </div>
+  </div>
+
+  <div class="inspector-section">
+    <label class="form-label small text-uppercase text-muted">Repeat</label>
+    <div class="d-flex gap-2 align-items-center">
+      {{ form.repeat_every_days(class="form-control form-control-sm",
+                                 placeholder="0 = off", style="max-width: 5rem;") }}
+      {{ form.repeat_unit(class="form-select form-select-sm", style="max-width: 7rem;") }}
+    </div>
+    <div class="form-check mt-2">
+      {{ form.repeat_from_completion(class="form-check-input") }}
+      {{ form.repeat_from_completion.label(class="form-check-label small") }}
+    </div>
+  </div>
+
+  <div class="inspector-section">
+    {{ form.assigned_to.label(class="form-label small text-uppercase text-muted") }}
+    {{ form.assigned_to(class="form-select form-select-sm") }}
+  </div>
+
+  <div class="inspector-section">
+    <div class="form-check">
+      {{ form.flagged(class="form-check-input") }}
+      {{ form.flagged.label(class="form-check-label") }}
+    </div>
+    <div class="form-check mt-2">
+      {{ form.is_internal(class="form-check-input") }}
+      {{ form.is_internal.label(class="form-check-label small text-muted") }}
+    </div>
+    {% if not task %}
+      <div class="form-check mt-2">
+        {{ form.add_another(class="form-check-input") }}
+        {{ form.add_another.label(class="form-check-label small text-muted") }}
+      </div>
+    {% endif %}
+  </div>
+</form>
+
+{% if task %}
+  <div class="inspector-section comments-block">
+    <div class="d-flex align-items-center mb-2">
+      <span class="form-label small text-uppercase text-muted mb-0">Comments</span>
+      <span class="ms-2 badge text-bg-secondary">{{ task.comments|length }}</span>
+      <button type="button" class="btn btn-sm btn-link text-muted ms-auto p-0 comments-expand-toggle"
+              title="Toggle comments panel size">
+        <i class="bi bi-arrows-fullscreen"></i>
+      </button>
+    </div>
+
+    <div class="comments-list">
+      {% for c in task.comments %}
+        <div class="comment-item {% if c.is_public %}is-public{% endif %}"
+             data-comment-index="{{ loop.index0 }}">
+          <div class="comment-avatar">{{ (c.author.display_name or c.author.username)[:1]|upper }}</div>
+          <div class="comment-body-wrap">
+            <div class="comment-header">
+              <strong class="comment-author">{{ c.author }}</strong>
+              <span class="comment-time">{{ c.created_at|localdt }}</span>
+              <button type="button"
+                      class="comment-visibility-toggle"
+                      data-task-id="{{ task.pk }}"
+                      data-index="{{ loop.index0 }}"
+                      data-public="{{ '1' if c.is_public else '0' }}"
+                      title="Click to toggle internal / public">
+                {% if c.is_public %}
+                  <span class="badge text-bg-success"><i class="bi bi-globe"></i> public</span>
+                {% else %}
+                  <span class="badge text-bg-secondary"><i class="bi bi-lock"></i> internal</span>
+                {% endif %}
+              </button>
+            </div>
+            <div class="comment-text md-body">{{ c.body|markdown }}</div>
+          </div>
+        </div>
+      {% else %}
+        <p class="text-muted small mb-0 comments-empty">No comments yet.</p>
+      {% endfor %}
+    </div>
+
+    <form method="post"
+          action="{{ url_for('tasks.comment', task_id=task.pk) }}"
+          class="comment-add-form mt-2"
+          data-inspector-comment-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <textarea name="body" class="form-control form-control-sm" rows="2"
+                placeholder="Add a comment…" required></textarea>
+      <div class="d-flex align-items-center mt-1">
+        <small class="text-muted">New comments are <strong>internal</strong> by default.</small>
+        <button type="submit" class="btn btn-sm btn-primary ms-auto">
+          <i class="bi bi-send"></i> Post
+        </button>
+      </div>
+    </form>
+  </div>
+{% endif %}
+
+<div class="inspector-footer">
+  {% if task %}
+    <form method="post" action="{{ url_for('tasks.convert_to_project', task_id=task.pk) }}"
+          class="m-0" data-inspector-side
+          data-confirm="Promote this task to a project? It will keep the title and note.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-outline-secondary" title="Convert to project">
+        <i class="bi bi-folder-plus"></i>
+      </button>
+    </form>
+    <form method="post" action="{{ url_for('tasks.delete', task_id=task.pk) }}"
+          class="m-0" data-inspector-side data-confirm="Delete this task?">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-outline-danger">
+        <i class="bi bi-trash"></i> Delete
+      </button>
+    </form>
+  {% endif %}
+  <div class="ms-auto d-flex gap-2">
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-bs-dismiss="offcanvas">Cancel</button>
+    {# Submit needs to live inside the form. Use a button[form] reference. #}
+    <button type="button" class="btn btn-sm btn-primary"
+            onclick="document.querySelector('form[data-inspector-form]').requestSubmit()">
+      Save task
+    </button>
+  </div>
+</div>

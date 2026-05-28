@@ -1,0 +1,128 @@
+{% extends "layout/base.html" %}
+{% block title %}Import from Zammad · Cairn{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3"><i class="bi bi-life-preserver"></i> Import from Zammad</h1>
+<p class="text-muted small">
+  Pull your Zammad tickets in as Cairn tasks. Re-running merges by ticket
+  ID, so subjects, notes and status stay in sync — your local changes to
+  parent project, tags, or comments are preserved.
+</p>
+
+<form method="post" style="max-width: 720px;">
+  {{ form.csrf_token }}
+
+  <div class="mb-3">
+    {{ form.url.label(class="form-label") }}
+    {{ form.url(class="form-control form-control-sm",
+                placeholder="https://zammad.example.com") }}
+    {% if form.url.description %}
+      <div class="form-text small">{{ form.url.description }}</div>
+    {% endif %}
+  </div>
+
+  <div class="mb-3">
+    {{ form.token.label(class="form-label") }}
+    {{ form.token(class="form-control form-control-sm",
+                  placeholder="Settings → Profile → Token Access in Zammad") }}
+    <div class="form-text small">
+      Stored encrypted at rest when you tick “Remember” below. Leave the
+      field blank to reuse the saved token.
+    </div>
+  </div>
+
+  <div class="form-check mb-2">
+    {{ form.save_credentials(class="form-check-input") }}
+    {{ form.save_credentials.label(class="form-check-label") }}
+  </div>
+  <div class="form-check mb-3">
+    {{ form.show_sync_button(class="form-check-input") }}
+    {{ form.show_sync_button.label(class="form-check-label") }}
+  </div>
+
+  <div class="mb-3">
+    {{ form.project.label(class="form-label") }}
+    {{ form.project(class="form-select form-select-sm") }}
+  </div>
+
+  <div class="mb-3">
+    {{ form.label.label(class="form-label") }}
+    {{ form.label(class="form-control form-control-sm",
+                   placeholder="e.g. zammad") }}
+    {% if form.label.description %}
+      <div class="form-text small">{{ form.label.description }}</div>
+    {% endif %}
+  </div>
+
+
+  <div class="form-check mb-2">
+    {{ form.assignee_only(class="form-check-input") }}
+    {{ form.assignee_only.label(class="form-check-label") }}
+  </div>
+  <div class="form-check mb-2">
+    {{ form.include_closed(class="form-check-input") }}
+    {{ form.include_closed.label(class="form-check-label") }}
+  </div>
+  <div class="form-check mb-3">
+    {{ form.dry_run(class="form-check-input") }}
+    {{ form.dry_run.label(class="form-check-label") }}
+  </div>
+
+  {{ form.submit(class="btn btn-primary") }}
+  <a class="btn btn-link" href="{{ url_for('settings.index') }}">Back</a>
+</form>
+
+{% if stats %}
+  <div class="card mt-4" style="max-width: 720px;">
+    <div class="card-body small">
+      <h2 class="h6 mb-2">Result</h2>
+      <ul class="mb-2">
+        <li>Created: <strong>{{ stats.tickets_created }}</strong></li>
+        <li>Updated: <strong>{{ stats.tickets_updated }}</strong></li>
+        {% if stats.tickets_skipped %}<li>Skipped: {{ stats.tickets_skipped }}</li>{% endif %}
+        {% if stats.tickets_dropped %}
+          <li>Closed (no longer in Zammad): <strong>{{ stats.tickets_dropped }}</strong></li>
+        {% endif %}
+      </ul>
+      <details>
+        <summary class="text-muted">Diagnostics</summary>
+        <ul class="mb-0 mt-2 text-muted">
+          <li>Tickets fetched from Zammad: <strong>{{ stats.tickets_fetched }}</strong>
+            {% if stats.fetched_via %}<span class="text-muted">via {{ stats.fetched_via }}</span>{% endif %}
+          </li>
+          <li>Your Zammad user ID (from /users/me): <code>{{ stats.me_id }}</code></li>
+          {% if stats.filtered_assignee %}
+            <li>Excluded because they aren't assigned to you: {{ stats.filtered_assignee }}
+              <span class="text-warning">— uncheck "Only tickets assigned to me" if you want all of them</span>
+            </li>
+          {% endif %}
+          {% if stats.filtered_closed %}
+            <li>Excluded because they're closed/merged: {{ stats.filtered_closed }}
+              <span class="text-warning">— tick "Include closed tickets" to import them too</span>
+            </li>
+          {% endif %}
+          {% if stats.tickets_fetched == 0 %}
+            <li class="text-danger">
+              The /tickets endpoint returned zero tickets. Likely causes:
+              token scope (the token needs ticket.agent or ticket.customer permission),
+              you have no tickets in groups you're a member of, or the URL points at a
+              non-Zammad instance.
+            </li>
+          {% endif %}
+        </ul>
+      </details>
+      {% if stats.errors %}
+        <h3 class="h6 mt-3">Errors</h3>
+        <ul class="mb-0 text-danger">
+          {% for e in stats.errors %}<li>{{ e }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
+
+{% if current_user.last_zammad_sync_at %}
+  <p class="small text-muted mt-3">
+    Last sync: {{ current_user.last_zammad_sync_at|localdt }}
+  </p>
+{% endif %}
+{% endblock %}
