@@ -109,7 +109,11 @@ def parse_task_text(text: str, user, default_project=None) -> ParsedTask:
     pm = PROJECT_RE.search(text)
     if pm:
         name = pm.group(1)
-        project = Item.objects(owner=user, name__iexact=name).first()
+        # ``Item.name`` is a Python alias for ``title`` — only the real
+        # field can be used in a mongo query.
+        project = Item.objects(
+            owner=user, kind__in=["project", "folder"], title__iexact=name,
+        ).first()
         if project:
             parsed.project = project
         else:

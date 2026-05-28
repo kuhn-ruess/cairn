@@ -85,12 +85,19 @@
               {% endif %}
             </div>
           </div>
-          <div>
+          <div class="d-flex align-items-center gap-1">
             <a class="btn btn-sm btn-link text-muted p-0 sp-open"
                href="{{ url_for('projects.detail', project_id=sp.pk) }}"
                title="Open project">
               <i class="bi bi-box-arrow-up-right"></i>
             </a>
+            <button type="button"
+                    class="btn btn-sm btn-link text-danger p-0 task-row-hover-action item-delete-btn"
+                    data-project-id="{{ sp.pk }}"
+                    data-row-selector=".sp-row[data-sp-id='{{ sp.pk }}']"
+                    title="Delete {{ sp.kind }} + its contents (d)">
+              <i class="bi bi-trash"></i>
+            </button>
           </div>
         </div>
         {# Direct task children — render indented right under their

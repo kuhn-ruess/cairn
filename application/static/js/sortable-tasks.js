@@ -203,13 +203,15 @@
     if (tid) {
       return { url: `/tasks/${tid}/delete`, selector: `[data-task-id="${tid}"]` };
     }
-    const pid = row.dataset.projectId;
+    const pid = row.dataset.projectId || row.dataset.spId;
     if (pid) {
       // Match by tag of the hovered row so the project-list <tr>, the
-      // tree-view .tree-project <li>, and any future container all
-      // resolve to a CSS selector that matches their actual element.
+      // tree-view .tree-project <li>, the project-detail .sp-row, and
+      // any future container all resolve to a CSS selector that
+      // matches their actual element.
       const tag = (row.tagName || "").toLowerCase();
-      const selector = `${tag}[data-project-id="${pid}"]`;
+      const attr = row.dataset.spId ? "data-sp-id" : "data-project-id";
+      const selector = `${tag}[${attr}="${pid}"]`;
       return { url: `/projects/${pid}/delete`, selector };
     }
     const tag = row.dataset.tagName;
