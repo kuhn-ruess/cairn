@@ -31,6 +31,8 @@ services:
     # don't have to translate.
     ports:
       - 8004:8004
+    env_file:
+      - .env
     environment:
       BKTODO_MONGO_HOST: mongo
       BKTODO_MONGO_DB: bktodo

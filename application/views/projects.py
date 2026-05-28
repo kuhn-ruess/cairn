@@ -304,11 +304,23 @@ def create():
             FREE_PROJECT_LIMIT, at_project_limit,
         )
         if form.kind.data == "project" and at_project_limit(user):
-            flash(
+            msg = (
                 f"Free plan limit reached: {FREE_PROJECT_LIMIT} projects. "
-                "Ask a global admin to upgrade your account.",
-                "warning",
+                "Ask a global admin to upgrade your account."
             )
+            # Inspector caller expects a fragment, not a full page. Drop
+            # the message into the form's errors and re-render the
+            # inspector body so the user stays in context — without
+            # this the full /projects/new page would be injected and
+            # the whole app shell appears nested.
+            if _is_inspector():
+                form.kind.errors = list(form.kind.errors or []) + [msg]
+                return render_template(
+                    "projects/_inspector.html",
+                    form=form, project=None,
+                    form_action=url_for("projects.create"),
+                )
+            flash(msg, "warning")
             return render_template(
                 "projects/form.html", form=form, project=None,
             )

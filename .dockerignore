@@ -1,0 +1,30 @@
+# Secrets — supplied at runtime via env_file / docker-compose
+# environment, not baked into the image.
+.env
+.env.local
+.env.*.local
+
+# Editor / OS clutter
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local venvs and Python caches
+.venv/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+
+# VCS + dev databases
+.git/
+.gitignore
+*.sqlite
+*.sqlite3
+
+# Project-local docker overlays
+docker-compose.local.yml
+
+# User uploads aren't part of the source build — they live in a volume
+application/static/uploads/
