@@ -72,7 +72,20 @@
       // normal reordering impossible. With this gate, plain drag =
       // reorder, ALT+drag onto a row = "drop into this task, make it
       // a project".
+      //
+      // We also use this hook to mark the current drop-target
+      // (project sidebar entry, sp-row, …) — Sortable fires onMove on
+      // the SOURCE container, so the destination doesn't get its own
+      // hover state otherwise.
       onMove: (ev, original) => {
+        // ---- Drop-target highlighting ----
+        document.querySelectorAll(".is-drag-over")
+          .forEach((el) => el.classList.remove("is-drag-over"));
+        const to = ev.to;
+        if (to && (to.matches(".ps-drop-target") || to.matches(".sp-row[data-sp-id]"))) {
+          to.classList.add("is-drag-over");
+        }
+        // ---- ALT-merge gate ----
         const altHeld = !!(original && original.altKey);
         if (!altHeld) {
           cancelDwell();
@@ -93,6 +106,8 @@
       },
       onEnd: (ev) => {
         document.body.classList.remove("is-dragging");
+        document.querySelectorAll(".is-drag-over")
+          .forEach((el) => el.classList.remove("is-drag-over"));
         const target = mergeTarget;
         const source = dragSource;
         const altHeld = !!(ev.originalEvent && ev.originalEvent.altKey);

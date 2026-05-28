@@ -1485,19 +1485,24 @@ body.is-dragging .tree-project-header .project-handle { opacity: .55; }
 .tag-row .hover-action { opacity: 0; transition: opacity .12s; }
 .tag-row:hover .hover-action { opacity: 1; }
 
-/* Project-sidebar drop targets — light up while a task is being
-   dragged so the user sees what's a valid destination. The ghost
-   that SortableJS inserts inside the <li> would otherwise visibly
-   push the rest of the sidebar down, making it look as if the
-   dragged item lands BETWEEN projects. Hide that inner artefact —
-   the target itself is the only visual the user needs. */
+/* Project-sidebar drop targets — light up during a drag so every
+   valid destination is visible at a glance; the hover gets a
+   stronger highlight so the precise target is unambiguous.
+   The ghost that SortableJS inserts inside the <li> would otherwise
+   visibly push the rest of the sidebar down, making it look as if
+   the dragged item lands BETWEEN projects. Hide that artefact. */
 body.is-dragging .ps-drop-target {
-  outline: 1px dashed transparent;
+  outline: 1px dashed var(--gv-bg3);
+  outline-offset: -2px;
+  background: rgba(250, 189, 47, .04);
   transition: outline-color .15s, background .15s;
 }
-body.is-dragging .ps-drop-target:hover {
-  background: rgba(250, 189, 47, .12);
-  outline-color: var(--gv-yellow);
+body.is-dragging .ps-drop-target:hover,
+.ps-drop-target.is-drag-over {
+  background: rgba(250, 189, 47, .25);
+  outline: 2px solid var(--gv-yellow-br);
+  outline-offset: -2px;
+  box-shadow: 0 0 0 2px rgba(250, 189, 47, .35);
 }
 .ps-drop-target > .task-row,
 .ps-drop-target > .tree-task,
@@ -1508,15 +1513,29 @@ body.is-dragging .ps-drop-target:hover {
   background: rgba(184, 187, 38, .25);
   transition: background .6s;
 }
+.ps-row-delete {
+  opacity: 0;
+  transition: opacity .12s;
+  margin-left: auto;
+  margin-right: .25rem;
+  line-height: 1;
+}
+.ps-drop-target:hover .ps-row-delete { opacity: 1; }
+.ps-row { display: flex; align-items: center; gap: .35rem; }
 
 /* Same idea for sub-project rows in the project detail view. */
 body.is-dragging .sp-row[data-sp-id] {
-  outline: 1px dashed transparent;
+  outline: 1px dashed var(--gv-bg3);
+  outline-offset: -2px;
+  background: rgba(250, 189, 47, .04);
   transition: outline-color .15s, background .15s;
 }
-body.is-dragging .sp-row[data-sp-id]:hover {
-  outline-color: var(--gv-yellow);
-  background: rgba(250, 189, 47, .08);
+body.is-dragging .sp-row[data-sp-id]:hover,
+.sp-row.is-drag-over {
+  outline: 2px solid var(--gv-yellow-br);
+  outline-offset: -2px;
+  background: rgba(250, 189, 47, .22);
+  box-shadow: 0 0 0 2px rgba(250, 189, 47, .35);
 }
 .sp-row[data-sp-id] > .task-row[data-task-id],
 .sp-row[data-sp-id] > .tree-task,
