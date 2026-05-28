@@ -17,7 +17,12 @@ TASK_STATUSES = {
 
 
 def apply_label_rules(item, user) -> bool:
-    """Return True if the item's status changed; caller should save it."""
+    """Return True if the item's status changed; caller should save it.
+
+    First tag with a ``maps_to_status`` value wins — iterating in
+    ``item.tags`` order. Subsequent tags don't reach this code so the
+    order on the task acts as a priority list.
+    """
     if not item or getattr(item, "kind", None) != "task":
         return False
     if not item.tags:
@@ -31,8 +36,6 @@ def apply_label_rules(item, user) -> bool:
             continue
         if item.status != target:
             item.status = target
-            # ``completed_at`` is bookkeeping the model maintains on
-            # the next save, no need to set it here.
             return True
-        return False
+        return False  # already matches — nothing to do, stop scanning
     return False

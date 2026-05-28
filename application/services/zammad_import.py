@@ -384,9 +384,6 @@ def _upsert_ticket(
         existing.tags = merge_external_tags(
             existing.tags, existing.external_tags, new_external)
         existing.external_tags = new_external
-        # Tag-driven status rules ("Warte auf Kunde → waiting", etc.)
-        # If a rule applies it overrides the Zammad-derived cairn_status.
-        apply_label_rules(existing, user)
         # Task vs project have completely different status vocabularies
         # (open/next/waiting vs active/on_hold/completed). The
         # ``cairn_status`` we compute from Zammad's state only fits
@@ -396,6 +393,10 @@ def _upsert_ticket(
             existing.status = cairn_status
             if priority is not None:
                 existing.priority = priority
+        # Tag-driven status rules ("Warte auf Kunde → waiting", etc.)
+        # run AFTER the Zammad-state assignment so they win: a tag
+        # rule is more specific than the generic state mapping.
+        apply_label_rules(existing, user)
         # Parent stays put either way: the user might have moved the
         # task / project into a specific place after the first import.
         existing.save()
