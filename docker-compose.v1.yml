@@ -26,12 +26,16 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    # Reverse proxy hits the container directly on 8004 — keep host
+    # and container port identical so nginx/Caddy upstream configs
+    # don't have to translate.
     ports:
-      - 8004:5004
+      - 8004:8004
     environment:
       BKTODO_MONGO_HOST: mongo
       BKTODO_MONGO_DB: bktodo
       BKTODO_SECRET_KEY: change-me-in-production
+    command: ["gunicorn", "--bind", "0.0.0.0:8004", "--workers", "3", "wsgi:app"]
     depends_on:
       - mongo
 
