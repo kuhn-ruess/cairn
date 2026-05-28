@@ -28,7 +28,7 @@
             {% if sp.is_folder %}
               <i class="bi bi-folder2-open text-warning"></i>
             {% else %}
-              <i class="bi bi-folder text-muted"></i>
+              <i class="bi bi-collection text-muted"></i>
             {% endif %}
           </div>
           <div>
@@ -37,6 +37,14 @@
               {% if sp.color %}<span class="proj-dot" style="background: {{ sp.color }};"></span>{% endif %}
               {{ sp.name }}
             </a>
+            {% if sp.source %}
+              <span class="source-chip source-{{ sp.source }} ms-1">{{ sp.source }}</span>
+            {% endif %}
+            {% if sp.external_ref %}
+              <span class="external-id-chip ms-1" title="External ticket reference">
+                <i class="bi bi-link-45deg"></i> {{ sp.external_ref }}
+              </span>
+            {% endif %}
             <a class="task-inspector-btn" href="{{ url_for('projects.edit', project_id=sp.pk) }}"
                data-inspector-url="{{ url_for('projects.edit', project_id=sp.pk) }}"
                data-inspector-title="{{ sp.name }}"
@@ -171,7 +179,7 @@
           <a href="{{ url_for('projects.detail', project_id=a.pk) }}" class="crumb">
             {% if a.is_folder %}<i class="bi bi-folder2-open"></i>
             {% elif a.is_section %}<i class="bi bi-bookmark"></i>
-            {% else %}<i class="bi bi-folder"></i>{% endif %}
+            {% else %}<i class="bi bi-collection"></i>{% endif %}
             {{ a.name }}
           </a>
         {% endfor %}
@@ -185,6 +193,14 @@
       <span class="project-mode">{{ project.project_type }}</span>
       {% if project.status != 'active' %}
         <span class="project-mode project-mode-{{ project.status }}">{{ project.status }}</span>
+      {% endif %}
+      {% if project.source %}
+        <span class="source-chip source-{{ project.source }}">{{ project.source }}</span>
+      {% endif %}
+      {% if project.external_ref %}
+        <span class="external-id-chip" title="External ticket reference">
+          <i class="bi bi-link-45deg"></i> {{ project.external_ref }}
+        </span>
       {% endif %}
     </h1>
     <div class="text-muted small">
@@ -227,11 +243,12 @@
        data-inspector-title="New project in {{ project.name }}">
       <i class="bi bi-folder-plus"></i> Project
     </a>
-    <a class="btn btn-outline-secondary" href="{{ url_for('projects.edit', project_id=project.pk) }}"
-       data-inspector-url="{{ url_for('projects.edit', project_id=project.pk) }}"
-       data-inspector-title="{{ project.name }}">
-      <i class="bi bi-pencil"></i>
-    </a>
+    <button type="button" class="btn btn-outline-secondary"
+            data-inspector-url="{{ url_for('projects.edit', project_id=project.pk) }}"
+            data-inspector-title="{{ project.name }}"
+            title="Open inspector">
+      <i class="bi bi-info-circle"></i>
+    </button>
     {% if project.owner == current_user %}
       <a class="btn btn-outline-secondary"
          href="{{ url_for('projects.import_csv', project_id=project.pk) }}"
@@ -391,7 +408,7 @@
       {{ task_groups(root_bucket, target_project_id=project.pk|string, view_key=view_key) }}
     </div>
   {% endif %}
-  {% for s in sections %}
+  {% for s in sections if not flat_tag_view %}
     <div class="section-block mt-4" data-section-id="{{ s.pk }}">
       <div class="section-header d-flex align-items-center">
         <h3 class="h6 mb-0 me-auto">
@@ -416,11 +433,23 @@
             </button>
           </form>
         {% endif %}
-        <a class="btn btn-sm btn-link text-muted" href="{{ url_for('projects.edit', project_id=s.pk) }}"
-           data-inspector-url="{{ url_for('projects.edit', project_id=s.pk) }}"
-           data-inspector-title="{{ s.name }}" title="Edit section">
-          <i class="bi bi-pencil"></i>
-        </a>
+        <button type="button" class="btn btn-sm btn-link text-muted"
+                data-inspector-url="{{ url_for('projects.edit', project_id=s.pk) }}"
+                data-inspector-title="{{ s.name }}" title="Open inspector">
+          <i class="bi bi-info-circle"></i>
+        </button>
+        <button type="button" class="btn btn-sm btn-link text-muted item-unwrap-btn"
+                data-unwrap-url="{{ url_for('projects.unwrap', project_id=s.pk) }}"
+                data-unwrap-name="{{ s.name }}"
+                title="Unwrap section — keep tasks, drop the section">
+          <i class="bi bi-eject"></i>
+        </button>
+        <button type="button" class="btn btn-sm btn-link text-danger item-delete-btn"
+                data-project-id="{{ s.pk }}"
+                data-row-selector="[data-section-id='{{ s.pk }}']"
+                title="Delete section + its contents (d)">
+          <i class="bi bi-trash"></i>
+        </button>
         <a class="btn btn-sm btn-link" href="{{ url_for('tasks.create', project=s.pk) }}"
            data-inspector-url="{{ url_for('tasks.create', project=s.pk) }}"
            data-inspector-title="New task in {{ s.name }}" title="New task">

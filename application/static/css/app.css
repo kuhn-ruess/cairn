@@ -97,6 +97,16 @@ html, body {
   background-color: var(--gv-bg0-soft) !important;
   border-color: var(--gv-bg2) !important;
 }
+/* Pin the top bar to the viewport. The two sidebars stick at
+   ``top: var(--nav-height)`` so they sit cleanly below — without this
+   the navbar scrolls away and a 56-px gap opens up at the bottom of
+   each sidebar where ``calc(100vh - 56px)`` falls short. */
+:root { --nav-height: 56px; }
+body > .navbar {
+  position: sticky;
+  top: 0;
+  z-index: 1030;
+}
 .navbar-brand,
 .navbar .dropdown-toggle {
   color: var(--gv-yellow-br) !important;
@@ -291,8 +301,8 @@ html, body {
    visible sidebar regardless of scroll position. */
 .app-nav-sidebar {
   position: sticky;
-  top: 0;
-  height: calc(100vh - 56px);
+  top: var(--nav-height, 56px);
+  height: calc(100vh - var(--nav-height, 56px));
   background: var(--gv-bg0-soft) !important;
   border-right: 1px solid var(--gv-bg2) !important;
   display: flex;
@@ -322,8 +332,8 @@ html, body {
   display: grid;
   grid-template-columns: 68px 1fr auto;
   align-items: center;
-  gap: .25rem;
-  padding: .2rem .25rem;
+  gap: .3rem;
+  padding: .55rem .35rem;
   position: relative;
 }
 /* Divider only spans the title/meta area — the icon column stays
@@ -1178,7 +1188,13 @@ tr:hover .row-actions .hover-action:last-child { opacity: 1; }
   font-size: .8rem;
   line-height: 1;
 }
-.tree-project-header:hover .tree-action-btn { opacity: 1; }
+.tree-project-header:hover .tree-action-btn,
+.tree-task:hover .tree-action-btn { opacity: 1; }
+
+/* List-row delete reveals on hover (mirrors tree-task hover). */
+.task-row-hover-action { opacity: 0; transition: opacity .12s; }
+.task-row:hover .task-row-hover-action,
+tr:hover .task-row-hover-action { opacity: 1; }
 .tree-row-actions .tree-action-btn:hover {
   background: var(--gv-bg2);
   color: var(--gv-yellow-br);
@@ -1422,6 +1438,103 @@ body.is-dragging .tree-project-header .project-handle { opacity: .55; }
 /* Filter hide: keep DOM intact (Sortable needs it) but visually drop
    non-matching rows. */
 .tree-filter-hidden { display: none !important; }
+
+/* Source / external-id chips on task rows + inspector. */
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .15rem;
+  padding: 0 .35rem;
+  font-size: .65rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  border-radius: .15rem;
+  background: var(--gv-bg2);
+  color: var(--gv-fg2);
+  border: 1px solid transparent;
+}
+.source-chip.source-jira    { background: rgba( 38,132,255,.15); color: #4aa3ff; border-color: rgba(38,132,255,.4); }
+.source-chip.source-zammad  { background: rgba( 52, 73, 94,.20); color: #aac7e0; border-color: rgba(52,73,94,.5); }
+.source-chip.source-todoist { background: rgba(228, 67, 50,.15); color: #ff8a7a; border-color: rgba(228,67,50,.4); }
+.source-chip.source-csv     { background: rgba(131,165,152,.20); color: #b8d4cb; border-color: rgba(131,165,152,.4); }
+.external-id-chip {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: .7rem;
+  color: var(--gv-fg4);
+  padding: 0 .3rem;
+  border-radius: .15rem;
+  background: var(--gv-bg1);
+}
+
+/* Tag drag & drop visuals. The handle fades up on row hover, like
+   tasks. ``.tag-drop-hover`` highlights the row being targeted as
+   a new parent during drag. */
+.tag-row:hover .tag-handle { opacity: 1 !important; }
+.tag-row.tag-row-dragging { opacity: .45; }
+.tag-row.tag-drop-hover,
+.tag-drop-toplevel.tag-drop-hover {
+  outline: 2px dashed var(--gv-yellow);
+  background: rgba(250, 189, 47, .08);
+  border-radius: .25rem;
+}
+.tag-drop-toplevel {
+  border: 1px dashed var(--gv-bg2);
+  border-radius: .25rem;
+}
+.tag-row .hover-action { opacity: 0; transition: opacity .12s; }
+.tag-row:hover .hover-action { opacity: 1; }
+
+/* Project-sidebar drop targets — light up while a task is being
+   dragged so the user sees what's a valid destination. The ghost
+   that SortableJS inserts inside the <li> would otherwise visibly
+   push the rest of the sidebar down, making it look as if the
+   dragged item lands BETWEEN projects. Hide that inner artefact —
+   the target itself is the only visual the user needs. */
+body.is-dragging .ps-drop-target {
+  outline: 1px dashed transparent;
+  transition: outline-color .15s, background .15s;
+}
+body.is-dragging .ps-drop-target:hover {
+  background: rgba(250, 189, 47, .12);
+  outline-color: var(--gv-yellow);
+}
+.ps-drop-target > .task-row,
+.ps-drop-target > .tree-task,
+.ps-drop-target > .drag-ghost {
+  display: none !important;
+}
+.ps-drop-target.ps-drop-flash {
+  background: rgba(184, 187, 38, .25);
+  transition: background .6s;
+}
+
+/* Same idea for sub-project rows in the project detail view. */
+body.is-dragging .sp-row[data-sp-id] {
+  outline: 1px dashed transparent;
+  transition: outline-color .15s, background .15s;
+}
+body.is-dragging .sp-row[data-sp-id]:hover {
+  outline-color: var(--gv-yellow);
+  background: rgba(250, 189, 47, .08);
+}
+.sp-row[data-sp-id] > .task-row[data-task-id],
+.sp-row[data-sp-id] > .tree-task,
+.sp-row[data-sp-id] > .drag-ghost {
+  display: none !important;
+}
+.sp-row.sp-drop-flash {
+  background: rgba(184, 187, 38, .25);
+  transition: background .6s;
+}
+
+/* ============= Project list table — extra breathing room ============= */
+.project-table > tbody > tr > td,
+.project-table > thead > tr > th {
+  padding-top: .55rem;
+  padding-bottom: .55rem;
+}
+.project-table > tbody > tr:hover { background: var(--gv-bg0-soft); }
 /* Sections within projects/detail — flat page layout. Each section is
    just a header with a hairline divider, no card / box. */
 .section-block {
@@ -1525,8 +1638,8 @@ body.is-dragging .tree-project-header .project-handle { opacity: .55; }
   border-right: 1px solid var(--gv-bg2);
   background: var(--gv-bg0);
   position: sticky;
-  top: 0;
-  height: calc(100vh - 56px);
+  top: var(--nav-height, 56px);
+  height: calc(100vh - var(--nav-height, 56px));
   display: flex;
   flex-direction: column;
 }

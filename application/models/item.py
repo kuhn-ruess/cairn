@@ -92,6 +92,13 @@ class Item(Document):
     note = StringField(default="")
     color = StringField(default="", max_length=16)
     tags = ListField(StringField())
+    # Tags that came from an external system (Zammad, CSV, …). Kept
+    # separate so re-imports can replace these without touching tags
+    # the user added by hand: the importer computes
+    #   user_added = task.tags − task.external_tags
+    #   task.tags  = user_added ∪ new_external_tags
+    #   task.external_tags = new_external_tags
+    external_tags = ListField(StringField())
 
     # bookkeeping
     created_at = DateTimeField(default=_utcnow)
@@ -102,8 +109,18 @@ class Item(Document):
     #   no prefix   — Todoist (the original importer)
     #   ``zammad:`` — Zammad ticket id
     #   ``csv:``    — CSV-import row id
-    # Used to dedupe on re-import and to find orphans during reconcile.
+    # Used internally to dedupe on re-import and to find orphans during
+    # reconcile. Never shown in the UI.
     external_id = StringField()
+    # Bare ticket reference for display + search: ``CHMK-417`` for Jira,
+    # ``1234`` for Zammad, the Todoist task id, etc. Importers strip the
+    # prefix when filling this so the chip in the UI reads cleanly and
+    # users can ⌘P + paste a ticket number to jump to its task.
+    external_ref = StringField()
+    # Human-readable origin (``todoist`` / ``zammad`` / ``csv`` /
+    # ``jira`` / …). Importers fill this so the UI can show a "source"
+    # chip without parsing the ``external_id`` prefix.
+    source = StringField()
 
     # ----- task-flavoured fields (also valid on project/section) -----
     status = StringField(default="open")  # values vary by kind

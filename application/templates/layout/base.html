@@ -112,7 +112,7 @@
       </ul>
       <h6 class="text-muted small text-uppercase">Organize</h6>
       <ul class="nav flex-column">
-        <li><a class="nav-link py-1" href="{{ url_for('projects.index') }}"><i class="bi bi-folder"></i> Projects</a></li>
+        <li><a class="nav-link py-1" href="{{ url_for('projects.index') }}"><i class="bi bi-collection"></i> Projects</a></li>
         <li><a class="nav-link py-1" href="{{ url_for('tree.index') }}"><i class="bi bi-diagram-3"></i> Tree</a></li>
         <li><a class="nav-link py-1" href="{{ url_for('tags.index') }}"><i class="bi bi-tag"></i> Tags / Contexts</a></li>
         <li><a class="nav-link py-1" href="{{ url_for('custom_perspectives.index') }}"><i class="bi bi-funnel"></i> Perspectives</a></li>
@@ -234,6 +234,8 @@
               <dt class="col-4"><kbd>q</kbd></dt><dd class="col-8">Quick add task</dd>
               <dt class="col-4"><kbd>p</kbd></dt><dd class="col-8">Jump to project / task</dd>
               <dt class="col-4"><kbd>/</kbd></dt><dd class="col-8">Focus search</dd>
+              <dt class="col-4"><kbd>d</kbd></dt><dd class="col-8">Delete hovered task</dd>
+              <dt class="col-4"><kbd>m</kbd></dt><dd class="col-8">Move hovered task to project</dd>
               <dt class="col-4"><kbd>?</kbd></dt><dd class="col-8">Show this list</dd>
             </dl>
           </div>
@@ -252,6 +254,27 @@
               <dt class="col-4"><kbd>g</kbd> <kbd>r</kbd></dt><dd class="col-8">Review</dd>
             </dl>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade quickjump-modal" id="moveTaskModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-body p-2">
+        <div class="d-flex align-items-center mb-2 px-2">
+          <span class="small text-muted me-2">Move task to…</span>
+          <span id="moveTaskTitle" class="small text-muted text-truncate" style="max-width: 28rem;"></span>
+        </div>
+        <input type="hidden" id="moveTaskCsrf" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="search" class="form-control form-control-lg move-task-input"
+               id="moveTaskSearch" placeholder="Search projects… (typing filters all your projects)"
+               autocomplete="off" spellcheck="false">
+        <ul class="list-unstyled mb-0 mt-2 quickjump-results move-task-results" id="moveTaskResults"></ul>
+        <div class="text-muted small mt-2 px-2">
+          <kbd>↑</kbd> <kbd>↓</kbd> navigate · <kbd>Enter</kbd> move · <kbd>Esc</kbd> close
         </div>
       </div>
     </div>
@@ -366,6 +389,7 @@
 <script src="{{ url_for('static', filename='js/sortable-tasks.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/section-toggle.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/quick-add.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/move-task.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/quickjump.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/shortcuts.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/note-paste.js') }}?v={{ static_version }}"></script>

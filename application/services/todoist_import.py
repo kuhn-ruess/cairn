@@ -440,15 +440,24 @@ def _import_labels(user, labels, stats, dry_run) -> dict[str, Tag]:
             existing.external_id = str(raw["id"])
             stats.tags_updated += 1
         else:
+            # New Todoist labels land under a "Todoist" group tag so
+            # the tag tree stays tidy. The group is auto-created on
+            # first sync; users can drag tags out of it later and the
+            # placement sticks (subsequent syncs touch only newly-
+            # added labels).
             new_tag = Tag(
                 name=raw["name"],
                 color=_todoist_color(raw.get("color")) or "#6c757d",
                 is_context=False,
                 external_id=str(raw["id"]),
+                parent="Todoist",
             )
             user.tags.append(new_tag)
             out[raw["name"]] = new_tag
             stats.tags_created += 1
+
+    if out and not user.tag_by_name("Todoist"):
+        user.tags.append(Tag(name="Todoist", color="#6c757d", is_context=False))
 
     if not dry_run:
         user.save()
@@ -549,14 +558,25 @@ def _import_sections(user, sections, project_map, stats, dry_run) -> dict[str, I
             # Recover from older imports that wrote sections as plain
             # projects: find one by name under the right parent and
             # convert it into a section in-place.
+            #
+            # Skip anything currently held by ``project_map`` — those
+            # are projects we just (re)imported this run, including
+            # potentially the section's own parent project when the
+            # user has a project and section sharing a name (totally
+            # legal in Todoist, "Erinnerungen / Erinnerungen" etc.).
+            # Without this guard the parent project would be flipped
+            # into a section and start pointing at itself.
+            already_imported = {p.pk for p in project_map.values()}
             candidate = Item.objects(
                 owner=user, kind__in=["project", "section"],
                 title=raw["name"], parent=parent,
+                pk__nin=list(already_imported),
             ).first()
             if not candidate:
                 candidate = Item.objects(
                     owner=user, kind__in=["project", "section"],
                     title=raw["name"], parent=None,
+                    pk__nin=list(already_imported),
                 ).first()
             if candidate:
                 existing = candidate
@@ -610,11 +630,21 @@ def _import_task(
     )
 
     # Item.tags is a list of tag NAMES now. Make sure each name exists
-    # in the user's tag set (creating an embedded Tag if not).
+    # in the user's tag set (creating an embedded Tag if not). New
+    # ones inherit ``parent="Todoist"`` so they nest under the source
+    # group; existing tags stay where the user placed them.
     tags: list[str] = []
-    for name in raw.get("labels") or []:
+    todoist_labels = raw.get("labels") or []
+    if todoist_labels and not user.tag_by_name("Todoist"):
+        user.tags.append(Tag(name="Todoist", color="#6c757d", is_context=False))
+        if not dry_run:
+            user.save()
+    for name in todoist_labels:
         if name not in tag_by_name:
-            new_tag = Tag(name=name, color="#6c757d", is_context=False)
+            new_tag = Tag(
+                name=name, color="#6c757d", is_context=False,
+                parent="Todoist",
+            )
             user.tags.append(new_tag)
             tag_by_name[name] = new_tag
             stats.tags_created += 1
@@ -653,12 +683,21 @@ def _import_task(
     if existing:
         existing.title = raw["content"]
         existing.note = note
+        existing.source = "todoist"
+        existing.external_ref = external_id
         # IMPORTANT: do NOT overwrite ``project`` or ``sort_order`` —
         # the user may have moved or reordered the task locally (e.g.
         # dragged it into a new merged project) and the sync must not
         # undo that organisation. Comments, labels, status, due_date
         # and priority still mirror Todoist as the source of truth.
-        existing.tags = tags
+        # Tags are split: ``external_tags`` mirrors Todoist's labels
+        # 1:1 so they get refreshed on every sync, while tags the user
+        # added in Cairn (= present in ``tags`` but not in the previous
+        # ``external_tags``) survive untouched.
+        from application.services.external_tags import merge_external_tags
+        existing.tags = merge_external_tags(
+            existing.tags, existing.external_tags, tags)
+        existing.external_tags = list(tags)
         existing.status = base_status
         existing.due_date = due
         existing.priority = _invert_priority(raw.get("priority"))
@@ -685,7 +724,10 @@ def _import_task(
             title=raw["content"],
             note=note,
             parent=project,
-            tags=tags,
+            source="todoist",
+            external_ref=external_id,
+            tags=list(tags),
+            external_tags=list(tags),
             status=base_status,
             due_date=due,
             priority=_invert_priority(raw.get("priority")),

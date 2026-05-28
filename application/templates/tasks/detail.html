@@ -22,7 +22,7 @@
       <div class="task-detail-meta small text-muted d-flex flex-wrap gap-2 align-items-center">
         <span class="badge text-bg-secondary text-uppercase">{{ task.status }}</span>
         {% if task.project %}
-          <span><i class="bi bi-folder"></i>
+          <span><i class="bi bi-collection"></i>
             <a class="text-decoration-none"
                href="{{ url_for('projects.detail', project_id=task.project.pk) }}">{{ task.project.name }}</a>
           </span>

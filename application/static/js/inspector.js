@@ -66,6 +66,20 @@
       sideForm.addEventListener("submit", onSideSubmit);
     });
 
+    // Project inspector: keep the color picker and the hidden form
+    // field in sync. The inline <script> in _inspector.html doesn't
+    // run (innerHTML doesn't execute scripts), so do it here.
+    const picker = body.querySelector("#proj-color-picker");
+    const hex = body.querySelector("#proj-color-hex");
+    if (picker && hex) {
+      if (hex.value) {
+        picker.value = hex.value;
+      } else {
+        hex.value = picker.value;
+      }
+      picker.addEventListener("input", () => { hex.value = picker.value; });
+    }
+
     // Add-comment form (inspector only, no page reload).
     const commentForm = body.querySelector("form[data-inspector-comment-form]");
     if (commentForm) commentForm.addEventListener("submit", onCommentAdd);

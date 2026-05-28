@@ -44,15 +44,6 @@
     {{ form.project(class="form-select form-select-sm") }}
   </div>
 
-  <div class="mb-3">
-    {{ form.label.label(class="form-label") }}
-    {{ form.label(class="form-control form-control-sm",
-                   placeholder="e.g. zammad") }}
-    {% if form.label.description %}
-      <div class="form-text small">{{ form.label.description }}</div>
-    {% endif %}
-  </div>
-
 
   <div class="form-check mb-2">
     {{ form.assignee_only(class="form-check-input") }}

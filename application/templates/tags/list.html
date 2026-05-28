@@ -10,21 +10,54 @@
 {% if not tags %}
   <p class="text-muted">No tags yet — create one for each context (@home, @office, @errands…).</p>
 {% else %}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <p class="text-muted small mb-2">
+    Drag a tag onto another to nest it. Drop in the
+    <span class="text-warning">Top-level</span> zone below to un-nest.
+  </p>
   <ul class="list-unstyled tag-tree">
     {% for depth, tag in tags %}
-      <li style="padding-left: {{ depth * 20 }}px;" class="d-flex align-items-center gap-2 py-1 tag-row">
+      <li style="padding-left: {{ depth * 20 }}px;"
+          class="d-flex align-items-center gap-2 py-1 tag-row"
+          data-tag-name="{{ tag.name }}"
+          data-tag-depth="{{ depth }}"
+          draggable="true">
+        <i class="bi bi-grip-vertical text-muted tag-handle"
+           style="cursor: grab; opacity: .35;"></i>
         {% if depth > 0 %}<span class="text-muted">└</span>{% endif %}
         <a class="tag-chip text-decoration-none" style="background: {{ tag.color }};"
            href="{{ url_for('tags.detail', tag_name=tag.name) }}">
           {{ tag }}{% if tag.on_hold %} <i class="bi bi-pause-circle"></i>{% endif %}
         </a>
-        <a class="btn btn-sm btn-link text-muted p-0 ms-1 hover-action"
-           href="{{ url_for('tags.create', parent=tag.name) }}"
-           title="Add a child tag under {{ tag.name }}">
-          <i class="bi bi-plus-lg"></i> child
-        </a>
+        <span class="tag-row-actions ms-auto d-flex gap-1">
+          <a class="btn btn-sm btn-link text-muted p-0 hover-action"
+             href="{{ url_for('tags.create', parent=tag.name) }}"
+             title="Add a child tag under {{ tag.name }}">
+            <i class="bi bi-plus-lg"></i> child
+          </a>
+          <a class="btn btn-sm btn-link text-muted p-0 hover-action"
+             href="{{ url_for('tags.edit', tag_name=tag.name) }}"
+             title="Edit tag">
+            <i class="bi bi-pencil"></i>
+          </a>
+          <form method="post"
+                action="{{ url_for('tags.delete', tag_name=tag.name) }}"
+                class="d-inline m-0"
+                onsubmit="return confirm('Delete tag “{{ tag.name }}” and remove it from all tasks?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-link text-danger p-0 hover-action"
+                    title="Delete tag">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+        </span>
       </li>
     {% endfor %}
+    <li class="tag-drop-toplevel text-muted small mt-2 py-2 text-center"
+        data-toplevel="1">
+      Drop here to un-nest (make top-level)
+    </li>
   </ul>
+  <script src="{{ url_for('static', filename='js/tag-tree.js') }}?v={{ static_version }}"></script>
 {% endif %}
 {% endblock %}

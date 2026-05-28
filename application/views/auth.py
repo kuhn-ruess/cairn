@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, current_app, flash, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
-from mongoengine import Q
 
 from application.forms import (
     ForgotPasswordForm, LoginForm, RegisterForm, ResetPasswordForm,
@@ -20,8 +19,8 @@ def login():
 
     form = LoginForm()
     if form.validate_on_submit():
-        identifier = form.username.data.strip()
-        user = User.objects(Q(username=identifier) | Q(email=identifier.lower())).first()
+        email = form.email.data.strip().lower()
+        user = User.objects(email=email).first()
         if user and user.check_password(form.password.data):
             login_user(user, remember=form.remember.data)
             user.last_login_at = datetime.now(timezone.utc)
@@ -32,6 +31,30 @@ def login():
     return render_template("auth/login.html", form=form)
 
 
+def _slugify_username(name: str) -> str:
+    """Reduce a display name to an ASCII slug fit for the username field
+    (lowercase, alnum + dashes, ≤ 64 chars). Falls back to ``user`` so
+    we never end up with an empty string."""
+    import re
+    import unicodedata
+    s = unicodedata.normalize("NFKD", name or "")
+    s = s.encode("ascii", "ignore").decode("ascii").lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    return (s or "user")[:64]
+
+
+def _unique_username(base: str) -> str:
+    """``base``, with a numeric suffix appended if it's already taken."""
+    if not User.objects(username=base).first():
+        return base
+    n = 2
+    while True:
+        candidate = f"{base[:60]}-{n}" if len(base) > 60 else f"{base}-{n}"
+        if not User.objects(username=candidate).first():
+            return candidate
+        n += 1
+
+
 @auth_bp.route("/register", methods=["GET", "POST"])
 def register():
     if current_user.is_authenticated:
@@ -39,15 +62,16 @@ def register():
 
     form = RegisterForm()
     if form.validate_on_submit():
-        if User.objects(username=form.username.data).first():
-            flash("Username already taken.", "danger")
-        elif User.objects(email=form.email.data.lower()).first():
+        display_name = form.display_name.data.strip()
+        email = form.email.data.lower().strip()
+        if User.objects(email=email).first():
             flash("Email already registered.", "danger")
         else:
+            username = _unique_username(_slugify_username(display_name))
             user = User(
-                username=form.username.data.strip(),
-                email=form.email.data.lower().strip(),
-                display_name=form.display_name.data or form.username.data,
+                username=username,
+                email=email,
+                display_name=display_name,
             )
             user.set_password(form.password.data)
             user.save()
@@ -85,8 +109,8 @@ def forgot_password():
     form = ForgotPasswordForm()
     sent = False
     if form.validate_on_submit():
-        ident = form.identifier.data.strip()
-        user = User.objects(Q(username=ident) | Q(email=ident.lower())).first()
+        email = form.email.data.strip().lower()
+        user = User.objects(email=email).first()
         if user and user.is_active_user:
             token = user.issue_password_reset()
             reset_url = url_for("auth.reset_password", token=token, _external=True)

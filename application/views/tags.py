@@ -124,9 +124,38 @@ def edit(tag_name):
         return redirect(url_for("tags.detail", tag_name=tag.name))
     return render_template("tags/form.html", form=form, tag=tag)
 
+@tags_bp.route("/<tag_name>/move", methods=["POST"])
+@login_required
+def move(tag_name):
+    """Reparent a tag (drag-and-drop). ``parent`` body field is the
+    new parent tag name, empty string makes it top-level. Cycles are
+    rejected so a tag can't become its own ancestor."""
+    from flask import jsonify
+    user = current_user._get_current_object()
+    tag = user.tag_by_name(tag_name)
+    if not tag:
+        return jsonify({"error": "not found"}), 404
+    new_parent = (request.form.get("parent") or "").strip()
+    if new_parent and new_parent == tag.name:
+        return jsonify({"error": "tag can't be its own parent"}), 400
+    # Cycle check: walk up new_parent's chain, refuse if we hit ``tag``.
+    if new_parent:
+        cur = user.tag_by_name(new_parent)
+        depth = 0
+        while cur and depth < 20:
+            if cur.name == tag.name:
+                return jsonify({"error": "would create a cycle"}), 400
+            cur = user.tag_by_name(cur.parent) if cur.parent else None
+            depth += 1
+    tag.parent = new_parent or None
+    user.save()
+    return jsonify({"ok": True})
+
+
 @tags_bp.route("/<tag_name>/delete", methods=["POST"])
 @login_required
 def delete(tag_name):
+    from flask import jsonify
     user = current_user._get_current_object()
     tag = user.tag_by_name(tag_name)
     if not tag:
@@ -139,5 +168,7 @@ def delete(tag_name):
             other.parent = None
     user.tags = [t for t in user.tags if t.name != tag.name]
     user.save()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
     flash("Tag deleted.", "info")
     return redirect(url_for("tags.index"))

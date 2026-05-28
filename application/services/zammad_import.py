@@ -115,7 +115,6 @@ def import_for_user(
     project: Item | None = None,
     assignee_only: bool = True,
     include_closed: bool = False,
-    label: str | None = None,
     dry_run: bool = False,
 ) -> ZammadStats:
     """Pull tickets from Zammad and merge them into Cairn for ``user``.
@@ -125,11 +124,9 @@ def import_for_user(
     to drop tickets in the user's inbox. ``assignee_only`` filters to
     tickets owned by the token holder.
 
-    ``label`` is a Cairn-side tag attached to every imported task. The
-    sync also queries Cairn for all tasks already carrying that tag —
-    any that no longer appear in the Zammad response get dropped, so
-    the local list stays a faithful mirror. Empty disables the
-    orphan-cleanup pass.
+    Orphan reconcile: any task with ``source="zammad"`` whose
+    ``external_id`` didn't come back in this response is treated as
+    closed server-side and marked done in Cairn.
     """
     base = url.rstrip("/")
     if not base.endswith("/api/v1"):
@@ -156,41 +153,38 @@ def import_for_user(
         if assignee_only:
             return stats
 
-    # Push the assignee + state filters into Zammad via its "overview"
-    # mechanism — every Zammad install ships with a ``my_assigned``
-    # overview that scopes to owner=current_user + state not in
-    # closed/merged. That cuts the API roundtrips from "fetch all and
-    # filter" down to "fetch only what matters".
-    #
-    # If the user disabled assignee_only (or wants closed tickets too),
-    # we still fall back to the plain /tickets list — and we ALWAYS
-    # fall back if the overview path errors, so unusual Zammad
-    # configurations don't break the sync.
-    use_overview = assignee_only and not include_closed
+    # Server-side filter via /tickets/search with a Zammad query
+    # expression. ``owner_id:<me>`` scopes to tickets where the token
+    # holder is the owner — exactly the "mine" semantic the user
+    # expects, without pulling the entire instance's ticket list and
+    # filtering locally. (The ``my_assigned`` overview was unreliable:
+    # depending on the install it also returns participant / focus
+    # relationships, so we ended up either missing tickets or pulling
+    # everything visible.)
     overview_used = False
     tickets: list = []
 
-    if use_overview:
+    if assignee_only and me_id is not None:
         page = 1
         while True:
             try:
                 chunk = _request(
-                    base + "/tickets",
+                    base + "/tickets/search",
                     token,
                     params={
-                        "view": "my_assigned",
+                        "query": f"owner_id:{me_id}",
                         "expand": "true",
                         "per_page": 200,
                         "page": page,
                     },
                 )
             except ZammadError as exc:
-                stats.errors.append(f"overview my_assigned page {page}: {exc}")
+                stats.errors.append(f"owner search page {page}: {exc}")
                 tickets = []
                 break
             if not isinstance(chunk, list):
-                # Some Zammad versions wrap overview responses in
-                # ``{tickets, assets}``. Normalise.
+                # Some Zammad versions wrap the result in
+                # ``{tickets:[ids], assets:{Ticket:{...}}}``.
                 if isinstance(chunk, dict) and "tickets" in chunk:
                     ids = chunk.get("tickets") or []
                     assets = (chunk.get("assets") or {}).get("Ticket") or {}
@@ -271,22 +265,17 @@ def import_for_user(
 
     for raw in tickets:
         try:
-            _upsert_ticket(
-                user, raw, base, token, project, stats, dry_run, label,
-            )
+            _upsert_ticket(user, raw, base, token, project, stats, dry_run)
         except ZammadError as exc:
             stats.errors.append(f"ticket {raw.get('id')}: {exc}")
             stats.tickets_skipped += 1
 
-    # Orphan reconcile: any Cairn task with the sync label whose
-    # ``external_id`` points at a Zammad ticket that wasn't in this
-    # response is genuinely gone server-side — mark it done. Tasks
-    # that exist in Zammad but were filtered out by the user's
-    # options stay untouched.
-    if label and not dry_run:
-        _ensure_user_has_tag(user, label)
+    # Orphan reconcile: a task with source=zammad whose external_id
+    # didn't come back this run is closed server-side → mark done.
+    # Tasks filtered out by the user's options stay untouched.
+    if not dry_run:
         orphans = Item.objects(
-            owner=user, kind="task", tags=label,
+            owner=user, kind="task", source="zammad",
             external_id__startswith="zammad:",
         )
         for it in orphans:
@@ -312,7 +301,6 @@ def _upsert_ticket(
     project: Item | None,
     stats: ZammadStats,
     dry_run: bool,
-    label: str | None = None,
 ) -> "Item | None":
     """Create or update a Cairn task for a Zammad ticket and return it.
 
@@ -323,25 +311,17 @@ def _upsert_ticket(
     if not zid:
         stats.tickets_skipped += 1
         return None
+    # ``id`` is Zammad's internal numeric id (stable, used for dedup);
+    # ``number`` is the user-facing Ticket# shown in Zammad's UI. Both
+    # exist on every ticket object — we display ``number`` and dedupe
+    # by ``id``.
+    znum = str(raw.get("number") or "") or zid
 
     todoist_key = f"zammad:{zid}"
     title = (raw.get("title") or f"Zammad ticket {zid}").strip()[:500]
 
-    # Identification is strictly via the Zammad-stamped external_id …
+    # Identification is strictly via the Zammad-stamped external_id.
     existing = Item.objects(owner=user, external_id=todoist_key).first()
-    # … or, as a fallback, an item that already carries the user's
-    # configured sync label AND has the exact same title. Scoping the
-    # title match to label-tagged items keeps the fallback from
-    # claiming unrelated items (Jira tickets, manual entries) just
-    # because their titles happen to collide. No pattern matching —
-    # titles in Cairn can be anything.
-    if existing is None and label:
-        existing = Item.objects(
-            owner=user, kind__in=["task", "project"],
-            tags=label, title=title,
-        ).first()
-        if existing is not None and not existing.external_id:
-            existing.external_id = todoist_key
     priority = _PRIORITY_MAP.get((raw.get("priority") or "").lower())
     state = (raw.get("state") or "").lower()
     if state in _DONE_STATES:
@@ -367,24 +347,41 @@ def _upsert_ticket(
             stats.tickets_created += 1
         return None
 
-    # Mirror Zammad tags onto the Cairn task. Replace semantics — if a
-    # tag is missing in this response, it's been removed in Zammad and
-    # should go locally too. The sync-label (when configured) is
-    # always merged in so the orphan-reconcile pass can still find
-    # this task next run.
-    z_tags = raw.get("tags") or []
-    if isinstance(z_tags, str):
-        z_tags = [t.strip() for t in z_tags.split(",") if t.strip()]
-    final_tags = [t for t in z_tags if t]
-    if label and label not in final_tags:
-        final_tags.append(label)
-    if final_tags:
-        _ensure_user_has_tags(user, final_tags)
+    # Mirror Zammad tags onto the Cairn task. The Zammad side is
+    # authoritative for tags it owns — they live in ``external_tags``
+    # and get replaced wholesale on each sync. Anything the user added
+    # in Cairn (= tags present on the task but not in the old
+    # external_tags) is preserved untouched.
+    #
+    # Zammad's /tickets responses don't carry tags (they live in a
+    # separate object). We fetch them per ticket via /tags?object=
+    # Ticket&o_id=<id>. The endpoint returns ``{"tags": [...]}``.
+    new_external: list[str] = []
+    try:
+        tag_resp = _request(
+            base + "/tags", token,
+            params={"object": "Ticket", "o_id": zid},
+        )
+        z_tags = (tag_resp or {}).get("tags") if isinstance(tag_resp, dict) else []
+        if isinstance(z_tags, str):
+            z_tags = [t.strip() for t in z_tags.split(",") if t.strip()]
+        new_external = [t for t in (z_tags or []) if t]
+    except ZammadError as exc:
+        stats.errors.append(f"tags for {zid}: {exc}")
+    if new_external:
+        from application.services.external_tags import ensure_user_has_tags
+        ensure_user_has_tags(user, new_external, group="Zammad")
+
+    from application.services.external_tags import merge_external_tags
 
     if existing:
         existing.title = title
         existing.note = note
-        existing.tags = final_tags
+        existing.source = "zammad"
+        existing.external_ref = znum
+        existing.tags = merge_external_tags(
+            existing.tags, existing.external_tags, new_external)
+        existing.external_tags = new_external
         # Task vs project have completely different status vocabularies
         # (open/next/waiting vs active/on_hold/completed). The
         # ``cairn_status`` we compute from Zammad's state only fits
@@ -409,7 +406,10 @@ def _upsert_ticket(
             priority=priority,
             parent=project,
             external_id=todoist_key,
-            tags=final_tags,
+            external_ref=znum,
+            source="zammad",
+            tags=list(new_external),
+            external_tags=list(new_external),
         )
         item.save()
         stats.tickets_created += 1

@@ -16,7 +16,7 @@
   ('status',   'Status',      'bi-tag-fill'),
   ('priority', 'Priority',    'bi-flag'),
   ('tag',      'Tag',         'bi-tag'),
-  ('project',  'Project',     'bi-folder'),
+  ('project',  'Project',     'bi-collection'),
   ('due',      'Due date',    'bi-calendar-event'),
 ] %}
 
@@ -145,14 +145,14 @@
 {% if false %}
   <section class="mb-3">
     <h2 class="h6 text-muted small text-uppercase mb-2">
-      <i class="bi bi-folder"></i> Projects ({{ projects_with_dates|length }})
+      <i class="bi bi-collection"></i> Projects ({{ projects_with_dates|length }})
     </h2>
     {% for sp in projects_with_dates %}
       <div class="task-row sp-row" data-sp-id="{{ sp.pk }}">
         <div class="d-flex align-items-center gap-1">
           <span style="width: 1.25rem;"></span>
           <span style="width: 1.25rem;"></span>
-          <i class="bi bi-folder text-muted"></i>
+          <i class="bi bi-collection text-muted"></i>
         </div>
         <div>
           <a class="task-title text-decoration-none text-body"
@@ -200,7 +200,7 @@
       <div class="d-flex align-items-center gap-1">
         <span style="width: 1.25rem;"></span>
         <span style="width: 1.25rem;"></span>
-        <i class="bi {{ 'bi-folder2-open text-warning' if sp.is_folder else 'bi-folder text-muted' }}"></i>
+        <i class="bi {{ 'bi-folder2-open text-warning' if sp.is_folder else 'bi-collection text-muted' }}"></i>
       </div>
       <div>
         <a class="task-title text-decoration-none text-body"

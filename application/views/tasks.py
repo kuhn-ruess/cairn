@@ -701,7 +701,11 @@ def search():
     if not q:
         return render_template("tasks/list.html", title="Search", perspective="search", tasks=[])
     tasks = Item.objects(
-        _scope(user) & (Q(title__icontains=q) | Q(note__icontains=q))
+        _scope(user) & (
+            Q(title__icontains=q)
+            | Q(note__icontains=q)
+            | Q(external_ref__icontains=q)
+        )
     ).order_by("-updated_at").limit(200)
     return render_template(
         "tasks/list.html",
@@ -724,7 +728,9 @@ def quickjump():
     q = (request.args.get("q") or "").strip()
     if not q:
         return jsonify({"results": []})
-    base = _scope(user) & Q(title__icontains=q)
+    base = _scope(user) & (
+        Q(title__icontains=q) | Q(external_ref__icontains=q)
+    )
     projects = list(
         Item.objects(base, kind__in=["project", "folder"]).order_by("+name").limit(8)
     )
@@ -891,15 +897,30 @@ def toggle_flag(task_id):
 @tasks_bp.route("/<task_id>/delete", methods=["POST"])
 @login_required
 def delete(task_id):
+    from flask import jsonify
     from application.services.calendar_writeback import delete_task_calendar_events
     user = current_user._get_current_object()
     task = Item.objects(pk=task_id).first()
     if not task or task.owner != user:
         abort(404)
+    # Reparent any children (sub-tasks / nested items) up one level so
+    # we don't leave dangling references — those would crash
+    # mongoengine on the next dereference. Sub-tasks of a deleted
+    # task become tasks under the task's former parent (or the inbox
+    # if it was top-level).
+    Item.objects(parent=task).update(set__parent=task.parent)
     delete_task_calendar_events(task, user)
     task.delete()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
     flash("Item deleted.", "info")
-    return redirect(url_for("dashboard.home"))
+    # Stay on whatever list / perspective / project page the user came
+    # from. ``request.referrer`` is the previous URL; if it points to
+    # this task's own detail page (now gone), fall back to home.
+    back = request.referrer or ""
+    if not back or f"/tasks/{task_id}" in back:
+        back = url_for("dashboard.home")
+    return redirect(back)
 
 @tasks_bp.route("/quick-add", methods=["POST"])
 @login_required
@@ -1022,6 +1043,163 @@ def merge():
         "project_name": target.title,
         "html": html,
     })
+
+@tasks_bp.route("/<task_id>/move-options")
+@login_required
+def move_options(task_id):
+    """JSON list of suggested projects for moving this task.
+
+    Heuristic: when the task lives anywhere under a top-level
+    project / folder X, suggest *every* container in X's subtree
+    (sections, sub-projects, sub-folders) — those are the natural
+    destinations the user will pick when moving a task around their
+    project. Direct siblings of the task's current parent float to
+    the top so the most common move ("between sections of the same
+    project") is one keystroke. The full search via
+    ``/tasks/quickjump`` covers anything outside this subtree.
+
+    When the task is in the inbox we fall back to top-level
+    projects / folders.
+    """
+    from flask import jsonify
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_edited_by(user):
+        abort(404)
+
+    cur_parent = task.parent
+    q = (request.args.get("q") or "").strip().lower()
+
+    def _path_of(item) -> str:
+        """Full breadcrumb path of an item, root-first."""
+        parts: list[str] = []
+        cur = item
+        seen: set = set()
+        while cur and cur.pk not in seen:
+            seen.add(cur.pk)
+            parts.append(cur.name)
+            cur = cur.parent
+        return " › ".join(reversed(parts))
+
+    def _entry(p) -> dict:
+        return {
+            "id": str(p.pk),
+            "name": p.name,
+            "kind": p.kind,
+            "parent": (p.parent.name if p.parent else ""),
+            "path": _path_of(p),
+        }
+
+    # Free-text search across all the user's containers, regardless
+    # of subtree. Path-aware so typing "fmg / back" matches the
+    # "Backlog" section inside FMG.
+    if q:
+        all_containers = list(
+            Item.objects(
+                (Q(owner=user) | Q(members=user)),
+                kind__in=["project", "folder", "section"],
+                status="active",
+            ).order_by("+name").limit(800)
+        )
+        scored = []
+        for p in all_containers:
+            if cur_parent and p.pk == cur_parent.pk:
+                continue
+            entry = _entry(p)
+            haystack = (entry["path"] + " " + entry["name"]).lower()
+            if all(tok in haystack for tok in q.split()):
+                scored.append(entry)
+        return jsonify({
+            "current_project_id": str(cur_parent.pk) if cur_parent else "",
+            "current_project_name": cur_parent.name if cur_parent else "Inbox",
+            "suggestions": scored[:80],
+            "query": q,
+        })
+
+    suggestions: list[dict] = []
+    if cur_parent is None:
+        # Inbox — show top-level active containers.
+        for p in Item.objects(
+            (Q(owner=user) | Q(members=user)),
+            kind__in=["project", "folder"],
+            parent=None, status="active",
+        ).order_by("+name").limit(50):
+            suggestions.append(_entry(p))
+        return jsonify({
+            "current_project_id": "",
+            "current_project_name": "Inbox",
+            "suggestions": suggestions,
+        })
+
+    # Anchor: walk up from cur_parent until we find the first ancestor
+    # whose direct children include something OTHER than cur_parent's
+    # chain. That's the "containing project" the user thinks of —
+    # e.g. for a task inside FMG/Monitoring/, we anchor on FMG (it
+    # holds the sections + sub-projects), not on Monitoring (which
+    # only has the task itself) or on the top-level "Arbeit" (which
+    # would pull in unrelated projects).
+    anchor = cur_parent
+    seen: set = set()
+    while anchor and anchor.pk not in seen:
+        seen.add(anchor.pk)
+        other = Item.objects(
+            (Q(owner=user) | Q(members=user)),
+            parent=anchor.pk,
+            kind__in=["project", "folder", "section"],
+            status="active",
+            pk__ne=cur_parent.pk,
+        ).limit(1)
+        if other.first():
+            break
+        anchor = anchor.parent
+
+    # BFS through the anchor's subtree to collect every container, in
+    # alphabetical order at each level. Exclude cur_parent itself.
+    descendants: list = []
+    if anchor and anchor.pk != cur_parent.pk:
+        descendants.append(anchor)
+    frontier = [anchor] if anchor else []
+    visited_pks: set = set()
+    while frontier:
+        nxt = []
+        kids = list(Item.objects(
+            (Q(owner=user) | Q(members=user)),
+            parent__in=[f.pk for f in frontier],
+            kind__in=["project", "folder", "section"],
+            status="active",
+        ).order_by("+name"))
+        for k in kids:
+            if k.pk in visited_pks or k.pk == cur_parent.pk:
+                continue
+            visited_pks.add(k.pk)
+            descendants.append(k)
+            nxt.append(k)
+        frontier = nxt
+
+    # Direct siblings of cur_parent bubble to the top — that's the
+    # most common "move between sections of the same project" case.
+    sibling_pks = {
+        str(s.pk) for s in Item.objects(
+            (Q(owner=user) | Q(members=user)),
+            parent=cur_parent.parent,
+            kind__in=["project", "folder", "section"],
+            status="active",
+            pk__ne=cur_parent.pk,
+        )
+    }
+
+    first, rest = [], []
+    for p in descendants:
+        entry = _entry(p)
+        (first if str(p.pk) in sibling_pks else rest).append(entry)
+    suggestions = first + rest
+
+    return jsonify({
+        "current_project_id": str(cur_parent.pk) if cur_parent else "",
+        "current_project_name": cur_parent.name if cur_parent else "Inbox",
+        "suggestions": suggestions[:80],
+    })
+
 
 @tasks_bp.route("/<task_id>/move", methods=["POST"])
 @login_required

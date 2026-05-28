@@ -83,14 +83,10 @@ class User(UserMixin, Document):
     last_todoist_sync_at = DateTimeField()
 
     # Zammad import — URL + token live with the user so each user can
-    # point at their own ticketing instance.
+    # point at their own ticketing instance. Orphan reconcile keys off
+    # ``Item.source="zammad"`` now, no separate label tag needed.
     zammad_url = StringField()
     zammad_token = StringField()
-    # Cairn-side tag attached to every Zammad-imported task. The sync
-    # queries Cairn for tasks carrying this tag to know what already
-    # exists, then updates the ones still in Zammad and drops the
-    # orphans. Empty disables the orphan-cleanup pass.
-    zammad_label = StringField()
     show_zammad_sync = BooleanField(default=False)
     last_zammad_sync_at = DateTimeField()
 

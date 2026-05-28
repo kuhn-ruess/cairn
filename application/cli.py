@@ -186,13 +186,11 @@ def import_todoist(username, token, include_completed, include_comments, project
 @click.option("--url", required=True, help="Zammad instance URL.")
 @click.option("--token", required=True, help="Zammad API token.")
 @click.option("--project", "project_id", default=None, help="Cairn project pk to import into.")
-@click.option("--label", default=None,
-              help="Cairn-side tag attached to every imported task; orphans get dropped.")
 @click.option("--assignee-only/--all-tickets", default=True,
               help="Only tickets assigned to the token holder (default).")
 @click.option("--include-closed/--no-include-closed", default=False)
 @click.option("--dry-run", is_flag=True, help="Don't write to the DB.")
-def import_zammad(username, url, token, project_id, label, assignee_only, include_closed, dry_run):
+def import_zammad(username, url, token, project_id, assignee_only, include_closed, dry_run):
     """Import tickets from a Zammad instance for a user."""
     from application.models.item import Item
     from application.services.zammad_import import import_for_user as _imp, ZammadError
@@ -211,7 +209,6 @@ def import_zammad(username, url, token, project_id, label, assignee_only, includ
             project=target,
             assignee_only=assignee_only,
             include_closed=include_closed,
-            label=label,
             dry_run=dry_run,
         )
     except ZammadError as exc:

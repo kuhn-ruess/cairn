@@ -15,6 +15,25 @@
  *   ?        — show shortcut help
  */
 (function () {
+  // Track the row the cursor is currently over — the ``d`` shortcut
+  // acts on it. Matches list (.task-row), tree-task (.tree-task),
+  // tree-project (.tree-project) and tag-row (.tag-row) variants.
+  // Each carries data-task-id, data-project-id or data-tag-name
+  // which the delete helper uses to pick the right endpoint.
+  let lastHoveredRow = null;
+  document.addEventListener("mouseover", (ev) => {
+    const row = ev.target.closest && ev.target.closest(
+      ".task-row[data-task-id], .tree-task[data-task-id], "
+      + ".tree-project[data-project-id], .tag-row[data-tag-name]"
+    );
+    if (row) lastHoveredRow = row;
+  });
+  document.addEventListener("mouseout", () => {
+    if (lastHoveredRow && !lastHoveredRow.isConnected) {
+      lastHoveredRow = null;
+    }
+  });
+
   const ROUTES = {
     i: "/tasks/inbox",
     t: "/tasks/today",
@@ -83,6 +102,31 @@
       const m = document.getElementById("shortcutsModal");
       if (m && window.bootstrap) {
         bootstrap.Modal.getOrCreateInstance(m).show();
+      }
+      return;
+    }
+
+    if (e.key === "m" || e.key === "M") {
+      // Move the task currently under the cursor to a different
+      // project via the modal picker.
+      if (!lastHoveredRow || !lastHoveredRow.isConnected) return;
+      const tid = lastHoveredRow.dataset.taskId;
+      if (!tid) return;
+      if (typeof window.bktodoOpenMoveTaskModal === "function") {
+        e.preventDefault();
+        window.bktodoOpenMoveTaskModal(tid, lastHoveredRow);
+      }
+      return;
+    }
+
+    if (e.key === "d" || e.key === "D") {
+      // Delete the row currently under the cursor (task / project /
+      // folder / section). The shared helper routes to the right
+      // endpoint based on which data-* attribute the row carries.
+      if (!lastHoveredRow || !lastHoveredRow.isConnected) return;
+      if (typeof window.bktodoDeleteRow === "function") {
+        e.preventDefault();
+        window.bktodoDeleteRow(lastHoveredRow);
       }
     }
   });

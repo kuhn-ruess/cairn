@@ -23,6 +23,17 @@
       {{ form.name(class="form-control form-control-lg", placeholder="Name", id="proj-name-input") }}
       {{ form.color(type="hidden", id="proj-color-hex") }}
     </div>
+    {% if project and (project.external_ref or project.source) %}
+      <div class="form-text small text-muted mt-1 d-flex gap-2 flex-wrap">
+        {% if project.source %}
+          <span class="source-chip source-{{ project.source }}">{{ project.source }}</span>
+        {% endif %}
+        {% if project.external_ref %}
+          <span><i class="bi bi-link-45deg"></i>
+            <code>{{ project.external_ref }}</code></span>
+        {% endif %}
+      </div>
+    {% endif %}
   </div>
 
   <div class="inspector-section">
@@ -110,11 +121,20 @@
 
 <script>
 (function () {
-  // Sync color picker → hidden form input on every change.
+  // Sync color picker ↔ hidden form input.
+  // If the form already has a saved colour, push it into the picker;
+  // otherwise capture the picker's current value into the hidden
+  // field so saving without touching the picker still persists a
+  // colour (the picker defaults to a sensible swatch from the
+  // template).
   const picker = document.getElementById("proj-color-picker");
   const hex = document.getElementById("proj-color-hex");
   if (picker && hex) {
-    if (hex.value) picker.value = hex.value;
+    if (hex.value) {
+      picker.value = hex.value;
+    } else {
+      hex.value = picker.value;
+    }
     picker.addEventListener("input", () => { hex.value = picker.value; });
   }
   const sel = document.querySelector('select[name="kind"]');

@@ -21,17 +21,17 @@
   <fieldset class="mb-3">
     <legend class="form-label small text-uppercase text-muted">Mode</legend>
     <div class="form-check">
-      <input class="form-check-input" type="radio" name="mode" id="mode-import"
-             value="import" checked>
-      <label class="form-check-label" for="mode-import">
-        Import — always create a new task per row
+      <input class="form-check-input" type="radio" name="mode" id="mode-sync"
+             value="sync" checked>
+      <label class="form-check-label" for="mode-sync">
+        Sync — match existing tasks by <code>csv_id</code> and update them
       </label>
     </div>
     <div class="form-check">
-      <input class="form-check-input" type="radio" name="mode" id="mode-sync"
-             value="sync">
-      <label class="form-check-label" for="mode-sync">
-        Sync — match existing tasks by <code>csv_id</code> and update them
+      <input class="form-check-input" type="radio" name="mode" id="mode-import"
+             value="import">
+      <label class="form-check-label" for="mode-import">
+        Import — always create a new task per row
       </label>
     </div>
   </fieldset>
@@ -40,7 +40,7 @@
     <input class="form-check-input" type="checkbox" name="archive_missing"
            value="1" id="archive-missing">
     <label class="form-check-label" for="archive-missing">
-      In sync mode, archive (set to dropped) tasks that don't appear in the CSV
+      In sync mode, complete (set to done) tasks that don't appear in the CSV
     </label>
   </div>
 

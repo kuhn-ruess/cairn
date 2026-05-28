@@ -66,13 +66,19 @@
         clearMergeTarget();
         cancelDwell();
       },
-      // onMove fires each time the dragged item would be inserted next
-      // to ``ev.related``. We use it to start the dwell timer when the
-      // cursor lingers over a real task row — that row becomes the
-      // merge target if the user holds still long enough. Returning
-      // ``true`` lets Sortable's normal reordering proceed; the merge
-      // is resolved in onEnd.
-      onMove: (ev) => {
+      // Merge mode only activates while the user holds ALT during the
+      // drag — otherwise the row the cursor passes over would dwell
+      // into a merge target between two reorder positions, making
+      // normal reordering impossible. With this gate, plain drag =
+      // reorder, ALT+drag onto a row = "drop into this task, make it
+      // a project".
+      onMove: (ev, original) => {
+        const altHeld = !!(original && original.altKey);
+        if (!altHeld) {
+          cancelDwell();
+          clearMergeTarget();
+          return true;
+        }
         const related = ev.related;
         if (!related || !related.dataset || !related.dataset.taskId) {
           cancelDwell();
@@ -89,14 +95,15 @@
         document.body.classList.remove("is-dragging");
         const target = mergeTarget;
         const source = dragSource;
+        const altHeld = !!(ev.originalEvent && ev.originalEvent.altKey);
         clearMergeTarget();
         cancelDwell();
         dragSource = null;
-        if (target && source && target !== source
+        if (altHeld && target && source && target !== source
             && target.dataset.taskId && source.dataset.taskId
             && target.dataset.taskId !== source.dataset.taskId) {
-          // Drag-merge wins over the regular move: drop the source
-          // under the target (which gets promoted to a project).
+          // Drag-merge: source becomes a child of target, which gets
+          // promoted to a project.
           mergeTasks(source, target);
           return;
         }
@@ -140,6 +147,138 @@
   }
   window.bktodoRefreshMain = refreshMain;
   document.addEventListener("bktodo:refresh-needed", refreshMain);
+
+  // ---- Generic item delete -------------------------------------------
+  // Powers the hover-trash buttons on tasks / sections / projects /
+  // folders and the ``d`` keyboard shortcut. The button or trigger
+  // carries ``data-delete-url`` (where to POST) and ``data-row-selector``
+  // (CSS selector for the DOM row to fade out on success). No confirm
+  // dialog — instant action, the row animates out so the feedback is
+  // immediate.
+  async function deleteItem(url, rowSelector) {
+    if (!url) return false;
+    const row = rowSelector ? document.querySelector(rowSelector) : null;
+    const fd = new FormData();
+    fd.append("csrf_token", csrfToken());
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        body: fd,
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      });
+      if (!resp.ok) {
+        flashError(`Delete failed (${resp.status}).`);
+        return false;
+      }
+      if (row) {
+        // Preserve scroll: take the row's offset before we collapse
+        // it; afterward scroll any deficit back so the viewport
+        // doesn't visibly jump. Browser scroll-anchoring usually
+        // handles this, but on long pages with sticky elements the
+        // collapse can still nudge things upward.
+        const before = row.getBoundingClientRect().top;
+        const scrollY = window.scrollY;
+        row.classList.add("task-row-leaving");
+        setTimeout(() => {
+          row.remove();
+          // If something above shifted, compensate.
+          if (window.scrollY < scrollY) {
+            window.scrollTo({ top: scrollY, behavior: "instant" });
+          }
+        }, 200);
+      }
+      return true;
+    } catch (err) {
+      flashError("Delete failed (network).");
+      return false;
+    }
+  }
+  // Resolve a row to its delete URL + selector. Works for tasks (in
+  // both list and tree variants), projects/folders/sections in the
+  // tree, and tags in the tag-tree — anything that carries the right
+  // data attribute. Returns ``null`` if the row isn't deletable.
+  function _deleteSpecFor(row) {
+    if (!row) return null;
+    const tid = row.dataset.taskId;
+    if (tid) {
+      return { url: `/tasks/${tid}/delete`, selector: `[data-task-id="${tid}"]` };
+    }
+    const pid = row.dataset.projectId;
+    if (pid) {
+      return { url: `/projects/${pid}/delete`, selector: `.tree-project[data-project-id="${pid}"]` };
+    }
+    const tag = row.dataset.tagName;
+    if (tag) {
+      const enc = encodeURIComponent(tag);
+      return {
+        url: `/tags/${enc}/delete`,
+        selector: `.tag-row[data-tag-name="${tag.replace(/"/g, '\\"')}"]`,
+        confirm: `Delete tag “${tag}” and remove it from every task?`,
+      };
+    }
+    return null;
+  }
+  window.bktodoDeleteRow = function (row) {
+    const spec = _deleteSpecFor(row);
+    if (!spec) return false;
+    if (spec.confirm && !window.confirm(spec.confirm)) return false;
+    return deleteItem(spec.url, spec.selector);
+  };
+  // Keep the older API around for the ``d`` shortcut in shortcuts.js.
+  window.bktodoDeleteTask = function (id, _title) {
+    return deleteItem(`/tasks/${id}/delete`, `[data-task-id="${id}"]`);
+  };
+
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".item-delete-btn, .task-delete-btn");
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const url = btn.dataset.deleteUrl ||
+      (btn.dataset.taskId ? `/tasks/${btn.dataset.taskId}/delete` : null) ||
+      (btn.dataset.projectId ? `/projects/${btn.dataset.projectId}/delete` : null);
+    const selector = btn.dataset.rowSelector || (() => {
+      if (btn.dataset.taskId) return `[data-task-id="${btn.dataset.taskId}"]`;
+      if (btn.dataset.projectId) return `.tree-project[data-project-id="${btn.dataset.projectId}"]`;
+      return null;
+    })();
+    deleteItem(url, selector);
+  });
+
+  // ---- Unwrap: drop the container, keep the contents ----------------
+  // Sections / projects that wrap tasks the user wants to keep get
+  // an extra button next to "delete". Hits ``/projects/<id>/unwrap``,
+  // then refreshes <main> so the kids appear under their new parent.
+  document.addEventListener("click", async (ev) => {
+    const btn = ev.target.closest(".item-unwrap-btn");
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const url = btn.dataset.unwrapUrl;
+    if (!url) return;
+    const name = btn.dataset.unwrapName || "this item";
+    if (!window.confirm(`Unwrap “${name}”? The container goes away, its tasks move up.`)) return;
+    const fd = new FormData();
+    fd.append("csrf_token", csrfToken());
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        body: fd,
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      });
+      if (!resp.ok) {
+        flashError(`Unwrap failed (${resp.status}).`);
+        return;
+      }
+      if (typeof window.bktodoRefreshMain === "function") {
+        window.bktodoRefreshMain();
+      } else {
+        window.location.reload();
+      }
+    } catch (err) {
+      flashError("Unwrap failed (network).");
+    }
+  });
 
   async function mergeTasks(sourceRow, targetRow) {
     const fd = new FormData();
@@ -349,4 +488,98 @@
   }
 
   document.querySelectorAll(".task-list, .tree-tasks").forEach(init);
+
+  // ---- Project-sidebar drop targets ---------------------------------
+  // Each ``.ps-drop-target`` <li> in the project sidebar is a tiny
+  // Sortable container in the shared ``bktodo-tasks`` group. Drop a
+  // task onto it and we POST a move to that project's pk (or the
+  // empty string for the Inbox row), then remove the row from the
+  // sidebar — it doesn't belong there visually.
+  function initSidebarDrop(li) {
+    if (li.dataset.sortableInit) return;
+    li.dataset.sortableInit = "1";
+    new Sortable(li, {
+      group: "bktodo-tasks",
+      animation: 0,
+      sort: false,             // don't let items rearrange inside the sidebar
+      ghostClass: "drag-ghost",
+      onAdd: async (ev) => {
+        const row = ev.item;
+        const taskId = row.dataset.taskId;
+        const newParent = li.dataset.targetProject || "";
+        // Yank the visual artefact — the sidebar isn't a real list.
+        row.remove();
+        if (!taskId) return;
+        const fd = new FormData();
+        fd.append("csrf_token", csrfToken());
+        fd.append("project_id", newParent);
+        try {
+          const resp = await fetch(`/tasks/${taskId}/move`, {
+            method: "POST", body: fd,
+            headers: { "X-Inspector-Request": "1" },
+          });
+          if (!resp.ok) {
+            flashError(`Move failed (${resp.status}).`);
+            return;
+          }
+          li.classList.add("ps-drop-flash");
+          setTimeout(() => li.classList.remove("ps-drop-flash"), 600);
+          refreshMain();
+        } catch (err) {
+          flashError("Move failed (network).");
+        }
+      },
+    });
+  }
+  document.querySelectorAll(".ps-drop-target").forEach(initSidebarDrop);
+
+  // ---- Sub-project rows as drop targets -----------------------------
+  // In the project detail view, each ``.sp-row[data-sp-id]`` becomes
+  // its own Sortable container in the shared ``bktodo-tasks`` group
+  // so dropping a task on it re-parents the task INTO that sub-project
+  // — same convenience as the sidebar, but for the in-page list.
+  function initSubProjectDrop(row) {
+    if (row.dataset.spDropInit) return;
+    row.dataset.spDropInit = "1";
+    new Sortable(row, {
+      group: { name: "bktodo-tasks", pull: false, put: true },
+      sort: false,
+      animation: 0,
+      onAdd: async (ev) => {
+        const item = ev.item;
+        const taskId = item.dataset.taskId;
+        const newParent = row.dataset.spId;
+        // The sp-row isn't a real list; pull the artefact back out.
+        item.remove();
+        if (!taskId || !newParent) return;
+        const fd = new FormData();
+        fd.append("csrf_token", csrfToken());
+        fd.append("project_id", newParent);
+        try {
+          const resp = await fetch(`/tasks/${taskId}/move`, {
+            method: "POST", body: fd,
+            headers: { "X-Inspector-Request": "1" },
+          });
+          if (!resp.ok) {
+            flashError(`Move failed (${resp.status}).`);
+            return;
+          }
+          row.classList.add("sp-drop-flash");
+          setTimeout(() => row.classList.remove("sp-drop-flash"), 600);
+          refreshMain();
+        } catch (err) {
+          flashError("Move failed (network).");
+        }
+      },
+    });
+  }
+  document.querySelectorAll(".sp-row[data-sp-id]").forEach(initSubProjectDrop);
+
+  // Refresh re-renders <main>, which replaces sp-rows. Hook in so the
+  // freshly-rendered ones become drop targets too.
+  const _origRefresh = window.bktodoRefreshMain;
+  window.bktodoRefreshMain = async function () {
+    if (typeof _origRefresh === "function") await _origRefresh();
+    document.querySelectorAll(".sp-row[data-sp-id]").forEach(initSubProjectDrop);
+  };
 })();

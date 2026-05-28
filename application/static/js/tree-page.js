@@ -86,11 +86,14 @@
   }
 
   // ---- Live filter -----------------------------------------------------
-  // Hides tasks and projects whose text doesn't match the query, but
-  // keeps ancestors of matches visible so the user can see WHERE the
-  // matching items live and still drag them around.
-  function applyFilter(query) {
-    const q = (query || "").trim().toLowerCase();
+  // Hides projects whose text doesn't match the query, plus tasks if
+  // the "projects only" checkbox is OFF. Ancestors of matches stay
+  // visible. The Inbox (top-level loose tasks, ``data-project-id=""``)
+  // is always fully visible — it's the move-out staging ground.
+  function applyFilter() {
+    const input = document.getElementById("tree-filter");
+    const projectsOnly = !!document.getElementById("tree-filter-projects-only")?.checked;
+    const q = (input?.value || "").trim().toLowerCase();
     const root = document.querySelector(".tree-root");
     if (!root) return;
 
@@ -102,15 +105,23 @@
 
     if (!q) return;  // empty filter shows everything
 
-    // First pass: mark every item that matches the query.
-    const matchSelector = "[data-filter-text]";
-    root.querySelectorAll(matchSelector).forEach((el) => {
+    // First pass: mark items that match the query. In "projects only"
+    // mode only project rows can match — but task rows are still left
+    // visible (they aren't hidden later either).
+    const sel = projectsOnly
+      ? ".tree-project[data-filter-text]"
+      : "[data-filter-text]";
+    const directMatches = [];
+    root.querySelectorAll(sel).forEach((el) => {
       const text = el.dataset.filterText || "";
-      if (text.includes(q)) el.classList.add("tree-filter-match");
+      if (text.includes(q)) {
+        el.classList.add("tree-filter-match");
+        directMatches.push(el);
+      }
     });
 
     // Promote ancestors: any element containing a match stays visible.
-    root.querySelectorAll(".tree-filter-match").forEach((el) => {
+    directMatches.forEach((el) => {
       let cur = el.parentElement;
       while (cur && cur !== root) {
         if (cur.matches && cur.matches(".tree-project, .tree-task")) {
@@ -120,8 +131,33 @@
       }
     });
 
-    // Hide anything that didn't match and isn't an ancestor of a match.
-    root.querySelectorAll(".tree-project, .tree-task").forEach((el) => {
+    // When a project matches by NAME, the user expects everything it
+    // contains to remain visible — sections (which have their own
+    // names that won't include the query), sub-projects, and all
+    // tasks at any depth. Without this, FMG matches but its sections
+    // (\"Backlog\", \"Warte auf Antwort\", …) wouldn't, and the tasks
+    // inside them would vanish.
+    directMatches
+      .filter((el) => el.classList.contains("tree-project"))
+      .forEach((proj) => {
+        proj.querySelectorAll(".tree-project, .tree-task").forEach((d) =>
+          d.classList.add("tree-filter-match"));
+      });
+
+    // Always-on lanes: the Inbox container and everything inside it.
+    const inbox = root.querySelector('.tree-project[data-project-id=""]');
+    if (inbox) {
+      inbox.classList.add("tree-filter-match");
+      inbox.querySelectorAll(".tree-task").forEach((el) =>
+        el.classList.add("tree-filter-match"));
+    }
+
+    // Hide projects that didn't match (and aren't ancestors). In
+    // "projects only" mode tasks are left untouched — they ride along
+    // with their visible parent. In default mode unmatched tasks
+    // outside the inbox get hidden too.
+    const hideSel = projectsOnly ? ".tree-project" : ".tree-project, .tree-task";
+    root.querySelectorAll(hideSel).forEach((el) => {
       if (!el.classList.contains("tree-filter-match")) {
         el.classList.add("tree-filter-hidden");
       }
@@ -131,12 +167,14 @@
   function bindFilter() {
     const input = document.getElementById("tree-filter");
     const clearBtn = document.getElementById("tree-filter-clear");
+    const projOnly = document.getElementById("tree-filter-projects-only");
     if (!input) return;
-    input.addEventListener("input", () => applyFilter(input.value));
+    input.addEventListener("input", applyFilter);
+    if (projOnly) projOnly.addEventListener("change", applyFilter);
     if (clearBtn) {
       clearBtn.addEventListener("click", () => {
         input.value = "";
-        applyFilter("");
+        applyFilter();
         input.focus();
       });
     }
@@ -237,16 +275,25 @@
     document.addEventListener("bktodo:refresh-needed", () => {
       setTimeout(() => initProjectSortables(document), 0);
     });
-    // Wrap bktodoRefreshMain so we also re-init project sortables once
-    // the new DOM has been swapped in.
+    // Wrap bktodoRefreshMain so we also re-init project sortables and
+    // restore the filter input + checkbox state after the DOM swap
+    // (a full ``<main>`` replace would otherwise blank them on every
+    // drag-drop, which throws away the filter the user was applying).
     const origRefresh = window.bktodoRefreshMain;
     if (typeof origRefresh === "function") {
       window.bktodoRefreshMain = async function () {
+        const oldInput = document.getElementById("tree-filter");
+        const oldCheck = document.getElementById("tree-filter-projects-only");
+        const savedQuery = oldInput ? oldInput.value : "";
+        const savedProjOnly = !!(oldCheck && oldCheck.checked);
         await origRefresh();
         initProjectSortables(document);
-        // Re-apply the active filter to the new DOM.
-        const input = document.getElementById("tree-filter");
-        if (input && input.value) applyFilter(input.value);
+        // Restore filter UI state, then re-apply.
+        const newInput = document.getElementById("tree-filter");
+        const newCheck = document.getElementById("tree-filter-projects-only");
+        if (newInput) newInput.value = savedQuery;
+        if (newCheck) newCheck.checked = savedProjOnly;
+        applyFilter();
       };
     }
     initProjectSortables(document);

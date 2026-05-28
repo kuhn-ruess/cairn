@@ -1,16 +1,16 @@
 {% extends "layout/base.html" %}
 {% block title %}Tree · Cairn{% endblock %}
 
-{% macro task_list(project_id, depth=0) %}
+{% macro task_list(parent_id, depth=0) %}
   <ul class="tree-tasks list-unstyled mb-1"
       style="margin-left: {{ depth * 18 + 14 }}px;"
-      data-target-project="{{ project_id or '' }}">
-    {% for t in tasks_by_project.get(project_id, []) %}
+      data-target-project="{{ parent_id or '' }}">
+    {% for t in tasks_by_project.get(parent_id, []) %}
       <li class="tree-task" data-task-id="{{ t.pk }}" data-task-status="{{ t.status }}"
           data-filter-text="{{ t.title|lower }}">
         <i class="bi bi-grip-vertical text-muted task-handle"></i>
         <i class="bi bi-{% if t.flagged %}flag-fill text-warning{% else %}circle{% endif %} me-1"></i>
-        <a href="{{ url_for('tasks.edit', task_id=t.pk) }}"
+        <a href="{{ url_for('tasks.detail', task_id=t.pk) }}"
            data-inspector-url="{{ url_for('tasks.edit', task_id=t.pk) }}"
            data-inspector-title="{{ t.title }}"
            class="text-decoration-none text-body">{{ t.title }}</a>
@@ -21,6 +21,28 @@
         {% endif %}
         {% if t.due_date %}
           <span class="text-muted small ms-1">· {{ t.due_date|relativedate }}</span>
+        {% endif %}
+        {% if t.source %}
+          <span class="source-chip source-{{ t.source }} ms-1">{{ t.source }}</span>
+        {% endif %}
+        {% if t.external_ref %}
+          <span class="external-id-chip ms-1" title="External ticket reference">
+            <i class="bi bi-link-45deg"></i> {{ t.external_ref }}
+          </span>
+        {% endif %}
+        <span class="tree-row-actions ms-auto">
+          <button type="button" class="tree-action-btn task-delete-btn"
+                  data-task-id="{{ t.pk }}" data-task-title="{{ t.title }}"
+                  title="Delete task (d)">
+            <i class="bi bi-trash"></i>
+          </button>
+        </span>
+        {# Sub-tasks (where parent.kind == 'task') — recurse so they
+           appear nested under their parent. Same data-target-project
+           on the inner list so drag-and-drop into the sub-task lane
+           re-parents to the parent task. #}
+        {% if tasks_by_project.get(t.pk|string) %}
+          {{ task_list(t.pk|string, depth + 1) }}
         {% endif %}
       </li>
     {% endfor %}
@@ -42,10 +64,18 @@
       {% elif p.is_folder %}
         <i class="bi bi-folder2-open text-warning"></i>
       {% else %}
-        <i class="bi bi-folder text-muted"></i>
+        <i class="bi bi-collection text-info"></i>
       {% endif %}
       <a href="{{ url_for('projects.detail', project_id=p.pk) }}"
          class="text-decoration-none">{{ p.name }}</a>
+      {% if p.source %}
+        <span class="source-chip source-{{ p.source }} ms-1">{{ p.source }}</span>
+      {% endif %}
+      {% if p.external_ref %}
+        <span class="external-id-chip ms-1" title="External ticket reference">
+          <i class="bi bi-link-45deg"></i> {{ p.external_ref }}
+        </span>
+      {% endif %}
 
       <span class="tree-row-actions ms-auto">
         {% if is_empty_project %}
@@ -64,7 +94,7 @@
             <ul class="dropdown-menu">
               <li><a class="dropdown-item tree-quickadd-here" href="#"
                      data-parent-id="{{ p.pk }}" data-kind="project">
-                <i class="bi bi-folder text-muted"></i> Project
+                <i class="bi bi-collection text-info"></i> Project
               </a></li>
               <li><a class="dropdown-item tree-quickadd-here" href="#"
                      data-parent-id="{{ p.pk }}" data-kind="folder">
@@ -80,11 +110,16 @@
             <i class="bi bi-plus-lg"></i>
           </button>
         {% endif %}
-        <a class="tree-action-btn" href="{{ url_for('projects.edit', project_id=p.pk) }}"
-           data-inspector-url="{{ url_for('projects.edit', project_id=p.pk) }}"
-           data-inspector-title="{{ p.name }}" title="Edit">
-          <i class="bi bi-pencil"></i>
-        </a>
+        <button type="button" class="tree-action-btn"
+                data-inspector-url="{{ url_for('projects.edit', project_id=p.pk) }}"
+                data-inspector-title="{{ p.name }}" title="Open inspector">
+          <i class="bi bi-info-circle"></i>
+        </button>
+        <button type="button" class="tree-action-btn item-delete-btn"
+                data-project-id="{{ p.pk }}"
+                title="Delete {{ p.kind }} (d)">
+          <i class="bi bi-trash"></i>
+        </button>
       </span>
     </div>
     {{ task_list(p.pk|string, depth + 1) }}
@@ -105,9 +140,15 @@
     <div class="input-group input-group-sm tree-filter-group">
       <span class="input-group-text"><i class="bi bi-search"></i></span>
       <input type="search" id="tree-filter" class="form-control form-control-sm"
-             placeholder="Filter tasks &amp; projects…" autocomplete="off">
+             placeholder="Filter projects (and tasks)…" autocomplete="off">
       <button type="button" class="btn btn-outline-secondary" id="tree-filter-clear"
               title="Clear filter">×</button>
+    </div>
+    <div class="form-check form-check-inline ms-1" title="Search by project name only — leave tasks alone">
+      <input type="checkbox" class="form-check-input" id="tree-filter-projects-only">
+      <label class="form-check-label small text-muted" for="tree-filter-projects-only">
+        projects only
+      </label>
     </div>
     <form id="tree-quickadd-form" class="d-flex gap-1 align-items-center ms-auto">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -118,7 +159,7 @@
              style="min-width: 240px;" autocomplete="off" required>
       <button type="submit" class="btn btn-sm btn-primary" data-kind="project"
               title="Create as project">
-        <i class="bi bi-folder"></i> Project
+        <i class="bi bi-collection"></i> Project
       </button>
       <button type="submit" class="btn btn-sm btn-outline-warning" data-kind="folder"
               title="Create as folder">
@@ -127,7 +168,7 @@
     </form>
   </div>
   <div class="text-muted small mt-1">
-    Drag tasks between projects · drop task on task → makes it a project · drag projects to reorder or nest.
+    Drag tasks between projects · <kbd>Alt</kbd>+drop task on task → makes it a project · drag projects to reorder or nest.
   </div>
 </div>
 

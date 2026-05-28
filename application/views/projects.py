@@ -124,10 +124,57 @@ def index():
     if not show_inactive:
         qs = qs.filter(Q(kind="folder") | Q(status="active"))
     projects = list(qs.order_by("+name"))
+
+    # Group-by: when the user has a tag with children, projects can be
+    # grouped by which child tag they carry. Pick the parent via
+    # ``?group_by=<tag>``; if absent, fall back to a tag literally
+    # named "Group" so the convention "create a 'Group' tag, drop
+    # sub-tags into it" just works out of the box.
+    requested_group_by = (request.args.get("group_by") or "").strip()
+    group_parent = (requested_group_by
+                    or ("Group" if user.tag_by_name("Group") else ""))
+    groups = None
+    if group_parent:
+        # Dedupe: a stray duplicate Tag embedded doc with the same name
+        # would otherwise produce two group headers with the same label.
+        children_set: set = set()
+        children: list[str] = []
+        for t in (user.tags or []):
+            if t.parent == group_parent and t.name and t.name not in children_set:
+                children_set.add(t.name)
+                children.append(t.name)
+        children.sort(key=str.lower)
+        if children:
+            buckets: dict[str, list] = {c: [] for c in children}
+            ungrouped: list = []
+            seen_projects: set = set()
+            for p in projects:
+                if p.pk in seen_projects:
+                    continue  # defensive: never list the same project twice
+                seen_projects.add(p.pk)
+                placed = False
+                for child in children:
+                    if child in (p.tags or []):
+                        buckets[child].append(p)
+                        placed = True
+                        break
+                if not placed:
+                    ungrouped.append(p)
+            groups = [(c, buckets[c]) for c in children if buckets[c]]
+            if ungrouped:
+                groups.append(("Ungrouped", ungrouped))
+    # The tag-picker dropdown options: any tag with at least one child.
+    group_options = sorted(
+        {t.parent for t in (user.tags or []) if t.parent},
+        key=str.lower,
+    )
     return render_template(
         "projects/list.html",
         projects=_as_tree(projects),
         show_inactive=show_inactive,
+        groups=groups,
+        group_parent=group_parent,
+        group_options=group_options,
     )
 
 def _as_tree(projects):
@@ -468,12 +515,28 @@ def detail(project_id):
     # "All tasks" header from the _group_tasks fallback).
     grouping_tag = (project.task_grouping_tag or "").strip()
     subproject_groups: dict = {}
+    flat_tag_view = False
     if grouping == "tag" and grouping_tag:
-        # Focused tag: bucket by its child tags (if any) or by has/has-not.
+        # Focused tag flattens sections — otherwise each section gets
+        # its own "@waiting" / "Without" sub-headers and the user
+        # sees the same tag label repeated for every section. Merge
+        # all open tasks into the root bucket, group once, suppress
+        # per-section rendering downstream.
+        flat_tag_view = True
+        merged_open: list = []
         for bucket in section_buckets.values():
-            bucket["open_groups"] = _group_by_tag_specific(
-                bucket["open"], user, grouping_tag,
-            )
+            merged_open.extend(bucket["open"])
+            bucket["open"] = []
+            bucket["open_groups"] = None
+            bucket["items"] = []
+            bucket["subprojects"] = []
+        section_buckets[None]["open"] = merged_open
+        section_buckets[None]["open_groups"] = _group_by_tag_specific(
+            merged_open, user, grouping_tag,
+        )
+        section_buckets[None]["items"] = []
+        # Sub-projects rendered as task-list rows still need their own
+        # focused groups so kids show under each row consistently.
         for sp_pk, kids in subproject_children.items():
             subproject_groups[sp_pk] = _group_by_tag_specific(
                 kids, user, grouping_tag,
@@ -501,6 +564,7 @@ def detail(project_id):
         subproject_children=subproject_children,
         subproject_groups=subproject_groups,
         section_buckets=section_buckets,
+        flat_tag_view=flat_tag_view,
         grouping=grouping,
         show_completed=show_completed,
         include_descendants=include_descendants,
@@ -1167,26 +1231,149 @@ def import_csv(project_id):
         return redirect(url_for("projects.import_csv", project_id=project_id))
 
     raw = fileobj.read().decode("utf-8-sig", errors="replace")
-    reader = _csv.DictReader(StringIO(raw))
-    mode = (request.form.get("mode") or "import").strip()
+    mode = (request.form.get("mode") or "sync").strip()
     archive_missing = bool(request.form.get("archive_missing"))
 
-    # Index existing tasks by csv_id for sync.
+    # Auto-detect the delimiter — Jira CSVs in EU locales use ``;``
+    # instead of ``,``. Sniffer picks one based on the first 4 KB.
+    sample = raw[:4096]
+    try:
+        sniffed = _csv.Sniffer().sniff(sample, delimiters=",;\t|")
+        # The Sniffer often guesses ``doublequote=False`` on Jira-style
+        # exports (where ``""`` inside a quoted field is the standard
+        # escape). That mis-parses multi-line cells into dozens of
+        # bogus rows. We trust the Sniffer for the delimiter only,
+        # otherwise use ``csv.excel``'s well-formed defaults.
+        class _D(_csv.excel):
+            delimiter = sniffed.delimiter
+        dialect = _D
+    except _csv.Error:
+        dialect = _csv.excel  # default to comma
+
+    # Parse the CSV ourselves rather than via DictReader so we can keep
+    # *every* occurrence of a duplicated column. Jira exports Labels and
+    # Comments as several columns with the same header — DictReader's
+    # last-wins behaviour would silently drop all but one.
+    raw_reader = _csv.reader(StringIO(raw), dialect)
+    # Normalise headers: lowercase, trim whitespace, and drop trailing
+    # punctuation (Jira's German export writes "Vorgangsschlüssel:" — the
+    # colon is part of the column name and would otherwise break match).
+    def _norm_header(h):
+        return (h or "").strip().lower().rstrip(":").strip()
+    try:
+        headers = [_norm_header(h) for h in next(raw_reader)]
+    except StopIteration:
+        flash("Empty CSV.", "danger")
+        return redirect(url_for("projects.import_csv", project_id=project_id))
+    if not any(h for h in headers):
+        flash("CSV has no header row.", "danger")
+        return redirect(url_for("projects.import_csv", project_id=project_id))
+
+    # Materialise the body so we can both heuristically pick columns
+    # and iterate again to import. 100s of rows is fine in memory.
+    body = [row for row in raw_reader]
+
+    is_jira = any(h in headers for h in (
+        "issue key", "summary", "vorgangsschlüssel", "zusammenfassung",
+    ))
+    source_tag = "jira" if is_jira else "csv"
+
+    # Detect index lists for multi-value columns up front.
+    label_idx = [i for i, h in enumerate(headers)
+                 if h in ("labels", "tags", "stichwörter", "schlagworte")]
+    comment_idx = [i for i, h in enumerate(headers)
+                   if h in ("comment", "comments", "kommentar", "kommentare")]
+
+    # Auto-pick a title column if none of the known aliases is in the
+    # header row. Score each column over the (already-loaded) body:
+    # +1 per non-empty cell that looks like a title (5..200 chars, not
+    # pure digits), +1 if it contains a space (real prose), and a
+    # uniqueness bonus so we pick the longish, mostly-distinct column.
+    title_aliases = ("title", "name", "summary", "subject",
+                     "zusammenfassung", "betreff")
+    auto_title_idx = None
+    if not any(a in headers for a in title_aliases):
+        scores = [0] * len(headers)
+        seen: list[set] = [set() for _ in headers]
+        for r in body[:200]:
+            for i, v in enumerate(r[:len(headers)]):
+                v = (v or "").strip()
+                if not v:
+                    continue
+                seen[i].add(v)
+                n = len(v)
+                if n < 5 or n > 200 or v.isdigit():
+                    continue
+                scores[i] += 2 if " " in v else 1
+        # Multiply by uniqueness fraction so a high-cardinality column
+        # (the real title) beats a low-cardinality one (status etc.)
+        adjusted = [
+            int(s * (len(seen[i]) / max(1, sum(1 for r in body if i < len(r) and r[i].strip()))))
+            if s else 0
+            for i, s in enumerate(scores)
+        ]
+        if any(adjusted):
+            auto_title_idx = adjusted.index(max(adjusted))
+
+    def _row_get(values, *keys):
+        """First non-empty value matching any of the given header names."""
+        for k in keys:
+            for i, h in enumerate(headers):
+                if h == k and i < len(values) and (values[i] or "").strip():
+                    return values[i].strip()
+        return ""
+
+    # Index existing tasks by csv_id — applied in both ``import`` and
+    # ``sync`` mode, so re-importing the same file always updates the
+    # matching rows instead of creating duplicates. Scope is all of
+    # the user's tasks (not just this project), so a row whose task
+    # has since been moved to another project still matches.
     existing_by_csv_id: dict = {}
-    if mode == "sync":
-        for t in Item.objects(parent=project, kind="task"):
-            if t.external_id and t.external_id.startswith("csv:"):
-                existing_by_csv_id[t.external_id[4:]] = t
+    for t in Item.objects(owner=user, kind="task",
+                          external_id__startswith="csv:"):
+        existing_by_csv_id[t.external_id[4:]] = t
+
+    from application.models.item import Comment as ItemComment
+    from application.services.external_tags import merge_external_tags
+
+    # Maps for relationship-wiring pass after all rows are imported.
+    #   numeric_to_csv_id : Jira "Vorgangs ID" → csv_id (issue key)
+    #   tasks_by_csv_id   : csv_id → Item (this batch + pre-existing)
+    #   rel_for_task      : csv_id → {parent_jira_id, child_keys, related_keys}
+    numeric_to_csv_id: dict = {}
+    tasks_by_csv_id: dict = dict(existing_by_csv_id)
+    rel_for_task: dict = {}
+
+    # Column index lookups for the relation columns.
+    def _first_idx(*names):
+        for n in names:
+            for i, h in enumerate(headers):
+                if h == n:
+                    return i
+        return None
+    idx_parent = _first_idx("übergeordnete id", "parent link", "parent id")
+    idx_jira_num = _first_idx("vorgangs id", "vorgangs-id", "issue id")
+    idx_child_in = [i for i, h in enumerate(headers)
+                    if "verknüpfung zu eingehendem vorgang (child)" in h]
+    idx_relates_in = [i for i, h in enumerate(headers)
+                      if "verknüpfung zu eingehendem vorgang" in h and "(child)" not in h]
+    idx_relates_out = [i for i, h in enumerate(headers)
+                       if "ausgehende vorgangsverknüpfung" in h]
 
     created = updated = skipped = 0
     seen_csv_ids: set = set()
-    for row in reader:
-        row_lower = {(k or "").strip().lower(): (v or "").strip() for k, v in row.items()}
-        title = row_lower.get("title") or row_lower.get("name") or ""
+    for values in body:
+        if not any(v.strip() for v in values):
+            continue  # blank line
+        title = _row_get(values, *title_aliases)
+        if not title and auto_title_idx is not None and auto_title_idx < len(values):
+            title = (values[auto_title_idx] or "").strip()
         if not title:
             skipped += 1
             continue
-        csv_id = row_lower.get("csv_id") or row_lower.get("id") or ""
+        csv_id = _row_get(values, "csv_id", "id", "issue key", "key",
+                          "issue id", "ticket id",
+                          "vorgangsschlüssel", "vorgangs id", "vorgangs-id")
         if csv_id:
             seen_csv_ids.add(csv_id)
         target = existing_by_csv_id.get(csv_id) if csv_id else None
@@ -1196,59 +1383,277 @@ def import_csv(project_id):
         else:
             updated += 1
         target.title = title[:500]
-        if "note" in row_lower:
-            target.note = row_lower["note"]
-        if row_lower.get("status"):
-            target.status = row_lower["status"]
-        if row_lower.get("priority"):
-            try:
-                target.priority = int(row_lower["priority"])
-            except ValueError:
-                pass
-        if row_lower.get("flagged"):
-            target.flagged = row_lower["flagged"].lower() in ("1", "true", "yes", "y")
-        if row_lower.get("due"):
+        target.source = source_tag
+
+        note_val = _row_get(values, "note", "description", "beschreibung")
+        if note_val:
+            target.note = note_val
+        status_val = _row_get(values, "status")
+        if status_val and not is_jira:
+            # For Jira CSV the status ("Offen", "Backlog", "WAITING", …)
+            # is surfaced as a tag (see below) so the user can filter
+            # by it without polluting Cairn's task-status field. Don't
+            # set ``target.status`` here — leave the default — so the
+            # value isn't rendered twice (status badge + tag chip).
+            target.status = status_val
+        prio_val = _row_get(values, "priority", "priorität")
+        if prio_val:
+            # Jira ships a name like "Highest"/"High"/"Medium"/… in
+            # German "Hoch"/"Mittel"/"Niedrig". Map words to 1..4 first,
+            # fall back to int parsing for numeric exports.
+            prio_map = {
+                "highest": 1, "high": 2, "medium": 3, "low": 4, "lowest": 4,
+                "blocker": 1, "critical": 1, "major": 2, "minor": 3, "trivial": 4,
+                "hoch": 2, "höchste": 1, "mittel": 3, "niedrig": 4, "tief": 4,
+                "kritisch": 1, "blockierend": 1,
+            }
+            mapped = prio_map.get(prio_val.lower())
+            if mapped is not None:
+                target.priority = mapped
+            else:
+                try:
+                    target.priority = int(prio_val)
+                except ValueError:
+                    pass
+        flagged_val = _row_get(values, "flagged")
+        if flagged_val:
+            target.flagged = flagged_val.lower() in ("1", "true", "yes", "y")
+        due_val = _row_get(values, "due", "due date", "duedate",
+                           "fälligkeitsdatum", "fälligkeit")
+        if due_val:
             from datetime import datetime
             try:
-                target.due_date = datetime.fromisoformat(row_lower["due"])
+                target.due_date = datetime.fromisoformat(due_val)
             except ValueError:
                 pass
-        if row_lower.get("tags"):
-            tags = [t.strip() for t in row_lower["tags"].split(",") if t.strip()]
-            target.tags = tags
+
+        # Labels: gather across every same-named column, then split each
+        # cell on comma in case there are multiple labels per cell.
+        # Always run the merge — an empty new set means "the user
+        # removed every label upstream", and we still want to drop the
+        # stale external_tags from the previous sync without touching
+        # any tags the user added in Cairn.
+        #
+        # For Jira CSVs the workflow status ("Offen", "Backlog",
+        # "WAITING", …) is also surfaced as a label so it shows up on
+        # the task row and can be filtered like any other tag.
+        from application.services.external_tags import ensure_user_has_tags
+
+        label_values: list[str] = []
+        for i in label_idx:
+            if i < len(values) and values[i].strip():
+                for piece in values[i].split(","):
+                    piece = piece.strip()
+                    if piece and piece not in label_values:
+                        label_values.append(piece)
+        # For Jira CSVs the user has explicitly opted out of auto-
+        # grouping — new tags arrive top-level and they organise the
+        # tag tree by hand. Generic CSV imports still get a "CSV"
+        # parent so the source stays distinguishable at a glance.
+        if label_values:
+            ensure_user_has_tags(
+                user, label_values,
+                group=(None if is_jira else "CSV"),
+            )
+        if is_jira and status_val:
+            ensure_user_has_tags(user, [status_val])
+
+        csv_tags = list(label_values)
+        if is_jira and status_val and status_val not in csv_tags:
+            csv_tags.append(status_val)
+        if label_idx or (is_jira and status_val):
+            target.tags = merge_external_tags(
+                target.tags, target.external_tags, csv_tags)
+            target.external_tags = list(csv_tags)
+
+        # Comments: each Comment column becomes one ItemComment. Jira's
+        # Kommentar/Comment cells use ``timestamp;author;body`` (semicolon-
+        # separated, body may carry newlines). Parse so the header reads
+        # naturally; fall back to the raw cell if it doesn't have the
+        # 3-field shape.
+        if comment_idx and not target.comments:
+            for i in comment_idx:
+                if i >= len(values):
+                    continue
+                cell = (values[i] or "").strip()
+                if not cell:
+                    continue
+                parts = cell.split(";", 2)
+                if len(parts) == 3:
+                    ts, author, body = (p.strip() for p in parts)
+                elif len(parts) == 2:
+                    ts, body = parts
+                    ts = ts.strip(); body = body.strip(); author = ""
+                else:
+                    ts = author = ""
+                    body = cell
+                body = body.replace("\r\n", "\n").replace("\r", "\n").strip()
+                head_bits = []
+                if author:
+                    head_bits.append(f"**{author}**")
+                if ts:
+                    head_bits.append(ts)
+                rendered = (" — ".join(head_bits) + "\n\n" + body) if head_bits else body
+                target.comments.append(
+                    ItemComment(author=user, body=rendered)
+                )
+
         if csv_id:
             target.external_id = f"csv:{csv_id}"
+            target.external_ref = csv_id
         target.save()
+
+        # Record relationship metadata for the second pass.
+        if csv_id:
+            tasks_by_csv_id[csv_id] = target
+            if idx_jira_num is not None and idx_jira_num < len(values):
+                num = (values[idx_jira_num] or "").strip()
+                if num:
+                    numeric_to_csv_id[num] = csv_id
+            parent_num = (values[idx_parent] or "").strip() if idx_parent is not None and idx_parent < len(values) else ""
+            child_keys = [(values[i] or "").strip() for i in idx_child_in if i < len(values)]
+            related_in = [(values[i] or "").strip() for i in idx_relates_in if i < len(values)]
+            related_out = [(values[i] or "").strip() for i in idx_relates_out if i < len(values)]
+            rel_for_task[csv_id] = {
+                "parent_num": parent_num,
+                "child_keys": [k for k in child_keys if k],
+                "related_keys": [k for k in (related_in + related_out) if k],
+            }
+
+    # ---- Relationship wiring (after every row is upserted) -----------
+    # Jira lets a row reference other tickets in several ways. We mirror
+    # them onto the Cairn items:
+    #   * "Übergeordnete ID" (numeric Jira id) → this task's parent is
+    #     the imported task whose Vorgangs ID matches.
+    #   * "Verknüpfung zu eingehendem Vorgang (Child)" → the referenced
+    #     task is a child OF this one; flip the direction.
+    #   * Other relates / solution links don't fit Cairn's tree, so we
+    #     append them to the note as a small markdown reference list.
+    def _resolve_csv_id_for_other_ticket(token: str):
+        """Token can be either a numeric Vorgangs ID or a "PROJ-123" key."""
+        if not token:
+            return None
+        if token in numeric_to_csv_id:
+            return numeric_to_csv_id[token]
+        if token in tasks_by_csv_id:  # already a Vorgangsschlüssel
+            return token
+        return None
+
+    for csv_id, rels in rel_for_task.items():
+        me = tasks_by_csv_id.get(csv_id)
+        if not me:
+            continue
+        # Parent — promote to project so the tree renders the hierarchy
+        # (tasks-inside-tasks don't show as containers in the tree view).
+        if rels["parent_num"]:
+            parent_cid = _resolve_csv_id_for_other_ticket(rels["parent_num"])
+            parent_item = tasks_by_csv_id.get(parent_cid) if parent_cid else None
+            if parent_item and parent_item.pk != me.pk and me.parent != parent_item:
+                parent_item.ensure_container()
+                me.parent = parent_item
+                me.save()
+        # Children — flip the link, and promote myself to a project.
+        if rels["child_keys"]:
+            promoted = False
+            for ck in rels["child_keys"]:
+                child = tasks_by_csv_id.get(ck)
+                if child and child.pk != me.pk and child.parent != me:
+                    if not promoted:
+                        me.ensure_container()
+                        promoted = True
+                    child.parent = me
+                    child.save()
+        # Other relates → markdown list in the note (skip if already present)
+        if rels["related_keys"]:
+            link_lines = []
+            for rk in rels["related_keys"]:
+                marker = f"[{rk}]"
+                if marker not in (me.note or ""):
+                    link_lines.append(f"- Related: {marker}")
+            if link_lines:
+                me.note = ((me.note or "").rstrip()
+                           + ("\n\n" if me.note else "")
+                           + "\n".join(link_lines))
+                me.save()
 
     archived = 0
     if mode == "sync" and archive_missing and seen_csv_ids is not None:
         for cid, t in existing_by_csv_id.items():
             if cid in seen_csv_ids:
                 continue
-            t.status = "dropped"
+            t.status = "done"
             t.save()
             archived += 1
 
-    flash(
-        f"CSV processed — created {created}, updated {updated}, "
-        f"skipped {skipped}" + (f", archived {archived}" if archived else "") + ".",
-        "success",
-    )
+    parts = [
+        f"created {created}",
+        f"updated {updated}",
+        f"skipped {skipped}",
+    ]
+    if archived:
+        parts.append(f"archived {archived}")
+    parts.append(f"delimiter={dialect.delimiter!r}")
+    if any(h in headers for h in title_aliases):
+        title_col = next(h for h in title_aliases if h in headers)
+        parts.append(f"title column={title_col!r}")
+    elif auto_title_idx is not None:
+        parts.append(f"title column (auto)={headers[auto_title_idx]!r}")
+    else:
+        parts.append("title column=none")
+    flash("CSV processed — " + ", ".join(parts) + ".",
+          "success" if (created or updated) else "warning")
     return redirect(url_for("projects.detail", project_id=project_id))
+
+
+@projects_bp.route("/<project_id>/unwrap", methods=["POST"])
+@login_required
+def unwrap(project_id):
+    """Delete a container but keep its contents — children get
+    re-parented one level up. Useful for sections: ditch the
+    grouping wrapper without losing the tasks inside.
+
+    Same JSON / referrer-redirect dance as ``delete`` so the tree
+    and list views can call it via the shared item-delete handler.
+    """
+    from flask import jsonify
+    user = current_user._get_current_object()
+    item = Item.objects(pk=project_id).first()
+    if not item or item.owner != user:
+        abort(404)
+    new_parent = item.parent
+    moved = Item.objects(parent=item).update(set__parent=new_parent)
+    item.delete()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True, "moved": moved})
+    flash(f"{item.kind.title()} unwrapped — {moved} child item(s) moved up.",
+          "info")
+    back = request.referrer or ""
+    if not back or f"/projects/{project_id}" in back:
+        back = url_for("projects.index")
+    return redirect(back)
 
 
 @projects_bp.route("/<project_id>/delete", methods=["POST"])
 @login_required
 def delete(project_id):
+    from flask import jsonify
     from application.services.cleanup import delete_project_cascade
     user = current_user._get_current_object()
     project = Item.objects(pk=project_id).first()
     if not project or project.owner != user:
         abort(404)
     r = delete_project_cascade(project)
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True, "stats": r})
     flash(
         f"Item deleted — {r['projects'] - 1} sub-project(s) "
         f"and {r['tasks']} task(s) removed too.",
         "info",
     )
-    return redirect(url_for("projects.index"))
+    # Stay where the user came from — falling back to the projects
+    # list. If they came from the deleted item's own page, bounce up
+    # one level (its parent) so the redirect doesn't 404.
+    back = request.referrer or ""
+    if not back or f"/projects/{project_id}" in back:
+        back = url_for("projects.index")
+    return redirect(back)

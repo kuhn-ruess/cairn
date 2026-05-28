@@ -57,14 +57,6 @@ class ZammadImportForm(FlaskForm):
     save_credentials = BooleanField("Remember URL + token for future syncs")
     show_sync_button = BooleanField("Show a one-click Sync button in the toolbar")
     project = SelectField("Import into project", choices=[], validators=[Optional()])
-    label = StringField(
-        "Sync label",
-        validators=[Optional(), Length(max=128)],
-        description="Cairn tags every imported task with this label and "
-                    "uses it to find the previously-imported set on the next "
-                    "sync — orphans (no longer in Zammad) get removed, "
-                    "matches get updated. Empty disables that cleanup pass.",
-    )
     assignee_only = BooleanField("Only tickets assigned to me", default=True)
     include_closed = BooleanField("Include closed tickets")
     dry_run = BooleanField("Dry run (don't write changes)")
@@ -91,6 +83,8 @@ TASK_ROW_FIELDS = (
     ("status_badge", "Status badge",  "Waiting / scheduled / someday badge"),
     ("comments",     "Comment count", "Chat icon + number of comments"),
     ("note",         "Task note",     "Inline excerpt of the task's note text"),
+    ("external_id",  "External ID",   "Imported ticket / row id (csv:…, zammad:…)"),
+    ("source",       "Source chip",   "Where the task came from (jira / zammad / csv …)"),
 )
 
 
@@ -393,7 +387,6 @@ def zammad():
     stats = None
     if request.method == "GET":
         form.url.data = user.zammad_url or ""
-        form.label.data = user.zammad_label or ""
         form.save_credentials.data = bool(user.zammad_url and user.zammad_token)
         form.show_sync_button.data = bool(user.show_zammad_sync)
 
@@ -407,14 +400,12 @@ def zammad():
         target_project = None
         if form.project.data:
             target_project = Item.objects(pk=form.project.data, owner=user).first()
-        label = (form.label.data or "").strip() or None
         try:
             stats = zammad_import_for_user(
                 user, url, token,
                 project=target_project,
                 assignee_only=form.assignee_only.data,
                 include_closed=form.include_closed.data,
-                label=label,
                 dry_run=form.dry_run.data,
             )
         except ZammadError as exc:
@@ -427,7 +418,6 @@ def zammad():
             if form.save_credentials.data:
                 user.zammad_url = url
                 user.zammad_token = encrypt_for_user(user, token)
-            user.zammad_label = label or ""
             user.show_zammad_sync = bool(form.show_sync_button.data)
             user.save()
     return render_template("settings/zammad.html", form=form, stats=stats)
@@ -451,10 +441,7 @@ def sync_zammad():
             400,
         )
     try:
-        stats = zammad_import_for_user(
-            user, user.zammad_url, token,
-            label=(user.zammad_label or None),
-        )
+        stats = zammad_import_for_user(user, user.zammad_url, token)
     except ZammadError as exc:
         return jsonify({"error": str(exc)}), 502
     user.last_zammad_sync_at = datetime.now(timezone.utc)

@@ -15,14 +15,14 @@ from wtforms.validators import DataRequired, Email, EqualTo, Length, Optional
 
 
 class LoginForm(FlaskForm):
-    username = StringField("Username or Email", validators=[DataRequired()])
+    email = StringField("Email", validators=[DataRequired(), Email()])
     password = PasswordField("Password", validators=[DataRequired()])
     remember = BooleanField("Remember me")
     submit = SubmitField("Sign in")
 
 
 class ForgotPasswordForm(FlaskForm):
-    identifier = StringField("Username or email", validators=[DataRequired()])
+    email = StringField("Email", validators=[DataRequired(), Email()])
     submit = SubmitField("Send reset link")
 
 
@@ -40,9 +40,10 @@ class ResetPasswordForm(FlaskForm):
 
 
 class RegisterForm(FlaskForm):
-    username = StringField("Username", validators=[DataRequired(), Length(min=2, max=64)])
+    display_name = StringField(
+        "Name", validators=[DataRequired(), Length(min=2, max=128)]
+    )
     email = StringField("Email", validators=[DataRequired(), Email()])
-    display_name = StringField("Display name", validators=[Optional(), Length(max=128)])
     password = PasswordField(
         "Password",
         validators=[DataRequired(), Length(min=8), EqualTo("password2", message="Passwords must match.")],

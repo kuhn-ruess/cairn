@@ -21,7 +21,7 @@
                    {{ 'is-next' if task.status == 'next' else '' }}
                    {{ 'blocked' if task.is_blocked() else '' }}
                    {{ 'subtask' if _depth > 0 else '' }}
-                   {% if task.priority %}task-priority-{{ task.priority }}{% endif %}"
+                   {% if task.priority and current_user.show_field('priority', view_key=_vk) %}task-priority-{{ task.priority }}{% endif %}"
            {% if _depth > 0 %}style="padding-left: {{ _depth * 12 }}px;"{% endif %}
            data-task-id="{{ task.pk }}" data-task-status="{{ task.status }}">
         <div class="d-flex align-items-center gap-1">
@@ -60,8 +60,12 @@
               <a class="badge text-bg-light text-decoration-none" href="{{ url_for('projects.detail', project_id=task.project.pk) }}">
                 {% if task.project.color %}
                   <span class="proj-dot" style="background: {{ task.project.color }};"></span>
+                {% elif task.project.is_section %}
+                  <i class="bi bi-bookmark text-info"></i>
+                {% elif task.project.is_folder %}
+                  <i class="bi bi-folder2-open text-warning"></i>
                 {% else %}
-                  <i class="bi bi-folder"></i>
+                  <i class="bi bi-collection text-info"></i>
                 {% endif %}
                 {{ task.project.name }}
               </a>
@@ -121,6 +125,17 @@
                 <i class="bi bi-chat-left-text"></i> {{ task.comments|length }}
               </span>
             {% endif %}
+            {% if task.source and current_user.show_field('source', view_key=_vk) %}
+              <span class="source-chip source-{{ task.source }}"
+                    title="Imported from {{ task.source }}">
+                {{ task.source }}
+              </span>
+            {% endif %}
+            {% if task.external_ref and current_user.show_field('external_id', view_key=_vk) %}
+              <span class="external-id-chip" title="External ticket reference">
+                <i class="bi bi-link-45deg"></i> {{ task.external_ref }}
+              </span>
+            {% endif %}
           </div>
           {% if task.note and current_user.show_field('note', view_key=_vk) %}
             <div class="task-note small text-muted mt-1">{{ task.note|markdown }}</div>
@@ -138,6 +153,11 @@
               <i class="bi {{ 'bi-flag-fill text-warning' if task.flagged else 'bi-flag' }}"></i>
             </button>
           </form>
+          <button type="button" class="btn btn-sm btn-link p-0 task-delete-btn task-row-hover-action"
+                  data-task-id="{{ task.pk }}" data-task-title="{{ task.title }}"
+                  title="Delete task (d)">
+            <i class="bi bi-trash text-danger"></i>
+          </button>
         </div>
       </div>
     {% endfor %}

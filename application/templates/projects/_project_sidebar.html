@@ -47,16 +47,18 @@
     <input type="search" class="form-control form-control-sm ps-search"
            placeholder="Filter…" autocomplete="off">
     <ul class="nav flex-column ps-list">
-      <li>
-        <a class="nav-link py-1 {% if current_pk == 'inbox' %}active{% endif %}"
+      <li class="ps-drop-target" data-target-project="">
+        <a class="nav-link py-1 ps-row {% if current_pk == 'inbox' %}active{% endif %}"
            href="{{ url_for('tasks.inbox') }}"
+           style="padding-left: 8px;"
            data-project-name="inbox">
-          <i class="bi bi-inbox text-muted"></i> Inbox
+          <i class="bi bi-inbox text-muted"></i>
+          <span class="ps-name">Inbox</span>
         </a>
       </li>
       {% for depth, p in tree %}
         {% if (_visible is none) or ((p.pk|string) in _visible) %}
-          <li>
+          <li class="ps-drop-target" data-target-project="{{ p.pk }}">
             <a class="nav-link py-1 ps-row {% if current_pk and current_pk == (p.pk|string) %}active{% endif %}"
                href="{{ url_for('projects.detail', project_id=p.pk) }}"
                style="padding-left: {{ depth * 14 + 8 }}px;"
@@ -67,7 +69,7 @@
               {% elif p.color %}
                 <span class="proj-dot" style="background: {{ p.color }};"></span>
               {% else %}
-                <i class="bi bi-folder text-muted"></i>
+                <i class="bi bi-collection text-info"></i>
               {% endif %}
               <span class="ps-name">{{ p.name }}</span>
             </a>
