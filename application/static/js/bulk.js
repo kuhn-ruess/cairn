@@ -300,6 +300,13 @@
       return;
     }
 
+    const priorityItem = ev.target.closest(".bulk-priority-item");
+    if (priorityItem) {
+      ev.preventDefault();
+      submitBulk("set_priority", { priority: priorityItem.dataset.priority });
+      return;
+    }
+
     const reviewItem = ev.target.closest(".bulk-review-item");
     if (reviewItem) {
       ev.preventDefault();

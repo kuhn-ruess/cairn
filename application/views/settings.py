@@ -159,12 +159,48 @@ def profile():
         user.save()
         flash("Profile saved.", "success")
         return redirect(url_for("settings.profile"))
+    # Pull and CONSUME the just-minted plaintext token (set when the
+    # user POSTed /settings/api-tokens/new) so we render it exactly
+    # once. After that we only have the hash equivalents.
+    from flask import session as flask_session
+    fresh_token = flask_session.pop("new_api_token", None)
+    fresh_token_name = flask_session.pop("new_api_token_name", None)
     return render_template(
         "settings/profile.html",
         timezones=all_tzs,
         server_default=current_app.config.get("DEFAULT_TZ") or "UTC",
         task_row_fields=TASK_ROW_FIELDS,
+        fresh_token=fresh_token,
+        fresh_token_name=fresh_token_name,
     )
+
+
+@settings_bp.route("/api-tokens/new", methods=["POST"])
+@login_required
+def api_token_new():
+    """Mint a fresh API token. The plaintext value is shown ONCE on
+    the next profile render — after that only the metadata is kept."""
+    from flask import session as flask_session
+    user = current_user._get_current_object()
+    name = (request.form.get("name") or "default").strip()[:128] or "default"
+    tok = user.issue_api_token(name=name)
+    user.save()
+    # Stash the plaintext so the profile page can reveal it once.
+    flask_session["new_api_token"] = tok.token
+    flask_session["new_api_token_name"] = tok.name
+    flash(f"Token '{tok.name}' minted. Copy it now — it won't be shown again.", "success")
+    return redirect(url_for("settings.profile") + "#api-tokens")
+
+
+@settings_bp.route("/api-tokens/<token_id>/revoke", methods=["POST"])
+@login_required
+def api_token_revoke(token_id):
+    user = current_user._get_current_object()
+    user.api_tokens = [t for t in (user.api_tokens or [])
+                       if str(t.pk_ref) != token_id]
+    user.save()
+    flash("Token revoked.", "info")
+    return redirect(url_for("settings.profile") + "#api-tokens")
 
 
 @settings_bp.route("/password", methods=["GET", "POST"])

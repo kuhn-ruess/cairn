@@ -1335,13 +1335,17 @@ def import_csv(project_id):
                     return values[i].strip()
         return ""
 
-    # Index existing tasks by csv_id — applied in both ``import`` and
+    # Index existing items by csv_id — applied in both ``import`` and
     # ``sync`` mode, so re-importing the same file always updates the
     # matching rows instead of creating duplicates. Scope is all of
-    # the user's tasks (not just this project), so a row whose task
-    # has since been moved to another project still matches.
+    # the user's items (not just this project), so a row whose task
+    # has since been moved to another project still matches. Include
+    # projects too: the relationship-wiring pass below promotes a
+    # task with children to a project, and we still want the next
+    # sync to find and update it instead of duplicating.
     existing_by_csv_id: dict = {}
-    for t in Item.objects(owner=user, kind="task",
+    for t in Item.objects(owner=user,
+                          kind__in=["task", "project", "section"],
                           external_id__startswith="csv:"):
         existing_by_csv_id[t.external_id[4:]] = t
 

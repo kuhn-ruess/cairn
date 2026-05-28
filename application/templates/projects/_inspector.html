@@ -36,7 +36,7 @@
     {% endif %}
   </div>
 
-  <div class="inspector-section">
+  <div class="inspector-section" data-show-for="project,section">
     {{ form.note.label(class="form-label small text-uppercase text-muted") }}
     {{ form.note(class="form-control", rows="3") }}
   </div>
@@ -83,7 +83,7 @@
     </div>
   </div>
 
-  <div class="inspector-section" data-show-for="project,folder">
+  <div class="inspector-section" data-show-for="project">
     {{ form.members.label(class="form-label small text-uppercase text-muted") }}
     {{ form.members(class="form-select form-select-sm", size="5") }}
     <div class="form-text">Members can see and act on this project.</div>

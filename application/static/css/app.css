@@ -405,8 +405,8 @@ body > .navbar {
 /* Task row's "open detail page" icon — same quiet-until-hover treatment
    as .sp-open. Title click opens the inspector; this icon gets you to
    the full detail page. */
-.task-open { opacity: 0; transition: opacity .15s; }
-.task-row:hover .task-open { opacity: .55; }
+.task-open { opacity: .35; transition: opacity .15s; }
+.task-row:hover .task-open { opacity: .85; }
 .task-open:hover { opacity: 1 !important; color: var(--gv-aqua-br) !important; }
 
 /* Tasks that belong to a sub-project (rendered directly under the
@@ -1514,6 +1514,16 @@ body.is-dragging .ps-drop-target:hover,
   transition: background .6s;
 }
 .ps-row { display: flex; align-items: center; gap: .35rem; }
+
+/* Sidebar HTML5 drag for project re-parenting. */
+.ps-drop-target[draggable="true"] { cursor: grab; }
+.ps-drop-target.ps-row-dragging { opacity: .45; }
+.ps-drop-target.ps-drop-hover {
+  outline: 2px solid var(--gv-yellow-br);
+  outline-offset: -2px;
+  background: rgba(250, 189, 47, .18);
+  border-radius: .25rem;
+}
 
 /* Same idea for sub-project rows in the project detail view. */
 body.is-dragging .sp-row[data-sp-id] {

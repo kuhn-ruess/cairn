@@ -301,9 +301,6 @@
 <div id="bulk-bar" class="bulk-bar shadow d-none" data-bulk-scope="tasks">
   <div class="me-2">
     <span class="bulk-count">0</span> selected
-    <span class="text-muted ms-2 small d-none d-md-inline">
-      <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+click · <kbd>Shift</kbd>+click · <kbd>Esc</kbd>
-    </span>
   </div>
   <form method="post" action="{{ url_for('tasks.bulk') }}" class="d-flex gap-2 flex-wrap m-0">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -326,6 +323,29 @@
         {% for s in ['open', 'next', 'waiting', 'scheduled', 'someday', 'dropped'] %}
           <li><a class="dropdown-item bulk-status-item" href="#" data-status="{{ s }}">{{ s|capitalize }}</a></li>
         {% endfor %}
+      </ul>
+    </div>
+
+    <div class="dropdown" data-bulk-show="tasks">
+      <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle"
+              data-bs-toggle="dropdown">Priority</button>
+      <ul class="dropdown-menu">
+        <li><a class="dropdown-item bulk-priority-item" href="#" data-priority="1">
+          <i class="bi bi-flag-fill text-danger"></i> P1
+        </a></li>
+        <li><a class="dropdown-item bulk-priority-item" href="#" data-priority="2">
+          <i class="bi bi-flag-fill text-warning"></i> P2
+        </a></li>
+        <li><a class="dropdown-item bulk-priority-item" href="#" data-priority="3">
+          <i class="bi bi-flag text-info"></i> P3
+        </a></li>
+        <li><a class="dropdown-item bulk-priority-item" href="#" data-priority="4">
+          <i class="bi bi-flag text-muted"></i> P4
+        </a></li>
+        <li><hr class="dropdown-divider"></li>
+        <li><a class="dropdown-item bulk-priority-item" href="#" data-priority="none">
+          <i class="bi bi-dash"></i> Clear priority
+        </a></li>
       </ul>
     </div>
 

@@ -1373,6 +1373,27 @@ def bulk():
                 count += 1
             else:
                 skipped += 1
+    elif action == "set_priority":
+        raw = (request.form.get("priority") or "").strip()
+        target: int | None
+        if raw in ("", "0", "none"):
+            target = None
+        else:
+            try:
+                target = int(raw)
+            except ValueError:
+                flash("Invalid priority.", "danger")
+                return redirect(request.referrer or url_for("dashboard.home"))
+            if target not in (1, 2, 3, 4):
+                flash("Priority must be 1, 2, 3, 4 or empty.", "danger")
+                return redirect(request.referrer or url_for("dashboard.home"))
+        for t in tasks:
+            if t.can_be_edited_by(user):
+                t.priority = target
+                t.save()
+                count += 1
+            else:
+                skipped += 1
     else:
         flash(f"Unknown action: {action}", "danger")
         return redirect(request.referrer or url_for("dashboard.home"))

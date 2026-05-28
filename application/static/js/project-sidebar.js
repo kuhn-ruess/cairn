@@ -89,6 +89,66 @@
       handle.addEventListener("mousedown", onDown);
       handle.addEventListener("touchstart", onDown, { passive: false });
     }
+
+    // ---- HTML5 drag: project → project/folder = re-parent --------
+    // Each ps-drop-target with a data-project-id can be dragged onto
+    // another to set its parent. Drag onto the Inbox row to un-nest
+    // (becomes top-level). The drop POSTs to /projects/<id>/move and
+    // reloads on success.
+    let dragPk = null;
+    sidebar.querySelectorAll(".ps-drop-target[data-project-id]")
+      .forEach((li) => { li.draggable = true; });
+
+    sidebar.addEventListener("dragstart", (ev) => {
+      const li = ev.target.closest && ev.target.closest(".ps-drop-target[data-project-id]");
+      if (!li) return;
+      dragPk = li.dataset.projectId;
+      ev.dataTransfer.effectAllowed = "move";
+      ev.dataTransfer.setData("text/plain", dragPk);
+      li.classList.add("ps-row-dragging");
+    });
+    sidebar.addEventListener("dragend", (ev) => {
+      const li = ev.target.closest && ev.target.closest(".ps-drop-target");
+      if (li) li.classList.remove("ps-row-dragging");
+      sidebar.querySelectorAll(".ps-drop-hover")
+        .forEach((el) => el.classList.remove("ps-drop-hover"));
+      dragPk = null;
+    });
+    sidebar.addEventListener("dragover", (ev) => {
+      if (!dragPk) return;
+      const li = ev.target.closest && ev.target.closest(".ps-drop-target");
+      if (!li) return;
+      if (li.dataset.projectId === dragPk) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = "move";
+      sidebar.querySelectorAll(".ps-drop-hover")
+        .forEach((el) => el.classList.remove("ps-drop-hover"));
+      li.classList.add("ps-drop-hover");
+    });
+    sidebar.addEventListener("drop", async (ev) => {
+      if (!dragPk) return;
+      const li = ev.target.closest && ev.target.closest(".ps-drop-target");
+      if (!li) return;
+      if (li.dataset.projectId === dragPk) return;
+      ev.preventDefault();
+      const newParent = li.dataset.projectId || "";  // empty = top-level (Inbox row)
+      const fd = new FormData();
+      const csrf = document.querySelector('input[name="csrf_token"]');
+      if (csrf) fd.append("csrf_token", csrf.value);
+      fd.append("parent_id", newParent);
+      try {
+        const resp = await fetch(`/projects/${dragPk}/move`,
+                                 { method: "POST", body: fd });
+        if (!resp.ok) {
+          const j = await resp.json().catch(() => ({}));
+          alert(j.error || `Move failed (${resp.status}).`);
+          return;
+        }
+        window.location.reload();
+      } catch (err) {
+        alert("Move failed (network).");
+      }
+    });
   }
 
   if (document.readyState !== "loading") init();

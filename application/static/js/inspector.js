@@ -80,6 +80,28 @@
       picker.addEventListener("input", () => { hex.value = picker.value; });
     }
 
+    // When the user flips Project → Folder → Section the offcanvas
+    // header still says whatever the original opener wrote (often
+    // "New project"). Sync it with the current kind so the title
+    // matches what's actually being created/edited.
+    const kindSel = body.querySelector('select[name="kind"]');
+    if (kindSel) {
+      const isNew = !body.querySelector(".inspector-saved-banner");
+      const updateTitle = () => {
+        const cap = kindSel.value.charAt(0).toUpperCase() + kindSel.value.slice(1);
+        // For edits, prefix with the current name from the title input
+        // so it reads "Cap · Name"; for "new" it reads "New <kind>".
+        const nameInput = body.querySelector("#proj-name-input");
+        if (isNew) {
+          titleEl.textContent = `New ${kindSel.value}`;
+        } else if (nameInput) {
+          titleEl.textContent = `${cap} · ${nameInput.value || ""}`.trim();
+        }
+      };
+      kindSel.addEventListener("change", updateTitle);
+      updateTitle();
+    }
+
     // Add-comment form (inspector only, no page reload).
     const commentForm = body.querySelector("form[data-inspector-comment-form]");
     if (commentForm) commentForm.addEventListener("submit", onCommentAdd);
