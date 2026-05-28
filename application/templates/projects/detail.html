@@ -198,7 +198,19 @@
       {% if project.is_folder %}<i class="bi bi-folder2-open text-warning"></i>
       {% elif project.is_section %}<i class="bi bi-bookmark text-info"></i>
       {% else %}<i class="bi bi-folder-fill text-warning"></i>{% endif %}
-      {{ project.name }}
+      <a class="text-decoration-none text-body"
+         data-inspector-url="{{ url_for('projects.edit', project_id=project.pk) }}"
+         data-inspector-title="{{ project.name }}"
+         href="{{ url_for('projects.edit', project_id=project.pk) }}"
+         title="Edit {{ project.kind }} — open inspector">
+        {{ project.name }}
+      </a>
+      <button type="button" class="btn btn-sm btn-link text-muted p-0 ms-1"
+              data-inspector-url="{{ url_for('projects.edit', project_id=project.pk) }}"
+              data-inspector-title="{{ project.name }}"
+              title="Edit {{ project.kind }} — open inspector">
+        <i class="bi bi-info-circle"></i>
+      </button>
       <span class="project-mode">{{ project.project_type }}</span>
       {% if project.status != 'active' %}
         <span class="project-mode project-mode-{{ project.status }}">{{ project.status }}</span>

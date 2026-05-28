@@ -394,9 +394,10 @@ def detail(project_id):
         # Mark each sub-project's collapse state for the toggle button.
         for sp in sub_projects_all:
             sp._collapsed = str(sp.pk) in collapsed_pks
-        for kid in Item.objects(parent__in=sp_pks, kind="task").order_by(
-            "+sort_order", "+created_at"
-        ):
+        kids_q = Item.objects(parent__in=sp_pks, kind="task")
+        if not show_completed:
+            kids_q = kids_q.filter(status__nin=["done", "dropped"])
+        for kid in kids_q.order_by("+sort_order", "+created_at"):
             subproject_children.setdefault(kid.parent.pk, []).append(kid)
         # _has_children comes from the dict (kid.parent dereferences to a
         # fresh instance, so writing on it would miss the sp in the loop
@@ -421,11 +422,15 @@ def detail(project_id):
     all_tasks: list = []
     seen: set = set()
     frontier = list(project_ids)
+    # Default: hide done / dropped — they belong on the Completed
+    # perspective. ``?completed=1`` opts back in for project-level
+    # review.
+    task_status_filter = None if show_completed else ["done", "dropped"]
     while frontier:
-        batch = list(
-            Item.objects(kind="task", parent__in=frontier)
-                .order_by("+sort_order", "+created_at")
-        )
+        q = Item.objects(kind="task", parent__in=frontier)
+        if task_status_filter:
+            q = q.filter(status__nin=task_status_filter)
+        batch = list(q.order_by("+sort_order", "+created_at"))
         next_frontier = []
         for t in batch:
             if t.pk in seen:
