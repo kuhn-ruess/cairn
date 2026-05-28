@@ -6,7 +6,8 @@
       style="margin-left: {{ depth * 18 + 14 }}px;"
       data-target-project="{{ project_id or '' }}">
     {% for t in tasks_by_project.get(project_id, []) %}
-      <li class="tree-task" data-task-id="{{ t.pk }}" data-task-status="{{ t.status }}">
+      <li class="tree-task" data-task-id="{{ t.pk }}" data-task-status="{{ t.status }}"
+          data-filter-text="{{ t.title|lower }}">
         <i class="bi bi-grip-vertical text-muted task-handle"></i>
         <i class="bi bi-{% if t.flagged %}flag-fill text-warning{% else %}circle{% endif %} me-1"></i>
         <a href="{{ url_for('tasks.edit', task_id=t.pk) }}"
@@ -27,8 +28,15 @@
 {% endmacro %}
 
 {% macro project_node(p, depth) %}
-  <li class="tree-project" data-project-id="{{ p.pk }}">
+  {% set children = by_parent.get(p.pk|string, []) %}
+  {% set tasks_here = tasks_by_project.get(p.pk|string, []) %}
+  {% set is_empty_project = (p.kind == 'project') and (not children) and (not tasks_here) %}
+  <li class="tree-project" data-project-id="{{ p.pk }}" data-sp-id="{{ p.pk }}"
+      data-kind="{{ p.kind }}"
+      data-filter-text="{{ p.name|lower }}">
     <div class="tree-project-header" style="padding-left: {{ depth * 18 }}px;">
+      <i class="bi bi-grip-vertical text-muted project-handle"
+         title="Drag to reorder / move under another container"></i>
       {% if p.is_section %}
         <i class="bi bi-bookmark text-info"></i>
       {% elif p.is_folder %}
@@ -40,6 +48,13 @@
          class="text-decoration-none">{{ p.name }}</a>
 
       <span class="tree-row-actions ms-auto">
+        {% if is_empty_project %}
+          <button type="button" class="tree-action-btn tree-convert-to-task-btn"
+                  data-project-id="{{ p.pk }}"
+                  title="Convert this empty project back to a task">
+            <i class="bi bi-check2-square"></i>
+          </button>
+        {% endif %}
         {% if p.is_folder %}
           <div class="dropdown d-inline-block">
             <button type="button" class="tree-action-btn dropdown-toggle"
@@ -47,14 +62,12 @@
               <i class="bi bi-plus-lg"></i>
             </button>
             <ul class="dropdown-menu">
-              <li><a class="dropdown-item" href="{{ url_for('projects.create', parent=p.pk) }}"
-                     data-inspector-url="{{ url_for('projects.create', parent=p.pk) }}"
-                     data-inspector-title="New project in {{ p.name }}">
+              <li><a class="dropdown-item tree-quickadd-here" href="#"
+                     data-parent-id="{{ p.pk }}" data-kind="project">
                 <i class="bi bi-folder text-muted"></i> Project
               </a></li>
-              <li><a class="dropdown-item" href="{{ url_for('projects.create', parent=p.pk, folder=1) }}"
-                     data-inspector-url="{{ url_for('projects.create', parent=p.pk, folder=1) }}"
-                     data-inspector-title="New folder in {{ p.name }}">
+              <li><a class="dropdown-item tree-quickadd-here" href="#"
+                     data-parent-id="{{ p.pk }}" data-kind="folder">
                 <i class="bi bi-folder2-open text-warning"></i> Folder
               </a></li>
             </ul>
@@ -75,24 +88,52 @@
       </span>
     </div>
     {{ task_list(p.pk|string, depth + 1) }}
-    {% set children = by_parent.get(p.pk|string, []) %}
-    {% if children %}
-      <ul class="list-unstyled mb-0">
-        {% for c in children %}{{ project_node(c, depth + 1) }}{% endfor %}
-      </ul>
-    {% endif %}
+    {# Always render the sub-project drop list — even when empty, so a
+       project can be nested into this one by dropping it here. #}
+    <ul class="tree-projects list-unstyled mb-0"
+        data-target-project="{{ p.pk }}"
+        style="margin-left: {{ (depth + 1) * 18 }}px;">
+      {% for c in children %}{{ project_node(c, depth + 1) }}{% endfor %}
+    </ul>
   </li>
 {% endmacro %}
 
 {% block content %}
-<div class="d-flex align-items-center mb-3">
-  <h1 class="h4 mb-0 me-auto">Tree</h1>
-  <span class="text-muted small">Drag tasks to move them between projects/sections.</span>
+<div class="tree-toolbar">
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <h1 class="h4 mb-0 me-2">Tree</h1>
+    <div class="input-group input-group-sm tree-filter-group">
+      <span class="input-group-text"><i class="bi bi-search"></i></span>
+      <input type="search" id="tree-filter" class="form-control form-control-sm"
+             placeholder="Filter tasks &amp; projects…" autocomplete="off">
+      <button type="button" class="btn btn-outline-secondary" id="tree-filter-clear"
+              title="Clear filter">×</button>
+    </div>
+    <form id="tree-quickadd-form" class="d-flex gap-1 align-items-center ms-auto">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="parent_id" value="">
+      <input type="hidden" name="kind" value="project">
+      <input type="text" name="name" class="form-control form-control-sm"
+             placeholder="New project or folder…"
+             style="min-width: 240px;" autocomplete="off" required>
+      <button type="submit" class="btn btn-sm btn-primary" data-kind="project"
+              title="Create as project">
+        <i class="bi bi-folder"></i> Project
+      </button>
+      <button type="submit" class="btn btn-sm btn-outline-warning" data-kind="folder"
+              title="Create as folder">
+        <i class="bi bi-folder2-open"></i> Folder
+      </button>
+    </form>
+  </div>
+  <div class="text-muted small mt-1">
+    Drag tasks between projects · drop task on task → makes it a project · drag projects to reorder or nest.
+  </div>
 </div>
 
 <div class="tree-root">
   {# Loose tasks (no project) #}
-  <div class="tree-project" data-project-id="">
+  <div class="tree-project" data-project-id="" data-filter-text="inbox unassigned">
     <div class="tree-project-header">
       <i class="bi bi-inbox text-muted"></i>
       <span class="fw-semibold">Inbox / unassigned</span>
@@ -108,12 +149,13 @@
     {{ task_list(None) }}
   </div>
 
-  <ul class="list-unstyled mb-0 mt-3">
+  <ul class="tree-projects list-unstyled mb-0 mt-3" data-target-project="">
     {% for p in by_parent.get(None, []) %}{{ project_node(p, 0) }}{% endfor %}
   </ul>
 </div>
 
-{# Drag-and-drop is wired up by the global sortable-tasks.js loaded in
-   base.html. It initialises both .task-list (regular lists) and .tree-tasks
-   (this view) the same way, using the data-target-project attribute. #}
+{# Drag-and-drop for tasks comes from sortable-tasks.js (loaded in
+   base.html). Project drag, quick-filter, quick-add and one-click
+   convert-to-task live in tree-page.js, loaded below. #}
+<script src="{{ url_for('static', filename='js/tree-page.js') }}?v={{ static_version }}"></script>
 {% endblock %}

@@ -60,9 +60,46 @@
       group: "bktodo-tasks",
       animation: 150,
       ghostClass: "drag-ghost",
-      onStart: () => document.body.classList.add("is-dragging"),
+      onStart: (ev) => {
+        document.body.classList.add("is-dragging");
+        dragSource = ev.item;
+        clearMergeTarget();
+        cancelDwell();
+      },
+      // onMove fires each time the dragged item would be inserted next
+      // to ``ev.related``. We use it to start the dwell timer when the
+      // cursor lingers over a real task row — that row becomes the
+      // merge target if the user holds still long enough. Returning
+      // ``true`` lets Sortable's normal reordering proceed; the merge
+      // is resolved in onEnd.
+      onMove: (ev) => {
+        const related = ev.related;
+        if (!related || !related.dataset || !related.dataset.taskId) {
+          cancelDwell();
+          return true;
+        }
+        if (dragSource && related === dragSource) {
+          cancelDwell();
+          return true;
+        }
+        startDwell(related);
+        return true;
+      },
       onEnd: (ev) => {
         document.body.classList.remove("is-dragging");
+        const target = mergeTarget;
+        const source = dragSource;
+        clearMergeTarget();
+        cancelDwell();
+        dragSource = null;
+        if (target && source && target !== source
+            && target.dataset.taskId && source.dataset.taskId
+            && target.dataset.taskId !== source.dataset.taskId) {
+          // Drag-merge wins over the regular move: drop the source
+          // under the target (which gets promoted to a project).
+          mergeTasks(source, target);
+          return;
+        }
         onEnd(ev);
       },
     };

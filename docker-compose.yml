@@ -13,7 +13,7 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "5004:5004"
+      - "8004:5004"
     environment:
       BKTODO_MONGO_HOST: mongo
       BKTODO_MONGO_DB: bktodo

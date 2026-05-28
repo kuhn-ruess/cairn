@@ -1026,7 +1026,11 @@ def convert_to_task(project_id):
 
     Anything else (legacy / unknown) falls back to ``open`` rather
     than being silently dropped.
+
+    XHR callers (tree page's one-click convert) get a JSON ack so the
+    view can repaint without a full redirect.
     """
+    from flask import jsonify
     user = current_user._get_current_object()
     project = Item.objects(pk=project_id).first()
     if not project or project.owner != user:
@@ -1045,6 +1049,8 @@ def convert_to_task(project_id):
     if project.status not in ("done", "dropped"):
         project.completed_at = None
     project.save()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True, "task_id": str(project.pk)})
     flash(f"Converted project into task: {project.title}", "success")
     return redirect(url_for("tasks.detail", task_id=str(project.pk)))
 

@@ -353,21 +353,24 @@ html, body {
 }
 /* Drop-merge candidate during hover dwell — subtle hint before the
    row escalates to a full merge target. */
-.task-row.drop-merge-pending {
+.task-row.drop-merge-pending,
+.tree-task.drop-merge-pending {
   background: rgba(131, 165, 152, .08);
   outline: 1px dashed var(--gv-blue);
   outline-offset: -2px;
   border-radius: .25rem;
 }
 /* Hovering a task during a drag → drop-on-task = create a project. */
-.task-row.drop-merge-target {
+.task-row.drop-merge-target,
+.tree-task.drop-merge-target {
   background: rgba(131, 165, 152, .22) !important;
   outline: 2px solid var(--gv-blue-br);
   outline-offset: -2px;
   border-radius: .25rem;
   position: relative;
 }
-.task-row.drop-merge-target::after {
+.task-row.drop-merge-target::after,
+.tree-task.drop-merge-target::after {
   content: "Drop to group";
   position: absolute;
   right: .5rem; top: 50%;
@@ -1385,6 +1388,40 @@ tr:hover .row-actions .hover-action:last-child { opacity: 1; }
   outline: 1px dashed var(--gv-yellow);
   opacity: .5;
 }
+
+/* Project drag handle on the tree view. Mirrors .task-handle — hidden
+   until row hover, grab cursor, fades up. */
+.tree-project-header .project-handle {
+  cursor: grab;
+  opacity: 0;
+  transition: opacity .12s;
+}
+.tree-project-header:hover .project-handle { opacity: .55; }
+body.is-dragging .tree-project-header .project-handle { opacity: .55; }
+
+/* Empty .tree-projects still needs to accept a drop, so give it a tiny
+   minimum height — same trick used for .tree-tasks. */
+.tree-projects {
+  padding-left: .25rem;
+  min-height: 8px;
+}
+
+/* Tree toolbar — sticky filter + quick-add bar at the top of the
+   tree view. */
+.tree-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--gv-bg0);
+  padding: .5rem 0 .65rem;
+  margin-bottom: .5rem;
+  border-bottom: 1px solid var(--gv-bg2);
+}
+.tree-filter-group { max-width: 320px; }
+
+/* Filter hide: keep DOM intact (Sortable needs it) but visually drop
+   non-matching rows. */
+.tree-filter-hidden { display: none !important; }
 /* Sections within projects/detail — flat page layout. Each section is
    just a header with a hairline divider, no card / box. */
 .section-block {
