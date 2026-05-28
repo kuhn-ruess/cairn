@@ -1458,17 +1458,20 @@ def import_csv(project_id):
                     piece = piece.strip()
                     if piece and piece not in label_values:
                         label_values.append(piece)
-        # For Jira CSVs the user has explicitly opted out of auto-
-        # grouping — new tags arrive top-level and they organise the
-        # tag tree by hand. Generic CSV imports still get a "CSV"
-        # parent so the source stays distinguishable at a glance.
+        # Auto-group new tags so the tag tree stays tidy:
+        #   Jira labels (Stichwörter) → "Jira: Label"
+        #   Jira workflow status     → "Jira: Status"
+        #   Generic CSV labels       → "CSV"
+        # Existing tags are never re-parented (see ensure_user_has_tags),
+        # so the user can pull a tag out of its group and the next
+        # sync respects that.
         if label_values:
             ensure_user_has_tags(
                 user, label_values,
-                group=(None if is_jira else "CSV"),
+                group=("Jira: Label" if is_jira else "CSV"),
             )
         if is_jira and status_val:
-            ensure_user_has_tags(user, [status_val])
+            ensure_user_has_tags(user, [status_val], group="Jira: Status")
 
         csv_tags = list(label_values)
         if is_jira and status_val and status_val not in csv_tags:
