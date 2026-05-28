@@ -680,6 +680,8 @@ def _import_task(
     if sort_order is None:
         sort_order = 0
 
+    from application.services.label_rules import apply_label_rules
+
     if existing:
         existing.title = raw["content"]
         existing.note = note
@@ -713,6 +715,7 @@ def _import_task(
             existing.repeat_unit = "day"
         if completed and not existing.completed_at:
             existing.completed_at = datetime.now(timezone.utc)
+        apply_label_rules(existing, user)
         if not dry_run:
             existing.save()
         stats.tasks_updated += 1
@@ -737,6 +740,7 @@ def _import_task(
             repeat_every_days=repeat_every,
             repeat_unit=(repeat_unit or "day"),
         )
+        apply_label_rules(task, user)
         if not dry_run:
             task.save()
         stats.tasks_created += 1

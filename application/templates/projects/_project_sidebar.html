@@ -73,14 +73,6 @@
                 <i class="bi bi-collection text-info"></i>
               {% endif %}
               <span class="ps-name">{{ p.name }}</span>
-              <button type="button"
-                      class="btn btn-sm btn-link text-danger p-0 ms-auto ps-row-delete item-delete-btn"
-                      data-project-id="{{ p.pk }}"
-                      data-row-selector="li.ps-drop-target[data-project-id='{{ p.pk }}']"
-                      title="Delete {{ p.kind }} + its contents (d)"
-                      onclick="event.preventDefault(); event.stopPropagation();">
-                <i class="bi bi-trash"></i>
-              </button>
             </a>
           </li>
         {% endif %}

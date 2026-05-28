@@ -36,6 +36,13 @@ class Tag(EmbeddedDocument):
     parent = StringField()                # parent tag's name, or empty
     exclusive_children = BooleanField(default=False)
 
+    # Optional auto-status mapping. When a task carries this tag, its
+    # ``status`` is forced to this value on save / import. Lets the
+    # user say "Warte auf Kunde → waiting" once, then any task that
+    # ever gets that tag flips automatically, whether the tag was set
+    # by the inspector, by a Zammad sync, or by a CSV reimport.
+    maps_to_status = StringField()
+
     created_at = DateTimeField(default=_utcnow)
     external_id = StringField()  # opaque id from the importing source
 

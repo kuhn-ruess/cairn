@@ -26,6 +26,15 @@
       {{ form.parent(class="form-select form-select-sm") }}
       <div class="form-text">Optional — nest this tag under another to build tag groups.</div>
     </div>
+    <div class="col-md-6">
+      {{ form.maps_to_status.label(class="form-label") }}
+      {{ form.maps_to_status(class="form-select form-select-sm") }}
+      <div class="form-text">
+        When this tag is set on a task (manually or via import), force the
+        task's status to the chosen value. Example: <em>Warte auf Kunde</em>
+        → Waiting.
+      </div>
+    </div>
     <div class="col-12">
       <div class="form-check">
         {{ form.is_context(class="form-check-input") }}

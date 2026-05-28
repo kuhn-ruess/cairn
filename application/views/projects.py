@@ -1513,6 +1513,11 @@ def import_csv(project_id):
         if csv_id:
             target.external_id = f"csv:{csv_id}"
             target.external_ref = csv_id
+        # Tag-driven status mapping ("Warte auf Kunde → waiting") —
+        # applies whether labels came from Stichwörter columns or the
+        # Jira Status value we surface as a tag.
+        from application.services.label_rules import apply_label_rules
+        apply_label_rules(target, user)
         target.save()
 
         # Record relationship metadata for the second pass.

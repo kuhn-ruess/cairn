@@ -132,3 +132,55 @@ def set_level(user_id):
     target.save()
     flash(f"{target.username} is now {level}.", "success")
     return redirect(url_for("admin.users"))
+
+
+@admin_bp.route("/teams")
+@login_required
+@global_admin_required
+def teams():
+    """List every team in the instance + an inline create form."""
+    teams_qs = Team.objects().order_by("+name")
+    return render_template(
+        "admin/teams.html",
+        teams=list(teams_qs),
+        candidate_admins=list(User.objects().order_by("+username")),
+    )
+
+
+@admin_bp.route("/teams/create", methods=["POST"])
+@login_required
+@global_admin_required
+def teams_create():
+    name = (request.form.get("name") or "").strip()
+    admin_id = (request.form.get("admin_id") or "").strip()
+    if not name:
+        flash("Team name is required.", "danger")
+        return redirect(url_for("admin.teams"))
+    admin_user = User.objects(pk=admin_id).first() if admin_id else None
+    if not admin_user:
+        flash("Pick a valid team admin.", "danger")
+        return redirect(url_for("admin.teams"))
+    team = Team(name=name, admin=admin_user).save()
+    # Make sure the chosen admin actually has team_admin level and the
+    # team pointer — otherwise they can't manage it from the team page.
+    if admin_user.level not in ("team_admin", "global_admin"):
+        admin_user.level = "team_admin"
+    if not admin_user.team:
+        admin_user.team = team
+    admin_user.save()
+    flash(f"Team '{team.name}' created with {admin_user.username} as admin.", "success")
+    return redirect(url_for("admin.teams"))
+
+
+@admin_bp.route("/teams/<team_id>/delete", methods=["POST"])
+@login_required
+@global_admin_required
+def teams_delete(team_id):
+    from application.services.cleanup import delete_team_cascade
+    team = Team.objects(pk=team_id).first()
+    if not team:
+        abort(404)
+    r = delete_team_cascade(team)
+    flash(f"Team deleted — {r.get('members_unassigned', 0)} member(s) detached.",
+          "info")
+    return redirect(url_for("admin.teams"))

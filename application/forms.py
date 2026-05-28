@@ -155,4 +155,19 @@ class TagForm(FlaskForm):
     exclusive_children = BooleanField(
         "Children are mutually exclusive — only one child tag per task",
     )
+    maps_to_status = SelectField(
+        "Auto-status",
+        choices=[
+            ("", "— no automatic status —"),
+            ("open", "Open"),
+            ("next", "Next"),
+            ("waiting", "Waiting"),
+            ("scheduled", "Scheduled"),
+            ("someday", "Someday / Maybe"),
+            ("done", "Done"),
+            ("dropped", "Dropped"),
+        ],
+        default="",
+        validators=[Optional()],
+    )
     submit = SubmitField("Save tag")

@@ -58,6 +58,7 @@ def create():
                 on_hold=form.on_hold.data,
                 parent=form.parent.data or None,
                 exclusive_children=form.exclusive_children.data,
+                maps_to_status=form.maps_to_status.data or None,
             ))
             user.save()
             flash("Tag created.", "success")
@@ -87,6 +88,7 @@ def edit(tag_name):
     _populate_tag_choices(form, user, current=tag)
     if request.method == "GET":
         form.parent.data = tag.parent or ""
+        form.maps_to_status.data = tag.maps_to_status or ""
     if form.validate_on_submit():
         new_parent = form.parent.data or None
         # Cycle check via parent-chain walk
@@ -110,6 +112,7 @@ def edit(tag_name):
         tag.on_hold = form.on_hold.data
         tag.parent = new_parent
         tag.exclusive_children = form.exclusive_children.data
+        tag.maps_to_status = form.maps_to_status.data or None
         # Cascade rename: child tags' parent pointer + every task in the
         # user's set that mentions the old name.
         if old_name != new_name:

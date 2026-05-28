@@ -213,6 +213,14 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
         final.append(name)
     task.tags = final
 
+    # Label-driven status: if any of the assigned tags carries a
+    # ``maps_to_status`` setting, snap the task to that status. The
+    # user form supplies an explicit status above, but the label rule
+    # is authoritative — if the user adds "Warte auf Kunde" the task
+    # should become waiting regardless of what the dropdown said.
+    from application.services.label_rules import apply_label_rules
+    apply_label_rules(task, user)
+
     if form.assigned_to.data:
         new_assignee = User.objects(pk=form.assigned_to.data).first()
         if new_assignee and task.assigned_to != new_assignee:

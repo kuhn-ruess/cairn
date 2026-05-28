@@ -71,7 +71,8 @@
         {% endif %}
         {% if current_user.is_global_admin %}
           {% if not (current_user.is_team_admin or current_user.team) %}<li><hr class="dropdown-divider"></li>{% endif %}
-          <li><a class="dropdown-item" href="{{ url_for('admin.users') }}"><i class="bi bi-shield-lock"></i> Admin</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('admin.users') }}"><i class="bi bi-shield-lock"></i> Admin · Users</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('admin.teams') }}"><i class="bi bi-people"></i> Admin · Teams</a></li>
           <li><a class="dropdown-item" href="{{ url_for('admin.data_model') }}"><i class="bi bi-diagram-3"></i> Data model</a></li>
         {% endif %}
         <li><hr class="dropdown-divider"></li>

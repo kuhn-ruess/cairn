@@ -1513,14 +1513,6 @@ body.is-dragging .ps-drop-target:hover,
   background: rgba(184, 187, 38, .25);
   transition: background .6s;
 }
-.ps-row-delete {
-  opacity: 0;
-  transition: opacity .12s;
-  margin-left: auto;
-  margin-right: .25rem;
-  line-height: 1;
-}
-.ps-drop-target:hover .ps-row-delete { opacity: 1; }
 .ps-row { display: flex; align-items: center; gap: .35rem; }
 
 /* Same idea for sub-project rows in the project detail view. */
@@ -1529,6 +1521,20 @@ body.is-dragging .sp-row[data-sp-id] {
   outline-offset: -2px;
   background: rgba(250, 189, 47, .04);
   transition: outline-color .15s, background .15s;
+}
+/* The kids list inside a sub-project also takes drops — usually for
+   reordering between existing sub-tasks. Without a visual cue users
+   aim at the sp-row instead and lose precision. Pre-glow it too. */
+body.is-dragging .sp-children > .task-list {
+  outline: 1px dashed var(--gv-bg3);
+  outline-offset: -2px;
+  background: rgba(131, 165, 152, .04);
+  border-radius: .25rem;
+}
+body.is-dragging .sp-children > .task-list.is-drag-over,
+body.is-dragging .sp-children > .task-list:hover {
+  outline: 2px solid var(--gv-blue-br);
+  background: rgba(131, 165, 152, .15);
 }
 body.is-dragging .sp-row[data-sp-id]:hover,
 .sp-row.is-drag-over {

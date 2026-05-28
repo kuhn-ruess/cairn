@@ -112,12 +112,14 @@
                   <i class="bi {{ grp[1] }} me-1"></i>{{ grp[0] }}
                   <span class="text-muted">({{ grp[2]|length }})</span>
                 </h6>
-                {% with tasks = grp[2], target_status = "open" %}
+                {% with tasks = grp[2], target_status = "open",
+                        target_project_id = sp.pk|string %}
                   {% include "tasks/_list_body.html" %}
                 {% endwith %}
               {% endfor %}
             {% else %}
-              {% with tasks = sp_kids, target_status = "open" %}
+              {% with tasks = sp_kids, target_status = "open",
+                      target_project_id = sp.pk|string %}
                 {% include "tasks/_list_body.html" %}
               {% endwith %}
             {% endif %}

@@ -374,6 +374,8 @@ def _upsert_ticket(
 
     from application.services.external_tags import merge_external_tags
 
+    from application.services.label_rules import apply_label_rules
+
     if existing:
         existing.title = title
         existing.note = note
@@ -382,6 +384,9 @@ def _upsert_ticket(
         existing.tags = merge_external_tags(
             existing.tags, existing.external_tags, new_external)
         existing.external_tags = new_external
+        # Tag-driven status rules ("Warte auf Kunde → waiting", etc.)
+        # If a rule applies it overrides the Zammad-derived cairn_status.
+        apply_label_rules(existing, user)
         # Task vs project have completely different status vocabularies
         # (open/next/waiting vs active/on_hold/completed). The
         # ``cairn_status`` we compute from Zammad's state only fits
@@ -411,6 +416,7 @@ def _upsert_ticket(
             tags=list(new_external),
             external_tags=list(new_external),
         )
+        apply_label_rules(item, user)
         item.save()
         stats.tickets_created += 1
         return item
