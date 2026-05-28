@@ -6,6 +6,7 @@ from flask import Flask
 from flask_login import LoginManager
 from flask_wtf.csrf import CSRFProtect
 from mongoengine import connect, disconnect
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Public app version — surfaced in the nav footer + the About page.
 APP_VERSION = "0.0.1"
@@ -30,6 +31,17 @@ def create_app(config_object: str | None = None) -> Flask:
 
     app.config.from_object(config_object or _default_config())
     app.config.from_prefixed_env(prefix="BKTODO")
+
+    # Honour reverse-proxy headers (X-Forwarded-Proto / -Host / -For)
+    # so ``url_for(..., _external=True)`` builds https:// URLs when the
+    # original request came over HTTPS — without this, the Google OAuth
+    # redirect_uri ends up http:// and the consent screen rejects it.
+    # Tunable via BKTODO_PROXY_FIX (default 1 hop) for chained proxies.
+    hops = int(app.config.get("PROXY_FIX", "1") or 0)
+    if hops > 0:
+        app.wsgi_app = ProxyFix(
+            app.wsgi_app, x_for=hops, x_proto=hops, x_host=hops, x_prefix=hops,
+        )
 
     _init_mongo(app)
     login_manager.init_app(app)
