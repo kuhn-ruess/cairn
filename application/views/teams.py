@@ -111,6 +111,16 @@ def accept(token):
         return redirect(url_for("auth.login", next=request.path))
 
     user = current_user._get_current_object()
+    # Bind the invite to the email it was issued for — without this
+    # anyone who acquires the link (shoulder surfing, referrer leak,
+    # forwarded email) could claim it for themselves.
+    if (inv.email or "").lower() != (user.email or "").lower():
+        flash(
+            "This invite was issued for a different email address — "
+            "sign in with that account to accept it.",
+            "warning",
+        )
+        return render_template("teams/invite_invalid.html"), 403
     if request.method == "POST":
         user.team = team
         if user.level == "free":

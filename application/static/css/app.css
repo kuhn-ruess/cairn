@@ -1602,14 +1602,18 @@ body.is-dragging .ps-drop-target:hover,
 }
 .cal-pill-task[draggable="true"] { cursor: grab; }
 .cal-pill-task.cal-pill-dragging { opacity: .5; }
-/* Visual height tracks ``estimated_minutes`` so a 90-min task spans
-   ~1.5 hour rows. Absolute positioning lets the pill overflow into the
-   rows below without changing their height — same model as a real
-   calendar. 38px-per-hour ≈ .633 px-per-minute. Multiple pills in the
-   same hour get a horizontal column offset (--cal-col) set by JS. */
-.day-calendar .day-hour-slots .cal-pill-task {
+/* Visual height tracks ``estimated_minutes`` / event duration so a
+   90-min item spans ~1.5 hour rows. Absolute positioning lets the
+   pill overflow into the rows below without changing their height —
+   same model as a real calendar. 38px-per-hour ≈ .633 px-per-minute.
+   Tasks and events share the same column-slot system (set by JS) so
+   they interleave instead of overlapping. */
+.day-calendar .day-hour-slots .cal-pill-task,
+.day-calendar .day-hour-slots .cal-pill-event {
   position: absolute;
-  top: 2px;
+  /* Offset within the hour cell — a 10:30 meeting sits halfway down
+     the 10:00 row instead of stacking with a 10:00 task at the top. */
+  top: calc(var(--cal-top-min, 0) * 0.633px);
   left: calc(.35rem + var(--cal-col, 0) * (100% / var(--cal-cols, 1)));
   width: calc((100% - .7rem) / var(--cal-cols, 1) - 4px);
   height: max(24px, calc(var(--cal-est-min, 30) * 0.633px));

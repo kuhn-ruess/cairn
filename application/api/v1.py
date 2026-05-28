@@ -120,6 +120,7 @@ def complete_task(task_id):
 @api_v1_bp.post("/tasks/<task_id>/assign")
 @token_required
 def assign_task(task_id):
+    from application.services.permissions import resolve_assignable_user
     user = g.current_user
     task = Item.objects(pk=task_id).first()
     if not task or not task.can_be_edited_by(user):
@@ -127,9 +128,9 @@ def assign_task(task_id):
     data = request.get_json(silent=True) or {}
     assignee_id = data.get("user_id")
     if assignee_id:
-        assignee = User.objects(pk=assignee_id).first()
+        assignee = resolve_assignable_user(user, assignee_id)
         if not assignee:
-            return _bad_request("user not found", 404)
+            return _bad_request("user not assignable", 403)
         task.assigned_to = assignee
         task.assigned_by = user
         task.assigned_at = datetime.now(timezone.utc)
@@ -198,8 +199,13 @@ def bulk_tasks():
             else:
                 skipped += 1
     elif action == "set_project":
+        from application.services.permissions import resolve_visible_item
         project_id = data.get("project_id")
-        project = Item.objects(pk=project_id).first() if project_id else None
+        project = resolve_visible_item(user, project_id) if project_id else None
+        # When the caller passed a project_id we *must* resolve it; a
+        # non-visible pk is a 403, not "drop to no project".
+        if project_id and not project:
+            return _bad_request("destination project not accessible", 403)
         for t in tasks:
             if t.can_be_edited_by(user):
                 t.project = project
@@ -258,6 +264,10 @@ def add_comment(task_id):
     return jsonify(ser_task(task)), 201
 
 def _apply_task_payload(task: Item, data: dict, user) -> None:
+    # Block mass-assignment of fields that must only be set by the
+    # server (owner, share tokens, gcal event ids, creation time, …).
+    # Everything else is opt-in per the explicit ``if "..." in data``
+    # branches below.
     if "title" in data:
         task.title = data["title"]
     if "note" in data:
@@ -275,7 +285,16 @@ def _apply_task_payload(task: Item, data: dict, user) -> None:
     if "due_date" in data:
         task.due_date = _parse_dt(data["due_date"])
     if "estimated_minutes" in data:
-        task.estimated_minutes = data["estimated_minutes"]
+        em = data["estimated_minutes"]
+        # Mirror the web /duration clamp so the API can't store
+        # nonsensical (or huge) values that break the calendar view.
+        if em is None or em == "":
+            task.estimated_minutes = None
+        else:
+            try:
+                task.estimated_minutes = max(5, min(1440, int(em)))
+            except (TypeError, ValueError):
+                raise ValueError("estimated_minutes must be an integer")
     if "plan_date" in data:
         task.plan_date = _parse_dt(data["plan_date"])
     if "repeat_every_days" in data:
@@ -292,9 +311,15 @@ def _apply_task_payload(task: Item, data: dict, user) -> None:
     if "color" in data:
         task.color = (data["color"] or "").strip()
     if "project_id" in data:
-        task.project = (
-            Item.objects(pk=data["project_id"]).first() if data["project_id"] else None
-        )
+        from application.services.permissions import resolve_visible_item
+        pid = data["project_id"]
+        if pid:
+            proj = resolve_visible_item(user, pid)
+            if not proj:
+                raise ValueError("project_id not accessible")
+            task.project = proj
+        else:
+            task.project = None
     if "tags" in data:
         task.tags = [str(n) for n in (data["tags"] or []) if n]
     elif "tag_names" in data:
@@ -308,10 +333,11 @@ def _apply_task_payload(task: Item, data: dict, user) -> None:
         from application.services.label_rules import apply_label_rules
         apply_label_rules(task, user)
     if "assigned_to_id" in data:
+        from application.services.permissions import resolve_assignable_user
         if data["assigned_to_id"]:
-            assignee = User.objects(pk=data["assigned_to_id"]).first()
+            assignee = resolve_assignable_user(user, data["assigned_to_id"])
             if not assignee:
-                raise ValueError("assigned_to user not found")
+                raise ValueError("assigned_to user not assignable")
             task.assigned_to = assignee
             task.assigned_by = user
             task.assigned_at = datetime.now(timezone.utc)
@@ -404,7 +430,14 @@ def _apply_project_payload(p: Item, data: dict) -> None:
             raise ValueError(f"invalid status: {data['status']}")
         p.status = data["status"]
     if "parent_id" in data:
-        p.parent = Item.objects(pk=data["parent_id"]).first() if data["parent_id"] else None
+        from application.services.permissions import resolve_visible_item
+        if data["parent_id"]:
+            parent = resolve_visible_item(g.current_user, data["parent_id"])
+            if not parent:
+                raise ValueError("parent_id not accessible")
+            p.parent = parent
+        else:
+            p.parent = None
     if "review_interval_days" in data:
         p.review_interval_days = data["review_interval_days"] or 0
     if "due_date" in data:
@@ -414,7 +447,15 @@ def _apply_project_payload(p: Item, data: dict) -> None:
     if "tags" in data:
         p.tags = [str(n) for n in (data["tags"] or []) if n]
     if "member_ids" in data:
-        p.members = list(User.objects(pk__in=data["member_ids"] or []))
+        from application.services.permissions import resolve_assignable_user
+        ids = data["member_ids"] or []
+        members = []
+        for mid in ids:
+            m = resolve_assignable_user(g.current_user, mid)
+            if not m:
+                raise ValueError(f"member {mid} not shareable")
+            members.append(m)
+        p.members = members
 
 # ---------------- tags (embedded on user) ----------------
 

@@ -40,9 +40,24 @@ def _project_or_404(token):
     return proj
 
 def _allowed_project_ids(proj):
+    """Walk the project's subtree, skipping any container marked
+    ``is_internal=True`` (and its descendants). The is_internal flag
+    is enforced at every level — without this, an internal sub-project
+    would still surface its name (and any non-internal tasks beneath)
+    via the public dashboard.
+    """
+    if proj.is_internal:
+        return []
     ids = [proj.pk]
-    for child in Item.objects(parent=proj):
-        ids.append(child.pk)
+    pending = [proj.pk]
+    while pending:
+        # Batch one BFS layer per query so the lookup is O(depth) Mongo
+        # round-trips instead of O(items).
+        children = list(Item.objects(parent__in=pending,
+                                       kind__in=["project", "section", "folder"],
+                                       is_internal__ne=True).only("id"))
+        pending = [c.pk for c in children]
+        ids.extend(pending)
     return ids
 
 @public_bp.route("/<token>")

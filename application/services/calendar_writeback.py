@@ -55,8 +55,16 @@ def sync_task_to_calendar(task, user) -> list[str]:
     duration = max(int(task.estimated_minutes or 30), 5)
     tz = user.timezone or None  # None → calendar_sync falls back to config default
 
+    # Track whether we actually mutated a gcal_*_event_id on the task.
+    # The previous version saved whenever an id was non-None — meaning
+    # every successful reconcile triggered an extra save (and a race
+    # with concurrent edits). Now we only save when there's a real
+    # change to persist.
+    id_dirty = False
+
     def _reconcile(kind: str, field_id_attr: str, when, enabled: bool,
                    title_prefix: str):
+        nonlocal id_dirty
         if not enabled:
             return
         event_id = getattr(task, field_id_attr) or ""
@@ -75,9 +83,11 @@ def sync_task_to_calendar(task, user) -> list[str]:
                                                duration_minutes=duration,
                                                timezone=tz)
                 setattr(task, field_id_attr, created.get("id") or "")
+                id_dirty = True
             elif not when and event_id:
                 google_delete_event(cal, user, event_id)
                 setattr(task, field_id_attr, "")
+                id_dirty = True
             # absent + no id → nothing to do
         except CalendarError as exc:
             log.warning("calendar write-back failed for task %s (%s): %s",
@@ -89,10 +99,7 @@ def sync_task_to_calendar(task, user) -> list[str]:
     _reconcile("plan", "gcal_plan_event_id", task.plan_date,
                user.calendar_write_plan, title_prefix="Plan:")
 
-    # Persist any event-id changes the reconciliation made on the task.
-    if warnings or task.gcal_due_event_id is not None or task.gcal_plan_event_id is not None:
-        # ``task.save()`` is cheap and idempotent; we always call it so
-        # newly-created event ids land in mongo.
+    if id_dirty:
         task.save()
     return warnings
 

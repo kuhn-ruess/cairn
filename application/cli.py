@@ -130,8 +130,8 @@ def issue_token(username, name):
     user = User.objects(username=username).first()
     if not user:
         raise click.ClickException(f"user '{username}' not found")
-    token = user.issue_api_token(name)
-    click.echo(token.token)
+    _tok, raw = user.issue_api_token(name)
+    click.echo(raw)
 
 @cairn_cli.command("list-users")
 def list_users():

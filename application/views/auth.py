@@ -1,6 +1,8 @@
 """Authentication blueprint."""
 from datetime import datetime, timezone
 
+from urllib.parse import urlparse
+
 from flask import Blueprint, current_app, flash, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
@@ -10,6 +12,22 @@ from application.forms import (
 from application.models.user import User
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
+
+
+def _safe_next_url() -> str:
+    """Return the post-login destination — ``?next=…`` if it points at
+    our own host, dashboard otherwise. Prevents the open-redirect
+    phishing primitive."""
+    raw = request.args.get("next") or ""
+    if raw:
+        parsed = urlparse(raw)
+        # Allow only path-relative redirects, or absolute URLs whose
+        # netloc matches the current request host.
+        if not parsed.netloc and not parsed.scheme and raw.startswith("/"):
+            return raw
+        if parsed.netloc == request.host and parsed.scheme in ("", "http", "https"):
+            return raw
+    return url_for("dashboard.home")
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -25,8 +43,7 @@ def login():
             login_user(user, remember=form.remember.data)
             user.last_login_at = datetime.now(timezone.utc)
             user.save()
-            next_url = request.args.get("next") or url_for("dashboard.home")
-            return redirect(next_url)
+            return redirect(_safe_next_url())
         flash("Invalid credentials.", "danger")
     return render_template("auth/login.html", form=form)
 

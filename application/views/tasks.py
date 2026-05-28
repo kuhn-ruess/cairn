@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 
 from flask import (
-    Blueprint, abort, current_app, flash, redirect, render_template, request, url_for,
+    Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, url_for,
 )
 
 def _is_inspector():
@@ -112,15 +112,18 @@ def toggle_collapse(task_id):
 def _scope(user):
     return Q(owner=user) | Q(assigned_to=user)
 
-def _writeback_calendar(task, user) -> None:
+def _writeback_calendar(task, user) -> list[str]:
     """Push plan/due dates to the user's chosen Google calendar.
 
-    Best-effort: warnings are surfaced as flashes; failures never break
-    the task save.
+    Best-effort: surfaces warnings as flashes for the page render AND
+    returns them so JSON endpoints (e.g. /tasks/<id>/schedule) can echo
+    them back to the caller. Failures never break the task save.
     """
     from application.services.calendar_writeback import sync_task_to_calendar
-    for warn in sync_task_to_calendar(task, user):
+    warnings = sync_task_to_calendar(task, user) or []
+    for warn in warnings:
         flash(warn, "warning")
+    return warnings
 
 def _tag_choices_tree(tags) -> list:
     """Return ``(name, label)`` choices in DFS order with indentation.
@@ -192,18 +195,12 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     task.repeat_unit = form.repeat_unit.data or "day"
     task.repeat_from_completion = form.repeat_from_completion.data
     # ``form.project.data`` should be a project pk string from the
-    # select. If it isn't a valid ObjectId (stale form, browser oddity,
-    # whatever) treat it as "no project" instead of bubbling a 500.
-    raw_proj = form.project.data
-    new_project = None
-    if raw_proj:
-        from bson.errors import InvalidId
-        from mongoengine.errors import ValidationError as _ME_ValidationError
-        try:
-            new_project = Item.objects(pk=raw_proj).first()
-        except (InvalidId, _ME_ValidationError):
-            new_project = None
-    task.project = new_project
+    # select. Use the shared visibility helper so a tampered POST can't
+    # reparent into a project the user doesn't own/share. Invalid /
+    # inaccessible pks fall back to "no project" — same lenient
+    # behaviour the form had before, but without the access leak.
+    from application.services.permissions import resolve_visible_item
+    task.project = resolve_visible_item(user, form.project.data) if form.project.data else None
     # Tags are stored as a list of names; the multi-select submits names.
     submitted = list(form.tags.data or [])
     # Enforce exclusive-children groups: at most one child tag from a
@@ -230,9 +227,13 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     apply_label_rules(task, user)
 
     if form.assigned_to.data:
-        new_assignee = User.objects(pk=form.assigned_to.data).first()
+        from application.services.permissions import resolve_assignable_user
+        new_assignee = resolve_assignable_user(user, form.assigned_to.data)
         if new_assignee and task.assigned_to != new_assignee:
             task.assign_to(new_assignee, by_user=user)
+        # Silently ignore non-shareable pks — the select choices are
+        # already filtered, so reaching this branch with a bad id means
+        # someone tampered with the POST.
     else:
         task.assign_to(None)
 
@@ -389,7 +390,16 @@ def today():
 
     user = current_user._get_current_object()
     now = datetime.now(timezone.utc)
-    today_date = now.date()
+    # "Today" must be computed in the *user's* timezone, otherwise a
+    # Berlin user dragging a task to the cell labelled "tomorrow"
+    # writes plan_date for what the server thinks is "today" once the
+    # UTC offset pushes the wall-clock past midnight.
+    try:
+        from zoneinfo import ZoneInfo
+        _today_tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
+    except Exception:
+        _today_tz = timezone.utc
+    today_date = now.astimezone(_today_tz).date()
 
     # Window selection ------------------------------------------------
     raw_date = (request.args.get("date") or "").strip()
@@ -560,6 +570,73 @@ def today():
             key = ev.start.date()
             events_by_day.setdefault(key, []).append(ev)
 
+    # Multi-day LIST view: mix events and tasks into one list per day,
+    # sorted by start time. Lets the user see "Tuesday: 09:00 standup,
+    # 10:30 do bug fix, 14:00 dentist" without flipping to calendar
+    # mode. Skipped for single-day windows (the existing groupings are
+    # plenty) and for calendar mode (the timeline already interleaves).
+    daily_buckets = None
+    if days > 1:
+        try:
+            from zoneinfo import ZoneInfo
+            _list_tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
+        except Exception:
+            _list_tz = timezone.utc
+
+        def _to_user_list(dt):
+            if not dt:
+                return None
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(_list_tz)
+
+        from datetime import date as _date2
+        # OrderedDict so the template iterates days in window order.
+        from collections import OrderedDict
+        daily_buckets = OrderedDict(
+            (start_date + timedelta(days=i), [])
+            for i in range(days)
+        )
+        for ev in events:
+            d = _to_user_list(ev.start)
+            if not d:
+                continue
+            day_key = d.date()
+            if day_key in daily_buckets:
+                daily_buckets[day_key].append({
+                    "kind": "event", "obj": ev,
+                    "sort": (d, 0, ev.title or ""),
+                    "start": d,
+                })
+        # Filtered already contains the items in the date window.
+        # Sort each task into the day matching its plan_date.date()
+        # falling back to due_date.date(). Items with no date land in
+        # the first bucket (today) so they're never dropped silently.
+        for t in filtered:
+            anchor = _to_user_list(t.plan_date or t.due_date)
+            day_key = anchor.date() if anchor else start_date
+            if day_key not in daily_buckets:
+                continue
+            sort_dt = anchor or datetime.combine(day_key, datetime.min.time(), tzinfo=_list_tz)
+            daily_buckets[day_key].append({
+                "kind": "task", "obj": t,
+                "sort": (sort_dt, 1, t.title or ""),
+                "start": anchor,
+            })
+        for p in projects_with_dates:
+            anchor = _to_user_list(p.plan_date or p.due_date)
+            day_key = anchor.date() if anchor else start_date
+            if day_key not in daily_buckets:
+                continue
+            sort_dt = anchor or datetime.combine(day_key, datetime.min.time(), tzinfo=_list_tz)
+            daily_buckets[day_key].append({
+                "kind": "project", "obj": p,
+                "sort": (sort_dt, 1, p.title or ""),
+                "start": anchor,
+            })
+        for d in daily_buckets:
+            daily_buckets[d].sort(key=lambda x: x["sort"])
+
     # Title + nav helpers --------------------------------------------
     if is_today_now:
         title = "Today"
@@ -608,10 +685,17 @@ def today():
             if ev.all_day:
                 allday_items.append({"kind": "event", "obj": ev, "title": ev.title})
             else:
+                ev_start = _to_user(ev.start)
+                ev_end = _to_user(ev.end) or ev_start
+                # Duration drives the pill height alongside task pills so
+                # both share the same vertical scale in the timeline.
+                dur = 30
+                if ev_start and ev_end and ev_end > ev_start:
+                    dur = max(5, int((ev_end - ev_start).total_seconds() // 60))
                 timed_items.append({
                     "kind": "event", "obj": ev,
-                    "start": _to_user(ev.start),
-                    "end": _to_user(ev.end),
+                    "start": ev_start, "end": ev_end,
+                    "duration_min": dur,
                     "title": ev.title,
                 })
         for t in filtered:
@@ -622,7 +706,8 @@ def today():
             timed_items.append({
                 "kind": "task", "obj": t,
                 "start": dt,
-                "end": dt + timedelta(minutes=30),
+                "end": dt + timedelta(minutes=t.estimated_minutes or 30),
+                "duration_min": t.estimated_minutes or 30,
                 "title": t.title,
             })
         timed_items.sort(key=lambda x: x["start"])
@@ -682,6 +767,7 @@ def today():
         active_tag=active_tag,
         calendar_events=events,
         events_by_day=events_by_day,
+        daily_buckets=daily_buckets,
         next_event=next_event,
         # Date-nav context
         start_date=start_date,
@@ -1483,7 +1569,14 @@ def move(task_id):
     touched = False
     if "project_id" in data:
         pid = (data.get("project_id") or "").strip()
-        task.project = Item.objects(pk=pid).first() if pid else None
+        if pid:
+            from application.services.permissions import resolve_visible_item
+            proj = resolve_visible_item(user, pid)
+            if not proj:
+                return jsonify({"error": "destination project not accessible"}), 403
+            task.project = proj
+        else:
+            task.project = None
         touched = True
 
     # 2) Apply status from a status-tagged drop target. The pseudo-value

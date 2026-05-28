@@ -378,6 +378,15 @@ def _parse_iso(s: str) -> datetime:
 
 
 def _fetch_ical_data(url: str) -> bytes:
+    from application.services.http_safety import (
+        UnsafeURLError, validate_outbound_url,
+    )
+    try:
+        validate_outbound_url(url)
+    except UnsafeURLError as exc:
+        # Don't leak the resolved IP back to the caller — keep the
+        # message generic so it's safe to flash to the user.
+        raise CalendarError(f"refusing to fetch: {exc}") from exc
     try:
         req = urllib.request.Request(url, headers={
             "User-Agent": "bktodo/calendar (+https://localhost)",

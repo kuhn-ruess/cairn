@@ -74,8 +74,18 @@ class ZammadStats:
 
 def _request(url: str, token: str, *, params: dict | None = None,
              method: str = "GET", body: dict | None = None) -> Any:
+    from application.services.http_safety import (
+        UnsafeURLError, validate_outbound_url,
+    )
     if params:
         url = url + "?" + urllib.parse.urlencode(params)
+    # The Zammad instance URL is user-supplied — refuse to fetch from
+    # private / loopback / link-local ranges so a tampered profile
+    # can't aim our bearer-authenticated request at internal services.
+    try:
+        validate_outbound_url(url)
+    except UnsafeURLError as exc:
+        raise ZammadError(f"refusing to fetch: {exc}") from exc
     data = None
     headers = {
         "Authorization": f"Token token={token}",

@@ -77,12 +77,25 @@ def _apply(form: ProjectForm, project: Item) -> None:
     project.plan_date = attach_user_tz(form.plan_date.data, user)
     kind = form.kind.data or "project"
     project.kind = kind
+    # Parent and members are user-supplied pks — validate against the
+    # caller's visibility / share scope so a tampered POST can't graft
+    # the project onto someone else's tree or hand membership to
+    # arbitrary accounts.
+    from application.services.permissions import (
+        resolve_assignable_user, resolve_visible_item,
+    )
     project.parent = (
-        Item.objects(pk=form.parent.data).first() if form.parent.data else None
+        resolve_visible_item(user, form.parent.data) if form.parent.data else None
     )
-    project.members = (
-        list(User.objects(pk__in=form.members.data)) if form.members.data else []
-    )
+    if form.members.data:
+        members = []
+        for mid in form.members.data:
+            m = resolve_assignable_user(user, mid)
+            if m:
+                members.append(m)
+        project.members = members
+    else:
+        project.members = []
 
     # Kind-specific cleanup. Sections share the project_type field
     # (they can be sequential too — the per-section blocking logic
@@ -1449,8 +1462,14 @@ def import_csv(project_id):
                            "fälligkeitsdatum", "fälligkeit")
         if due_val:
             from datetime import datetime
+            from application.services.tz import attach_user_tz
             try:
-                target.due_date = datetime.fromisoformat(due_val)
+                # CSV dates are wall-clock in the user's local time;
+                # attach their tz so mongoengine doesn't store them as
+                # naive UTC and drift everything by the user's offset.
+                target.due_date = attach_user_tz(
+                    datetime.fromisoformat(due_val), user,
+                )
             except ValueError:
                 pass
 

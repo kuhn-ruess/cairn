@@ -13,11 +13,25 @@ from flask_login import current_user, login_required
 
 uploads_bp = Blueprint("uploads", __name__, url_prefix="/uploads")
 
-ALLOWED_EXTS = {"png", "jpg", "jpeg", "gif", "webp", "svg"}
-ALLOWED_MIME = {
-    "image/png", "image/jpeg", "image/gif",
-    "image/webp", "image/svg+xml",
-}
+# Only raster formats. SVG is intentionally excluded — it can carry
+# inline JavaScript that runs against this origin (XSS) when fetched
+# from /static/. The accepted extension is derived from magic bytes,
+# not from the client-supplied filename or mimetype.
+SNIFF_BYTES = 12
+
+
+def _sniff_image_ext(head: bytes) -> str | None:
+    """Return the canonical file extension for ``head`` if it looks like
+    a supported raster image, ``None`` otherwise."""
+    if len(head) >= 8 and head[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if len(head) >= 3 and head[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if len(head) >= 6 and head[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    return None
 
 
 def _ensure_dir(path: str) -> None:
@@ -34,16 +48,14 @@ def note_image():
     fileobj = request.files.get("file")
     if not fileobj or not fileobj.filename:
         return jsonify({"error": "no file"}), 400
-    if fileobj.mimetype not in ALLOWED_MIME:
-        return jsonify({"error": f"unsupported type: {fileobj.mimetype}"}), 415
-    ext = (fileobj.filename.rsplit(".", 1)[-1] or "").lower()
-    if ext not in ALLOWED_EXTS:
-        # Map mime back to a sensible extension when the upload name has
-        # none / a weird one.
-        ext = {
-            "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif",
-            "image/webp": "webp", "image/svg+xml": "svg",
-        }[fileobj.mimetype]
+
+    # Sniff the leading bytes — the browser-supplied mimetype is
+    # advisory and an attacker can claim ``image/png`` for an SVG.
+    head = fileobj.stream.read(SNIFF_BYTES)
+    fileobj.stream.seek(0)
+    ext = _sniff_image_ext(head)
+    if not ext:
+        return jsonify({"error": "unsupported image format"}), 415
 
     # Size guard — read once, check, then write.
     fileobj.stream.seek(0, os.SEEK_END)

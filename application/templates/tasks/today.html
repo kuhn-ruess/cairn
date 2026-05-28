@@ -129,7 +129,9 @@
   {% macro item_pill(it) %}
     {% if it.kind == 'event' %}
       <span class="cal-pill cal-pill-event"
-            style="border-left-color: {{ it.obj.calendar_color }};">
+            style="border-left-color: {{ it.obj.calendar_color }};
+                   --cal-est-min: {{ it.duration_min or 30 }};
+                   --cal-top-min: {{ it.start.minute if it.start else 0 }};">
         {% if it.start %}<span class="cal-pill-time">{{ '%02d:%02d'|format(it.start.hour, it.start.minute) }}</span>{% endif %}
         {% if it.obj.url %}<a href="{{ it.obj.url }}" target="_blank" rel="noopener">{{ it.title }}</a>
         {% else %}{{ it.title }}{% endif %}
@@ -141,7 +143,8 @@
          data-est="{{ it.obj.estimated_minutes or 30 }}"
          data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
          data-inspector-title="{{ it.obj.title }}"
-         style="--cal-est-min: {{ it.obj.estimated_minutes or 30 }};">
+         style="--cal-est-min: {{ it.obj.estimated_minutes or 30 }};
+                --cal-top-min: {{ it.start.minute if it.start else 0 }};">
         {% if it.start %}<span class="cal-pill-time">{{ '%02d:%02d'|format(it.start.hour, it.start.minute) }}</span>{% endif %}
         <a class="cal-pill-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
         <span class="cal-pill-dur" title="Estimated duration">{{ it.obj.estimated_minutes or 30 }}m</span>
@@ -217,7 +220,10 @@
       {% endfor %}
     </div>
   {% endif %}
-{% elif calendar_events %}
+{% elif calendar_events and not daily_buckets %}
+  {# Single-day list view: events live in their own block at the top.
+     Multi-day list view interleaves them per-day below — see the
+     daily_buckets block further down. #}
   <div class="calendar-events mb-3">
     <h2 class="h6 text-muted small text-uppercase mb-2">
       <i class="bi bi-calendar3"></i> Calendar ({{ calendar_events|length }})
@@ -234,7 +240,7 @@
       {% for ev in calendar_events %}{{ cal_event_row(ev) }}{% endfor %}
     {% endif %}
   </div>
-{% elif next_event %}
+{% elif next_event and not daily_buckets %}
   <div class="alert alert-light cal-empty-hint mb-3">
     <i class="bi bi-calendar3 text-muted"></i>
     No calendar events today.
@@ -302,8 +308,10 @@
 {% endif %}
 
 {# Calendar view doesn't render the task-grouped sections — they're
-   inside the timeline above. #}
-{% if view_mode == 'calendar' %}{% set groups = [] %}{% endif %}
+   inside the timeline above. Multi-day list view renders per-day
+   buckets instead of project-grouped sections (see daily_buckets
+   block below), so we silence the default groups loop too. #}
+{% if view_mode == 'calendar' or daily_buckets %}{% set groups = [] %}{% endif %}
 
 {% set view_key = 'today' %}
 {% macro render_project_rows(items) %}
@@ -339,6 +347,39 @@
     </div>
   {% endfor %}
 {% endmacro %}
+
+{% if daily_buckets %}
+  <div class="daily-buckets">
+  {% for day, items in daily_buckets.items() %}
+    <section class="daily-bucket mb-3">
+      <div class="daily-bucket-header d-flex align-items-center gap-2 mb-1">
+        <i class="bi bi-calendar-day text-muted"></i>
+        <h3 class="h6 mb-0">{{ day.strftime('%A · %-d %b') }}</h3>
+        <span class="text-muted small">({{ items|length }})</span>
+      </div>
+      {% if not items %}
+        <p class="text-muted small mb-0 ps-3">—</p>
+      {% else %}
+        {% for it in items %}
+          {% if it.kind == 'event' %}
+            {{ cal_event_row(it.obj) }}
+          {% else %}
+            {# Reuse the task-row layout: feed a 1-item list through
+               the _list_body partial so behaviours (drag, complete,
+               delete, inspector) stay identical to other views. #}
+            {% set tasks = [it.obj] if it.kind == 'task' else [] %}
+            {% if it.kind == 'task' %}
+              {% include "tasks/_list_body.html" %}
+            {% else %}
+              {{ render_project_rows([it.obj]) }}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+    </section>
+  {% endfor %}
+  </div>
+{% endif %}
 
 {% for label, icon, group_items, target_project_id in groups %}
   {# Split each group into tasks vs projects so the row renderer
@@ -405,11 +446,12 @@
   const root = document.querySelector(".day-calendar, .month-grid");
   if (!root) return;
 
-  // Side-by-side layout for absolute-positioned task pills that share
-  // an hour cell. Each pill gets --cal-cols (total) + --cal-col (idx).
+  // Side-by-side layout for absolute-positioned pills that share an
+  // hour cell. Tasks and events share the same slot system so they
+  // interleave instead of stacking on top of each other.
   function layoutCells() {
     root.querySelectorAll(".day-hour-slots").forEach((cell) => {
-      const pills = cell.querySelectorAll(".cal-pill-task");
+      const pills = cell.querySelectorAll(".cal-pill-task, .cal-pill-event");
       const n = pills.length;
       pills.forEach((p, i) => {
         p.style.setProperty("--cal-cols", String(n));

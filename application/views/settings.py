@@ -183,10 +183,10 @@ def api_token_new():
     from flask import session as flask_session
     user = current_user._get_current_object()
     name = (request.form.get("name") or "default").strip()[:128] or "default"
-    tok = user.issue_api_token(name=name)
-    user.save()
-    # Stash the plaintext so the profile page can reveal it once.
-    flask_session["new_api_token"] = tok.token
+    tok, raw = user.issue_api_token(name=name)
+    # Stash the plaintext so the profile page can reveal it once;
+    # nothing else on the server retains it.
+    flask_session["new_api_token"] = raw
     flask_session["new_api_token_name"] = tok.name
     flash(f"Token '{tok.name}' minted. Copy it now — it won't be shown again.", "success")
     return redirect(url_for("settings.profile") + "#api-tokens")

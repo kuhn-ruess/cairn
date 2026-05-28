@@ -1,4 +1,5 @@
 """User and API token models."""
+import hashlib
 import secrets
 from datetime import datetime, timezone
 
@@ -25,16 +26,22 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _hash_token(raw: str) -> str:
+    """SHA-256 of the raw token. Used as the at-rest representation —
+    a DB dump never reveals the live token."""
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 class ApiToken(EmbeddedDocument):
     """Personal API token, embedded on the owning user.
 
-    Embedded (not a top-level Document) so a user request that already
-    holds the ``User`` object can authorise without a second DB round
-    trip; token lookup uses the ``api_tokens.token`` index on User.
+    Only the SHA-256 hash of the raw token is stored — the raw string
+    is shown to the user exactly once at mint time and then forgotten.
+    Lookup goes through the ``api_tokens.token_hash`` index.
     """
     pk_ref = ObjectIdField(default=lambda: ObjectId())  # stable id for revoke / display
     name = StringField(max_length=128, default="default")
-    token = StringField(required=True)
+    token_hash = StringField(required=True)
     created_at = DateTimeField(default=_utcnow)
     last_used_at = DateTimeField()
     revoked = BooleanField(default=False)
@@ -50,7 +57,7 @@ class User(UserMixin, Document):
         # ``api_tokens.token`` indexed so token-based auth stays a
         # single keyed lookup (the embedded layout doesn't change the
         # underlying B-tree shape).
-        "indexes": ["email", "username", "team", "api_tokens.token"],
+        "indexes": ["email", "username", "team", "api_tokens.token_hash"],
     }
 
     username = StringField(required=True, unique=True, max_length=64)
@@ -284,16 +291,26 @@ class User(UserMixin, Document):
         self.save()
         return True
 
-    def issue_api_token(self, name: str = "default") -> "ApiToken":
-        """Mint and persist a new embedded API token for this user."""
-        tok = ApiToken(name=name, token=secrets.token_urlsafe(32))
+    def issue_api_token(self, name: str = "default") -> "tuple[ApiToken, str]":
+        """Mint and persist a new API token; return ``(token, raw)``.
+
+        Only the SHA-256 hash is persisted on the user — the raw string
+        is the caller's only chance to see it.
+        """
+        raw = secrets.token_urlsafe(32)
+        tok = ApiToken(name=name, token_hash=_hash_token(raw))
         self.api_tokens.append(tok)
         self.save()
-        return tok
+        return tok, raw
 
     def find_api_token(self, raw: str) -> "ApiToken | None":
+        if not raw:
+            return None
+        expected = _hash_token(raw)
         for t in self.api_tokens or []:
-            if t.token == raw and not t.revoked:
+            if t.revoked:
+                continue
+            if secrets.compare_digest(t.token_hash, expected):
                 return t
         return None
 
@@ -301,13 +318,15 @@ class User(UserMixin, Document):
     def by_api_token(raw: str) -> "tuple[User, ApiToken] | None":
         """Lookup the owning user + active token for a raw string.
 
-        Uses the ``api_tokens.token`` index so this stays a single keyed
-        Mongo query. Returns ``None`` when there's no match (revoked
-        tokens count as no match).
+        Hashes the raw input and queries the ``api_tokens.token_hash``
+        index — still a single keyed Mongo query, but the stored
+        material is unusable on its own. Returns ``None`` when there's
+        no match (revoked tokens count as no match).
         """
         if not raw:
             return None
-        user = User.objects(api_tokens__token=raw).first()
+        h = _hash_token(raw)
+        user = User.objects(api_tokens__token_hash=h).first()
         if user is None:
             return None
         tok = user.find_api_token(raw)
