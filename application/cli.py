@@ -222,6 +222,33 @@ def import_zammad(username, url, token, project_id, assignee_only, include_close
         click.echo("(dry-run: no changes written)")
 
 
+@cairn_cli.command("apply-label-rules")
+@click.option("--user", "username", default=None,
+              help="Limit to a single user; omit to run for everyone.")
+@click.option("--dry-run", is_flag=True, help="Show changes without saving.")
+def apply_label_rules_cmd(username, dry_run):
+    """Re-evaluate Tag.maps_to_status on every existing task.
+
+    Useful after setting a new auto-status rule — without this you'd
+    have to wait for the next sync or manual save before tasks pick
+    up the rule.
+    """
+    from application.models.item import Item
+    from application.services.label_rules import apply_label_rules
+    users = User.objects(username=username) if username else User.objects()
+    total = 0
+    for user in users:
+        n = 0
+        for it in Item.objects(owner=user, kind="task"):
+            if apply_label_rules(it, user):
+                if not dry_run:
+                    it.save()
+                n += 1
+        total += n
+        click.echo(f"{user.username}: {n} task(s) re-statused")
+    click.echo(f"{'(dry-run) would update' if dry_run else 'Updated'} {total} task(s) total.")
+
+
 @cairn_cli.command("convert-html-notes")
 @click.option("--dry-run", is_flag=True, help="Only report, don't write.")
 def convert_html_notes(dry_run):

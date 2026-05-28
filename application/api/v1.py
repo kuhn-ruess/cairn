@@ -506,7 +506,7 @@ def swagger_ui():
 <title>Cairn API · Swagger</title>
 <link rel=\"stylesheet\"
       href=\"https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css\">
-<style>body{margin:0;background:#1d2021;}</style>
+<style>body{margin:0;background:#ffffff;color:#222;}</style>
 </head><body>
 <div id=\"swagger-ui\"></div>
 <script src=\"https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js\"></script>
