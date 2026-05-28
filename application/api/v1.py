@@ -276,21 +276,37 @@ def _apply_task_payload(task: Item, data: dict, user) -> None:
         task.due_date = _parse_dt(data["due_date"])
     if "estimated_minutes" in data:
         task.estimated_minutes = data["estimated_minutes"]
+    if "plan_date" in data:
+        task.plan_date = _parse_dt(data["plan_date"])
     if "repeat_every_days" in data:
         task.repeat_every_days = data["repeat_every_days"]
+    if "repeat_unit" in data:
+        unit = data["repeat_unit"]
+        if unit and unit not in ("day", "weekday", "weekend", "week", "month", "year"):
+            raise ValueError(f"invalid repeat_unit: {unit}")
+        task.repeat_unit = unit or "day"
     if "repeat_from_completion" in data:
         task.repeat_from_completion = bool(data["repeat_from_completion"])
+    if "is_internal" in data:
+        task.is_internal = bool(data["is_internal"])
+    if "color" in data:
+        task.color = (data["color"] or "").strip()
     if "project_id" in data:
         task.project = (
             Item.objects(pk=data["project_id"]).first() if data["project_id"] else None
         )
-    if "tag_names" in data:
-        # New canonical form: list of tag names.
+    if "tags" in data:
+        task.tags = [str(n) for n in (data["tags"] or []) if n]
+    elif "tag_names" in data:
         task.tags = [n for n in (data["tag_names"] or []) if n]
     elif "tag_ids" in data:
         # Legacy field name kept for backwards-compat — treat the values
         # as names (clients passing IDs will get unresolved entries).
         task.tags = [str(n) for n in (data["tag_ids"] or [])]
+    # Apply tag-driven status rules after any tag mutation.
+    if "tags" in data or "tag_names" in data or "tag_ids" in data:
+        from application.services.label_rules import apply_label_rules
+        apply_label_rules(task, user)
     if "assigned_to_id" in data:
         if data["assigned_to_id"]:
             assignee = User.objects(pk=data["assigned_to_id"]).first()
@@ -372,20 +388,31 @@ def _apply_project_payload(p: Item, data: dict) -> None:
         p.name = data["name"]
     if "note" in data:
         p.note = data["note"] or ""
-    if "type" in data:
-        if data["type"] not in PROJECT_TYPES:
-            raise ValueError(f"invalid type: {data['type']}")
-        p.project_type = data["type"]
+    if "color" in data:
+        p.color = (data["color"] or "").strip()
+    if "kind" in data:
+        if data["kind"] not in ("project", "folder", "section"):
+            raise ValueError(f"invalid kind: {data['kind']}")
+        p.kind = data["kind"]
+    if "type" in data or "project_type" in data:
+        val = data.get("project_type") or data.get("type")
+        if val not in PROJECT_TYPES:
+            raise ValueError(f"invalid type: {val}")
+        p.project_type = val
     if "status" in data:
         if data["status"] not in PROJECT_STATUS:
             raise ValueError(f"invalid status: {data['status']}")
         p.status = data["status"]
-    if "is_folder" in data:
-        p.is_folder = bool(data["is_folder"])
     if "parent_id" in data:
         p.parent = Item.objects(pk=data["parent_id"]).first() if data["parent_id"] else None
     if "review_interval_days" in data:
         p.review_interval_days = data["review_interval_days"] or 0
+    if "due_date" in data:
+        p.due_date = _parse_dt(data["due_date"])
+    if "plan_date" in data:
+        p.plan_date = _parse_dt(data["plan_date"])
+    if "tags" in data:
+        p.tags = [str(n) for n in (data["tags"] or []) if n]
     if "member_ids" in data:
         p.members = list(User.objects(pk__in=data["member_ids"] or []))
 
@@ -415,6 +442,8 @@ def create_tag():
         is_context=data.get("is_context", True),
         on_hold=data.get("on_hold", False),
         parent=data.get("parent") or None,
+        exclusive_children=data.get("exclusive_children", False),
+        maps_to_status=(data.get("maps_to_status") or None),
     )
     user.tags.append(t)
     user.save()
@@ -436,6 +465,10 @@ def update_tag(tag_name):
         tag.on_hold = bool(data["on_hold"])
     if "parent" in data:
         tag.parent = data["parent"] or None
+    if "exclusive_children" in data:
+        tag.exclusive_children = bool(data["exclusive_children"])
+    if "maps_to_status" in data:
+        tag.maps_to_status = data["maps_to_status"] or None
     if "name" in data and data["name"] and data["name"] != tag.name:
         # Cascade rename
         old_name = tag.name

@@ -7,7 +7,9 @@ def _is_inspector():
     return request.args.get("inspector") == "1" or request.headers.get("X-Inspector-Request") == "1"
 
 def _render_project_inspector(project, user, *, just_saved=False):
+    from application.services.tz import localise_form_dates
     form = ProjectForm(obj=project)
+    localise_form_dates(form, user)
     _populate_choices(form, user, project)
     form.parent.data = str(project.parent.pk) if project.parent else ""
     form.members.data = [str(m.pk) for m in (project.members or [])]
@@ -65,12 +67,14 @@ def _parent_label(p: Item) -> str:
     return f"📁  {p.name}"
 
 def _apply(form: ProjectForm, project: Item) -> None:
+    from application.services.tz import attach_user_tz
+    user = current_user._get_current_object() if current_user.is_authenticated else None
     project.name = form.name.data
     project.note = form.note.data or ""
     project.color = (form.color.data or "").strip()
     project.tags = list(form.tags.data or [])
-    project.due_date = form.due_date.data
-    project.plan_date = form.plan_date.data
+    project.due_date = attach_user_tz(form.due_date.data, user)
+    project.plan_date = attach_user_tz(form.plan_date.data, user)
     kind = form.kind.data or "project"
     project.kind = kind
     project.parent = (
@@ -904,6 +908,8 @@ def edit(project_id):
     form = ProjectForm(obj=project)
     _populate_choices(form, user, project)
     if form.is_submitted() is False:
+        from application.services.tz import localise_form_dates
+        localise_form_dates(form, user)
         form.parent.data = str(project.parent.pk) if project.parent else ""
         form.members.data = [str(m.pk) for m in (project.members or [])]
         # ``kind`` isn't a model attribute — it's a UI abstraction over

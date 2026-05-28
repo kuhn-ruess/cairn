@@ -1,7 +1,9 @@
 """Item views — perspectives, CRUD, comments, assignments."""
 from datetime import datetime, timedelta, timezone
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask import (
+    Blueprint, abort, current_app, flash, redirect, render_template, request, url_for,
+)
 
 def _is_inspector():
     return request.args.get("inspector") == "1" or request.headers.get("X-Inspector-Request") == "1"
@@ -60,7 +62,9 @@ def _render_empty_task_inspector(user, *, parent_project=None, just_added_title=
 
 def _render_task_inspector(task, user, *, just_saved=False):
     """Render the inspector fragment pre-populated with ``task``'s state."""
+    from application.services.tz import localise_form_dates
     form = TaskForm(obj=task)
+    localise_form_dates(form, user)
     _populate_form_choices(form, user)
     form.project.data = str(task.project.pk) if task.project else ""
     form.tags.data = list(task.tags or [])
@@ -170,15 +174,19 @@ def _populate_form_choices(form: TaskForm, user: User) -> None:
     ]
 
 def _apply_form(form: TaskForm, task: Item, user: User) -> None:
+    from application.services.tz import attach_user_tz
     task.title = form.title.data
     task.note = form.note.data or ""
     task.status = form.status.data
     task.flagged = form.flagged.data
     task.is_internal = form.is_internal.data
     task.priority = int(form.priority.data) if form.priority.data else None
-    task.defer_date = form.defer_date.data
-    task.due_date = form.due_date.data
-    task.plan_date = form.plan_date.data
+    # ``datetime-local`` inputs come in as naive wall-clock values in the
+    # user's local time — attach their tz so mongoengine doesn't treat
+    # them as UTC and shift everything by the user's offset.
+    task.defer_date = attach_user_tz(form.defer_date.data, user)
+    task.due_date = attach_user_tz(form.due_date.data, user)
+    task.plan_date = attach_user_tz(form.plan_date.data, user)
     task.estimated_minutes = form.estimated_minutes.data
     task.repeat_every_days = form.repeat_every_days.data
     task.repeat_unit = form.repeat_unit.data or "day"
@@ -267,6 +275,8 @@ def process_inbox(task_id):
     form = TaskForm(obj=task)
     _populate_form_choices(form, user)
     if request.method == "GET":
+        from application.services.tz import localise_form_dates
+        localise_form_dates(form, user)
         form.project.data = str(task.project.pk) if task.project else ""
         form.tags.data = list(task.tags or [])
         form.assigned_to.data = str(task.assigned_to.pk) if task.assigned_to else ""
@@ -395,7 +405,16 @@ def today():
         days = 1
     days = max(1, min(days, 31))
 
-    start_dt = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+    # Bucket the day window in the user's tz, otherwise a task planned
+    # for 23:00 Berlin (= 21:00 UTC) on day D would fall outside a
+    # ``date(D)`` UTC-midnight window — the row showing day D would miss
+    # its own task and it would re-appear on day D+1.
+    try:
+        from zoneinfo import ZoneInfo
+        _u_tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
+    except Exception:
+        _u_tz = timezone.utc
+    start_dt = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=_u_tz)
     end_dt = start_dt + timedelta(days=days)
     is_today_now = (start_date == today_date and days == 1)
 
@@ -557,6 +576,100 @@ def today():
     prev_date = (start_date - timedelta(days=days)).isoformat()
     next_date = (start_date + timedelta(days=days)).isoformat()
 
+    # ?view=calendar — timeline layout. Tasks are merged with events
+    # so the user sees scheduled work next to meetings. Only 1-day
+    # windows get the grid; multi-day stays on the list mode.
+    view_mode = (request.args.get("view") or "list").strip()
+    if view_mode not in ("list", "calendar"):
+        view_mode = "list"
+
+    timeline = None
+    if view_mode == "calendar":
+        # Bucket events/tasks in the user's configured timezone so
+        # they land on the correct day + hour. zoneinfo falls back to
+        # UTC if the name is unset or invalid.
+        try:
+            from zoneinfo import ZoneInfo
+            tzname = (user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
+            user_tz = ZoneInfo(tzname)
+        except Exception:
+            user_tz = timezone.utc
+
+        def _to_user(dt):
+            if not dt:
+                return None
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(user_tz)
+
+        timed_items: list = []
+        allday_items: list = []
+        for ev in events:
+            if ev.all_day:
+                allday_items.append({"kind": "event", "obj": ev, "title": ev.title})
+            else:
+                timed_items.append({
+                    "kind": "event", "obj": ev,
+                    "start": _to_user(ev.start),
+                    "end": _to_user(ev.end),
+                    "title": ev.title,
+                })
+        for t in filtered:
+            dt = _to_user(t.plan_date or t.due_date)
+            if not dt:
+                allday_items.append({"kind": "task", "obj": t, "title": t.title})
+                continue
+            timed_items.append({
+                "kind": "task", "obj": t,
+                "start": dt,
+                "end": dt + timedelta(minutes=30),
+                "title": t.title,
+            })
+        timed_items.sort(key=lambda x: x["start"])
+
+        # Per-day buckets so week/month views can group items per day.
+        # ``days_in_window`` mirrors the date-nav choice (1, 3, 7, 14)
+        # and turns into a list of date objects.
+        from datetime import date as _date
+        days_in_window = [
+            start_date + timedelta(days=i) for i in range(days)
+        ]
+        by_day: dict = {d: {"hours": {h: [] for h in range(24)},
+                            "allday": []}
+                        for d in days_in_window}
+        for it in timed_items:
+            d = it["start"].date()
+            if d in by_day:
+                by_day[d]["hours"][it["start"].hour].append(it)
+        for it in allday_items:
+            # Place all-day events under their start day; tasks without
+            # a date go under the first day of the window.
+            if it["kind"] == "event":
+                d = _to_user(it["obj"].start).date()
+            else:
+                d = days_in_window[0]
+            if d in by_day:
+                by_day[d]["allday"].append(it)
+
+        # Hour range — adaptive over the whole window so each day's
+        # grid uses the same rows.
+        used_hours: set = set()
+        for d in days_in_window:
+            for h, lst in by_day[d]["hours"].items():
+                if lst:
+                    used_hours.add(h)
+        if used_hours:
+            lo = max(0, min(min(used_hours), 6))
+            hi = min(24, max(max(used_hours) + 1, 22))
+        else:
+            lo, hi = 8, 18
+
+        timeline = {
+            "hours": list(range(lo, hi)),
+            "days": days_in_window,
+            "by_day": by_day,
+        }
+
     return render_template(
         "tasks/today.html",
         title=title,
@@ -577,6 +690,8 @@ def today():
         prev_iso=prev_date,
         next_iso=next_date,
         is_today_now=is_today_now,
+        view_mode=view_mode,
+        timeline=timeline,
     )
 
 def _group_by_project(tasks, extra_projects=()):
@@ -884,6 +999,8 @@ def edit(task_id):
     _populate_form_choices(form, user)
 
     if request.method == "GET":
+        from application.services.tz import localise_form_dates
+        localise_form_dates(form, user)
         # Surface a project pk in the select. If the task's actual
         # parent is a section, hop up to the section's owning project
         # so there's a matching option to highlight (and so a POST
@@ -1103,6 +1220,79 @@ def merge():
         "project_name": target.title,
         "html": html,
     })
+
+@tasks_bp.route("/<task_id>/schedule", methods=["POST"])
+@login_required
+def schedule(task_id):
+    """Drag a task into a calendar slot → set ``plan_date``.
+
+    Body: ``date=YYYY-MM-DD`` and optional ``hour=0..23``. Without
+    hour the task becomes all-day at midnight (still gets a Plan-date
+    event when Google Calendar write-back is enabled). Triggers the
+    calendar writeback so the event mirrors on Google immediately.
+    """
+    from flask import jsonify
+    from datetime import datetime as _dt, time as _t
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_edited_by(user):
+        abort(404)
+    date_raw = (request.form.get("date") or "").strip()
+    hour_raw = (request.form.get("hour") or "").strip()
+    if not date_raw:
+        return jsonify({"error": "date required"}), 400
+    try:
+        d = _dt.fromisoformat(date_raw).date()
+    except ValueError:
+        return jsonify({"error": "invalid date"}), 400
+    # Interpret the wall-clock time in the user's timezone so it lands
+    # on the right hour in their view.
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
+    except Exception:
+        tz = timezone.utc
+    if hour_raw:
+        try:
+            h = max(0, min(23, int(hour_raw)))
+        except ValueError:
+            return jsonify({"error": "invalid hour"}), 400
+        wall = _dt.combine(d, _t(h, 0))
+    else:
+        wall = _dt.combine(d, _t(0, 0))
+    task.plan_date = wall.replace(tzinfo=tz)
+    task.save()
+    warnings = _writeback_calendar(task, user) or []
+    return jsonify({
+        "ok": True,
+        "plan_date": task.plan_date.isoformat(),
+        "warnings": warnings,
+    })
+
+
+@tasks_bp.route("/<task_id>/duration", methods=["POST"])
+@login_required
+def duration(task_id):
+    """Resize a task in the calendar view → set ``estimated_minutes``.
+
+    Body: ``minutes=<int>`` (clamped 5..1440). Triggers GCal write-back
+    so the event on Google grows/shrinks to match.
+    """
+    from flask import jsonify
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_edited_by(user):
+        abort(404)
+    try:
+        minutes = int((request.form.get("minutes") or "").strip())
+    except ValueError:
+        return jsonify({"error": "minutes required"}), 400
+    minutes = max(5, min(1440, minutes))
+    task.estimated_minutes = minutes
+    task.save()
+    warnings = _writeback_calendar(task, user) or []
+    return jsonify({"ok": True, "estimated_minutes": minutes, "warnings": warnings})
+
 
 @tasks_bp.route("/<task_id>/move-options")
 @login_required

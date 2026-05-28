@@ -51,6 +51,7 @@ def build_openapi_spec() -> dict:
                         "id": {"type": "string", "format": "objectid"},
                         "title": {"type": "string"},
                         "note": {"type": "string"},
+                        "color": {"type": "string", "nullable": True},
                         "status": {
                             "type": "string",
                             "enum": [
@@ -65,34 +66,43 @@ def build_openapi_spec() -> dict:
                         },
                         "project_id": {"type": "string", "nullable": True},
                         "tags": {
-                            "type": "array",
-                            "items": {"type": "string"},
+                            "type": "array", "items": {"type": "string"},
                         },
-                        "due_date": {
-                            "type": "string", "format": "date-time",
-                            "nullable": True,
+                        "external_tags": {
+                            "type": "array", "items": {"type": "string"},
+                            "description": "Tags managed by an importer; "
+                                            "user-added tags = tags − external_tags.",
                         },
-                        "defer_date": {
-                            "type": "string", "format": "date-time",
-                            "nullable": True,
+                        "due_date": {"type": "string", "format": "date-time", "nullable": True},
+                        "defer_date": {"type": "string", "format": "date-time", "nullable": True},
+                        "plan_date": {"type": "string", "format": "date-time", "nullable": True},
+                        "completed_at": {"type": "string", "format": "date-time", "nullable": True},
+                        "estimated_minutes": {"type": "integer", "nullable": True},
+                        "repeat_every_days": {"type": "integer", "nullable": True},
+                        "repeat_unit": {
+                            "type": "string",
+                            "enum": ["day", "weekday", "weekend", "week", "month", "year"],
                         },
-                        "plan_date": {
-                            "type": "string", "format": "date-time",
-                            "nullable": True,
-                        },
-                        "completed_at": {
-                            "type": "string", "format": "date-time",
-                            "nullable": True,
-                        },
+                        "repeat_from_completion": {"type": "boolean"},
+                        "is_internal": {"type": "boolean"},
                         "assigned_to": {
-                            "type": "string", "nullable": True,
-                            "description": "User ID this task is assigned to.",
+                            "type": "object", "nullable": True,
+                            "description": "Brief user record.",
                         },
                         "created_at": {"type": "string", "format": "date-time"},
                         "updated_at": {"type": "string", "format": "date-time"},
-                        "external_id": {"type": "string", "nullable": True},
-                        "external_ref": {"type": "string", "nullable": True},
-                        "source": {"type": "string", "nullable": True},
+                        "external_id": {
+                            "type": "string", "nullable": True,
+                            "description": "Prefixed internal id (csv:…, zammad:…).",
+                        },
+                        "external_ref": {
+                            "type": "string", "nullable": True,
+                            "description": "Bare ticket reference shown in the UI (e.g. CHMK-417).",
+                        },
+                        "source": {
+                            "type": "string", "nullable": True,
+                            "enum": ["todoist", "zammad", "csv", "jira", None],
+                        },
                     },
                 },
                 "TaskCreate": {
@@ -101,6 +111,7 @@ def build_openapi_spec() -> dict:
                     "properties": {
                         "title": {"type": "string"},
                         "note": {"type": "string"},
+                        "color": {"type": "string"},
                         "status": {
                             "type": "string",
                             "enum": [
@@ -109,22 +120,23 @@ def build_openapi_spec() -> dict:
                             ],
                         },
                         "flagged": {"type": "boolean"},
-                        "priority": {
-                            "type": "integer", "minimum": 1, "maximum": 4,
-                        },
+                        "priority": {"type": "integer", "minimum": 1, "maximum": 4},
                         "project_id": {"type": "string"},
-                        "tags": {
-                            "type": "array",
-                            "items": {"type": "string"},
+                        "tags": {"type": "array", "items": {"type": "string"}},
+                        "due_date": {"type": "string", "format": "date-time"},
+                        "defer_date": {"type": "string", "format": "date-time"},
+                        "plan_date": {"type": "string", "format": "date-time"},
+                        "estimated_minutes": {"type": "integer"},
+                        "repeat_every_days": {"type": "integer"},
+                        "repeat_unit": {
+                            "type": "string",
+                            "enum": ["day", "weekday", "weekend", "week", "month", "year"],
                         },
-                        "due_date": {
-                            "type": "string", "format": "date-time",
-                        },
-                        "defer_date": {
-                            "type": "string", "format": "date-time",
-                        },
-                        "plan_date": {
-                            "type": "string", "format": "date-time",
+                        "repeat_from_completion": {"type": "boolean"},
+                        "is_internal": {"type": "boolean"},
+                        "assigned_to_id": {
+                            "type": "string",
+                            "description": "User pk to assign this task to. Null/empty to clear.",
                         },
                     },
                 },

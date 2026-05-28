@@ -32,40 +32,56 @@
 
 <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
   <div class="btn-group btn-group-sm" role="group">
-    <a class="btn btn-outline-secondary" href="?date={{ prev_iso }}&days={{ days }}"
+    <a class="btn btn-outline-secondary" href="?date={{ prev_iso }}&days={{ days }}&view={{ view_mode }}"
        title="Previous"><i class="bi bi-chevron-left"></i></a>
     <a class="btn {% if is_today_now %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}"
-       href="{{ url_for('tasks.today') }}">Today</a>
-    <a class="btn btn-outline-secondary" href="?date={{ next_iso }}&days={{ days }}"
+       href="{{ url_for('tasks.today', view=view_mode, days=days) }}">Today</a>
+    <a class="btn btn-outline-secondary" href="?date={{ next_iso }}&days={{ days }}&view={{ view_mode }}"
        title="Next"><i class="bi bi-chevron-right"></i></a>
   </div>
   <input type="date" class="form-control form-control-sm w-auto"
          value="{{ start_date.isoformat() }}"
-         onchange="window.location='?date='+this.value+'&days={{ days }}'">
+         onchange="window.location='?date='+this.value+'&days={{ days }}&view={{ view_mode }}'">
 
   <span class="text-muted small ms-2">Range:</span>
   <div class="btn-group btn-group-sm" role="group">
     {% for n, label in [(1, '1 d'), (3, '3 d'), (7, '1 w'), (14, '2 w')] %}
       <a class="btn btn-sm {% if days == n %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}"
-         href="?date={{ start_date.isoformat() }}&days={{ n }}">{{ label }}</a>
+         href="?date={{ start_date.isoformat() }}&days={{ n }}&view={{ view_mode }}">{{ label }}</a>
     {% endfor %}
+  </div>
+
+  <span class="text-muted small ms-2">View:</span>
+  <div class="btn-group btn-group-sm" role="group">
+    <a class="btn btn-sm {% if view_mode != 'calendar' %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}"
+       href="?date={{ start_date.isoformat() }}&days={{ days }}&view=list"
+       title="List view">
+      <i class="bi bi-list-ul"></i> List
+    </a>
+    <a class="btn btn-sm {% if view_mode == 'calendar' %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}"
+       href="?date={{ start_date.isoformat() }}&days={{ days }}&view=calendar"
+       title="Calendar / timeline view">
+      <i class="bi bi-calendar3"></i> Calendar
+    </a>
   </div>
 </div>
 
 <div class="today-toolbar d-flex flex-wrap align-items-center gap-2 mb-3">
-  <span class="text-muted small">Group by:</span>
-  <div class="btn-group btn-group-sm" role="group">
-    {% for value, label, icon in grouping_options %}
-      <a href="?group={{ value }}{% if active_tag %}&tag={{ active_tag }}{% endif %}"
-         class="btn btn-sm {% if grouping == value %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}">
-        <i class="bi {{ icon }}"></i> {{ label }}
-      </a>
-    {% endfor %}
-  </div>
+  {% if view_mode != 'calendar' %}
+    <span class="text-muted small">Group by:</span>
+    <div class="btn-group btn-group-sm" role="group">
+      {% for value, label, icon in grouping_options %}
+        <a href="?group={{ value }}{% if active_tag %}&tag={{ active_tag }}{% endif %}"
+           class="btn btn-sm {% if grouping == value %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}">
+          <i class="bi {{ icon }}"></i> {{ label }}
+        </a>
+      {% endfor %}
+    </div>
 
-  {% with view_key='today', view_label='Today' %}
-    {% include "tasks/_display_dropdown.html" %}
-  {% endwith %}
+    {% with view_key='today', view_label='Today' %}
+      {% include "tasks/_display_dropdown.html" %}
+    {% endwith %}
+  {% endif %}
 
   <span class="text-muted small ms-2">Filter tag:</span>
   <div class="dropdown">
@@ -109,7 +125,99 @@
   </div>
 {% endmacro %}
 
-{% if calendar_events %}
+{% if view_mode == 'calendar' and timeline %}
+  {% macro item_pill(it) %}
+    {% if it.kind == 'event' %}
+      <span class="cal-pill cal-pill-event"
+            style="border-left-color: {{ it.obj.calendar_color }};">
+        {% if it.start %}<span class="cal-pill-time">{{ '%02d:%02d'|format(it.start.hour, it.start.minute) }}</span>{% endif %}
+        {% if it.obj.url %}<a href="{{ it.obj.url }}" target="_blank" rel="noopener">{{ it.title }}</a>
+        {% else %}{{ it.title }}{% endif %}
+      </span>
+    {% else %}
+      <span class="cal-pill cal-pill-task"
+         draggable="true"
+         data-task-id="{{ it.obj.pk }}"
+         data-est="{{ it.obj.estimated_minutes or 30 }}"
+         data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
+         data-inspector-title="{{ it.obj.title }}"
+         style="--cal-est-min: {{ it.obj.estimated_minutes or 30 }};">
+        {% if it.start %}<span class="cal-pill-time">{{ '%02d:%02d'|format(it.start.hour, it.start.minute) }}</span>{% endif %}
+        <a class="cal-pill-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
+        <span class="cal-pill-dur" title="Estimated duration">{{ it.obj.estimated_minutes or 30 }}m</span>
+        <span class="cal-pill-resize" title="Drag to change duration">⇕</span>
+      </span>
+    {% endif %}
+  {% endmacro %}
+
+  {# Up to 7 days = hour-by-hour timeline. Longer ranges (2w+) get a
+     compact week-grid: 7-day rows, each cell summarises that day's
+     items without the hour-axis (otherwise 14 thin columns are
+     unreadable). #}
+  {% if timeline.days|length <= 7 %}
+    <div class="day-calendar mb-4" data-days="{{ timeline.days|length }}">
+      {% if timeline.days|length > 1 %}
+        <div class="day-grid-row day-grid-head">
+          <div class="day-hour-label"></div>
+          {% for d in timeline.days %}
+            <div class="day-col-head">
+              <div class="small text-muted">{{ d.strftime('%a') }}</div>
+              <div class="fw-semibold">{{ d.strftime('%-d %b') }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% set any_allday = false %}
+      {% for d in timeline.days %}
+        {% if timeline.by_day[d]['allday'] %}{% set any_allday = true %}{% endif %}
+      {% endfor %}
+      {% if any_allday %}
+        <div class="day-grid-row day-allday-row">
+          <div class="day-hour-label small text-muted">all-day</div>
+          {% for d in timeline.days %}
+            <div class="day-col-cell day-drop"
+                 data-day="{{ d.isoformat() }}">
+              {% for it in timeline.by_day[d]['allday'] %}{{ item_pill(it) }}{% endfor %}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% for h in timeline.hours %}
+        <div class="day-grid-row">
+          <div class="day-hour-label">{{ '%02d:00'|format(h) }}</div>
+          {% for d in timeline.days %}
+            <div class="day-col-cell day-hour-slots day-drop"
+                 data-day="{{ d.isoformat() }}"
+                 data-hour="{{ h }}">
+              {% for it in timeline.by_day[d]['hours'][h] %}{{ item_pill(it) }}{% endfor %}
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="month-grid mb-4">
+      {% for d in timeline.days %}
+        {% if loop.index0 % 7 == 0 %}
+          {% if not loop.first %}</div>{% endif %}
+          <div class="month-grid-row">
+        {% endif %}
+          <div class="month-grid-cell day-drop" data-day="{{ d.isoformat() }}">
+            <div class="month-grid-day text-muted small">
+              {{ d.strftime('%a · %-d %b') }}
+            </div>
+            <div class="month-grid-items">
+              {% for it in timeline.by_day[d]['allday'] %}{{ item_pill(it) }}{% endfor %}
+              {% for h in timeline.hours %}
+                {% for it in timeline.by_day[d]['hours'][h] %}{{ item_pill(it) }}{% endfor %}
+              {% endfor %}
+            </div>
+          </div>
+        {% if loop.last %}</div>{% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
+{% elif calendar_events %}
   <div class="calendar-events mb-3">
     <h2 class="h6 text-muted small text-uppercase mb-2">
       <i class="bi bi-calendar3"></i> Calendar ({{ calendar_events|length }})
@@ -192,6 +300,10 @@
 {% if not groups and not projects_with_dates %}
   <p class="text-muted">Nothing on your plate today. 🪨</p>
 {% endif %}
+
+{# Calendar view doesn't render the task-grouped sections — they're
+   inside the timeline above. #}
+{% if view_mode == 'calendar' %}{% set groups = [] %}{% endif %}
 
 {% set view_key = 'today' %}
 {% macro render_project_rows(items) %}
@@ -284,4 +396,174 @@
     </div>
   {% endif %}
 {% endfor %}
+
+{% if view_mode == 'calendar' %}
+<script>
+(function () {
+  // Drag a task pill into a calendar slot → POST /tasks/<id>/schedule
+  // → backend sets plan_date + triggers Google Calendar write-back.
+  const root = document.querySelector(".day-calendar, .month-grid");
+  if (!root) return;
+
+  // Side-by-side layout for absolute-positioned task pills that share
+  // an hour cell. Each pill gets --cal-cols (total) + --cal-col (idx).
+  function layoutCells() {
+    root.querySelectorAll(".day-hour-slots").forEach((cell) => {
+      const pills = cell.querySelectorAll(".cal-pill-task");
+      const n = pills.length;
+      pills.forEach((p, i) => {
+        p.style.setProperty("--cal-cols", String(n));
+        p.style.setProperty("--cal-col", String(i));
+      });
+    });
+  }
+  layoutCells();
+  // CSRF baked in at render time so DOM-lookup quirks (forms outside
+  // <main>, etc.) can't drop it.
+  const CSRF = {{ csrf_token()|tojson }};
+  const csrf = () => CSRF;
+  let dragId = null;
+
+  document.addEventListener("dragstart", (ev) => {
+    const a = ev.target.closest && ev.target.closest(".cal-pill-task[data-task-id]");
+    if (!a) return;
+    dragId = a.dataset.taskId;
+    ev.dataTransfer.effectAllowed = "move";
+    ev.dataTransfer.setData("text/plain", dragId);
+    a.classList.add("cal-pill-dragging");
+  });
+  document.addEventListener("dragend", (ev) => {
+    const a = ev.target.closest && ev.target.closest(".cal-pill-task");
+    if (a) a.classList.remove("cal-pill-dragging");
+    document.querySelectorAll(".day-drop.is-drop-over")
+      .forEach((el) => el.classList.remove("is-drop-over"));
+    dragId = null;
+  });
+
+  root.addEventListener("dragover", (ev) => {
+    if (!dragId) return;
+    const cell = ev.target.closest && ev.target.closest(".day-drop[data-day]");
+    if (!cell) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "move";
+    document.querySelectorAll(".day-drop.is-drop-over")
+      .forEach((el) => el.classList.remove("is-drop-over"));
+    cell.classList.add("is-drop-over");
+  });
+
+  root.addEventListener("drop", async (ev) => {
+    if (!dragId) return;
+    const cell = ev.target.closest && ev.target.closest(".day-drop[data-day]");
+    if (!cell) return;
+    ev.preventDefault();
+    const tok = csrf();
+    if (!tok) {
+      alert("No CSRF token found on the page — try a hard-reload.");
+      return;
+    }
+    const fd = new FormData();
+    fd.append("csrf_token", tok);
+    fd.append("date", cell.dataset.day);
+    if (cell.dataset.hour) fd.append("hour", cell.dataset.hour);
+    try {
+      const resp = await fetch(`/tasks/${dragId}/schedule`, {
+        method: "POST", body: fd,
+        credentials: "same-origin",
+        headers: { "X-CSRFToken": tok },  // Flask-WTF accepts either form or header
+      });
+      if (!resp.ok) {
+        let detail = "";
+        try { detail = (await resp.json()).error || ""; }
+        catch (e) { detail = (await resp.text()).slice(0, 200); }
+        console.error("schedule failed", resp.status, detail);
+        alert(`Schedule failed (${resp.status}): ${detail}`);
+        return;
+      }
+      window.location.reload();
+    } catch (err) {
+      console.error(err);
+      alert("Schedule failed (network).");
+    }
+  });
+
+  // ---- Resize to set duration ------------------------------------------
+  // Grab the ⇕ handle on a task pill and drag vertically. Each 20px of
+  // movement = 15 minutes (rounded). Releases POSTs to /duration which
+  // updates estimated_minutes and triggers GCal write-back.
+  const MIN_STEP = 15;
+  const PX_PER_STEP = 20;
+
+  let resizing = null; // {pill, startY, startMinutes, durEl}
+
+  document.addEventListener("mousedown", (ev) => {
+    const handle = ev.target.closest && ev.target.closest(".cal-pill-resize");
+    if (!handle) return;
+    const pill = handle.closest(".cal-pill-task");
+    if (!pill) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    // Block the surrounding HTML5 drag while resizing.
+    pill.setAttribute("draggable", "false");
+    resizing = {
+      pill,
+      startY: ev.clientY,
+      startMinutes: parseInt(pill.dataset.est || "30", 10) || 30,
+      durEl: pill.querySelector(".cal-pill-dur"),
+    };
+    document.body.classList.add("is-resizing-cal");
+  });
+
+  document.addEventListener("mousemove", (ev) => {
+    if (!resizing) return;
+    const dy = ev.clientY - resizing.startY;
+    const steps = Math.round(dy / PX_PER_STEP);
+    const next = Math.max(MIN_STEP,
+                          Math.min(1440, resizing.startMinutes + steps * MIN_STEP));
+    if (resizing.durEl) resizing.durEl.textContent = next + "m";
+    resizing.pill.dataset.est = String(next);
+    resizing.pill.style.setProperty("--cal-est-min", String(next));
+  });
+
+  document.addEventListener("mouseup", async () => {
+    if (!resizing) return;
+    const { pill } = resizing;
+    const minutes = parseInt(pill.dataset.est || "30", 10) || 30;
+    const taskId = pill.dataset.taskId;
+    const startMinutes = resizing.startMinutes;
+    resizing = null;
+    pill.setAttribute("draggable", "true");
+    document.body.classList.remove("is-resizing-cal");
+    if (minutes === startMinutes) return; // no change
+    const tok = csrf();
+    const fd = new FormData();
+    fd.append("csrf_token", tok);
+    fd.append("minutes", String(minutes));
+    try {
+      const resp = await fetch(`/tasks/${taskId}/duration`, {
+        method: "POST", body: fd,
+        credentials: "same-origin",
+        headers: { "X-CSRFToken": tok },
+      });
+      if (!resp.ok) {
+        let detail = "";
+        try { detail = (await resp.json()).error || ""; }
+        catch (e) { detail = (await resp.text()).slice(0, 200); }
+        alert(`Resize failed (${resp.status}): ${detail}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Resize failed (network).");
+    }
+  });
+
+  // Don't let a click on the resize handle bubble up to the pill link.
+  document.addEventListener("click", (ev) => {
+    if (ev.target.closest && ev.target.closest(".cal-pill-resize")) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}
