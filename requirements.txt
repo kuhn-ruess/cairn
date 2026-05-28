@@ -12,3 +12,4 @@ python-dotenv==1.0.1
 gunicorn==23.0.0
 markdown==3.7
 bleach==6.1.0
+markdownify==0.13.1

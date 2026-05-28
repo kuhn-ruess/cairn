@@ -447,8 +447,9 @@ def _first_article(base: str, token: str, ticket_id: str, stats: ZammadStats) ->
         return ""
     a = arts[0]
     body = (a.get("body") or "").strip()
-    # Zammad stores HTML in body for incoming email articles; keep it as
-    # a code block so it survives the markdown filter.
+    # Zammad articles come back as HTML for incoming email. Notes in
+    # Cairn are Markdown, so convert at the boundary.
     if a.get("content_type") == "text/html":
-        body = "```html\n" + body + "\n```"
+        from application.services.html_to_markdown import html_to_markdown
+        body = html_to_markdown(body)
     return body

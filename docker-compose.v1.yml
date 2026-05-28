@@ -1,0 +1,38 @@
+# Compose file for the legacy ``docker-compose`` v1.x binary, prod setup.
+#
+# v1 doesn't understand version-less compose files, so we declare a
+# version explicitly. Mirrors ``docker-compose.yml`` (production
+# Dockerfile + gunicorn) — no local bind-mount, no flask --debug.
+#
+# Usage:
+#   docker-compose -f docker-compose.v1.yml -p bktodo up --build --force-recreate -d
+#
+# If you have ``docker compose`` (v2) instead, use ``./helper up`` or
+# the regular ``docker-compose.yml``.
+version: '3.8'
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: bktodo
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8004:5004"
+    environment:
+      BKTODO_MONGO_HOST: mongo
+      BKTODO_MONGO_DB: bktodo
+      BKTODO_SECRET_KEY: change-me-in-production
+    depends_on:
+      - mongo
+
+volumes:
+  mongo-data:

@@ -225,6 +225,40 @@ def import_zammad(username, url, token, project_id, label, assignee_only, includ
         click.echo("(dry-run: no changes written)")
 
 
+@cairn_cli.command("convert-html-notes")
+@click.option("--dry-run", is_flag=True, help="Only report, don't write.")
+def convert_html_notes(dry_run):
+    """Convert legacy ``\\`\\`\\`html ... \\`\\`\\`\\``-wrapped notes to Markdown.
+
+    The Zammad importer used to box HTML article bodies in a fenced
+    code block. We now convert HTML → Markdown at import time and
+    store the result directly, so the fences need to be unwrapped
+    AND the HTML inside translated into Markdown.
+    """
+    import re
+    from application.models.item import Item
+    from application.services.html_to_markdown import html_to_markdown
+    pat = re.compile(r"```html\s*\n(.*?)\n```", re.DOTALL)
+    qs = Item.objects(note__contains="```html")
+    touched = 0
+    for it in qs:
+        old = it.note or ""
+        def repl(m):
+            return html_to_markdown(m.group(1))
+        new_note, n = pat.subn(repl, old)
+        if not n:
+            continue
+        click.echo(f"{it.kind} {str(it.pk)[:8]} : {(it.title or '')[:60]}  ({n}x)")
+        touched += 1
+        if not dry_run:
+            it.note = new_note
+            it.save()
+    if dry_run:
+        click.echo(f"(dry-run) would convert {touched} item(s)")
+    else:
+        click.echo(f"Converted {touched} item(s).")
+
+
 @cairn_cli.command("repair-section-parents")
 @click.option("--dry-run", is_flag=True, help="Only report, don't write.")
 def repair_section_parents(dry_run):

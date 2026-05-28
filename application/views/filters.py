@@ -72,10 +72,9 @@ def register_filters(app):
     def markdown_filter(value):
         """Render Markdown to safe HTML for note bodies + comments.
 
-        Allowed: standard formatting (em, strong, lists, blockquote, code,
-        pre, headings, links, hr) — nothing that can execute or load
-        external resources. The output is marked safe so Jinja won't
-        re-escape it.
+        Notes are stored as Markdown (importers convert HTML → Markdown
+        before persisting), so the allowlist stays small: standard
+        formatting tags only.
         """
         from markupsafe import Markup
         import bleach
