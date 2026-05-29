@@ -1,0 +1,54 @@
+{% extends "layout/base.html" %}
+{% block title %}Trash · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <div class="me-auto">
+    <h1 class="h4 mb-0"><i class="bi bi-trash"></i> Trash</h1>
+    <p class="text-muted mb-0">
+      {% if retention_days %}
+        Items are permanently deleted {{ retention_days }} days after they land here.
+      {% else %}
+        Items stay here until you empty the trash.
+      {% endif %}
+    </p>
+  </div>
+  {% if items %}
+    <form method="post" action="{{ url_for('trash.empty') }}" class="m-0"
+          onsubmit="return confirm('Permanently delete everything in the trash? This cannot be undone.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash3"></i> Empty trash</button>
+    </form>
+  {% endif %}
+</div>
+
+{% if not items %}
+  <p class="text-muted">Trash is empty.</p>
+{% else %}
+  <div class="list-group">
+    {% for it in items %}
+      <div class="list-group-item d-flex align-items-center">
+        <span class="me-2">{{ item_icon(it) }}</span>
+        <span class="me-auto">
+          <span class="fw-semibold">{{ it.title }}</span>
+          <span class="d-block small text-muted">
+            {{ it.kind }}
+            {% if it.parent %}· in {{ it.parent.title }}{% endif %}
+            · trashed {{ it.trashed_at|relativedate }}
+          </span>
+        </span>
+        <div class="d-flex gap-2">
+          <form method="post" action="{{ url_for('trash.restore', item_id=it.pk) }}" class="m-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-success"><i class="bi bi-arrow-counterclockwise"></i> Restore</button>
+          </form>
+          <form method="post" action="{{ url_for('trash.delete_permanent', item_id=it.pk) }}" class="m-0"
+                onsubmit="return confirm('Permanently delete “{{ it.title }}”{% if not it.is_task %} and its contents{% endif %}? This cannot be undone.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-lg"></i></button>
+          </form>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}

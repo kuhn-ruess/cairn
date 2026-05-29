@@ -35,6 +35,7 @@ from mongoengine import (
     ListField,
     ReferenceField,
     StringField,
+    queryset_manager,
 )
 
 from application.models.user import User
@@ -90,6 +91,7 @@ class Item(Document):
             "defer_date",
             "members",
             "next_review_at",
+            "trashed_at",
             ("owner", "kind"),
             ("owner", "status"),
             ("assigned_to", "status"),
@@ -121,6 +123,9 @@ class Item(Document):
     # bookkeeping
     created_at = DateTimeField(default=_utcnow)
     updated_at = DateTimeField(default=_utcnow)
+    # Soft-delete: when set, the item is in the trash — hidden everywhere via
+    # the default ``objects`` manager (see below) until restored or purged.
+    trashed_at = DateTimeField()
     completed_at = DateTimeField()
     # Who/what closed this task (done or dropped). ``completed_by`` is the
     # acting user when known (manual completion); ``completed_via`` records
@@ -208,6 +213,20 @@ class Item(Document):
     # calendar write-back
     gcal_due_event_id = StringField()
     gcal_plan_event_id = StringField()
+
+    # ---------- managers ----------
+    # ``Item.objects`` hides trashed items everywhere by default, so the ~170
+    # existing query sites need no changes. ``Item.all_objects`` sees the whole
+    # collection (trash view, restore, purge, cascade). Reference dereferencing
+    # (parent/owner/assigned_to) bypasses the manager, so a trashed parent still
+    # resolves normally.
+    @queryset_manager
+    def objects(doc_cls, queryset):
+        return queryset.filter(trashed_at=None)
+
+    @queryset_manager
+    def all_objects(doc_cls, queryset):
+        return queryset
 
     # ---------- helpers ----------
 

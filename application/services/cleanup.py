@@ -33,7 +33,7 @@ def _project_subtree_ids(root) -> list:
     # BFS using one query per depth. Item trees are shallow (handful
     # of levels) so this is bounded — no per-node round-trip.
     while frontier:
-        children = list(Item.objects(parent__in=frontier).only("id", "parent"))
+        children = list(Item.all_objects(parent__in=frontier).only("id", "parent"))
         if not children:
             break
         frontier = [c.pk for c in children]
@@ -62,7 +62,7 @@ def delete_project_cascade(project) -> dict:
     # The project-index hit narrows the scan; the existence filter
     # runs in mongo.
     owner = project.owner
-    cal_tasks = Item.objects(parent__in=pks).filter(
+    cal_tasks = Item.all_objects(parent__in=pks).filter(
         __raw__={"$or": [
             {"gcal_due_event_id": {"$exists": True, "$ne": ""}},
             {"gcal_plan_event_id": {"$exists": True, "$ne": ""}},
@@ -73,8 +73,8 @@ def delete_project_cascade(project) -> dict:
         delete_task_calendar_events(t, owner)
         cleaned += 1
 
-    tasks_removed = Item.objects(parent__in=pks).delete()
-    projects_removed = Item.objects(pk__in=pks).delete()
+    tasks_removed = Item.all_objects(parent__in=pks).delete()
+    projects_removed = Item.all_objects(pk__in=pks).delete()
     return {
         "projects": projects_removed,
         "tasks": tasks_removed,
@@ -97,7 +97,7 @@ def delete_user_cascade(user) -> dict:
     # 1) Projects owned by this user — cascade each (so descendants +
     # tasks go too). The list is bounded by their plan; a handful of
     # bulk ops per project.
-    owned = list(Item.objects(owner=pk).only("id"))
+    owned = list(Item.all_objects(owner=pk).only("id"))
     counts["projects_owned"] = 0
     counts["tasks_in_owned_projects"] = 0
     for p in owned:
@@ -106,15 +106,15 @@ def delete_user_cascade(user) -> dict:
         counts["tasks_in_owned_projects"] += r["tasks"]
 
     # 2) Tasks owned directly (no project, e.g. Inbox-only) — bulk delete.
-    counts["loose_tasks"] = Item.objects(owner=pk).delete()
+    counts["loose_tasks"] = Item.all_objects(owner=pk).delete()
 
     counts["api_tokens"] = len(user.api_tokens or [])
     counts["calendars"] = len(user.calendars or [])
 
     # 4) Shared references — bulk nullify / pull.
-    Item.objects(assigned_to=pk).update(unset__assigned_to=1, unset__assigned_at=1)
-    Item.objects(assigned_by=pk).update(unset__assigned_by=1)
-    Item.objects(members=pk).update(pull__members=pk)
+    Item.all_objects(assigned_to=pk).update(unset__assigned_to=1, unset__assigned_at=1)
+    Item.all_objects(assigned_by=pk).update(unset__assigned_by=1)
+    Item.all_objects(members=pk).update(pull__members=pk)
     # ``invites.used_by`` on teams the user previously accepted — clear
     # the back-reference so the team record doesn't dangle.
     for team in Team.objects(invites__used_by=pk):

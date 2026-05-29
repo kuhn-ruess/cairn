@@ -139,6 +139,11 @@ class User(UserMixin, Document):
     # ``cairn cleanup-completed-tasks`` (cron-able).
     completed_task_retention_days = IntField(default=0, min_value=0)
 
+    # Trash: items deleted by the user are soft-deleted (Item.trashed_at) and
+    # purged this many days later. ``0`` keeps trash until emptied by hand.
+    # Sweep is run by ``cairn cleanup-trash`` (cron-able).
+    trash_retention_days = IntField(default=30, min_value=0)
+
     # Items the user has collapsed in tree views (sub-task children
     # hidden under their parent). Stored as a list of string PKs so a
     # single read returns the whole set per request.

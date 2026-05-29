@@ -60,6 +60,7 @@ commands beyond the user-facing ones in the README:
 - `./cairn reset-password <user>` — issues a one-time reset URL (useful when SMTP isn't configured)
 - `./cairn import-todoist <user> --token <todoist-token>` — full import of projects/labels/tasks/comments
 - `./cairn cleanup-completed-tasks [--dry-run] [--user <name>]` — cron-friendly sweep of done/dropped tasks past each user's retention window
+- `./cairn cleanup-trash [--dry-run] [--user <name>]` — cron-friendly purge of trashed items past each user's `trash_retention_days` (default 30; `0` = keep until emptied)
 - `./cairn migrate-tags-to-embedded` / `./cairn wipe-legacy-collections` — one-shot migrations from the older schema (see Architecture)
 
 ### Tests
@@ -110,6 +111,13 @@ Implications when writing queries or features:
   `application/services/cleanup.py` for bulk-delete paths.
 - The legacy `tasks` and `projects` collections may still exist in older
   databases but are inert. `./cairn wipe-legacy-collections` drops them.
+- **Soft delete / trash:** deleting from the UI sets `Item.trashed_at` instead
+  of dropping the doc. `Item.objects` is overridden (mongoengine
+  `queryset_manager`) to hide trashed items everywhere by default; use
+  `Item.all_objects` for trash/restore/purge/cascade paths that must see them.
+  Reference dereferences (`parent`/`owner`/`assigned_to`) bypass the manager, so
+  a trashed parent still resolves. Purge logic lives in
+  `application/services/trash.py` (`./cairn cleanup-trash`).
 
 ### Tags are embedded on `User`, not a top-level collection
 

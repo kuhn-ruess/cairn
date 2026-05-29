@@ -65,6 +65,7 @@ def create_app(config_object: str | None = None) -> Flask:
     from application.views.admin import admin_bp
     from application.views.teams import teams_bp
     from application.views.public_share import public_bp
+    from application.views.trash import trash_bp
     from application.api.v1 import api_v1_bp
 
     app.register_blueprint(auth_bp)
@@ -79,6 +80,7 @@ def create_app(config_object: str | None = None) -> Flask:
     app.register_blueprint(admin_bp)
     app.register_blueprint(teams_bp)
     app.register_blueprint(public_bp)
+    app.register_blueprint(trash_bp)
     app.register_blueprint(api_v1_bp)
     csrf.exempt(api_v1_bp)
 

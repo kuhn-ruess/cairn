@@ -1,0 +1,151 @@
+"""Trash (soft-delete) helpers.
+
+Deleting from the UI moves an item — and its whole subtree — into the trash
+by stamping ``Item.trashed_at`` instead of dropping the document. The default
+``Item.objects`` manager hides trashed items everywhere, so they vanish from
+every perspective/project/search until restored or purged.
+
+Purge (permanent delete) happens either manually from the trash view or via
+``cairn cleanup-trash`` once an item has sat in the trash past the user's
+``trash_retention_days`` window (default 30, ``0`` = keep until emptied).
+"""
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+# Best-effort cap on Google Calendar event deletions per purge — the API has
+# no bulk delete, so a giant purge shouldn't hang on it.
+CAL_CLEANUP_CAP = 200
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _subtree_pks(root_pk) -> list:
+    """All pks at or below ``root_pk`` (sections / sub-projects / sub-tasks),
+    including trashed ones — uses all_objects so a partly-trashed subtree is
+    handled completely."""
+    from application.models.item import Item
+    pks = [root_pk]
+    frontier = [root_pk]
+    while frontier:
+        kids = list(Item.all_objects(parent__in=frontier).only("id"))
+        if not kids:
+            break
+        frontier = [k.pk for k in kids]
+        pks.extend(frontier)
+    return pks
+
+
+def trash_item(item) -> int:
+    """Soft-delete ``item`` and its subtree. Best-effort removes any mirrored
+    calendar events for the affected tasks. Returns the number trashed."""
+    from application.models.item import Item
+    pks = _subtree_pks(item.pk)
+    _clear_calendar_events(pks, item.owner)
+    return Item.all_objects(pk__in=pks, trashed_at=None).update(
+        set__trashed_at=_now()
+    )
+
+
+def restore_item(item) -> int:
+    """Restore ``item`` and any descendants currently in the trash."""
+    from application.models.item import Item
+    pks = _subtree_pks(item.pk)
+    return Item.all_objects(pk__in=pks, trashed_at__ne=None).update(
+        unset__trashed_at=True
+    )
+
+
+def purge_item(item) -> int:
+    """Permanently delete a trashed item and its subtree. Returns the count."""
+    from application.models.item import Item
+    pks = _subtree_pks(item.pk)
+    _clear_calendar_events(pks, item.owner)
+    return Item.all_objects(pk__in=pks).delete()
+
+
+def trashed_roots(user):
+    """Trashed items the user owns that sit at the *top* of a trashed subtree
+    (their parent isn't itself trashed) — what the trash view lists, so a
+    trashed project shows once rather than once per descendant."""
+    from application.models.item import Item
+    items = list(
+        Item.all_objects(owner=user, trashed_at__ne=None)
+        .order_by("-trashed_at")
+    )
+    trashed_pks = {i.pk for i in items}
+    roots = []
+    for i in items:
+        parent_pk = i.parent.pk if i.parent else None
+        if parent_pk not in trashed_pks:
+            roots.append(i)
+    return roots
+
+
+def empty_trash(user) -> int:
+    """Permanently delete everything in the user's trash. Returns the count."""
+    from application.models.item import Item
+    pks = [
+        i.pk for i in Item.all_objects(owner=user, trashed_at__ne=None).only("id")
+    ]
+    if not pks:
+        return 0
+    _clear_calendar_events(pks, user)
+    return Item.all_objects(pk__in=pks).delete()
+
+
+def purge_trash(user, *, dry_run: bool = False) -> int:
+    """Permanently delete the user's trashed items past their retention window.
+    ``trash_retention_days == 0`` means keep until emptied by hand — a no-op."""
+    from application.models.item import Item
+    days = int(getattr(user, "trash_retention_days", 30) or 0)
+    if days <= 0:
+        return 0
+    cutoff = _now() - timedelta(days=days)
+    qs = Item.all_objects(owner=user, trashed_at__lte=cutoff)
+    if dry_run:
+        return qs.count()
+    pks = [i.pk for i in qs.only("id")]
+    _clear_calendar_events(pks, user)
+    return Item.all_objects(pk__in=pks).delete()
+
+
+def purge_trash_all(*, dry_run: bool = False) -> dict:
+    """Run :func:`purge_trash` for every user with a retention window. The
+    field defaults to 30, but older user docs predate it (field absent) — match
+    those too via ``exists=False`` so the default still applies to them."""
+    from mongoengine import Q
+    from application.models.user import User
+    out = {}
+    qs = User.objects(
+        Q(trash_retention_days__gt=0) | Q(trash_retention_days__exists=False)
+    ).only("id", "username", "trash_retention_days")
+    for user in qs:
+        out[user.username] = purge_trash(user, dry_run=dry_run)
+    return out
+
+
+def _clear_calendar_events(pks, owner) -> None:
+    """Best-effort removal of mirrored Google Calendar events for the given
+    task pks. Capped + swallowed so calendar trouble never blocks a delete."""
+    from application.models.item import Item
+    try:
+        from application.services.calendar_writeback import (
+            delete_task_calendar_events,
+        )
+    except Exception:
+        return
+    n = 0
+    for t in Item.all_objects(pk__in=pks, kind="task").filter(
+        __raw__={"$or": [{"gcal_due_event_id": {"$ne": None}},
+                         {"gcal_plan_event_id": {"$ne": None}}]}
+    ):
+        if n >= CAL_CLEANUP_CAP:
+            break
+        try:
+            delete_task_calendar_events(t, owner)
+        except Exception:
+            pass
+        n += 1

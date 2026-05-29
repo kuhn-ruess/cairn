@@ -1246,22 +1246,18 @@ def toggle_flag(task_id):
 @login_required
 def delete(task_id):
     from flask import jsonify
-    from application.services.calendar_writeback import delete_task_calendar_events
+    from application.services.trash import trash_item
     user = current_user._get_current_object()
     task = Item.objects(pk=task_id).first()
     if not task or task.owner != user:
         abort(404)
-    # Reparent any children (sub-tasks / nested items) up one level so
-    # we don't leave dangling references — those would crash
-    # mongoengine on the next dereference. Sub-tasks of a deleted
-    # task become tasks under the task's former parent (or the inbox
-    # if it was top-level).
-    Item.objects(parent=task).update(set__parent=task.parent)
-    delete_task_calendar_events(task, user)
-    task.delete()
+    # Soft-delete: move the task (and any sub-tasks) to the trash. Restorable
+    # for trash_retention_days, then purged. Sub-tasks ride along so restore
+    # brings the whole thing back intact.
+    trash_item(task)
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return jsonify({"ok": True})
-    flash("Item deleted.", "info")
+    flash("Moved to trash.", "info")
     # Stay on whatever list / perspective / project page the user came
     # from. ``request.referrer`` is the previous URL; if it points to
     # this task's own detail page (now gone), fall back to home.
@@ -1738,11 +1734,10 @@ def bulk():
     skipped = 0
 
     if action == "delete":
-        from application.services.calendar_writeback import delete_task_calendar_events
+        from application.services.trash import trash_item
         for t in tasks:
             if t.owner == user:
-                delete_task_calendar_events(t, user)
-                t.delete()
+                trash_item(t)
                 count += 1
             else:
                 skipped += 1

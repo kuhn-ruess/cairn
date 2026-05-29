@@ -1295,10 +1295,10 @@ def bulk():
     count = 0
 
     if action == "delete":
-        from application.services.cleanup import delete_project_cascade
+        from application.services.trash import trash_item
         for p in projects:
-            r = delete_project_cascade(p)
-            count += r["projects"]
+            trash_item(p)
+            count += 1
     elif action == "complete":
         for p in projects:
             p.status = "completed"
@@ -1793,19 +1793,17 @@ def unwrap(project_id):
 @login_required
 def delete(project_id):
     from flask import jsonify
-    from application.services.cleanup import delete_project_cascade
+    from application.services.trash import trash_item
     user = current_user._get_current_object()
     project = Item.objects(pk=project_id).first()
     if not project or project.owner != user:
         abort(404)
-    r = delete_project_cascade(project)
+    # Soft-delete the whole subtree (sub-projects, sections, tasks) into the
+    # trash; restorable until purged.
+    n = trash_item(project)
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return jsonify({"ok": True, "stats": r})
-    flash(
-        f"Item deleted — {r['projects'] - 1} sub-project(s) "
-        f"and {r['tasks']} task(s) removed too.",
-        "info",
-    )
+        return jsonify({"ok": True, "trashed": n})
+    flash(f"Moved to trash — {n} item(s) incl. contents.", "info")
     # Stay where the user came from — falling back to the projects
     # list. If they came from the deleted item's own page, bounce up
     # one level (its parent) so the redirect doesn't 404.

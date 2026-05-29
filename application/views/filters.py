@@ -189,6 +189,9 @@ def register_filters(app):
             _visible = {p.key for p in sidebar_perspectives}
             nav_counts = sidebar_counts(user, _now, keys=_visible)
             nav_counts["review"] = review_due_count(user, _now)
+            nav_counts["trash"] = Item.all_objects(
+                owner=user, trashed_at__ne=None
+            ).count()
 
         from application import APP_VERSION
         return {

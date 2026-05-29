@@ -62,6 +62,20 @@
                class="form-control form-control-sm" style="max-width: 8rem;">
         <span class="text-muted small">days (0 = never)</span>
       </div>
+
+      <hr>
+      <h2 class="h6 mb-1"><i class="bi bi-trash"></i> Trash retention</h2>
+      <p class="text-muted small mb-3">
+        Deleted items go to the <strong>trash</strong> and are permanently
+        removed this many days later. Set to <code>0</code> to keep them until
+        you empty the trash by hand. The sweep runs nightly on the server.
+      </p>
+      <div class="d-flex gap-2 align-items-center">
+        <input type="number" name="trash_retention_days" min="0" max="3650"
+               value="{{ current_user.trash_retention_days if current_user.trash_retention_days is not none else 30 }}"
+               class="form-control form-control-sm" style="max-width: 8rem;">
+        <span class="text-muted small">days (0 = never)</span>
+      </div>
     </div>
   </div>
 

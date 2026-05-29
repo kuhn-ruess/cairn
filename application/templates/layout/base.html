@@ -124,6 +124,10 @@
           <i class="bi bi-arrow-clockwise"></i> <span class="ms-1">Review</span>
           {% if nav_counts.get('review') %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ nav_counts.get('review') }}</span>{% endif %}
         </a></li>
+        <li><a class="nav-link py-1 d-flex align-items-center" href="{{ url_for('trash.index') }}">
+          <i class="bi bi-trash"></i> <span class="ms-1">Trash</span>
+          {% if nav_counts.get('trash') %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ nav_counts.get('trash') }}</span>{% endif %}
+        </a></li>
       </ul>
       </div>
 

@@ -156,6 +156,12 @@ def profile():
             )
         except ValueError:
             user.completed_task_retention_days = 0
+        try:
+            user.trash_retention_days = max(
+                int(request.form.get("trash_retention_days") or 0), 0
+            )
+        except ValueError:
+            user.trash_retention_days = 30
         user.save()
         flash("Profile saved.", "success")
         return redirect(url_for("settings.profile"))

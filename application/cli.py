@@ -78,6 +78,31 @@ def cleanup_completed_tasks(dry_run, username):
             click.echo(f"  {name}: {verb} {n} task(s)")
     click.echo(f"total: {verb} {total} task(s) across {len(results)} user(s)")
 
+@cairn_cli.command("cleanup-trash")
+@click.option("--dry-run", is_flag=True, help="Report only, don't delete.")
+@click.option("--user", "username", help="Only sweep one user (by username).")
+def cleanup_trash(dry_run, username):
+    """Permanently delete trashed items past each user's retention window.
+
+    Cron-friendly: run nightly. Per-user is an indexed bulk-delete.
+    """
+    from application.services.trash import purge_trash, purge_trash_all
+    if username:
+        u = User.objects(username=username).first()
+        if not u:
+            raise click.ClickException(f"no user '{username}'")
+        n = purge_trash(u, dry_run=dry_run)
+        verb = "would delete" if dry_run else "deleted"
+        click.echo(f"{u.username}: {verb} {n} item(s)")
+        return
+    results = purge_trash_all(dry_run=dry_run)
+    total = sum(results.values())
+    verb = "would delete" if dry_run else "deleted"
+    for name, n in results.items():
+        if n:
+            click.echo(f"  {name}: {verb} {n} item(s)")
+    click.echo(f"total: {verb} {total} item(s) across {len(results)} user(s)")
+
 @cairn_cli.command("set-level")
 @click.argument("email_or_username")
 @click.argument("level", type=click.Choice(["free", "premium", "team_admin", "global_admin"]))
