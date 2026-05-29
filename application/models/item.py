@@ -186,13 +186,20 @@ class Item(Document):
 
     # ----- project-flavoured fields -----
     project_type = StringField(choices=PROJECT_TYPES, default="parallel")
-    review_interval_days = IntField(default=7, min_value=0)
+    # Review cadence in days. Applies to tasks AND projects. ``None`` =
+    # inherit the nearest ancestor's interval (see effective_review_interval);
+    # an explicit value overrides; ``0`` = never review. Projects normally set
+    # their own; tasks usually leave it blank to follow their project.
+    review_interval_days = IntField(min_value=0)
     last_reviewed_at = DateTimeField()
     next_review_at = DateTimeField()
     task_grouping = StringField(default="section")
     task_grouping_tag = StringField(default="")
     view_mode = StringField(default="list")
     show_blocked_tasks = BooleanField(default=False)
+    # When set on a project, completing the last open task anywhere in the
+    # project auto-marks the project ``completed`` (see complete()).
+    auto_complete_when_done = BooleanField(default=False)
 
     # public share
     share_enabled = BooleanField(default=False)
@@ -318,6 +325,7 @@ class Item(Document):
         if self.kind != "task":
             return None
         if not self.repeat_every_days and not self.repeat_weekdays:
+            self._autocomplete_enclosing_project(by_user)
             return None
         anchor = (
             self.completed_at if self.repeat_from_completion
@@ -409,7 +417,39 @@ class Item(Document):
             checklist=[ChecklistItem(text=ci.text, done=False) for ci in (self.checklist or [])],
         )
         clone.save()
+        # A live clone keeps the project non-empty, so this is a no-op here —
+        # called for consistency in case the clone landed elsewhere.
+        self._autocomplete_enclosing_project(by_user)
         return clone
+
+    def _autocomplete_enclosing_project(self, by_user: User | None = None) -> None:
+        """If this task sits in a project flagged ``auto_complete_when_done``
+        and no open task remains anywhere in that project, mark the project
+        ``completed``. Climbs through sections / parent tasks to find the
+        enclosing project."""
+        node = self.parent
+        while node is not None and node.kind != "project":
+            node = node.parent
+        project = node
+        if (project is None
+                or not project.auto_complete_when_done
+                or project.status in ("completed", "dropped")):
+            return
+        # Any still-open task anywhere in the subtree keeps the project active.
+        frontier = [project.pk]
+        while frontier:
+            children = Item.objects(parent__in=frontier).only("pk", "kind", "status")
+            next_frontier = []
+            for c in children:
+                if c.kind == "task" and c.status not in ("done", "dropped"):
+                    return
+                next_frontier.append(c.pk)
+            frontier = next_frontier
+        project.status = "completed"
+        project.completed_at = _utcnow()
+        project.completed_by = by_user
+        project.completed_via = "auto"
+        project.save()
 
     def ensure_container(self) -> bool:
         """Flip kind=task → project so this item can hold children.
@@ -501,15 +541,60 @@ class Item(Document):
         self.share_token = secrets.token_urlsafe(24)
         return self.share_token
 
-    def mark_reviewed(self) -> None:
+    # ----- review cadence (tasks + projects) -----
+
+    def effective_review_interval(self) -> int | None:
+        """Review cadence in days, honouring inheritance. Own value wins;
+        otherwise inherit the nearest ancestor that sets one. ``0`` = never,
+        ``None`` = no review configured anywhere up the chain."""
+        node = self
+        seen = set()
+        while node is not None and node.pk not in seen:
+            if node.review_interval_days is not None:
+                return node.review_interval_days
+            seen.add(node.pk)
+            node = node.parent
+        return None
+
+    def is_review_due(self, now: datetime | None = None) -> bool:
+        """True when this item is due for review per its effective interval.
+        Never-reviewed items with a positive interval are due immediately."""
+        now = now or _utcnow()
+        iv = self.effective_review_interval()
+        if not iv:  # None or 0 → not on a review schedule
+            return False
+        if self.last_reviewed_at is None:
+            return True
         from datetime import timedelta
-        now = _utcnow()
+        return self.last_reviewed_at + timedelta(days=iv) <= now
+
+    def _stamp_reviewed(self, now: datetime) -> None:
+        """Set last/next review timestamps from the effective interval —
+        without saving (caller saves)."""
+        from datetime import timedelta
         self.last_reviewed_at = now
-        if self.review_interval_days:
-            self.next_review_at = now + timedelta(days=self.review_interval_days)
-        else:
-            self.next_review_at = None
+        iv = self.effective_review_interval()
+        self.next_review_at = (now + timedelta(days=iv)) if iv else None
+
+    def mark_reviewed(self, *, cascade: bool = True) -> None:
+        """Stamp this item reviewed. When called on a container (project/
+        folder/section) with ``cascade`` (default), also resets the review
+        clock on every descendant task so one pass clears the project and
+        its actions together."""
+        now = _utcnow()
+        self._stamp_reviewed(now)
         self.save()
+        if cascade and self.kind != "task":
+            frontier = [self.pk]
+            while frontier:
+                children = list(Item.objects(parent__in=frontier))
+                next_frontier = []
+                for c in children:
+                    if c.kind == "task":
+                        c._stamp_reviewed(now)
+                        c.save()
+                    next_frontier.append(c.pk)
+                frontier = next_frontier
 
     def __str__(self) -> str:
         return self.title or "(untitled)"

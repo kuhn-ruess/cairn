@@ -11,7 +11,7 @@ from wtforms import (
     SubmitField,
     TextAreaField,
 )
-from wtforms.validators import DataRequired, Email, EqualTo, Length, Optional
+from wtforms.validators import DataRequired, Email, EqualTo, Length, NumberRange, Optional
 
 
 class LoginForm(FlaskForm):
@@ -107,6 +107,11 @@ class TaskForm(FlaskForm):
         validators=[Optional()],
     )
     assigned_to = SelectField("Assign to", choices=[], validators=[Optional()])
+    # Blank = inherit the parent project's review cadence; a number overrides
+    # (0 = never review). See Item.effective_review_interval.
+    review_interval_days = IntegerField(
+        "Review interval (days)", validators=[Optional(), NumberRange(min=0)]
+    )
     is_internal = BooleanField("Internal — hide from public share dashboard")
     add_another = BooleanField("Add another after saving")
     submit = SubmitField("Save task")
@@ -155,6 +160,9 @@ class ProjectForm(FlaskForm):
     parent = SelectField("Inside", choices=[], validators=[Optional()])
     review_interval_days = IntegerField(
         "Review interval (days)", default=7, validators=[Optional()]
+    )
+    auto_complete_when_done = BooleanField(
+        "Complete project when its last task is done"
     )
     members = SelectMultipleField("Members (collaboration)", choices=[])
     submit = SubmitField("Save project")

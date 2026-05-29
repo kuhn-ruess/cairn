@@ -118,6 +118,34 @@ def toggle_collapse(task_id):
 def _scope(user):
     return Q(owner=user) | Q(assigned_to=user)
 
+def next_count(user) -> int:
+    """Number of Next actions — for the sidebar badge."""
+    return Item.objects(_scope(user), kind="task", status="next").count()
+
+def today_plate_count(user, now=None) -> int:
+    """Count of today's "now" plate (overdue/due-today/flagged/planned-today/
+    just-unblocked) — for the sidebar badge. Mirrors the today() view's
+    is_today_now predicate; skips project milestones + tag filter."""
+    now = now or datetime.now(timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
+    except Exception:
+        tz = timezone.utc
+    today_date = now.astimezone(tz).date()
+    today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    qs = (Item.objects(_scope(user), kind="task",
+                       status__nin=["done", "dropped", "someday"])
+          .only("due_date", "flagged", "plan_date", "defer_date", "status"))
+    n = 0
+    for t in qs:
+        if ((t.due_date and t.due_date <= today_end)
+                or t.flagged
+                or (t.plan_date and t.plan_date.date() <= today_date)
+                or (t.defer_date and t.defer_date <= now and t.status == "next")):
+            n += 1
+    return n
+
 def _writeback_calendar(task, user) -> list[str]:
     """Push plan/due dates to the user's chosen Google calendar.
 
@@ -205,6 +233,8 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     task.repeat_unit = form.repeat_unit.data or "day"
     task.repeat_from_completion = form.repeat_from_completion.data
     task.repeat_weekdays = sorted(form.repeat_weekdays.data or [])
+    # Blank → None → inherit the project's review cadence; a number overrides.
+    task.review_interval_days = form.review_interval_days.data
     # ``form.project.data`` should be a project pk string from the
     # select. Use the shared visibility helper so a tampered POST can't
     # reparent into a project the user doesn't own/share. Invalid /
@@ -960,8 +990,11 @@ def assigned_to_me():
 @login_required
 def completed():
     user = current_user._get_current_object()
+    # Tasks close as "done", projects as "completed" — show both so a
+    # project that auto-completed (or was completed by hand) appears here
+    # alongside the tasks.
     tasks = _filter_by_project(
-        Item.objects(_scope(user), status="done"), user,
+        Item.objects(_scope(user), status__in=["done", "completed"]), user,
     ).order_by("-completed_at").limit(200)
     return render_template(
         "tasks/list.html", title="Completed", perspective="completed", tasks=tasks
@@ -1159,7 +1192,9 @@ def reopen(task_id):
     task = Item.objects(pk=task_id).first()
     if not task or not task.can_be_edited_by(user):
         abort(404)
-    task.status = "next"
+    # Projects/folders/sections use a different status vocabulary than tasks —
+    # reopening one means "active", reopening a task means "next".
+    task.status = "next" if task.kind == "task" else "active"
     task.completed_at = None
     task.save()
     return redirect(request.referrer or url_for("tasks.detail", task_id=task_id))

@@ -135,6 +135,18 @@
   </div>
 {%- endmacro -%}
 
+{%- macro sec_review() -%}
+  {% set _inh = task.parent.effective_review_interval() if (task and task.parent) else None %}
+  <div class="inspector-section" data-section="review">
+    {{ form.review_interval_days.label(class="form-label small text-uppercase text-muted") }}
+    {{ form.review_interval_days(class="form-control form-control-sm",
+                                  placeholder="inherit from project") }}
+    <div class="form-text small">
+      Leer = vom Projekt erben{% if _inh is not none %} (aktuell {{ _inh }}d){% endif %} · 0 = nie reviewen.
+    </div>
+  </div>
+{%- endmacro -%}
+
 {%- macro sec_assigned_to() -%}
   <div class="inspector-section" data-section="assigned_to">
     {{ form.assigned_to.label(class="form-label small text-uppercase text-muted") }}
@@ -231,7 +243,8 @@
 {%- set _section_macros = {
   "note": sec_note, "status_project": sec_status_project, "tags": sec_tags,
   "dates": sec_dates, "plan": sec_plan, "priority_estimate": sec_priority_estimate,
-  "repeat": sec_repeat, "assigned_to": sec_assigned_to, "flags": sec_flags,
+  "repeat": sec_repeat, "review": sec_review,
+  "assigned_to": sec_assigned_to, "flags": sec_flags,
   "checklist": sec_checklist, "comments": sec_comments,
 } -%}
 

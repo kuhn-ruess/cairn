@@ -62,6 +62,14 @@
   </div>
 
   <div class="inspector-section" data-show-for="project">
+    <div class="form-check">
+      {{ form.auto_complete_when_done(class="form-check-input") }}
+      {{ form.auto_complete_when_done.label(class="form-check-label small") }}
+    </div>
+    <div class="form-text">Marks the project completed once every task in it is done.</div>
+  </div>
+
+  <div class="inspector-section" data-show-for="project">
     {{ form.review_interval_days.label(class="form-label small text-uppercase text-muted") }}
     {{ form.review_interval_days(class="form-control form-control-sm") }}
   </div>

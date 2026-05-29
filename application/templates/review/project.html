@@ -1,0 +1,84 @@
+{% extends "layout/base.html" %}
+{% set page_project_sidebar = true %}
+{% set page_affected_pks = affected_pks %}
+{% block title %}Review: {{ project.name }} · Cairn{% endblock %}
+{% block content %}
+<div class="review-banner">
+  <span class="review-mode-label"><i class="bi bi-arrow-clockwise"></i> Review</span>
+  {% if position and total %}
+    <span class="review-progress">Project {{ position }} of {{ total }}</span>
+  {% else %}
+    <span class="review-progress">Not currently due</span>
+  {% endif %}
+  <div class="ms-auto d-flex align-items-center gap-2">
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('review.index') }}">
+      <i class="bi bi-list-ul"></i> Queue
+    </a>
+    {% if next_project %}
+      <a class="btn btn-sm btn-outline-secondary"
+         href="{{ url_for('review.skip', project_id=project.pk) }}">
+        Skip <i class="bi bi-arrow-right"></i>
+      </a>
+    {% endif %}
+    <form method="post" action="{{ url_for('review.mark_reviewed', project_id=project.pk) }}" class="m-0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-sm btn-success">
+        <i class="bi bi-check2"></i> Mark reviewed{% if next_project %} &amp; next{% endif %}
+      </button>
+    </form>
+  </div>
+</div>
+
+<header class="task-detail-header mb-3">
+  <div class="d-flex align-items-start">
+    <div class="me-auto">
+      <h1 class="h4 mb-1">
+        {{ project.name }}
+        <a class="btn btn-link btn-sm p-0 align-baseline" title="Open project"
+           href="{{ url_for('projects.detail', project_id=project.pk) }}">
+          <i class="bi bi-box-arrow-up-right"></i>
+        </a>
+      </h1>
+      <div class="small text-muted">
+        {{ project.project_type }}
+        · last reviewed {{ project.last_reviewed_at|localdt if project.last_reviewed_at else 'never' }}
+        · every {{ project.effective_review_interval() or '—' }}d
+        · {{ tasks|length }} open action(s)
+        {% if review_due %}<span class="badge text-bg-warning ms-1">due</span>{% endif %}
+      </div>
+    </div>
+    <a class="task-inspector-btn btn btn-sm btn-outline-secondary"
+       href="{{ url_for('projects.edit', project_id=project.pk) }}"
+       data-inspector-url="{{ url_for('projects.edit', project_id=project.pk) }}"
+       data-inspector-title="{{ project.name }}" title="Project settings">
+      <i class="bi bi-sliders"></i>
+    </a>
+  </div>
+  {% if project.note %}
+    <div class="md-body small text-muted mt-2">{{ project.note|markdown }}</div>
+  {% endif %}
+</header>
+
+{% with tasks = tasks, target_status = "open", view_key = "review" %}
+  {% include "tasks/_list_body.html" %}
+{% endwith %}
+
+{% if due_override %}
+  <h2 class="h6 text-muted mt-4">Own review interval due ({{ due_override|length }})</h2>
+  <p class="small text-muted mb-2">These tasks have their own review cadence and have fallen due. Marking the project reviewed clears them too.</p>
+  <ul class="list-unstyled small review-task-list">
+    {% for t in due_override %}
+      <li class="d-flex align-items-center review-task-due py-1 mb-1">
+        <span class="me-auto">
+          <i class="bi bi-arrow-repeat text-warning"></i>
+          {{ t.title }} <span class="text-muted">— every {{ t.effective_review_interval() }}d</span>
+        </span>
+        <form method="post" action="{{ url_for('review.task_reviewed', task_id=t.pk) }}" class="m-0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm btn-outline-success py-0"><i class="bi bi-check2"></i> reviewed</button>
+        </form>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}

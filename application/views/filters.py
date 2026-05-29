@@ -176,10 +176,25 @@ def register_filters(app):
                 current_user._get_current_object()
             )
 
+        # Sidebar count badges — show how many items each key perspective
+        # holds. Computed once per request (cheap count/narrow queries).
+        nav_counts = {}
+        if current_user.is_authenticated:
+            user = current_user._get_current_object()
+            from application.views.tasks import next_count, today_plate_count
+            from application.views.review import review_due_count
+            _now = datetime.now(timezone.utc)
+            nav_counts = {
+                "today": today_plate_count(user, _now),
+                "next": next_count(user),
+                "review": review_due_count(user, _now),
+            }
+
         from application import APP_VERSION
         return {
             "now_utc": lambda: datetime.now(timezone.utc),
             "user_projects": projects,
+            "nav_counts": nav_counts,
             "sidebar_perspectives": sidebar_perspectives,
             "sidebar_custom_perspectives": sidebar_custom_perspectives,
             "static_version": _static_version(),

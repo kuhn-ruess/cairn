@@ -16,8 +16,12 @@
   {% else %}
     {% for task in tasks %}
       {% set _depth = task._depth|default(0) %}
+      {# Tasks close as 'done', project-kind items as 'completed' — treat both
+         as the row's "done" state so completed projects (e.g. in the Completed
+         view) render checked and toggle to reopen rather than re-complete. #}
+      {% set _done = task.status in ('done', 'completed') %}
       <div class="task-row
-                   {{ 'done' if task.status == 'done' else '' }}
+                   {{ 'done' if _done else '' }}
                    {{ 'is-next' if task.status == 'next' else '' }}
                    {{ 'blocked' if task.is_blocked() else '' }}
                    {{ 'subtask' if _depth > 0 else '' }}
@@ -37,10 +41,10 @@
           {% endif %}
           <input type="checkbox" class="form-check-input bulk-check"
                  value="{{ task.pk }}" data-bulk-scope="tasks">
-          <form method="post" action="{% if task.status == 'done' %}{{ url_for('tasks.reopen', task_id=task.pk) }}{% else %}{{ url_for('tasks.complete', task_id=task.pk) }}{% endif %}" class="m-0" data-task-complete-form>
+          <form method="post" action="{% if _done %}{{ url_for('tasks.reopen', task_id=task.pk) }}{% else %}{{ url_for('tasks.complete', task_id=task.pk) }}{% endif %}" class="m-0" data-task-complete-form>
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-link p-0" type="submit" title="{% if task.status == 'done' %}Reopen{% else %}Complete{% endif %}">
-              <i class="bi {% if task.status == 'done' %}bi-check-circle-fill text-success{% else %}bi-circle{% endif %} fs-5"></i>
+            <button class="btn btn-link p-0" type="submit" title="{% if _done %}Reopen{% else %}Complete{% endif %}">
+              <i class="bi {% if _done %}bi-check-circle-fill text-success{% else %}bi-circle{% endif %} fs-5"></i>
             </button>
           </form>
         </div>

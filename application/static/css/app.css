@@ -2050,6 +2050,9 @@ body.ps-resizing * {
 .task-detail-check:focus { box-shadow: none; }
 .task-detail-actions .btn { font-size: .8rem; }
 
+/* min-width:0 lets the column shrink so wide children (code blocks, long
+   URLs) stay scrollable/wrapped inside it instead of widening the column. */
+.task-detail-body { min-width: 0; }
 .task-detail-body .task-detail-section { margin-bottom: 1.5rem; }
 /* Note flows inline with the rest of the detail page — a soft box
    was making it look disconnected from the heading. A subtle left
@@ -2062,6 +2065,10 @@ body.ps-resizing * {
   color: var(--gv-fg2);
   font-size: .95rem;
   line-height: 1.55;
+  /* Long URLs / unbroken strings must wrap instead of spilling out of the
+     column and overlapping the inspector next to it. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .task-detail-comment {
@@ -2149,4 +2156,47 @@ body.ps-resizing * {
 .quick-date-row .btn {
   padding: .12rem .45rem;
   font-size: .72rem;
+}
+
+/* Review — a task whose own (overridden) review interval has come due gets
+   a soft amber emphasis so it stands out among its project's actions. */
+.review-task-list .review-task-due {
+  background: var(--gv-yellow-dim, rgba(215, 153, 33, .14));
+  border-radius: .25rem;
+  padding: .05rem .35rem;
+  margin-left: -.35rem;
+}
+
+/* Review mode — a sticky accent banner so it's unmistakable you're inside the
+   review flow (not a normal project page). */
+.review-banner {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  margin: -1rem -1.5rem 1.25rem;   /* bleed to the .app-main padding edges */
+  padding: .6rem 1.5rem;
+  background: var(--gv-blue-dim, rgba(69, 133, 136, .16));
+  border-bottom: 2px solid var(--gv-blue-br, #83a598);
+  backdrop-filter: blur(4px);
+}
+.review-banner .review-mode-label {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  font-size: .8rem;
+  color: var(--gv-blue-br, #83a598);
+}
+.review-banner .review-progress {
+  color: var(--gv-fg3);
+  font-size: .85rem;
+}
+/* Tint the whole review main area subtly so the mode reads at a glance. */
+.app-main:has(.review-banner) {
+  box-shadow: inset 3px 0 0 var(--gv-blue-br, #83a598);
 }

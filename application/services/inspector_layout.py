@@ -19,6 +19,7 @@ INSPECTOR_SECTIONS = (
     ("plan", "Plan date"),
     ("priority_estimate", "Priority & Estimate"),
     ("repeat", "Repeat"),
+    ("review", "Review interval"),
     ("assigned_to", "Assignee"),
     ("flags", "Flags"),
     ("checklist", "Checklist"),

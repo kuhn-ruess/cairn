@@ -101,21 +101,33 @@ def _apply(form: ProjectForm, project: Item) -> None:
     # (they can be sequential too — the per-section blocking logic
     # honours it). Folders have no execution semantics.
     if kind == "project":
+        from datetime import timedelta
         project.project_type = form.project_type.data
         project.status = form.status.data
         project.review_interval_days = form.review_interval_days.data or 0
+        project.auto_complete_when_done = bool(form.auto_complete_when_done.data)
+        # Keep the next-review clock consistent with the (possibly changed)
+        # interval: reviewed → last + interval; never reviewed or interval 0 →
+        # None (the review queue treats never-reviewed-with-interval as due).
+        iv = project.review_interval_days
+        if iv and project.last_reviewed_at:
+            project.next_review_at = project.last_reviewed_at + timedelta(days=iv)
+        else:
+            project.next_review_at = None
     elif kind == "section":
         project.project_type = form.project_type.data or "parallel"
         project.status = "active"
         project.review_interval_days = 0
         project.next_review_at = None
         project.last_reviewed_at = None
+        project.auto_complete_when_done = False
     else:  # folder
         project.project_type = "parallel"
         project.status = "active"
         project.review_interval_days = 0
         project.next_review_at = None
         project.last_reviewed_at = None
+        project.auto_complete_when_done = False
 
 def _kind_of(project: Item) -> str:
     if project.is_section:
@@ -384,16 +396,19 @@ def detail(project_id):
     )
     # Sub-projects (and folders, but not sections) — rendered as
     # task-like rows inside each section bucket. They live under the
-    # project itself OR a specific section.
-    sub_projects_all = list(
-        Item.objects(parent=project, kind__in=["project", "folder"])
-            .order_by("+sort_order", "+name")
-    )
+    # project itself OR a specific section. Completed/dropped sub-projects
+    # drop out of the plate just like done tasks do (``?completed=1``
+    # opts them back in for review). Folders have no real status, so they
+    # always stay.
+    def _sub_query(parent):
+        q = Item.objects(parent=parent, kind__in=["project", "folder"])
+        if not show_completed:
+            q = q.filter(Q(kind="folder") | Q(status__nin=["completed", "dropped"]))
+        return q.order_by("+sort_order", "+name")
+
+    sub_projects_all = list(_sub_query(project))
     for s in sections:
-        sub_projects_all.extend(
-            Item.objects(parent=s, kind__in=["project", "folder"])
-                .order_by("+sort_order", "+name")
-        )
+        sub_projects_all.extend(_sub_query(s))
     subprojects_by_section: dict = {None: []}
     for s in sections:
         subprojects_by_section[str(s.pk)] = []

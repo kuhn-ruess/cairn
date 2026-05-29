@@ -102,8 +102,10 @@
       </div>
       <ul class="nav flex-column mb-3">
         {% for p in sidebar_perspectives %}
-          <li><a class="nav-link py-1" href="{{ url_for(p.endpoint) }}">
-            <i class="bi {{ p.icon }}"></i> {{ p.label }}
+          {% set _c = nav_counts.get(p.key) %}
+          <li><a class="nav-link py-1 d-flex align-items-center" href="{{ url_for(p.endpoint) }}">
+            <i class="bi {{ p.icon }}"></i> <span class="ms-1">{{ p.label }}</span>
+            {% if _c %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ _c }}</span>{% endif %}
           </a></li>
         {% endfor %}
         {% for p in sidebar_custom_perspectives %}
@@ -118,7 +120,10 @@
         <li><a class="nav-link py-1" href="{{ url_for('tree.index') }}"><i class="bi bi-diagram-3"></i> Tree</a></li>
         <li><a class="nav-link py-1" href="{{ url_for('tags.index') }}"><i class="bi bi-tag"></i> Tags / Contexts</a></li>
         <li><a class="nav-link py-1" href="{{ url_for('custom_perspectives.index') }}"><i class="bi bi-funnel"></i> Perspectives</a></li>
-        <li><a class="nav-link py-1" href="{{ url_for('review.index') }}"><i class="bi bi-arrow-clockwise"></i> Review</a></li>
+        <li><a class="nav-link py-1 d-flex align-items-center" href="{{ url_for('review.index') }}">
+          <i class="bi bi-arrow-clockwise"></i> <span class="ms-1">Review</span>
+          {% if nav_counts.get('review') %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ nav_counts.get('review') }}</span>{% endif %}
+        </a></li>
       </ul>
       </div>
 
