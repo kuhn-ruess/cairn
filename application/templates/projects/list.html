@@ -9,15 +9,7 @@
     </td>
     <td style="padding-left: {{ (depth * 24) + 12 }}px;">
       {% if depth > 0 %}<span class="text-muted me-1">└</span>{% endif %}
-      {% if p.color %}
-        <span class="proj-dot" style="background: {{ p.color }};"></span>
-      {% elif p.is_folder %}
-        <i class="bi bi-folder2-open text-warning me-1"></i>
-      {% elif p.is_section %}
-        <i class="bi bi-bookmark text-info me-1"></i>
-      {% else %}
-        <i class="bi bi-collection text-info me-1"></i>
-      {% endif %}
+      {{ item_icon(p, "me-1") }}
       <a href="{{ url_for('projects.detail', project_id=p.pk) }}"
          class="text-decoration-none">{{ p.name }}</a>
       {% if p.source %}
@@ -144,8 +136,7 @@
   </a>
   <div class="btn-group">
     <a href="{{ url_for('projects.create') }}" class="btn btn-sm btn-primary"
-       data-inspector-url="{{ url_for('projects.create') }}"
-       data-inspector-title="New project">
+       data-inline-create="project">
       <i class="bi bi-plus-lg"></i> New project
     </a>
     <button type="button" class="btn btn-sm btn-primary dropdown-toggle dropdown-toggle-split"
@@ -154,20 +145,17 @@
     </button>
     <ul class="dropdown-menu dropdown-menu-end">
       <li><a class="dropdown-item" href="{{ url_for('projects.create') }}"
-             data-inspector-url="{{ url_for('projects.create') }}"
-             data-inspector-title="New project">
+             data-inline-create="project">
         <i class="bi bi-collection"></i> New project
       </a></li>
-      <li><a class="dropdown-item"
-             href="{{ url_for('projects.create', folder=1) }}"
-             data-inspector-url="{{ url_for('projects.create', folder=1) }}"
-             data-inspector-title="New folder">
+      <li><a class="dropdown-item" href="{{ url_for('projects.create', folder=1) }}"
+             data-inline-create="folder">
         <i class="bi bi-folder2-open text-warning"></i> New folder
       </a></li>
     </ul>
   </div>
 </div>
-  <table class="table align-middle project-table mb-0">
+  <table class="table align-middle project-table mb-0" id="project-list-table">
     <thead><tr>
       <th></th>
       <th>Name</th><th>Type</th><th>Status</th><th>Next review</th><th>Members</th><th></th>

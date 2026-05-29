@@ -266,14 +266,13 @@
         <div class="d-flex align-items-center gap-1">
           <span style="width: 1.25rem;"></span>
           <span style="width: 1.25rem;"></span>
-          <i class="bi bi-collection text-muted"></i>
+          {{ item_icon(sp) }}
         </div>
         <div>
           <a class="task-title text-decoration-none text-body"
              href="{{ url_for('projects.detail', project_id=sp.pk) }}"
              data-inspector-url="{{ url_for('projects.edit', project_id=sp.pk) }}"
              data-inspector-title="{{ sp.name }}">
-            {% if sp.color %}<span class="proj-dot" style="background: {{ sp.color }};"></span>{% endif %}
             {{ sp.name }}
           </a>
           <div class="task-meta">
@@ -320,14 +319,13 @@
       <div class="d-flex align-items-center gap-1">
         <span style="width: 1.25rem;"></span>
         <span style="width: 1.25rem;"></span>
-        <i class="bi {{ 'bi-folder2-open text-warning' if sp.is_folder else 'bi-collection text-muted' }}"></i>
+        {{ item_icon(sp) }}
       </div>
       <div>
         <a class="task-title text-decoration-none text-body"
            href="{{ url_for('projects.detail', project_id=sp.pk) }}"
            data-inspector-url="{{ url_for('projects.edit', project_id=sp.pk) }}"
            data-inspector-title="{{ sp.name }}">
-          {% if sp.color %}<span class="proj-dot" style="background: {{ sp.color }};"></span>{% endif %}
           {{ sp.name }}
         </a>
         <div class="task-meta">

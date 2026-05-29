@@ -46,11 +46,14 @@
         </div>
         <div>
           <a class="task-title text-decoration-none text-body"
-             href="{{ url_for('tasks.detail', task_id=task.pk) }}"
-             data-inspector-url="{{ url_for('tasks.edit', task_id=task.pk) }}"
-             data-inspector-title="{{ task.title }}">
+             href="{{ url_for('tasks.detail', task_id=task.pk) }}">
             {% if task.flagged and current_user.show_field('flag', view_key=_vk) %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
             {{ task.title }}
+          </a>
+          <a class="task-inspector-btn" href="{{ url_for('tasks.edit', task_id=task.pk) }}"
+             data-inspector-url="{{ url_for('tasks.edit', task_id=task.pk) }}"
+             data-inspector-title="{{ task.title }}" title="Open inspector">
+            <i class="bi bi-info-circle"></i>
           </a>
           {% if task.status == 'next' and current_user.show_field('next_chip', view_key=_vk) %}
             <span class="next-chip" title="Next action">NEXT</span>
@@ -63,17 +66,7 @@
           {% endif %}
           <div class="task-meta">
             {% if task.project and current_user.show_field('project', view_key=_vk) %}
-              {% set _proj_icon %}
-                {% if task.project.color %}
-                  <span class="proj-dot" style="background: {{ task.project.color }};"></span>
-                {% elif task.project.is_section %}
-                  <i class="bi bi-bookmark text-info"></i>
-                {% elif task.project.is_folder %}
-                  <i class="bi bi-folder2-open text-warning"></i>
-                {% else %}
-                  <i class="bi bi-collection text-info"></i>
-                {% endif %}
-              {% endset %}
+              {% set _proj_icon = item_icon(task.project) %}
               {% if can_view_container(task.project) %}
                 <a class="badge text-bg-light text-decoration-none" href="{{ url_for('projects.detail', project_id=task.project.pk) }}">
                   {{ _proj_icon }}{{ task.project.name }}
@@ -162,11 +155,6 @@
           {% endif %}
         </div>
         <div class="d-flex align-items-center gap-1">
-          <a class="task-open btn btn-sm btn-link text-muted p-0"
-             href="{{ url_for('tasks.detail', task_id=task.pk) }}"
-             title="Open task detail page">
-            <i class="bi bi-box-arrow-up-right"></i>
-          </a>
           <form method="post" action="{{ url_for('tasks.toggle_flag', task_id=task.pk) }}" class="d-inline m-0">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="btn btn-sm btn-link p-0" title="Toggle flag">

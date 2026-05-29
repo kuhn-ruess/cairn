@@ -36,6 +36,60 @@
     }
   });
 
+  // ---- Arrow-key cursor ------------------------------------------------
+  // Up/Down move a highlighted "cursor" through the task list (or the
+  // project sidebar, depending on where the cursor currently sits). The
+  // cursor row is what i / m / d act on, so the whole list is keyboard-
+  // drivable without the mouse.
+  let cursorRow = null;
+  const TASK_SEL = ".task-row[data-task-id], .tree-task[data-task-id]";
+  const SIDEBAR_SEL = "#project-sidebar .ps-drop-target";
+
+  function groupOf(row) {
+    return row && row.closest("#project-sidebar") ? "sidebar" : "tasks";
+  }
+  function navRows(group) {
+    const sel = group === "sidebar" ? SIDEBAR_SEL : TASK_SEL;
+    return Array.from(document.querySelectorAll(sel)).filter(
+      (el) => el.offsetParent !== null
+    );
+  }
+  function setCursor(row) {
+    if (cursorRow && cursorRow !== row) cursorRow.classList.remove("kbd-cursor");
+    cursorRow = row || null;
+    if (cursorRow) {
+      cursorRow.classList.add("kbd-cursor");
+      cursorRow.scrollIntoView({ block: "nearest" });
+    }
+  }
+  function moveCursor(delta) {
+    const ref = cursorRow && cursorRow.isConnected ? cursorRow
+      : (lastHoveredRow && lastHoveredRow.isConnected ? lastHoveredRow : null);
+    const group = ref ? groupOf(ref) : "tasks";
+    const rows = navRows(group);
+    if (!rows.length) return;
+    let idx = ref ? rows.indexOf(ref) : -1;
+    if (idx === -1) idx = delta > 0 ? 0 : rows.length - 1;
+    else idx = Math.max(0, Math.min(rows.length - 1, idx + delta));
+    setCursor(rows[idx]);
+  }
+  // Hovering takes over from the keyboard cursor so i/d/m act on whatever
+  // the user is actually pointing at; arrows then re-establish a cursor.
+  document.addEventListener("mouseover", (ev) => {
+    const row = ev.target.closest && ev.target.closest(TASK_SEL + ", " + SIDEBAR_SEL);
+    if (row && row !== cursorRow) setCursor(null);
+  });
+  function currentRow() {
+    if (cursorRow && cursorRow.isConnected) return cursorRow;
+    if (lastHoveredRow && lastHoveredRow.isConnected) return lastHoveredRow;
+    return null;
+  }
+  function openInspectorFor(row) {
+    const trigger = row && row.querySelector("[data-inspector-url]");
+    if (trigger) { trigger.click(); return true; }
+    return false;
+  }
+
   const ROUTES = {
     i: "/tasks/inbox",
     t: "/tasks/today",
@@ -108,27 +162,53 @@
       return;
     }
 
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      // Hijack arrows only when there are navigable rows; otherwise let
+      // the page scroll as usual.
+      const ref = currentRow();
+      const group = ref ? groupOf(ref) : "tasks";
+      if (navRows(group).length) {
+        e.preventDefault();
+        moveCursor(e.key === "ArrowDown" ? 1 : -1);
+      }
+      return;
+    }
+
+    if (e.key === "i" || e.key === "I") {
+      // Open the inspector for the cursor (or hovered) row.
+      const row = currentRow();
+      if (row && openInspectorFor(row)) e.preventDefault();
+      return;
+    }
+
+    if (e.key === "Enter") {
+      const row = currentRow();
+      if (row && openInspectorFor(row)) e.preventDefault();
+      return;
+    }
+
     if (e.key === "m" || e.key === "M") {
-      // Move the task currently under the cursor to a different
-      // project via the modal picker.
-      if (!lastHoveredRow || !lastHoveredRow.isConnected) return;
-      const tid = lastHoveredRow.dataset.taskId;
+      // Move the task at the cursor to a different project via the modal.
+      const row = currentRow();
+      if (!row) return;
+      const tid = row.dataset.taskId;
       if (!tid) return;
       if (typeof window.bktodoOpenMoveTaskModal === "function") {
         e.preventDefault();
-        window.bktodoOpenMoveTaskModal(tid, lastHoveredRow);
+        window.bktodoOpenMoveTaskModal(tid, row);
       }
       return;
     }
 
     if (e.key === "d" || e.key === "D") {
-      // Delete the row currently under the cursor (task / project /
-      // folder / section). The shared helper routes to the right
-      // endpoint based on which data-* attribute the row carries.
-      if (!lastHoveredRow || !lastHoveredRow.isConnected) return;
+      // Delete the row at the cursor (task / project / folder / section).
+      // The shared helper routes to the right endpoint based on which
+      // data-* attribute the row carries.
+      const row = currentRow();
+      if (!row) return;
       if (typeof window.bktodoDeleteRow === "function") {
         e.preventDefault();
-        window.bktodoDeleteRow(lastHoveredRow);
+        window.bktodoDeleteRow(row);
       }
     }
   });

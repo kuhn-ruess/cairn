@@ -59,13 +59,7 @@
     <div class="tree-project-header" style="padding-left: {{ depth * 18 }}px;">
       <i class="bi bi-grip-vertical text-muted project-handle"
          title="Drag to reorder / move under another container"></i>
-      {% if p.is_section %}
-        <i class="bi bi-bookmark text-info"></i>
-      {% elif p.is_folder %}
-        <i class="bi bi-folder2-open text-warning"></i>
-      {% else %}
-        <i class="bi bi-collection text-info"></i>
-      {% endif %}
+      {{ item_icon(p) }}
       <a href="{{ url_for('projects.detail', project_id=p.pk) }}"
          class="text-decoration-none">{{ p.name }}</a>
       {% if p.source %}

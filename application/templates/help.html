@@ -34,15 +34,13 @@
       <h2 class="h6 text-muted text-uppercase small mb-3">Quick actions on tasks</h2>
       <p class="text-muted small mb-2">
         Act on the current selection, or — if nothing is selected — on the task
-        your mouse is hovering over.
+        at the keyboard cursor (<kbd>↑</kbd>/<kbd>↓</kbd>) or under your mouse.
       </p>
       <dl class="row mb-0">
         <dt class="col-5">{{ kbd(["N"]) }}</dt>
         <dd class="col-7">Toggle <span class="next-chip">NEXT</span> ⇄ Inbox</dd>
         <dt class="col-5">{{ kbd(["F"]) }}</dt>
         <dd class="col-7">Toggle <em>flag</em></dd>
-        <dt class="col-5">{{ kbd(["I"]) }}</dt>
-        <dd class="col-7">Move to <em>Inbox</em></dd>
         <dt class="col-5">{{ kbd(["W"]) }}</dt>
         <dd class="col-7">Mark as <em>Waiting</em></dd>
         <dt class="col-5">{{ kbd(["S"]) }}</dt>
@@ -57,12 +55,14 @@
 
   <div class="col-md-6">
     <div class="card"><div class="card-body">
-      <h2 class="h6 text-muted text-uppercase small mb-3">Inspector</h2>
+      <h2 class="h6 text-muted text-uppercase small mb-3">Inspector &amp; navigation</h2>
       <dl class="row mb-0">
-        <dt class="col-5">click on task title</dt>
-        <dd class="col-7">Open the inspector for that task</dd>
-        <dt class="col-5">click on project name</dt>
-        <dd class="col-7">Open the inspector for the project</dd>
+        <dt class="col-5">{{ kbd(["i"]) }} or the <i class="bi bi-info-circle"></i> button</dt>
+        <dd class="col-7">Open the inspector for the cursor / hovered task or project</dd>
+        <dt class="col-5">{{ kbd(["↑"]) }} {{ kbd(["↓"]) }}</dt>
+        <dd class="col-7">Move the cursor through the task list — or the project sidebar</dd>
+        <dt class="col-5">click on task title / project name</dt>
+        <dd class="col-7">Open its detail page</dd>
         <dt class="col-5">{{ kbd(["Esc"]) }} (inspector)</dt>
         <dd class="col-7">Close inspector — main list refreshes if anything was saved</dd>
       </dl>

@@ -92,6 +92,16 @@
 
 <div class="inspector-footer">
   {% if project %}
+    {% if project.is_section %}
+      <form method="post" action="{{ url_for('projects.convert_section_to_project', section_id=project.pk) }}"
+            class="m-0" data-inspector-side
+            data-confirm="Convert this section into a project? Its tasks come along as the project's tasks.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-outline-secondary" title="Convert to project">
+          <i class="bi bi-folder-plus"></i>
+        </button>
+      </form>
+    {% else %}
     <form method="post" action="{{ url_for('projects.convert_to_task', project_id=project.pk) }}"
           class="m-0" data-inspector-side
           data-confirm="Demote this project to a task? Its tasks and sub-projects move up one level.">
@@ -100,6 +110,7 @@
         <i class="bi bi-check2-square"></i>
       </button>
     </form>
+    {% endif %}
     <form method="post" action="{{ url_for('projects.delete', project_id=project.pk) }}"
           class="m-0" data-inspector-side
           data-confirm="Delete this project? Tasks will become unassigned.">
@@ -130,11 +141,10 @@
   const picker = document.getElementById("proj-color-picker");
   const hex = document.getElementById("proj-color-hex");
   if (picker && hex) {
-    if (hex.value) {
-      picker.value = hex.value;
-    } else {
-      hex.value = picker.value;
-    }
+    // Only mirror a *saved* colour into the picker; never copy the picker's
+    // default into the hidden field, or every untouched project/folder gets
+    // a colour stamped on save.
+    if (hex.value) picker.value = hex.value;
     picker.addEventListener("input", () => { hex.value = picker.value; });
   }
   const sel = document.querySelector('select[name="kind"]');

@@ -12,6 +12,42 @@
   const titleEl = panel.querySelector(".offcanvas-title");
   const bsOffcanvas = bootstrap.Offcanvas.getOrCreateInstance(panel);
 
+  // ---- Pin: keep the inspector open across clicks / Esc / page loads ----
+  const PIN_KEY = "cairn:inspector-pinned";
+  const pinBtn = document.getElementById("inspector-pin");
+  function isPinned() {
+    try { return localStorage.getItem(PIN_KEY) === "1"; }
+    catch (e) { return false; }
+  }
+  function reflectPin() {
+    const on = isPinned();
+    document.body.classList.toggle("inspector-pinned", on);
+    if (pinBtn) {
+      pinBtn.setAttribute("aria-pressed", on ? "true" : "false");
+      pinBtn.classList.toggle("is-pinned", on);
+      const icon = pinBtn.querySelector("i");
+      if (icon) icon.className = on ? "bi bi-pin-angle-fill" : "bi bi-pin-angle";
+      pinBtn.title = on ? "Unpin — let the inspector close" : "Pin — keep the inspector open";
+    }
+  }
+  function showPinnedPlaceholder() {
+    if (body.innerHTML.trim()) return;
+    body.innerHTML =
+      '<div class="text-muted small text-center py-5 px-3">' +
+      "Select a task or project to inspect it here.</div>";
+  }
+  if (pinBtn) {
+    pinBtn.addEventListener("click", () => {
+      const next = !isPinned();
+      try { localStorage.setItem(PIN_KEY, next ? "1" : "0"); } catch (e) {}
+      reflectPin();
+      if (next) { bsOffcanvas.show(); showPinnedPlaceholder(); }
+    });
+  }
+  reflectPin();
+  // Pinned → open the column on load so it's a permanent fixture.
+  if (isPinned()) { bsOffcanvas.show(); showPinnedPlaceholder(); }
+
   // When the user closes the inspector after at least one successful save,
   // refresh the list behind it so the change is visible. We *don't* reload
   // immediately on save — that would close the panel.
@@ -34,10 +70,10 @@
     return panel.classList.contains("show");
   }
   document.addEventListener("keydown", (ev) => {
-    if (ev.key === "Escape" && isOpen()) bsOffcanvas.hide();
+    if (ev.key === "Escape" && isOpen() && !isPinned()) bsOffcanvas.hide();
   });
   document.addEventListener("click", (ev) => {
-    if (!isOpen()) return;
+    if (!isOpen() || isPinned()) return;
     // Clicks inside the panel, or on something that opens the inspector
     // (a trigger reloads the body — handled elsewhere), must not close it.
     if (panel.contains(ev.target)) return;
@@ -90,11 +126,10 @@
     const picker = body.querySelector("#proj-color-picker");
     const hex = body.querySelector("#proj-color-hex");
     if (picker && hex) {
-      if (hex.value) {
-        picker.value = hex.value;
-      } else {
-        hex.value = picker.value;
-      }
+      // Only mirror a *saved* colour into the picker. If none is set, leave
+      // the hidden field empty — copying the picker's default here would
+      // silently stamp every untouched project/folder with a colour on save.
+      if (hex.value) picker.value = hex.value;
       picker.addEventListener("input", () => { hex.value = picker.value; });
     }
 

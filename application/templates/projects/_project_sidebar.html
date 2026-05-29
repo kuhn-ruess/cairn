@@ -38,10 +38,21 @@
     <h6 class="text-muted small text-uppercase mb-0 me-auto ms-1 ps-title">
       Projects{% if _has_filter %} <span class="text-muted small">(in view)</span>{% endif %}
     </h6>
-    <a class="text-muted small ps-action" href="{{ url_for('projects.create') }}"
-       data-inspector-url="{{ url_for('projects.create') }}"
-       data-inspector-title="New project"
-       title="New project"><i class="bi bi-plus-lg"></i></a>
+    <div class="dropdown ps-action">
+      <a class="text-muted small" href="{{ url_for('projects.create') }}" role="button"
+         data-bs-toggle="dropdown" aria-expanded="false"
+         title="New project or folder"><i class="bi bi-plus-lg"></i></a>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li><a class="dropdown-item" href="{{ url_for('projects.create') }}"
+               data-inline-create-sidebar="project">
+          <i class="bi bi-collection text-info"></i> New project
+        </a></li>
+        <li><a class="dropdown-item" href="{{ url_for('projects.create', folder=1) }}"
+               data-inline-create-sidebar="folder">
+          <i class="bi bi-folder2-open text-warning"></i> New folder
+        </a></li>
+      </ul>
+    </div>
   </div>
   <div class="ps-body">
     <input type="search" class="form-control form-control-sm ps-search"
@@ -76,13 +87,7 @@
                style="padding-left: {{ depth * 14 + 8 }}px;"
                data-project-name="{{ p.name|lower }}"
                title="{{ p.name }}">
-              {% if p.is_folder %}
-                <i class="bi bi-folder2-open text-warning"></i>
-              {% elif p.color %}
-                <span class="proj-dot" style="background: {{ p.color }};"></span>
-              {% else %}
-                <i class="bi bi-collection text-info"></i>
-              {% endif %}
+              {{ item_icon(p) }}
               <span class="ps-name">{{ p.name }}</span>
             </a>
           </li>

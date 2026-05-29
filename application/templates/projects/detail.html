@@ -25,16 +25,11 @@
             {% else %}
               <span class="task-collapse-spacer"></span>
             {% endif %}
-            {% if sp.is_folder %}
-              <i class="bi bi-folder2-open text-warning"></i>
-            {% else %}
-              <i class="bi bi-collection text-muted"></i>
-            {% endif %}
+            {{ item_icon(sp) }}
           </div>
           <div>
             <a class="task-title text-decoration-none text-body"
                href="{{ url_for('projects.detail', project_id=sp.pk) }}">
-              {% if sp.color %}<span class="proj-dot" style="background: {{ sp.color }};"></span>{% endif %}
               {{ sp.name }}
             </a>
             {% if sp.source %}
@@ -176,6 +171,10 @@
 
 {% block content %}
 {% set view_key = 'project:' ~ project.pk|string %}
+{% if project.kind == 'project' %}
+  {# Marks this page for inline-create.js: pressing "s" adds a section here. #}
+  <div id="project-detail" data-project-id="{{ project.pk }}" hidden></div>
+{% endif %}
 <div class="d-flex align-items-start mb-3">
   <div class="me-auto project-header">
     {% if ancestors %}
@@ -186,18 +185,14 @@
         {% for a in ancestors %}
           <span class="crumb-sep">/</span>
           <a href="{{ url_for('projects.detail', project_id=a.pk) }}" class="crumb">
-            {% if a.is_folder %}<i class="bi bi-folder2-open"></i>
-            {% elif a.is_section %}<i class="bi bi-bookmark"></i>
-            {% else %}<i class="bi bi-collection"></i>{% endif %}
+            {{ item_icon(a) }}
             {{ a.name }}
           </a>
         {% endfor %}
       </nav>
     {% endif %}
     <h1 class="h4 mb-1 project-title">
-      {% if project.is_folder %}<i class="bi bi-folder2-open text-warning"></i>
-      {% elif project.is_section %}<i class="bi bi-bookmark text-info"></i>
-      {% else %}<i class="bi bi-folder-fill text-warning"></i>{% endif %}
+      {{ item_icon(project) }}
       <a class="text-decoration-none text-body"
          data-inspector-url="{{ url_for('projects.edit', project_id=project.pk) }}"
          data-inspector-title="{{ project.name }}"

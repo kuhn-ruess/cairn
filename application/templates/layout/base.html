@@ -161,6 +161,25 @@
       {% endwith %}
       {% block content %}{% endblock %}
     </main>
+
+    {# Inspector lives inside .app-layout so it's a real layout column
+       (like the project sidebar) rather than a floating overlay — when
+       open it pushes content aside, when closed it collapses to zero
+       width. See .offcanvas.inspector in app.css. #}
+    <div class="offcanvas offcanvas-end inspector" tabindex="-1"
+         id="inspector-panel" aria-labelledby="inspector-title"
+         data-bs-backdrop="false" data-bs-scroll="true">
+      <div class="offcanvas-header">
+        <h2 class="offcanvas-title h6 mb-0 me-auto" id="inspector-title">Inspector</h2>
+        <button type="button" class="btn btn-sm btn-link inspector-pin p-0 me-2"
+                id="inspector-pin" aria-pressed="false"
+                title="Pin — keep the inspector open">
+          <i class="bi bi-pin-angle"></i>
+        </button>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+      </div>
+      <div class="offcanvas-body p-0"></div>
+    </div>
 </div>
 {% else %}
 <main class="container py-5">
@@ -174,16 +193,6 @@
 {% endif %}
 
 {% if current_user.is_authenticated %}
-<div class="offcanvas offcanvas-end inspector" tabindex="-1"
-     id="inspector-panel" aria-labelledby="inspector-title"
-     data-bs-backdrop="false" data-bs-scroll="true">
-  <div class="offcanvas-header">
-    <h2 class="offcanvas-title h6 mb-0" id="inspector-title">Inspector</h2>
-    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
-  </div>
-  <div class="offcanvas-body p-0"></div>
-</div>
-
 <div class="modal fade quick-add-modal" id="quickAddModal" tabindex="-1"
      aria-hidden="true" data-bs-backdrop="true">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
@@ -246,8 +255,10 @@
               <dt class="col-4"><kbd>q</kbd></dt><dd class="col-8">Quick add task</dd>
               <dt class="col-4"><kbd>p</kbd></dt><dd class="col-8">Jump to project / task</dd>
               <dt class="col-4"><kbd>/</kbd></dt><dd class="col-8">Focus search</dd>
-              <dt class="col-4"><kbd>d</kbd></dt><dd class="col-8">Delete hovered task</dd>
-              <dt class="col-4"><kbd>m</kbd></dt><dd class="col-8">Move hovered task to project</dd>
+              <dt class="col-4"><kbd>↑</kbd> <kbd>↓</kbd></dt><dd class="col-8">Move cursor through tasks / sidebar</dd>
+              <dt class="col-4"><kbd>i</kbd></dt><dd class="col-8">Open inspector for cursor task</dd>
+              <dt class="col-4"><kbd>d</kbd></dt><dd class="col-8">Delete cursor task</dd>
+              <dt class="col-4"><kbd>m</kbd></dt><dd class="col-8">Move cursor task to project</dd>
               <dt class="col-4"><kbd>?</kbd></dt><dd class="col-8">Show this list</dd>
             </dl>
           </div>
@@ -426,6 +437,7 @@
 <script src="{{ url_for('static', filename='js/move-task.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/quickjump.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/shortcuts.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/inline-create.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/note-paste.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/quick-date.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/project-sidebar.js') }}?v={{ static_version }}"></script>

@@ -174,6 +174,12 @@
       list.innerHTML = fresh.innerHTML;
       list.querySelectorAll(".ps-drop-target[data-project-id]")
         .forEach((li) => { li.draggable = true; });
+      // The swap replaced the rows, so their SortableJS task-drop
+      // instances are gone — re-arm them or the sidebar silently stops
+      // accepting dropped tasks until a full reload.
+      if (typeof window.bktodoInitSidebarDrops === "function") {
+        window.bktodoInitSidebarDrops();
+      }
     } catch (err) {
       /* leave the stale list in place on failure */
     }

@@ -38,9 +38,55 @@ def _a_attr_ok(tag, name, value):
 
 
 def register_filters(app):
-    # Bust browser caches whenever the process boots (dev) or new deploys (prod).
+    # Bust browser caches whenever the process boots (prod / new deploys).
+    import os as _os
     import time as _time
-    static_version = str(int(_time.time()))
+    boot_version = str(int(_time.time()))
+
+    def _static_version():
+        # In debug, derive the cache-buster from the newest js/css mtime so
+        # editing a static asset busts the browser cache on the next page
+        # load — no process restart needed. (The --debug reloader only
+        # restarts on .py changes, which would otherwise leave the boot-time
+        # version stale and serve cached JS.) Prod keeps the boot value.
+        if not app.debug:
+            return boot_version
+        newest = 0.0
+        for sub in ("js", "css"):
+            base = _os.path.join(app.static_folder or "", sub)
+            for root, _dirs, files in _os.walk(base):
+                for f in files:
+                    try:
+                        m = _os.path.getmtime(_os.path.join(root, f))
+                    except OSError:
+                        continue
+                    if m > newest:
+                        newest = m
+        return str(int(newest)) if newest else boot_version
+
+    import re as _re
+    from markupsafe import Markup as _Markup
+    _HEX = _re.compile(r"^#[0-9A-Fa-f]{3,8}$")
+
+    def _item_icon(item, cls=""):
+        """Unified project / folder / section icon, used everywhere so the
+        colours stay consistent across views. A custom ``item.color`` tints
+        the icon itself (inline style overrides the default class colour) —
+        no separate coloured dot replacing the icon.
+        """
+        if getattr(item, "is_folder", False):
+            icon, klass = "bi-folder2-open", "text-warning"
+        elif getattr(item, "is_section", False):
+            icon, klass = "bi-bookmark", "text-info"
+        else:
+            icon, klass = "bi-collection", "text-info"
+        color = getattr(item, "color", "") or ""
+        if _HEX.match(color):
+            # Drop the default text-* colour class — Bootstrap's utilities set
+            # `color: ... !important`, which would otherwise beat the inline
+            # tint and the custom colour would never show.
+            return _Markup(f'<i class="bi {icon} {cls}" style="color: {color};"></i>')
+        return _Markup(f'<i class="bi {icon} {klass} {cls}"></i>')
 
     @app.context_processor
     def inject_helpers():
@@ -136,8 +182,9 @@ def register_filters(app):
             "user_projects": projects,
             "sidebar_perspectives": sidebar_perspectives,
             "sidebar_custom_perspectives": sidebar_custom_perspectives,
-            "static_version": static_version,
+            "static_version": _static_version(),
             "project_tree": _project_tree,
+            "item_icon": _item_icon,
             "can_view_container": _can_view_container,
             "inspector_section_order": inspector_section_order,
             "app_version": APP_VERSION,

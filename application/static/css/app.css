@@ -551,6 +551,15 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
 .task-row:hover .task-inspector-btn { opacity: .65; }
 .task-inspector-btn:hover { opacity: 1 !important; color: var(--gv-aqua-br); }
 
+/* Arrow-key navigation cursor (shortcuts.js) — highlights the row that
+   i / m / d act on. */
+.kbd-cursor {
+  outline: 2px solid var(--gv-aqua-br);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+.kbd-cursor .task-inspector-btn { opacity: .65; }
+
 .deferred-chip,
 .plan-chip {
   display: inline-flex;
@@ -966,28 +975,53 @@ code, pre {
   border-left: 1px solid var(--gv-bg2);
   box-shadow: none;             /* docked, not floating */
   visibility: visible !important; /* don't hide via CSS; Bootstrap toggles .show */
+  /* In-flow column inside the .app-layout flex row (like the project
+     sidebar) — never a floating overlay, so it can't cover content.
+     Open = reserves its width; closed = collapses to zero. */
+  position: sticky;
+  top: var(--nav-height, 56px);
+  height: calc(100vh - var(--nav-height, 56px));
+  flex: 0 0 var(--inspector-width);
+  width: var(--inspector-width);
+  max-width: var(--inspector-width);
+  transform: none !important;   /* collapse width instead of translating */
+  transition: flex-basis .25s ease, width .25s ease;
+  z-index: auto;
 }
 .offcanvas.inspector:not(.show) {
-  /* Slide out of view cleanly when closed; Bootstrap normally adds
-     'visibility: hidden' which we override above. */
-  transform: translateX(100%);
-}
-
-/* When the inspector is docked, push the rest of the layout to the left
-   instead of letting the panel cover content. */
-body.inspector-docked .container-fluid {
-  padding-right: var(--inspector-width);
-  transition: padding-right .35s ease;
+  /* Collapse the column so the main content reclaims the full row.
+     Bootstrap toggles .show; we override its transform/visibility. */
+  flex-basis: 0;
+  width: 0;
+  max-width: 0;
+  min-width: 0;
+  overflow: hidden;
+  border-left: 0;
+  pointer-events: none;
 }
 body.inspector-docked #bulk-bar {
   left: calc(50% - var(--inspector-width) / 2);
 }
 @media (max-width: 992px) {
-  /* On narrow screens, fall back to overlay behavior — pushing content
-     would leave almost nothing to work with. */
-  body.inspector-docked .container-fluid { padding-right: 0; }
+  /* Narrow screens: a real column would crush the content, so fall back
+     to a floating overlay that slides in from the right. */
+  .offcanvas.inspector {
+    position: fixed;
+    top: 0;
+    right: 0;
+    height: 100%;
+    z-index: 1045;
+    flex-basis: auto;
+    box-shadow: -8px 0 30px rgba(0, 0, 0, .35);
+    transition: transform .3s ease;
+  }
+  .offcanvas.inspector:not(.show) {
+    width: var(--inspector-width);
+    max-width: var(--inspector-width);
+    border-left: 1px solid var(--gv-bg2);
+    transform: translateX(100%) !important;
+  }
   body.inspector-docked #bulk-bar { left: 50%; }
-  .offcanvas.inspector { box-shadow: -8px 0 30px rgba(0, 0, 0, .35); }
 }
 .offcanvas.inspector .offcanvas-header {
   background: var(--gv-bg1);
@@ -1002,6 +1036,12 @@ body.inspector-docked #bulk-bar {
   font-weight: 600;
   letter-spacing: .02em;
 }
+.inspector-pin {
+  color: var(--gv-fg3);
+  line-height: 1;
+}
+.inspector-pin:hover { color: var(--gv-yellow-br); }
+.inspector-pin.is-pinned { color: var(--gv-yellow-br); }
 .offcanvas.inspector .offcanvas-body {
   padding: 0;
   display: flex;

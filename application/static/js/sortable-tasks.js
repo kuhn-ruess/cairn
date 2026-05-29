@@ -172,7 +172,12 @@
     }
   }
   window.bktodoRefreshMain = refreshMain;
-  document.addEventListener("bktodo:refresh-needed", refreshMain);
+  // Call the *current* window.bktodoRefreshMain at fire time — by then it's
+  // been wrapped (below, and by tree-page.js) to also re-arm sub-project
+  // (.sp-row) drop rows and tree project sortables. Binding the bare
+  // refreshMain here would skip those, so a freshly created sub-project
+  // wouldn't accept dropped tasks in the main list until a full reload.
+  document.addEventListener("bktodo:refresh-needed", () => window.bktodoRefreshMain());
 
   // ---- Generic item delete -------------------------------------------
   // Powers the hover-trash buttons on tasks / sections / projects /
@@ -572,7 +577,14 @@
       },
     });
   }
-  document.querySelectorAll(".ps-drop-target").forEach(initSidebarDrop);
+  // Exposed so the sidebar's refreshList() can re-arm the drop targets
+  // after it swaps the .ps-list body — otherwise a refreshed sidebar
+  // (e.g. after creating a project) silently stops accepting task drops
+  // until a full page reload. initSidebarDrop is idempotent.
+  window.bktodoInitSidebarDrops = function () {
+    document.querySelectorAll(".ps-drop-target").forEach(initSidebarDrop);
+  };
+  window.bktodoInitSidebarDrops();
 
   // ---- Sub-project rows as drop targets -----------------------------
   // In the project detail view, each ``.sp-row[data-sp-id]`` becomes

@@ -1127,8 +1127,9 @@ def convert_to_task(project_id):
     Anything else (legacy / unknown) falls back to ``open`` rather
     than being silently dropped.
 
-    XHR callers (tree page's one-click convert) get a JSON ack so the
-    view can repaint without a full redirect.
+    XHR callers (tree page's one-click convert) and the inspector get a
+    JSON ack instead of a redirect, so the caller stays in the current
+    view and repaints in place rather than jumping to the new task.
     """
     from flask import jsonify
     user = current_user._get_current_object()
@@ -1141,6 +1142,11 @@ def convert_to_task(project_id):
         "completed": "done",
         "dropped": "dropped",
     }
+    # Demoting to a task means it can no longer own a project's structure:
+    # promote the direct children up one level so they sit *beside* the new
+    # task (same level), not nested under it. Deeper descendants ride along
+    # with each child untouched.
+    Item.objects(parent=project).update(set__parent=project.parent)
     project.kind = "task"
     project.status = status_map.get(project.status, "open")
     # ``completed_at`` only makes sense on done/dropped tasks — clear
@@ -1149,25 +1155,65 @@ def convert_to_task(project_id):
     if project.status not in ("done", "dropped"):
         project.completed_at = None
     project.save()
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest" \
+            or request.headers.get("X-Inspector-Request") == "1":
         return jsonify({"ok": True, "task_id": str(project.pk)})
     flash(f"Converted project into task: {project.title}", "success")
     return redirect(url_for("tasks.detail", task_id=str(project.pk)))
 
+@projects_bp.route("/<section_id>/convert-to-project", methods=["POST"])
+@login_required
+def convert_section_to_project(section_id):
+    """Promote a section into a standalone project — a section already
+    holds child tasks, and so does a project, so the children carry over
+    untouched. The section's parent is a project (per the Item docstring),
+    which is a valid project parent, so it simply becomes a sub-project
+    there. Mirrors ``tasks.convert_to_project``: pick sensible project
+    defaults that a section never carried.
+    """
+    from flask import jsonify
+    user = current_user._get_current_object()
+    section = Item.objects(pk=section_id).first()
+    if not section or section.owner != user:
+        abort(404)
+    section.kind = "project"
+    section.project_type = section.project_type or "parallel"
+    section.status = "active"
+    # Sections are created with review_interval_days=0 (never reviewed);
+    # give the new project the standard cadence.
+    section.review_interval_days = section.review_interval_days or 7
+    section.save()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True, "project_id": str(section.pk)})
+    flash(f"Converted section into project: {section.title}", "success")
+    return redirect(url_for("projects.detail", project_id=str(section.pk)))
+
 @projects_bp.route("/<project_id>/sections/new", methods=["POST"])
 @login_required
 def add_section(project_id):
+    """Create a section under ``project_id``.
+
+    XHR callers (the inline "press s" flow on the detail page) get a JSON
+    ack instead of a redirect, so the page can repaint in place. They may
+    omit the name — an inline-created section starts as "New section" and
+    is renamed in place via ``projects.rename``.
+    """
+    from flask import jsonify
     user = current_user._get_current_object()
     parent = Item.objects(pk=project_id).first()
     if not parent or not parent.can_be_viewed_by(user):
         abort(404)
+    is_xhr = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     name = (request.form.get("name") or "").strip()
     if not name:
-        flash("Section name is required.", "danger")
-        return redirect(url_for("projects.detail", project_id=project_id))
+        if is_xhr:
+            name = "New section"
+        else:
+            flash("Section name is required.", "danger")
+            return redirect(url_for("projects.detail", project_id=project_id))
     section = Item(
         owner=user,
-        name=name,
+        title=name,
         project_type="parallel",
         status="active",
         parent=parent,
@@ -1175,8 +1221,49 @@ def add_section(project_id):
         review_interval_days=0,
     )
     section.save()
+    if is_xhr:
+        return jsonify({"ok": True, "id": str(section.pk), "name": section.name})
     flash(f"Section '{name}' added.", "success")
     return redirect(url_for("projects.detail", project_id=project_id))
+
+@projects_bp.route("/quick-create", methods=["POST"])
+@login_required
+def quick_create():
+    """Create a bare project or folder from just a name — backs the inline
+    "+" create on the Projects page (no inspector round-trip). Returns JSON
+    so the caller can refresh in place. Honours the free-plan project cap;
+    folders don't count against it.
+    """
+    from flask import jsonify
+    user = current_user._get_current_object()
+    kind = (request.form.get("kind") or "project").strip()
+    if kind not in ("project", "folder"):
+        return jsonify({"error": "invalid kind"}), 400
+    name = (request.form.get("name") or "").strip()[:200]
+    if not name:
+        return jsonify({"error": "empty name"}), 400
+    if kind == "project":
+        from application.services.permissions import (
+            FREE_PROJECT_LIMIT, at_project_limit,
+        )
+        if at_project_limit(user):
+            return jsonify({
+                "error": f"Free plan limit reached: {FREE_PROJECT_LIMIT} projects."
+            }), 403
+    # ``status="active"`` matters for both kinds: the sidebar tree only
+    # lists active projects/folders, so a folder left at the default
+    # "open" would be created but never show up (looks like it vanished).
+    item = Item(owner=user, title=name, kind=kind, status="active")
+    if kind == "project":
+        item.project_type = "parallel"
+        item.review_interval_days = 7
+    parent_id = (request.form.get("parent") or "").strip()
+    if parent_id:
+        parent = Item.objects(pk=parent_id, owner=user).first()
+        if parent:
+            item.parent = parent
+    item.save()
+    return jsonify({"ok": True, "id": str(item.pk), "name": item.name, "kind": kind})
 
 @projects_bp.route("/bulk", methods=["POST"])
 @login_required

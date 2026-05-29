@@ -58,7 +58,7 @@
   {% endmacro %}
 
   {{ kanban_column(project.pk|string, project.name,
-                   'bi-folder-fill text-warning',
+                   'bi-collection text-info',
                    section_buckets[None]['open'], is_root=True) }}
   {% for s in sections %}
     {{ kanban_column(s.pk|string, s.name, 'bi-bookmark text-info',
