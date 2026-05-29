@@ -151,6 +151,35 @@
     });
   }
 
+  // Re-fetch just the project list after a create/move/delete so a new
+  // project shows up without a full page reload. The header (search,
+  // toggle, resizer) and its event bindings stay untouched; only the
+  // <ul class="ps-list"> body is swapped. Drag handlers are delegated on
+  // the sidebar element so they keep working — we just re-flag the new
+  // rows as draggable.
+  async function refreshList() {
+    const sidebar = document.getElementById("project-sidebar");
+    if (!sidebar) return;
+    const list = sidebar.querySelector(".ps-list");
+    if (!list) return;
+    try {
+      const resp = await fetch(window.location.href, {
+        headers: { "X-Requested-With": "background-refresh" },
+        credentials: "same-origin",
+      });
+      if (!resp.ok) return;
+      const doc = new DOMParser().parseFromString(await resp.text(), "text/html");
+      const fresh = doc.querySelector("#project-sidebar .ps-list");
+      if (!fresh) return;
+      list.innerHTML = fresh.innerHTML;
+      list.querySelectorAll(".ps-drop-target[data-project-id]")
+        .forEach((li) => { li.draggable = true; });
+    } catch (err) {
+      /* leave the stale list in place on failure */
+    }
+  }
+  document.addEventListener("bktodo:refresh-needed", refreshList);
+
   if (document.readyState !== "loading") init();
   else document.addEventListener("DOMContentLoaded", init);
 })();
