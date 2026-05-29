@@ -49,7 +49,11 @@
         {% if task.estimated_minutes %}
           <span><i class="bi bi-stopwatch"></i> {{ task.estimated_minutes }}m</span>
         {% endif %}
-        {% if task.repeat_every_days %}
+        {% if task.repeat_weekdays %}
+          <span><i class="bi bi-arrow-repeat"></i>
+            every {{ task.repeat_weekday_labels|join(', ') }}
+          </span>
+        {% elif task.repeat_every_days %}
           <span><i class="bi bi-arrow-repeat"></i>
             every {{ task.repeat_every_days }} {{ (task.repeat_unit or 'day') }}{{ '' if task.repeat_every_days == 1 else 's' }}
           </span>
@@ -112,10 +116,6 @@
           <button type="button" class="btn btn-sm btn-outline-secondary note-cancel-btn">Cancel</button>
         </div>
       </form>
-    </section>
-
-    <section class="task-detail-section" id="checklist">
-      {% include "tasks/_checklist.html" %}
     </section>
 
     <section class="task-detail-section">
@@ -205,48 +205,6 @@
 </div>
 
 <script>
-/* Checklist — add / toggle / delete all go through fetch and swap the
-   re-rendered section in place. No navigation happens, so the input keeps
-   focus for rapid entry and the browser Back button still returns to
-   wherever the user came from (the overview), not through each add step. */
-(function () {
-  const section = document.getElementById("checklist");
-  if (!section) return;
-
-  async function submitForm(form, { refocus }) {
-    const resp = await fetch(form.action, {
-      method: "POST",
-      headers: { "X-Partial": "1" },
-      body: new FormData(form),
-    });
-    if (!resp.ok) throw new Error(resp.status);
-    section.innerHTML = await resp.text();
-    if (refocus) {
-      const input = section.querySelector(".checklist-add-input");
-      if (input) input.focus();
-    }
-  }
-
-  // Add + delete: intercept the form submit.
-  section.addEventListener("submit", (ev) => {
-    const form = ev.target.closest("form[data-checklist-add], form[data-checklist-delete]");
-    if (!form) return;
-    ev.preventDefault();
-    submitForm(form, { refocus: form.hasAttribute("data-checklist-add") })
-      .catch(() => form.submit());
-  });
-
-  // Toggle: the checkbox-style button submits its own little form.
-  section.addEventListener("click", (ev) => {
-    const btn = ev.target.closest(".checklist-toggle");
-    if (!btn) return;
-    const form = btn.closest("form[data-checklist-toggle]");
-    if (!form) return;
-    ev.preventDefault();
-    submitForm(form, { refocus: false }).catch(() => form.submit());
-  });
-})();
-
 /* Note — view ⇄ edit toggle, saved via fetch so the page doesn't reload. */
 (function () {
   const section = document.getElementById("note");

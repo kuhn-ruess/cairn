@@ -99,7 +99,11 @@
                 <i class="bi bi-calendar-event"></i> {{ task.due_date|relativedate }}
               </span>
             {% endif %}
-            {% if task.repeat_every_days %}
+            {% if task.repeat_weekdays %}
+              <span class="repeat-chip" title="Repeats every {{ task.repeat_weekday_labels|join(', ') }}">
+                <i class="bi bi-arrow-repeat"></i> {{ task.repeat_weekday_labels|join(', ') }}
+              </span>
+            {% elif task.repeat_every_days %}
               {% set _unit = task.repeat_unit or 'day' %}
               {% set _unit_label =
                   ({'day': ('day', 'days'),

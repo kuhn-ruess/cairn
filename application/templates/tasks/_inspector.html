@@ -173,6 +173,10 @@
 </form>
 
 {% if task %}
+  <div class="inspector-section" id="checklist">
+    {% include "tasks/_checklist.html" %}
+  </div>
+
   <div class="inspector-section comments-block">
     <div class="d-flex align-items-center mb-2">
       <span class="form-label small text-uppercase text-muted mb-0">Comments</span>

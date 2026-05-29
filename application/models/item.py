@@ -388,6 +388,13 @@ class Item(Document):
         self.save()
         return comment
 
+    @property
+    def repeat_weekday_labels(self) -> list:
+        """Short day names for ``repeat_weekdays`` in Mon→Sun order, e.g.
+        ``['Mon', 'Wed', 'Fri']``. Empty when no weekday recurrence is set."""
+        names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        return [names[d] for d in sorted(self.repeat_weekdays or []) if 0 <= d <= 6]
+
     # ----- checklist helpers -----
     @property
     def checklist_done(self) -> int:
