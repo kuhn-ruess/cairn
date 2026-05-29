@@ -2,22 +2,36 @@
  * re-rendered partial in place. Document-level delegation so it works
  * everywhere the checklist renders: the inline inspector on the task
  * detail page AND the off-canvas inspector (whose body is injected
- * after page load). No navigation happens, so the add input keeps focus
- * for rapid entry and the browser Back button stays clean.
+ * after page load).
+ *
+ * Actions are plain buttons (not nested <form>s — the inspector wraps
+ * everything in one form and HTML forbids nesting). Each carries its
+ * endpoint in data-action; we POST with the page CSRF token.
  */
 (function () {
+  function csrfToken() {
+    const el = document.querySelector('input[name="csrf_token"]');
+    return el ? el.value : "";
+  }
+
   function containerFor(el) {
-    // The swap target is the nearest checklist wrapper (id="checklist").
     return el.closest("#checklist, .checklist-block");
   }
 
-  async function submitForm(form, { refocus }) {
-    const container = containerFor(form);
-    if (!container) return;
-    const resp = await fetch(form.action, {
+  async function run(action, container, { refocus } = {}) {
+    if (!action || !container) return;
+    const fd = new FormData();
+    fd.append("csrf_token", csrfToken());
+    const addInput = container.querySelector(".checklist-add-input");
+    if (addInput && action.endsWith("/checklist")) {
+      const text = addInput.value.trim();
+      if (!text) { addInput.focus(); return; }
+      fd.append("text", text);
+    }
+    const resp = await fetch(action, {
       method: "POST",
       headers: { "X-Partial": "1" },
-      body: new FormData(form),
+      body: fd,
     });
     if (!resp.ok) throw new Error(resp.status);
     container.innerHTML = await resp.text();
@@ -27,24 +41,31 @@
     }
   }
 
-  // Add + delete: intercept the form submit.
-  document.addEventListener("submit", (ev) => {
-    const form = ev.target.closest(
-      "form[data-checklist-add], form[data-checklist-delete]"
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(
+      ".checklist-toggle, .checklist-delete, .checklist-add-btn"
     );
-    if (!form) return;
+    if (!btn) return;
     ev.preventDefault();
-    submitForm(form, { refocus: form.hasAttribute("data-checklist-add") })
-      .catch(() => form.submit());
+    const container = containerFor(btn);
+    let action = btn.dataset.action;
+    let refocus = false;
+    if (btn.classList.contains("checklist-add-btn")) {
+      const add = btn.closest(".checklist-add");
+      action = add && add.dataset.action;
+      refocus = true;
+    }
+    run(action, container, { refocus }).catch(() => {});
   });
 
-  // Toggle: the checkbox-style button submits its own little form.
-  document.addEventListener("click", (ev) => {
-    const btn = ev.target.closest(".checklist-toggle");
-    if (!btn) return;
-    const form = btn.closest("form[data-checklist-toggle]");
-    if (!form) return;
+  // Enter in the add input submits without reloading.
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter") return;
+    const input = ev.target.closest(".checklist-add-input");
+    if (!input) return;
     ev.preventDefault();
-    submitForm(form, { refocus: false }).catch(() => form.submit());
+    const add = input.closest(".checklist-add");
+    run(add && add.dataset.action, containerFor(input), { refocus: true })
+      .catch(() => {});
   });
 })();

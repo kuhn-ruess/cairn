@@ -102,9 +102,10 @@
       updateTitle();
     }
 
-    // Add-comment form (inspector only, no page reload).
-    const commentForm = body.querySelector("form[data-inspector-comment-form]");
-    if (commentForm) commentForm.addEventListener("submit", onCommentAdd);
+    // Add-comment (inspector only, no page reload). It's a button, not a
+    // nested form — the inspector is one big form and HTML forbids nesting.
+    const commentBtn = body.querySelector("[data-inspector-comment-form] .comment-add-btn");
+    if (commentBtn) commentBtn.addEventListener("click", onCommentAdd);
 
     // Expand/collapse the comments panel.
     const expandBtn = body.querySelector(".comments-expand-toggle");
@@ -243,23 +244,31 @@
 
   async function onCommentAdd(ev) {
     ev.preventDefault();
-    const form = ev.currentTarget;
-    const submitBtn = form.querySelector("button[type=submit]");
-    if (submitBtn) submitBtn.disabled = true;
+    const btn = ev.currentTarget;
+    const wrap = btn.closest("[data-inspector-comment-form]");
+    if (!wrap) return;
+    const textarea = wrap.querySelector("textarea[name=comment_body]");
+    const value = (textarea && textarea.value.trim()) || "";
+    if (!value) { if (textarea) textarea.focus(); return; }
+    btn.disabled = true;
     try {
-      const resp = await fetch(form.action, {
+      const fd = new FormData();
+      const csrf = document.querySelector('input[name="csrf_token"]');
+      if (csrf) fd.append("csrf_token", csrf.value);
+      fd.append("body", value);
+      const resp = await fetch(wrap.dataset.action, {
         method: "POST",
-        body: new FormData(form),
+        body: fd,
         headers: { "X-Inspector-Request": "1" },
       });
       if (!resp.ok) throw new Error("comment failed: " + resp.status);
       const data = await resp.json();
-      appendCommentToList(data, form);
-      form.querySelector("textarea[name=body]").value = "";
+      appendCommentToList(data, wrap);
+      textarea.value = "";
     } catch (err) {
       console.error(err);
     } finally {
-      if (submitBtn) submitBtn.disabled = false;
+      btn.disabled = false;
     }
   }
 
@@ -268,7 +277,8 @@
     if (!list) return;
     const placeholder = list.querySelector("p.text-muted");
     if (placeholder) placeholder.remove();
-    const taskId = form.action.split("/").slice(-2, -1)[0]; // /tasks/<id>/comment
+    const action = form.dataset.action || form.action || "";
+    const taskId = action.split("/").slice(-2, -1)[0]; // /tasks/<id>/comment
     const div = document.createElement("div");
     div.className = "comment-item";
     div.dataset.commentIndex = String(c.index);

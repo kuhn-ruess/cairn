@@ -351,6 +351,54 @@ def perspective_reset():
     return redirect(url_for("settings.perspectives"))
 
 
+@settings_bp.route("/inspector-layout", methods=["GET", "POST"])
+@login_required
+def inspector_layout():
+    """Order + show/hide the task inspector's sections (global, per-user).
+
+    POST: SortableJS posts the visible sections in their new order via
+    ``visible[]``; anything not listed is hidden. The pinned ``title``
+    section is never part of this.
+    """
+    from application.services.inspector_layout import (
+        SECTION_KEYS, SECTION_LABELS, resolved_layout,
+    )
+    user = current_user._get_current_object()
+
+    if request.method == "POST":
+        valid = set(SECTION_KEYS)
+        # Full order of all sections (visible or not) + the hidden blocklist.
+        order, seen = [], set()
+        for k in (request.form.getlist("order[]") or request.form.getlist("order")):
+            if k in valid and k not in seen:
+                order.append(k)
+                seen.add(k)
+        hidden = [k for k in request.form.getlist("hidden[]") if k in valid]
+        user.inspector_layout = order
+        user.inspector_hidden = hidden
+        user.save()
+        flash("Inspector layout saved.", "success")
+        return redirect(url_for("settings.inspector_layout"))
+
+    layout = [
+        {"key": k, "label": SECTION_LABELS[k], "visible": vis}
+        for k, vis in resolved_layout(user)
+    ]
+    return render_template("settings/inspector_layout.html", layout=layout)
+
+
+@settings_bp.route("/inspector-layout/reset", methods=["POST"])
+@login_required
+def inspector_layout_reset():
+    """Revert the inspector to the default section order, all visible."""
+    user = current_user._get_current_object()
+    user.inspector_layout = []
+    user.inspector_hidden = []
+    user.save()
+    flash("Inspector layout reset to default.", "info")
+    return redirect(url_for("settings.inspector_layout"))
+
+
 @settings_bp.route("/import/todoist", methods=["GET", "POST"])
 @login_required
 def todoist():

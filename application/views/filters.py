@@ -120,6 +120,16 @@ def register_filters(app):
                 cache = g._viewable_container_pks = pks
             return pk_str in cache
 
+        # Inspector section order (per-user). Available to every template
+        # that renders the inspector partial without threading it through
+        # each view.
+        inspector_section_order = []
+        if current_user.is_authenticated:
+            from application.services.inspector_layout import visible_order
+            inspector_section_order = visible_order(
+                current_user._get_current_object()
+            )
+
         from application import APP_VERSION
         return {
             "now_utc": lambda: datetime.now(timezone.utc),
@@ -129,6 +139,7 @@ def register_filters(app):
             "static_version": static_version,
             "project_tree": _project_tree,
             "can_view_container": _can_view_container,
+            "inspector_section_order": inspector_section_order,
             "app_version": APP_VERSION,
         }
 

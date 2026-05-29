@@ -124,6 +124,16 @@ class User(UserMixin, Document):
     # ``cp:<pid>`` for custom perspectives).
     task_row_hidden_by_view = MapField(ListField(StringField()))
 
+    # Inspector section layout (see application.services.inspector_layout).
+    # ``inspector_layout`` is the full ordered list of section keys; an empty
+    # list means the default order. ``inspector_hidden`` is the blocklist of
+    # sections to hide. Splitting order from visibility lets a newly shipped
+    # section default to visible (absent from hidden) while still being
+    # placed by order — without confusing "never seen" with "hidden".
+    # The ``title`` section is pinned and appears in neither.
+    inspector_layout = ListField(StringField())
+    inspector_hidden = ListField(StringField())
+
     # Retention: delete done/dropped tasks N days after they closed.
     # ``0`` keeps everything forever (default). Sweep is run by
     # ``cairn cleanup-completed-tasks`` (cron-able).

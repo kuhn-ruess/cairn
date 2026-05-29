@@ -1,0 +1,81 @@
+{% extends "layout/base.html" %}
+{% block title %}Inspector layout · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-1">
+  <h1 class="h4 mb-0 me-auto">Inspector layout</h1>
+  <form method="post" action="{{ url_for('settings.inspector_layout_reset') }}" class="m-0">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-counterclockwise"></i> Reset to default
+    </button>
+  </form>
+</div>
+<p class="text-muted small">
+  Drag to reorder the sections of the task inspector, and use the eye to show
+  or hide them. The title is always shown first. Applies to every task.
+</p>
+
+<form method="post" id="layoutForm" action="{{ url_for('settings.inspector_layout') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <ul id="layoutList" class="list-group inspector-layout-list" style="max-width: 520px;">
+    {% for s in layout %}
+      <li class="list-group-item d-flex align-items-center gap-2{% if not s.visible %} is-hidden text-muted{% endif %}"
+          data-key="{{ s.key }}" data-visible="{{ '1' if s.visible else '0' }}">
+        <i class="bi bi-grip-vertical text-muted handle" style="cursor: grab;"></i>
+        <span class="me-auto">{{ s.label }}</span>
+        <button type="button" class="btn btn-sm btn-link p-0 layout-eye"
+                title="Show / hide this section">
+          <i class="bi {{ 'bi-eye-fill text-success' if s.visible else 'bi-eye-slash' }}"></i>
+        </button>
+      </li>
+    {% endfor %}
+  </ul>
+
+  <button type="submit" class="btn btn-primary mt-3">
+    <i class="bi bi-save"></i> Save layout
+  </button>
+  <div id="layoutInputs"></div>
+</form>
+
+<script>
+(function () {
+  const list = document.getElementById("layoutList");
+  const form = document.getElementById("layoutForm");
+  const inputs = document.getElementById("layoutInputs");
+
+  if (typeof Sortable !== "undefined") {
+    new Sortable(list, { handle: ".handle", animation: 150, ghostClass: "inspector-layout-ghost" });
+  }
+
+  // Eye toggles visibility in place; the value is read on submit.
+  list.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".layout-eye");
+    if (!btn) return;
+    const li = btn.closest("li[data-key]");
+    const nowVisible = li.dataset.visible !== "1";
+    li.dataset.visible = nowVisible ? "1" : "0";
+    li.classList.toggle("is-hidden", !nowVisible);
+    li.classList.toggle("text-muted", !nowVisible);
+    btn.querySelector("i").className =
+      "bi " + (nowVisible ? "bi-eye-fill text-success" : "bi-eye-slash");
+  });
+
+  // On submit, emit the full order plus the hidden blocklist, so a hidden
+  // section keeps its place and a newly shipped section stays visible.
+  form.addEventListener("submit", () => {
+    inputs.innerHTML = "";
+    list.querySelectorAll("li[data-key]").forEach((li) => {
+      const o = document.createElement("input");
+      o.type = "hidden"; o.name = "order[]"; o.value = li.dataset.key;
+      inputs.appendChild(o);
+      if (li.dataset.visible !== "1") {
+        const h = document.createElement("input");
+        h.type = "hidden"; h.name = "hidden[]"; h.value = li.dataset.key;
+        inputs.appendChild(h);
+      }
+    });
+  });
+})();
+</script>
+{% endblock %}

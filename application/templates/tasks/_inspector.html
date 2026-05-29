@@ -1,4 +1,9 @@
-{# Task form rendered inside the inspector offcanvas. Standalone (no extends). #}
+{# Task form rendered inside the inspector offcanvas. Standalone (no extends).
+
+   Sections are defined as macros and emitted in the user's saved order
+   (inspector_section_order, with the pinned title first). Everything lives
+   inside ONE <form> — checklist & comments use buttons (data-action) rather
+   than nested <form>s, which HTML forbids. #}
 {% if just_saved %}
   <div class="inspector-saved-banner"><i class="bi bi-check2-circle"></i> Saved</div>
 {% elif just_added_title %}
@@ -6,46 +11,16 @@
     <i class="bi bi-plus-circle-fill"></i> Added "{{ just_added_title }}" — type the next one
   </div>
 {% endif %}
-<form method="post" action="{{ form_action }}" data-inspector-form
-      class="inspector-form" novalidate>
-  {{ form.hidden_tag() }}
 
-  <div class="inspector-section">
-    {{ form.title.label(class="form-label small text-uppercase text-muted") }}
-    {% if inspector_inline %}
-      {{ form.title(class="form-control form-control-lg",
-                     placeholder="What needs to happen?  e.g. ‘Call mom tomorrow @phone p1’") }}
-    {% else %}
-      {{ form.title(class="form-control form-control-lg",
-                     placeholder="What needs to happen?  e.g. ‘Call mom tomorrow @phone p1’",
-                     autofocus="autofocus") }}
-    {% endif %}
-    {% if not task %}
-      <div class="form-text small text-muted mt-1">
-        Tokens get parsed automatically:
-        <code>@tag</code> · <code>#project</code> · <code>p1</code>…<code>p4</code> ·
-        <code>!</code> · <code>today</code> / <code>tomorrow</code> / <code>monday</code>
-      </div>
-    {% endif %}
-    {% if task and (task.external_ref or task.source) %}
-      <div class="form-text small text-muted mt-1 d-flex gap-2 flex-wrap">
-        {% if task.source %}
-          <span class="source-chip source-{{ task.source }}">{{ task.source }}</span>
-        {% endif %}
-        {% if task.external_ref %}
-          <span><i class="bi bi-link-45deg"></i>
-            <code>{{ task.external_ref }}</code></span>
-        {% endif %}
-      </div>
-    {% endif %}
-  </div>
-
-  <div class="inspector-section">
+{%- macro sec_note() -%}
+  <div class="inspector-section" data-section="note">
     {{ form.note.label(class="form-label small text-uppercase text-muted") }}
     {{ form.note(class="form-control", rows="3", placeholder="Notes, links, context…") }}
   </div>
+{%- endmacro -%}
 
-  <div class="inspector-section grid-2">
+{%- macro sec_status_project() -%}
+  <div class="inspector-section grid-2" data-section="status_project">
     <div>
       {{ form.status.label(class="form-label small text-uppercase text-muted") }}
       {{ form.status(class="form-select form-select-sm") }}
@@ -58,14 +33,18 @@
                           "data-searchable-placeholder": "Search projects…"}) }}
     </div>
   </div>
+{%- endmacro -%}
 
-  <div class="inspector-section">
+{%- macro sec_tags() -%}
+  <div class="inspector-section" data-section="tags">
     {{ form.tags.label(class="form-label small text-uppercase text-muted") }}
     {{ form.tags(class="form-select form-select-sm", size="5") }}
     <div class="form-text">⌘/Ctrl-click for multi-select.</div>
   </div>
+{%- endmacro -%}
 
-  <div class="inspector-section grid-2">
+{%- macro sec_dates() -%}
+  <div class="inspector-section grid-2" data-section="dates">
     <div>
       {{ form.defer_date.label(class="form-label small text-uppercase text-muted") }}
       {{ form.defer_date(class="form-control form-control-sm", id="defer_date") }}
@@ -95,8 +74,10 @@
       </div>
     </div>
   </div>
+{%- endmacro -%}
 
-  <div class="inspector-section">
+{%- macro sec_plan() -%}
+  <div class="inspector-section" data-section="plan">
     {{ form.plan_date.label(class="form-label small text-uppercase text-muted") }}
     {{ form.plan_date(class="form-control form-control-sm", id="plan_date") }}
     <div class="quick-date-row btn-group btn-group-sm mt-1">
@@ -113,8 +94,10 @@
       When you intend to actually work on it — soft target, doesn't block.
     </div>
   </div>
+{%- endmacro -%}
 
-  <div class="inspector-section grid-2">
+{%- macro sec_priority_estimate() -%}
+  <div class="inspector-section grid-2" data-section="priority_estimate">
     <div>
       {{ form.priority.label(class="form-label small text-uppercase text-muted") }}
       {{ form.priority(class="form-select form-select-sm") }}
@@ -124,8 +107,10 @@
       {{ form.estimated_minutes(class="form-control form-control-sm", placeholder="min") }}
     </div>
   </div>
+{%- endmacro -%}
 
-  <div class="inspector-section">
+{%- macro sec_repeat() -%}
+  <div class="inspector-section" data-section="repeat">
     <label class="form-label small text-uppercase text-muted">Repeat</label>
     <div class="d-flex gap-2 align-items-center">
       {{ form.repeat_every_days(class="form-control form-control-sm",
@@ -148,13 +133,17 @@
       {{ form.repeat_from_completion.label(class="form-check-label small") }}
     </div>
   </div>
+{%- endmacro -%}
 
-  <div class="inspector-section">
+{%- macro sec_assigned_to() -%}
+  <div class="inspector-section" data-section="assigned_to">
     {{ form.assigned_to.label(class="form-label small text-uppercase text-muted") }}
     {{ form.assigned_to(class="form-select form-select-sm") }}
   </div>
+{%- endmacro -%}
 
-  <div class="inspector-section">
+{%- macro sec_flags() -%}
+  <div class="inspector-section" data-section="flags">
     <div class="form-check">
       {{ form.flagged(class="form-check-input") }}
       {{ form.flagged.label(class="form-check-label") }}
@@ -170,69 +159,126 @@
       </div>
     {% endif %}
   </div>
-</form>
+{%- endmacro -%}
 
-{% if task %}
-  <div class="inspector-section" id="checklist">
-    {% include "tasks/_checklist.html" %}
-  </div>
-
-  <div class="inspector-section comments-block">
-    <div class="d-flex align-items-center mb-2">
-      <span class="form-label small text-uppercase text-muted mb-0">Comments</span>
-      <span class="ms-2 badge text-bg-secondary">{{ task.comments|length }}</span>
-      <button type="button" class="btn btn-sm btn-link text-muted ms-auto p-0 comments-expand-toggle"
-              title="Toggle comments panel size">
-        <i class="bi bi-arrows-fullscreen"></i>
-      </button>
+{%- macro sec_checklist() -%}
+  {% if task %}
+    <div class="inspector-section checklist-block" data-section="checklist" id="checklist">
+      {% include "tasks/_checklist.html" %}
     </div>
+  {% endif %}
+{%- endmacro -%}
 
-    <div class="comments-list">
-      {% for c in task.comments %}
-        <div class="comment-item {% if c.is_public %}is-public{% endif %}"
-             data-comment-index="{{ loop.index0 }}">
-          <div class="comment-avatar">{{ (c.author.display_name or c.author.username)[:1]|upper }}</div>
-          <div class="comment-body-wrap">
-            <div class="comment-header">
-              <strong class="comment-author">{{ c.author }}</strong>
-              <span class="comment-time">{{ c.created_at|localdt }}</span>
-              <button type="button"
-                      class="comment-visibility-toggle"
-                      data-task-id="{{ task.pk }}"
-                      data-index="{{ loop.index0 }}"
-                      data-public="{{ '1' if c.is_public else '0' }}"
-                      title="Click to toggle internal / public">
-                {% if c.is_public %}
-                  <span class="badge text-bg-success"><i class="bi bi-globe"></i> public</span>
-                {% else %}
-                  <span class="badge text-bg-secondary"><i class="bi bi-lock"></i> internal</span>
-                {% endif %}
-              </button>
-            </div>
-            <div class="comment-text md-body">{{ c.body|markdown }}</div>
-          </div>
-        </div>
-      {% else %}
-        <p class="text-muted small mb-0 comments-empty">No comments yet.</p>
-      {% endfor %}
-    </div>
-
-    <form method="post"
-          action="{{ url_for('tasks.comment', task_id=task.pk) }}"
-          class="comment-add-form mt-2"
-          data-inspector-comment-form>
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <textarea name="body" class="form-control form-control-sm" rows="2"
-                placeholder="Add a comment…" required></textarea>
-      <div class="d-flex align-items-center mt-1">
-        <small class="text-muted">New comments are <strong>internal</strong> by default.</small>
-        <button type="submit" class="btn btn-sm btn-primary ms-auto">
-          <i class="bi bi-send"></i> Post
+{%- macro sec_comments() -%}
+  {% if task %}
+    <div class="inspector-section comments-block" data-section="comments">
+      <div class="d-flex align-items-center mb-2">
+        <span class="form-label small text-uppercase text-muted mb-0">Comments</span>
+        <span class="ms-2 badge text-bg-secondary">{{ task.comments|length }}</span>
+        <button type="button" class="btn btn-sm btn-link text-muted ms-auto p-0 comments-expand-toggle"
+                title="Toggle comments panel size">
+          <i class="bi bi-arrows-fullscreen"></i>
         </button>
       </div>
-    </form>
+
+      <div class="comments-list">
+        {% for c in task.comments %}
+          <div class="comment-item {% if c.is_public %}is-public{% endif %}"
+               data-comment-index="{{ loop.index0 }}">
+            <div class="comment-avatar">{{ (c.author.display_name or c.author.username)[:1]|upper }}</div>
+            <div class="comment-body-wrap">
+              <div class="comment-header">
+                <strong class="comment-author">{{ c.author }}</strong>
+                <span class="comment-time">{{ c.created_at|localdt }}</span>
+                <button type="button"
+                        class="comment-visibility-toggle"
+                        data-task-id="{{ task.pk }}"
+                        data-index="{{ loop.index0 }}"
+                        data-public="{{ '1' if c.is_public else '0' }}"
+                        title="Click to toggle internal / public">
+                  {% if c.is_public %}
+                    <span class="badge text-bg-success"><i class="bi bi-globe"></i> public</span>
+                  {% else %}
+                    <span class="badge text-bg-secondary"><i class="bi bi-lock"></i> internal</span>
+                  {% endif %}
+                </button>
+              </div>
+              <div class="comment-text md-body">{{ c.body|markdown }}</div>
+            </div>
+          </div>
+        {% else %}
+          <p class="text-muted small mb-0 comments-empty">No comments yet.</p>
+        {% endfor %}
+      </div>
+
+      {# Button, not a nested form — comment add is fetched by inspector.js. #}
+      <div class="comment-add-form mt-2"
+           data-inspector-comment-form
+           data-action="{{ url_for('tasks.comment', task_id=task.pk) }}">
+        <textarea name="comment_body" class="form-control form-control-sm" rows="2"
+                  placeholder="Add a comment…"></textarea>
+        <div class="d-flex align-items-center mt-1">
+          <small class="text-muted">New comments are <strong>internal</strong> by default.</small>
+          <button type="button" class="btn btn-sm btn-primary ms-auto comment-add-btn">
+            <i class="bi bi-send"></i> Post
+          </button>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+{%- endmacro -%}
+
+{%- set _section_macros = {
+  "note": sec_note, "status_project": sec_status_project, "tags": sec_tags,
+  "dates": sec_dates, "plan": sec_plan, "priority_estimate": sec_priority_estimate,
+  "repeat": sec_repeat, "assigned_to": sec_assigned_to, "flags": sec_flags,
+  "checklist": sec_checklist, "comments": sec_comments,
+} -%}
+
+<form method="post" action="{{ form_action }}" data-inspector-form
+      class="inspector-form" novalidate>
+  {{ form.hidden_tag() }}
+
+  {# Title is pinned: always first, never reorderable/hideable. #}
+  <div class="inspector-section" data-section="title">
+    {{ form.title.label(class="form-label small text-uppercase text-muted") }}
+    {% if inspector_inline %}
+      {{ form.title(class="form-control form-control-lg",
+                     placeholder="What needs to happen?  e.g. ‘Call mom tomorrow @phone p1’") }}
+    {% else %}
+      {{ form.title(class="form-control form-control-lg",
+                     placeholder="What needs to happen?  e.g. ‘Call mom tomorrow @phone p1’",
+                     autofocus="autofocus") }}
+    {% endif %}
+    {% if not task %}
+      <div class="form-text small text-muted mt-1">
+        Tokens get parsed automatically:
+        <code>@tag</code> · <code>#project</code> · <code>p1</code>…<code>p4</code> ·
+        <code>!</code> · <code>today</code> / <code>tomorrow</code> / <code>monday</code>
+      </div>
+    {% endif %}
+    {% if task and (task.external_ref or task.source) %}
+      <div class="form-text small text-muted mt-1 d-flex gap-2 flex-wrap">
+        {% if task.source %}
+          <span class="source-chip source-{{ task.source }}">{{ task.source }}</span>
+        {% endif %}
+        {% if task.external_ref %}
+          <span><i class="bi bi-link-45deg"></i>
+            <code>{{ task.external_ref }}</code></span>
+        {% endif %}
+      </div>
+    {% endif %}
   </div>
-{% endif %}
+
+  {% for key in (inspector_section_order or []) %}
+    {# On the detail page (inline inspector) comments render in their own
+       column section, so skip the inspector's comments block to avoid a
+       duplicate. Everything else (incl. checklist) shows inline. #}
+    {% if key in _section_macros and not (inspector_inline and key == "comments") %}
+      {{ _section_macros[key]() }}
+    {% endif %}
+  {% endfor %}
+</form>
 
 <div class="inspector-footer">
   {% if task and not inspector_inline %}
