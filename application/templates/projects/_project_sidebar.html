@@ -60,7 +60,7 @@
       {% set _filter_mode = request.path in _filter_paths %}
       <li class="ps-drop-target" data-target-project="">
         <a class="nav-link py-1 ps-row {% if current_pk == 'inbox' or (_filter_mode and request.args.get('project') == 'inbox') %}active{% endif %}"
-           href="{% if _filter_mode %}{{ request.path }}?project=inbox{% else %}{{ url_for('tasks.inbox') }}{% endif %}"
+           href="{% if _filter_mode %}{{ request.path }}?project=inbox{% else %}{{ url_for('tasks.inbox', sidebar=1) }}{% endif %}"
            style="padding-left: 8px;"
            data-project-name="inbox">
           <i class="bi bi-inbox text-muted"></i>

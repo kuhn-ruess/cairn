@@ -1,7 +1,11 @@
 {% extends "layout/base.html" %}
-{# Inbox is "tasks with no project", so a project filter sidebar makes no
-   sense there. Every other perspective keeps it. #}
-{% set page_project_sidebar = (perspective != "inbox") %}
+{# Inbox is "tasks with no project", so the project sidebar is hidden when
+   Inbox is reached on its own (main nav). When reached FROM the project
+   sidebar (?sidebar=1) we keep the sidebar so the user can keep navigating
+   projects, with Inbox shown as the active container. #}
+{% set _inbox_with_sidebar = (perspective == "inbox" and request.args.get("sidebar") == "1") %}
+{% set page_project_sidebar = (perspective != "inbox") or _inbox_with_sidebar %}
+{% if perspective == "inbox" %}{% set page_current_pk = "inbox" %}{% endif %}
 {# Owning-project pks for the rendered tasks — the sidebar uses these
    to filter to the relevant subset. Walk past sections so a task in a
    section bubbles up to its parent project. #}
@@ -13,7 +17,10 @@
     {% set ns.pks = ns.pks + [p.pk|string] %}
   {% endif %}
 {% endfor %}
-{% set page_affected_pks = ns.pks %}
+{# Inbox tasks have no parent project, so their affected-pks set is empty —
+   which would collapse the sidebar to just the Inbox shortcut. Keep the full
+   project tree visible there so the user can navigate on. #}
+{% set page_affected_pks = none if _inbox_with_sidebar else ns.pks %}
 {% block title %}{{ title }} · Cairn{% endblock %}
 {% block content %}
 {% set view_key = perspective %}
