@@ -1,5 +1,5 @@
 """Dashboard / home perspective."""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from flask import Blueprint, render_template
 from flask_login import current_user, login_required
@@ -28,17 +28,15 @@ def _scope(user):
 def home():
     user = current_user._get_current_object()
     now = datetime.now(timezone.utc)
-    soon = now + timedelta(days=2)
 
     inbox_count = Item.objects(
         _scope(user), kind="task", parent=None,
         status__nin=["done", "dropped"]
     ).count()
-    today_count = Item.objects(
-        _scope(user),
-        status__nin=["done", "dropped", "someday"],
-        due_date__lte=soon,
-    ).count()
+    # Use the shared Today selection so this count matches the Today page
+    # exactly (was a divergent "due within 2 days" formula before).
+    from application.services.today import today_count as _today_count
+    today_count = _today_count(user)
     flagged_count = Item.objects(
         _scope(user), status__nin=["done", "dropped"], flagged=True
     ).count()
