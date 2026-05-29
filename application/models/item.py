@@ -312,6 +312,11 @@ class Item(Document):
         self.completed_by = by_user
         self.completed_via = "user"
         self.save()
+        # Recurrence only makes sense for actual tasks. A project/folder/
+        # section never spawns a clone (defensive — ensure_container already
+        # strips recurrence on the flip).
+        if self.kind != "task":
+            return None
         if not self.repeat_every_days and not self.repeat_weekdays:
             return None
         anchor = (
@@ -368,12 +373,25 @@ class Item(Document):
             (self.defer_date + defer_delta)
             if (self.defer_date and defer_delta is not None) else None
         )
+        # Roll a plan_date forward by the same delta as the due date so a
+        # task planned for "the day it's due" keeps that relationship on the
+        # next occurrence. Weekday recurrence has no relativedelta, so shift
+        # by the day difference between the new and old due dates.
+        new_plan = None
+        if self.plan_date and anchor:
+            if self.repeat_weekdays and new_due:
+                new_plan = self.plan_date + (new_due - anchor)
+            elif defer_delta is not None:
+                new_plan = self.plan_date + defer_delta
+            elif new_due:
+                new_plan = self.plan_date + (new_due - anchor)
         clone = Item(
             kind="task",
             owner=self.owner,
             assigned_to=self.assigned_to,
             title=self.title,
             note=self.note,
+            color=self.color,
             parent=self.parent,
             tags=list(self.tags),
             status="next" if not self.defer_date else "scheduled",
@@ -381,7 +399,9 @@ class Item(Document):
             priority=self.priority,
             due_date=new_due,
             defer_date=new_defer,
+            plan_date=new_plan,
             estimated_minutes=self.estimated_minutes,
+            is_internal=self.is_internal,
             repeat_every_days=self.repeat_every_days,
             repeat_unit=self.repeat_unit,
             repeat_from_completion=self.repeat_from_completion,
@@ -410,6 +430,12 @@ class Item(Document):
         if self.status not in ("active", "on_hold", "completed", "dropped"):
             self.status = "active"
         self.completed_at = None
+        # Recurrence is a task concept — a project that still carries it would
+        # spawn a clone (and look like "the repeating task turned into a
+        # project") the next time it's completed. Drop it on the flip.
+        self.repeat_every_days = None
+        self.repeat_weekdays = []
+        self.repeat_from_completion = False
         self.save()
         return True
 
