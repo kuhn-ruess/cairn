@@ -349,7 +349,6 @@ class Item(Document):
                 if d.weekday() in valid:
                     break
             new_due = d
-            defer_delta = (new_due - anchor) if self.defer_date else None
         elif anchor:
             if unit == "week":
                 new_due = anchor + relativedelta(weeks=n)
@@ -362,29 +361,28 @@ class Item(Document):
                 defer_delta = relativedelta(years=n)
             elif unit == "weekday":
                 new_due = _advance_business(anchor, n, {0, 1, 2, 3, 4})
-                defer_delta = None  # weekday math doesn't translate to defer cleanly
             elif unit == "weekend":
                 new_due = _advance_business(anchor, n, {5, 6})
-                defer_delta = None
             else:  # day
                 new_due = anchor + relativedelta(days=n)
                 defer_delta = relativedelta(days=n)
-        new_defer = (
-            (self.defer_date + defer_delta)
-            if (self.defer_date and defer_delta is not None) else None
-        )
-        # Roll a plan_date forward by the same delta as the due date so a
-        # task planned for "the day it's due" keeps that relationship on the
-        # next occurrence. Weekday recurrence has no relativedelta, so shift
-        # by the day difference between the new and old due dates.
-        new_plan = None
-        if self.plan_date and anchor:
-            if self.repeat_weekdays and new_due:
-                new_plan = self.plan_date + (new_due - anchor)
-            elif defer_delta is not None:
-                new_plan = self.plan_date + defer_delta
-            elif new_due:
-                new_plan = self.plan_date + (new_due - anchor)
+
+        # Roll the defer and plan dates forward in step with the due date so
+        # their relationship to it is preserved each cycle. Prefer the
+        # relativedelta (month/year stay calendar-correct); for weekday/
+        # weekend/specific-weekday schedules — which have no relativedelta —
+        # shift by the raw difference between the new and old due dates.
+        def _roll(date):
+            if not date or anchor is None:
+                return None
+            if defer_delta is not None:
+                return date + defer_delta
+            if new_due is not None:
+                return date + (new_due - anchor)
+            return None
+
+        new_defer = _roll(self.defer_date)
+        new_plan = _roll(self.plan_date)
         clone = Item(
             kind="task",
             owner=self.owner,
