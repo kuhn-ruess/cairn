@@ -44,9 +44,14 @@
   const form = document.getElementById("layoutForm");
   const inputs = document.getElementById("layoutInputs");
 
-  if (typeof Sortable !== "undefined") {
+  // Sortable.js loads at the end of <body>, after this inline script runs,
+  // so guard + fall back to DOMContentLoaded (same as the perspectives page).
+  function initSortable() {
+    if (typeof Sortable === "undefined") return;
     new Sortable(list, { handle: ".handle", animation: 150, ghostClass: "inspector-layout-ghost" });
   }
+  if (typeof Sortable !== "undefined") initSortable();
+  else document.addEventListener("DOMContentLoaded", initSortable);
 
   // Eye toggles visibility in place; the value is read on submit.
   list.addEventListener("click", (ev) => {
