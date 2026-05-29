@@ -65,6 +65,8 @@ class TaskForm(FlaskForm):
             ("waiting", "Waiting"),
             ("scheduled", "Scheduled"),
             ("someday", "Someday/Maybe"),
+            ("done", "Done"),
+            ("dropped", "Dropped"),
         ],
         default="open",
     )
