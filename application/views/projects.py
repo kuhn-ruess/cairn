@@ -1,7 +1,7 @@
 """Item views — CRUD plus per-project task list."""
 from datetime import datetime, timedelta, timezone
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 
 def _is_inspector():
     return request.args.get("inspector") == "1" or request.headers.get("X-Inspector-Request") == "1"
@@ -602,7 +602,12 @@ def detail(project_id):
     # Build calendar buckets if needed (current month grid with tasks by day).
     calendar_data = None
     if view_mode == "calendar":
-        calendar_data = _build_calendar(all_tasks, request.args.get("month"))
+        try:
+            from zoneinfo import ZoneInfo
+            cal_tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
+        except Exception:
+            cal_tz = timezone.utc
+        calendar_data = _build_calendar(all_tasks, request.args.get("month"), cal_tz)
 
     return render_template(
         "projects/detail.html",
@@ -624,13 +629,22 @@ def detail(project_id):
         all_tasks=all_tasks,
     )
 
-def _build_calendar(tasks, month_param):
+def _build_calendar(tasks, month_param, tz=timezone.utc):
     """Compute a month grid (list of weeks; each week is 7 days, each day
-    is ``{"date": date, "in_month": bool, "tasks": [...]}``)."""
+    is ``{"date": date, "in_month": bool, "tasks": [...]}``).
+
+    Tasks are bucketed by their due/plan date **in the user's timezone** —
+    a task planned for midnight Berlin is 22:00 UTC the day before, so
+    bucketing by the raw UTC date would drop it onto the previous day."""
     from calendar import Calendar
     from datetime import date as _date
 
-    today = datetime.now(timezone.utc).date()
+    def _local_date(dt):
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(tz).date()
+
+    today = datetime.now(tz).date()
     if month_param:
         try:
             y, m = map(int, month_param.split("-"))
@@ -644,11 +658,9 @@ def _build_calendar(tasks, month_param):
     no_date: list = []
     for t in tasks:
         if t.due_date:
-            key = t.due_date.date()
-            by_day.setdefault(key, []).append(t)
+            by_day.setdefault(_local_date(t.due_date), []).append(t)
         elif t.plan_date:
-            key = t.plan_date.date()
-            by_day.setdefault(key, []).append(t)
+            by_day.setdefault(_local_date(t.plan_date), []).append(t)
         else:
             no_date.append(t)
 
