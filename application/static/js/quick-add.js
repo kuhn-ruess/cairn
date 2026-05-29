@@ -21,8 +21,15 @@
 
   // ----- Detect the current project -----
   function detectCurrentProject() {
+    // On a project page the pk is in the path…
     const m = window.location.pathname.match(/^\/projects\/([0-9a-f]{24})/i);
-    return m ? m[1] : "";
+    if (m) return m[1];
+    // …on every other view (perspectives, tags, today, …) the selected
+    // project comes through the sidebar filter as ?project=<pk>, so New task
+    // still lands in the project the user is looking at.
+    const qp = new URLSearchParams(window.location.search).get("project");
+    if (qp && /^[0-9a-f]{24}$/i.test(qp)) return qp;
+    return "";
   }
   function updateProjectHint() {
     // A #project token typed into the text overrides the dropdown.
