@@ -19,7 +19,8 @@
     {% endfor %}
     {% for week in calendar.weeks %}
       {% for day in week %}
-        <div class="calendar-day {{ 'out-of-month' if not day.in_month else '' }} {{ 'is-today' if day.is_today else '' }}">
+        <div class="calendar-day {{ 'out-of-month' if not day.in_month else '' }} {{ 'is-today' if day.is_today else '' }}"
+             data-date="{{ day.date.isoformat() }}">
           <div class="calendar-day-num">{{ day.date.day }}</div>
           {% if day.tasks %}
             <div class="calendar-day-tasks">
@@ -28,6 +29,8 @@
                    href="{{ url_for('tasks.edit', task_id=t.pk) }}"
                    data-inspector-url="{{ url_for('tasks.edit', task_id=t.pk) }}"
                    data-inspector-title="{{ t.title }}"
+                   data-task-id="{{ t.pk }}"
+                   draggable="true"
                    title="{{ t.title }}">
                   {% if t.flagged %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
                   {{ t.title }}
