@@ -184,7 +184,10 @@ def register_filters(app):
             from application.views.tasks import sidebar_counts
             from application.views.review import review_due_count
             _now = datetime.now(timezone.utc)
-            nav_counts = sidebar_counts(user, _now)
+            # Only compute counts for perspectives actually in the sidebar —
+            # a hidden view does no extra DB work.
+            _visible = {p.key for p in sidebar_perspectives}
+            nav_counts = sidebar_counts(user, _now, keys=_visible)
             nav_counts["review"] = review_due_count(user, _now)
 
         from application import APP_VERSION

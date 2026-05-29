@@ -118,51 +118,64 @@ def toggle_collapse(task_id):
 def _scope(user):
     return Q(owner=user) | Q(assigned_to=user)
 
-def sidebar_counts(user, now=None) -> dict:
-    """Item counts for the sidebar perspective badges, keyed by perspective
-    key. The status/date-based counts come from a single pass over the user's
-    open tasks (scalar fields only — no per-doc dereferences); the two
-    reference-based ones (inbox parent, assignee) use cheap count() queries.
-    Mirrors each perspective view's filter; completed/home get no badge."""
-    now = now or datetime.now(timezone.utc)
-    try:
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
-    except Exception:
-        tz = timezone.utc
-    today_date = now.astimezone(tz).date()
-    today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
-    horizon = now + timedelta(days=14)
+_PASS_KEYS = frozenset(
+    {"today", "next", "waiting", "someday", "scheduled", "flagged", "forecast"}
+)
 
-    c = {k: 0 for k in ("today", "next", "waiting", "someday",
-                        "scheduled", "flagged", "forecast")}
-    qs = (Item.objects(_scope(user), kind="task", status__nin=["done", "dropped"])
-          .only("status", "flagged", "due_date", "plan_date", "defer_date"))
-    for t in qs:
-        st = t.status
-        if st == "next":
-            c["next"] += 1
-        elif st == "waiting":
-            c["waiting"] += 1
-        elif st == "someday":
-            c["someday"] += 1
-        if t.defer_date and t.defer_date > now:
-            c["scheduled"] += 1
-        if t.flagged:
-            c["flagged"] += 1
-        if st != "someday":
-            if ((t.due_date and t.due_date <= today_end)
-                    or t.flagged
-                    or (t.plan_date and t.plan_date.date() <= today_date)
-                    or (t.defer_date and t.defer_date <= now and st == "next")):
-                c["today"] += 1
-            if t.due_date and t.due_date <= horizon:
-                c["forecast"] += 1
+def sidebar_counts(user, now=None, keys=None) -> dict:
+    """Item counts for the sidebar perspective badges, keyed by perspective
+    key. ``keys`` limits the work to the perspectives actually shown in the
+    sidebar — a hidden view costs nothing (the single task pass is skipped
+    unless a status/date perspective is visible, and the reference-based
+    inbox/assignee count() queries only run when those are visible).
+
+    The status/date counts come from one pass over the user's open tasks
+    (scalar fields only — no per-doc deref). Mirrors each perspective view's
+    filter; completed/home never get a badge."""
+    now = now or datetime.now(timezone.utc)
+    want = set(keys) if keys is not None else (_PASS_KEYS | {"inbox", "assigned"})
+    c = {}
+
+    if want & _PASS_KEYS:
+        try:
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
+        except Exception:
+            tz = timezone.utc
+        today_date = now.astimezone(tz).date()
+        today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+        horizon = now + timedelta(days=14)
+        c = {k: 0 for k in _PASS_KEYS}
+        qs = (Item.objects(_scope(user), kind="task", status__nin=["done", "dropped"])
+              .only("status", "flagged", "due_date", "plan_date", "defer_date"))
+        for t in qs:
+            st = t.status
+            if st == "next":
+                c["next"] += 1
+            elif st == "waiting":
+                c["waiting"] += 1
+            elif st == "someday":
+                c["someday"] += 1
+            if t.defer_date and t.defer_date > now:
+                c["scheduled"] += 1
+            if t.flagged:
+                c["flagged"] += 1
+            if st != "someday":
+                if ((t.due_date and t.due_date <= today_end)
+                        or t.flagged
+                        or (t.plan_date and t.plan_date.date() <= today_date)
+                        or (t.defer_date and t.defer_date <= now and st == "next")):
+                    c["today"] += 1
+                if t.due_date and t.due_date <= horizon:
+                    c["forecast"] += 1
+
     # Reference-based perspectives — count() avoids dereferencing per task.
-    c["inbox"] = Item.objects(_scope(user), kind="task", parent=None,
-                              status__nin=["done", "dropped"]).count()
-    c["assigned"] = Item.objects(assigned_to=user, kind="task",
-                                 status__nin=["done", "dropped"]).count()
+    if "inbox" in want:
+        c["inbox"] = Item.objects(_scope(user), kind="task", parent=None,
+                                  status__nin=["done", "dropped"]).count()
+    if "assigned" in want:
+        c["assigned"] = Item.objects(assigned_to=user, kind="task",
+                                     status__nin=["done", "dropped"]).count()
     return c
 
 def _writeback_calendar(task, user) -> list[str]:
