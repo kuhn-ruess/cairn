@@ -114,7 +114,24 @@
 
   function wireForm() {
     const form = body.querySelector("form[data-inspector-form]");
-    if (form) form.addEventListener("submit", onFormSubmit);
+    if (form) {
+      form.addEventListener("submit", onFormSubmit);
+      // Enter saves: Cmd/Ctrl+Enter from anywhere (incl. textareas), and plain
+      // Enter from single-line fields. Textareas keep Enter = newline; buttons,
+      // links and selects keep their native Enter behaviour.
+      form.addEventListener("keydown", (ev) => {
+        if (ev.key !== "Enter" || ev.isComposing) return;
+        const t = ev.target;
+        const tag = t && t.tagName;
+        if (tag === "BUTTON" || tag === "A" || tag === "SELECT" ||
+            (t && t.isContentEditable)) return;
+        const isTextarea = tag === "TEXTAREA";
+        if (!(ev.metaKey || ev.ctrlKey) && isTextarea) return;
+        ev.preventDefault();
+        if (typeof form.requestSubmit === "function") form.requestSubmit();
+        else form.dispatchEvent(new Event("submit", { cancelable: true }));
+      });
+    }
 
     body.querySelectorAll("form[data-inspector-side]").forEach((sideForm) => {
       sideForm.addEventListener("submit", onSideSubmit);

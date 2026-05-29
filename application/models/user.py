@@ -152,6 +152,10 @@ class User(UserMixin, Document):
     # Today perspective preferences (persisted across sessions).
     today_grouping = StringField(default="none")
     today_filter_tag = StringField()  # Tag.pk to filter Today to a single tag, optional
+    # Last-used Today window length (duration in days) and layout (list/
+    # calendar) — remembered so the view comes back the way the user left it.
+    today_days = IntField(default=1, min_value=1)
+    today_view_mode = StringField(default="list")
 
     # Custom sidebar perspective ordering. Empty = use the canonical default
     # (all perspectives shown). When non-empty, only these keys are shown,

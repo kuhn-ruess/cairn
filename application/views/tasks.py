@@ -482,11 +482,19 @@ def today():
         )
     except ValueError:
         start_date = today_date
-    try:
-        days = int(request.args.get("days") or "1")
-    except (TypeError, ValueError):
-        days = 1
-    days = max(1, min(days, 31))
+    # Window length (duration): use the URL when given and remember it on the
+    # user; otherwise fall back to their last-used value.
+    if request.args.get("days") is not None:
+        try:
+            days = int(request.args.get("days") or "1")
+        except (TypeError, ValueError):
+            days = 1
+        days = max(1, min(days, 31))
+        if days != (user.today_days or 1):
+            user.today_days = days
+            user.save()
+    else:
+        days = max(1, min(int(user.today_days or 1), 31))
 
     # Bucket the day window in the user's tz, otherwise a task planned
     # for 23:00 Berlin (= 21:00 UTC) on day D would fall outside a
@@ -734,9 +742,17 @@ def today():
     # ?view=calendar — timeline layout. Tasks are merged with events
     # so the user sees scheduled work next to meetings. Only 1-day
     # windows get the grid; multi-day stays on the list mode.
-    view_mode = (request.args.get("view") or "list").strip()
-    if view_mode not in ("list", "calendar"):
-        view_mode = "list"
+    # Layout (list/calendar): use the URL when given and remember it on the
+    # user; otherwise fall back to their last-used value.
+    if request.args.get("view") is not None:
+        view_mode = (request.args.get("view") or "list").strip()
+        if view_mode not in ("list", "calendar"):
+            view_mode = "list"
+        if view_mode != (user.today_view_mode or "list"):
+            user.today_view_mode = view_mode
+            user.save()
+    else:
+        view_mode = user.today_view_mode if user.today_view_mode in ("list", "calendar") else "list"
 
     timeline = None
     if view_mode == "calendar":

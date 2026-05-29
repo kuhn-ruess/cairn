@@ -346,7 +346,7 @@
   {% endfor %}
 {% endmacro %}
 
-{% if daily_buckets %}
+{% if daily_buckets and view_mode != 'calendar' %}
   <div class="daily-buckets">
   {% for day, items in daily_buckets.items() %}
     <section class="daily-bucket mb-3">
