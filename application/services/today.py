@@ -44,7 +44,7 @@ def today_now(user):
     active_tag = user.today_filter_tag or ""
     has_tag = bool(active_tag and user.tag_by_name(active_tag))
 
-    task_qs = Item.objects(_scope(user), status__nin=["done", "dropped", "someday"])
+    task_qs = Item.objects(_scope(user), kind="task", status__nin=["done", "dropped", "someday"])
     if has_tag:
         task_qs = task_qs.filter(tags=active_tag)
     tasks = [

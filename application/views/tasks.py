@@ -440,9 +440,14 @@ def today():
     is_today_now = (start_date == today_date and days == 1)
 
     # Tasks -----------------------------------------------------------
+    # kind="task" is load-bearing: project-like items carry due/plan dates
+    # too, and without it a project would leak into the task plate AND show
+    # as its own header — the same item rendered twice. (A recurring task
+    # that was turned into a project is exactly such an item.)
     qs = (
         Item.objects(
             _scope(user),
+            kind="task",
             status__nin=["done", "dropped", "someday"],
         )
         .order_by("+due_date", "-flagged")
@@ -463,7 +468,7 @@ def today():
     # window logic.
     proj_qs = Item.objects(
         owner=user,
-        kind__ne="folder",
+        kind__in=["project", "section"],
         status__nin=["completed", "dropped"],
     )
     if active_tag and user.tag_by_name(active_tag):
@@ -1279,6 +1284,12 @@ def convert_to_project(task_id):
     # Tasks track completion via ``completed_at`` — clear it now so the
     # project doesn't look completed when it wasn't.
     task.completed_at = None
+    # Recurrence is a task concept (see ensure_container) — drop it so the
+    # promoted project never carries repeat flags.
+    task.repeat_every_days = None
+    task.repeat_unit = "day"
+    task.repeat_weekdays = []
+    task.repeat_from_completion = False
     task.save()
     flash(f"Converted task into project: {task.title}", "success")
     return redirect(url_for("projects.detail", project_id=str(task.pk)))
