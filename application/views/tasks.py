@@ -171,16 +171,20 @@ def _populate_form_choices(form: TaskForm, user: User) -> None:
     # Render in tree order with indentation so nested tags are obvious.
     form.tags.choices = _tag_choices_tree(user.tags or [])
 
-    # collaborators = me + members of any project I share/own
-    collab_ids = {str(user.pk)}
-    for p in Item.objects(Q(owner=user) | Q(members=user)):
-        for m in (p.members or []):
-            collab_ids.add(str(m.pk))
-        collab_ids.add(str(p.owner.pk))
-    users = User.objects(pk__in=list(collab_ids))
-    form.assigned_to.choices = [("", "— unassigned —")] + [
-        (str(u.pk), str(u)) for u in users
-    ]
+    # Assignee choices: everyone across *all* of the user's teams (the team
+    # they're a member of + every team they admin), with the team name in
+    # parentheses so duplicates across teams stay distinguishable.
+    from application.services.permissions import teams_of, team_members
+    choices = [("", "— unassigned —"), (str(user.pk), f"{user} (me)")]
+    seen = {str(user.pk)}
+    for team in teams_of(user):
+        for member in team_members(team):
+            pk = str(member.pk)
+            if pk in seen:
+                continue
+            seen.add(pk)
+            choices.append((pk, f"{member} ({team.name})"))
+    form.assigned_to.choices = choices
 
 def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     from application.services.tz import attach_user_tz
