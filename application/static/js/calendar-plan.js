@@ -46,11 +46,15 @@
   cal.addEventListener("drop", async (ev) => {
     const day = ev.target.closest && ev.target.closest(".calendar-day[data-date]");
     if (!day) return;
-    ev.preventDefault();
-    const id = draggingId || (ev.dataTransfer && ev.dataTransfer.getData("text/plain"));
+    // Only handle OUR pill drags here. Row drags from the task list are
+    // SortableJS-managed and handled by onAdd below — never read
+    // dataTransfer here (SortableJS puts the row's text in it, which would
+    // be POSTed as a bogus task id).
+    const id = draggingId;
     draggingId = null;
     day.classList.remove("cal-drop-hover");
     if (!id) return;
+    ev.preventDefault();
     await planTask(id, day.dataset.date);
   });
 
@@ -83,6 +87,10 @@
         },
         sort: false,
         draggable: "[data-task-id]",
+        // The dragged row is a full-width element; inside a small calendar
+        // cell its ghost looks broken. Hide it and highlight the day instead
+        // (see .cal-drop-ghost CSS).
+        ghostClass: "cal-drop-ghost",
         onAdd: (evt) => {
           const id = evt.item && evt.item.dataset && evt.item.dataset.taskId;
           if (id) planTask(id, day.dataset.date);

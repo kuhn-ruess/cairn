@@ -1460,11 +1460,17 @@ tr:hover .task-row-hover-action { opacity: 1; }
 .calendar-task-pill.blocked { opacity: .55; font-style: italic; }
 .calendar-task-pill[draggable="true"] { cursor: grab; }
 .calendar-task-pill.dragging { opacity: .4; }
-/* Day highlighted while dragging a task over it (drag-to-plan). */
-.calendar-day.cal-drop-hover {
+/* Day highlighted while dragging a task over it (drag-to-plan) — both for
+   native pill drags (.cal-drop-hover) and SortableJS row drags (the ghost
+   row lands in the cell; we hide it and light up the day instead). */
+.calendar-day.cal-drop-hover,
+.calendar-day:has(.cal-drop-ghost) {
   outline: 2px dashed var(--gv-yellow-br);
   outline-offset: -2px;
   background: var(--gv-bg1);
+}
+.calendar-day .cal-drop-ghost {
+  display: none !important;
 }
 .calendar-more {
   font-size: .65rem;
