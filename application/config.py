@@ -24,13 +24,6 @@ class BaseConfig:
     GOOGLE_CLIENT_ID = ""
     GOOGLE_CLIENT_SECRET = ""
 
-    # Where note-paste image uploads land. Absolute path or relative to
-    # the app root. Files are served as static assets, so this should
-    # sit under ``application/static`` or be configured behind a path
-    # alias if you move it elsewhere.
-    UPLOAD_DIR = "application/static/uploads"
-    UPLOAD_MAX_BYTES = 8 * 1024 * 1024  # 8 MB per image
-
     # SMTP for password-reset emails (and future notifications).
     # Empty SMTP_HOST disables mail — the password-reset flow then asks
     # the user to contact the admin (who can use ``./cairn reset-password``).

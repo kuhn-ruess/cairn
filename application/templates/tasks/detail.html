@@ -63,13 +63,10 @@
     </div>
 
     <div class="btn-group btn-group-sm task-detail-actions">
-      <a class="btn btn-primary"
-         href="{{ url_for('tasks.edit', task_id=task.pk) }}"
-         data-inspector-url="{{ url_for('tasks.edit', task_id=task.pk) }}"
-         data-inspector-title="{{ task.title }}"
-         title="Open inspector">
+      <button type="button" class="btn btn-primary" id="inspector-toggle"
+              title="Show / hide the inspector">
         <i class="bi bi-sliders"></i> Inspector
-      </a>
+      </button>
       <form method="post" action="{{ url_for('tasks.toggle_flag', task_id=task.pk) }}" class="m-0">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-outline-secondary" type="submit"
@@ -90,12 +87,28 @@
 
 <div class="row g-4">
   <div class="col-lg-8 task-detail-body">
-    {% if task.note %}
-      <section class="task-detail-section task-detail-note">
-        <h2 class="h6 text-muted small text-uppercase mb-2">Note</h2>
-        <div class="md-body">{{ task.note|markdown }}</div>
-      </section>
-    {% endif %}
+    <section class="task-detail-section task-detail-note" id="note">
+      <div class="d-flex align-items-center mb-2">
+        <h2 class="h6 text-muted small text-uppercase mb-0 me-auto">Note</h2>
+        <button type="button" class="btn btn-link btn-sm p-0 note-edit-btn" title="Edit note">
+          <i class="bi bi-pencil"></i> Edit
+        </button>
+      </div>
+      <div class="note-view">{% include "tasks/_note_body.html" %}</div>
+      <form method="post" action="{{ url_for('tasks.note_edit', task_id=task.pk) }}" class="note-edit d-none">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <textarea name="note" class="form-control mb-2" rows="6"
+                  placeholder="Notes, links, context…">{{ task.note or '' }}</textarea>
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-sm btn-primary">Save</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary note-cancel-btn">Cancel</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="task-detail-section" id="checklist">
+      {% include "tasks/_checklist.html" %}
+    </section>
 
     <section class="task-detail-section">
       <h2 class="h6 text-muted small text-uppercase mb-2">
@@ -142,6 +155,18 @@
   </div>
 
   <aside class="col-lg-4">
+    <section class="task-detail-section task-detail-inspector" id="inline-inspector">
+      <div class="d-flex align-items-center mb-2">
+        <h2 class="h6 text-muted small text-uppercase mb-0 me-auto">Inspector</h2>
+        <button type="button" class="btn btn-link btn-sm p-0 inspector-hide-btn" title="Hide inspector">
+          <i class="bi bi-eye-slash"></i> Hide
+        </button>
+      </div>
+      {% with inspector_inline = True %}
+        {% include "tasks/_inspector.html" %}
+      {% endwith %}
+    </section>
+
     <section class="task-detail-section task-detail-side">
       <h2 class="h6 text-muted small text-uppercase mb-2">Details</h2>
       <dl class="task-detail-dl mb-0">
@@ -170,4 +195,111 @@
     </section>
   </aside>
 </div>
+
+<script>
+/* Checklist — add / toggle / delete all go through fetch and swap the
+   re-rendered section in place. No navigation happens, so the input keeps
+   focus for rapid entry and the browser Back button still returns to
+   wherever the user came from (the overview), not through each add step. */
+(function () {
+  const section = document.getElementById("checklist");
+  if (!section) return;
+
+  async function submitForm(form, { refocus }) {
+    const resp = await fetch(form.action, {
+      method: "POST",
+      headers: { "X-Partial": "1" },
+      body: new FormData(form),
+    });
+    if (!resp.ok) throw new Error(resp.status);
+    section.innerHTML = await resp.text();
+    if (refocus) {
+      const input = section.querySelector(".checklist-add-input");
+      if (input) input.focus();
+    }
+  }
+
+  // Add + delete: intercept the form submit.
+  section.addEventListener("submit", (ev) => {
+    const form = ev.target.closest("form[data-checklist-add], form[data-checklist-delete]");
+    if (!form) return;
+    ev.preventDefault();
+    submitForm(form, { refocus: form.hasAttribute("data-checklist-add") })
+      .catch(() => form.submit());
+  });
+
+  // Toggle: the checkbox-style button submits its own little form.
+  section.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".checklist-toggle");
+    if (!btn) return;
+    const form = btn.closest("form[data-checklist-toggle]");
+    if (!form) return;
+    ev.preventDefault();
+    submitForm(form, { refocus: false }).catch(() => form.submit());
+  });
+})();
+
+/* Note — view ⇄ edit toggle, saved via fetch so the page doesn't reload. */
+(function () {
+  const section = document.getElementById("note");
+  if (!section) return;
+  const view = section.querySelector(".note-view");
+  const form = section.querySelector(".note-edit");
+  const editBtn = section.querySelector(".note-edit-btn");
+  const cancelBtn = section.querySelector(".note-cancel-btn");
+  const textarea = form.querySelector("textarea[name=note]");
+  let original = textarea.value;
+
+  const exit = () => {
+    form.classList.add("d-none");
+    view.classList.remove("d-none");
+    editBtn.classList.remove("d-none");
+  };
+  editBtn.addEventListener("click", () => {
+    view.classList.add("d-none");
+    editBtn.classList.add("d-none");
+    form.classList.remove("d-none");
+    textarea.focus();
+  });
+  cancelBtn.addEventListener("click", () => { textarea.value = original; exit(); });
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    try {
+      const resp = await fetch(form.action, {
+        method: "POST",
+        headers: { "X-Partial": "1" },
+        body: new FormData(form),
+      });
+      if (!resp.ok) throw new Error(resp.status);
+      view.innerHTML = await resp.text();
+      original = textarea.value;
+      exit();
+    } catch (err) {
+      form.submit();
+    }
+  });
+})();
+
+/* Inspector — show / hide the inline panel, remembering the choice. */
+(function () {
+  const panel = document.getElementById("inline-inspector");
+  const toggle = document.getElementById("inspector-toggle");
+  if (!panel || !toggle) return;
+  const KEY = "cairn-inspector-hidden";
+
+  const setHidden = (hidden) => {
+    panel.classList.toggle("d-none", hidden);
+    try { localStorage.setItem(KEY, hidden ? "1" : "0"); } catch (e) {}
+  };
+  try { if (localStorage.getItem(KEY) === "1") panel.classList.add("d-none"); } catch (e) {}
+
+  toggle.addEventListener("click", () => setHidden(!panel.classList.contains("d-none")));
+  const hideBtn = panel.querySelector(".inspector-hide-btn");
+  if (hideBtn) hideBtn.addEventListener("click", () => setHidden(true));
+  // The reused inspector footer's "Cancel" (data-bs-dismiss) has no offcanvas
+  // to close when rendered inline — repurpose it to hide the panel.
+  panel.querySelectorAll('[data-bs-dismiss="offcanvas"]').forEach((b) =>
+    b.addEventListener("click", () => setHidden(true)));
+})();
+</script>
 {% endblock %}

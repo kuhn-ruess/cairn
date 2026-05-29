@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 
 from flask import (
-    Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, url_for,
+    Blueprint, Response, abort, current_app, flash, jsonify, redirect, render_template, request, url_for,
 )
 
 def _is_inspector():
@@ -60,8 +60,10 @@ def _render_empty_task_inspector(user, *, parent_project=None, just_added_title=
         just_added_title=just_added_title,
     )
 
-def _render_task_inspector(task, user, *, just_saved=False):
-    """Render the inspector fragment pre-populated with ``task``'s state."""
+def _build_task_form(task, user):
+    """Build a ``TaskForm`` pre-populated with ``task``'s current state.
+    Shared by the offcanvas inspector and the inline inspector on the
+    task detail page."""
     from application.services.tz import localise_form_dates
     form = TaskForm(obj=task)
     localise_form_dates(form, user)
@@ -70,9 +72,13 @@ def _render_task_inspector(task, user, *, just_saved=False):
     form.tags.data = list(task.tags or [])
     form.assigned_to.data = str(task.assigned_to.pk) if task.assigned_to else ""
     form.priority.data = str(task.priority) if task.priority else ""
+    return form
+
+def _render_task_inspector(task, user, *, just_saved=False):
+    """Render the inspector fragment pre-populated with ``task``'s state."""
     return render_template(
         "tasks/_inspector.html",
-        form=form,
+        form=_build_task_form(task, user),
         task=task,
         form_action=url_for("tasks.edit", task_id=str(task.pk)),
         just_saved=just_saved,
@@ -83,7 +89,7 @@ from mongoengine import Q
 from application.forms import CommentForm, TaskForm
 
 from application.models.user import User
-from application.models.item import Item
+from application.models.item import ChecklistItem, Item, NoteImage
 
 tasks_bp = Blueprint("tasks", __name__, url_prefix="/tasks")
 
@@ -1071,6 +1077,8 @@ def detail(task_id):
         "tasks/detail.html",
         task=task,
         comment_form=CommentForm(),
+        form=_build_task_form(task, user),
+        form_action=url_for("tasks.edit", task_id=str(task.pk)),
     )
 
 @tasks_bp.route("/<task_id>/edit", methods=["GET", "POST"])
@@ -1796,3 +1804,144 @@ def toggle_comment_visibility(task_id, index):
         from flask import jsonify
         return jsonify({"index": index, "is_public": comment.is_public})
     return redirect(request.referrer or url_for("tasks.detail", task_id=task_id))
+
+
+def _editable_task_or_404(task_id):
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_edited_by(user):
+        abort(404)
+    return task
+
+
+def _checklist_response(task):
+    """Return the re-rendered checklist partial for AJAX callers, otherwise
+    redirect back to the detail page (no-JS fallback)."""
+    if request.headers.get("X-Partial") == "1":
+        return render_template("tasks/_checklist.html", task=task)
+    return redirect(url_for("tasks.detail", task_id=str(task.pk)) + "#checklist")
+
+
+@tasks_bp.route("/<task_id>/note", methods=["POST"])
+@login_required
+def note_edit(task_id):
+    """Update just the note from the inline editor on the detail page."""
+    task = _editable_task_or_404(task_id)
+    task.note = request.form.get("note", "") or ""
+    task.save()
+    if request.headers.get("X-Partial") == "1":
+        return render_template("tasks/_note_body.html", task=task)
+    return redirect(url_for("tasks.detail", task_id=task_id) + "#note")
+
+
+# Pasted note images are compressed client-side and stored inline on the item.
+NOTE_IMAGE_MAX_BYTES = 5 * 1024 * 1024     # per-image upload cap
+ITEM_WARN_BYTES = 10 * 1024 * 1024         # warn the user past this
+ITEM_MAX_BYTES = 15 * 1024 * 1024          # refuse past this (MongoDB caps at 16)
+
+
+def _sniff_image_type(head: bytes) -> str | None:
+    """Canonical mimetype for ``head`` if it's a supported raster image.
+    SVG is intentionally unsupported (it can carry script)."""
+    if head[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if head[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _item_bson_size(task) -> int:
+    from bson import BSON
+    return len(BSON.encode(task.to_mongo()))
+
+
+@tasks_bp.route("/<task_id>/note-image", methods=["POST"])
+@login_required
+def note_image_upload(task_id):
+    """Store a pasted (already client-compressed) image inline on the item
+    and return a clean markdown reference. Warns / refuses as the item grows."""
+    import secrets
+    task = _editable_task_or_404(task_id)
+    fileobj = request.files.get("file")
+    if not fileobj:
+        return jsonify({"error": "no file"}), 400
+    data = fileobj.read()
+    if not data:
+        return jsonify({"error": "empty file"}), 400
+    if len(data) > NOTE_IMAGE_MAX_BYTES:
+        return jsonify({"error": f"image too large (max {NOTE_IMAGE_MAX_BYTES // 1024 // 1024} MB)"}), 413
+    ctype = _sniff_image_type(data[:12])
+    if not ctype:
+        return jsonify({"error": "unsupported image format"}), 415
+
+    token = secrets.token_urlsafe(12)
+    task.note_images.append(NoteImage(token=token, content_type=ctype, data=data))
+
+    size = _item_bson_size(task)
+    if size > ITEM_MAX_BYTES:
+        task.note_images.pop()  # don't persist — would risk the 16 MB doc cap
+        return jsonify({"error": "item is full — remove some images before adding more"}), 413
+    task.save()
+
+    payload = {"markdown": f"![pasted image]({url_for('tasks.note_image', task_id=str(task.pk), token=token)})"}
+    if size > ITEM_WARN_BYTES:
+        payload["warning"] = f"This item is getting large ({size / 1024 / 1024:.1f} MB of 16 MB max) — consider removing some images."
+    return jsonify(payload)
+
+
+@tasks_bp.route("/<task_id>/note-image/<token>")
+@login_required
+def note_image(task_id, token):
+    """Serve an inline note image stored on the item."""
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_viewed_by(user):
+        abort(404)
+    img = next((i for i in task.note_images if i.token == token), None)
+    if not img:
+        abort(404)
+    return Response(
+        bytes(img.data),
+        mimetype=img.content_type or "image/webp",
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
+
+
+@tasks_bp.route("/<task_id>/checklist", methods=["POST"])
+@login_required
+def checklist_add(task_id):
+    """Append a checklist item (checkbox + text) to a task."""
+    task = _editable_task_or_404(task_id)
+    text = (request.form.get("text") or "").strip()
+    if text:
+        task.checklist.append(ChecklistItem(text=text))
+        task.save()
+    return _checklist_response(task)
+
+
+@tasks_bp.route("/<task_id>/checklist/<int:index>/toggle", methods=["POST"])
+@login_required
+def checklist_toggle(task_id, index):
+    """Flip a checklist item's done flag."""
+    task = _editable_task_or_404(task_id)
+    if not (0 <= index < len(task.checklist or [])):
+        abort(404)
+    task.checklist[index].done = not task.checklist[index].done
+    task.save()
+    return _checklist_response(task)
+
+
+@tasks_bp.route("/<task_id>/checklist/<int:index>/delete", methods=["POST"])
+@login_required
+def checklist_delete(task_id, index):
+    """Remove a checklist item."""
+    task = _editable_task_or_404(task_id)
+    if not (0 <= index < len(task.checklist or [])):
+        abort(404)
+    task.checklist.pop(index)
+    task.save()
+    return _checklist_response(task)

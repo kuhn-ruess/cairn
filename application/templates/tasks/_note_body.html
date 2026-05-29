@@ -1,0 +1,6 @@
+{# Rendered note body — swapped in after an inline note edit. #}
+{% if task.note %}
+  <div class="md-body">{{ task.note|markdown }}</div>
+{% else %}
+  <p class="text-muted small fst-italic mb-0">No note yet — click Edit to add one.</p>
+{% endif %}

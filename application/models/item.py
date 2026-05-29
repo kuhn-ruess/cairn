@@ -25,6 +25,7 @@ Lifecycle / cascade rules: never declared via mongoengine
 from datetime import datetime, timezone
 
 from mongoengine import (
+    BinaryField,
     BooleanField,
     DateTimeField,
     Document,
@@ -56,6 +57,23 @@ class Comment(EmbeddedDocument):
     body = StringField(required=True)
     created_at = DateTimeField(default=_utcnow)
     is_public = BooleanField(default=False)
+
+
+class ChecklistItem(EmbeddedDocument):
+    """A simple checkbox-with-text sub-step on a task. Only the text and
+    a checked/unchecked flag are stored — nothing else."""
+    text = StringField(required=True, max_length=500)
+    done = BooleanField(default=False)
+
+
+class NoteImage(EmbeddedDocument):
+    """A compressed image pasted into a note, stored inline on the item
+    (never on the filesystem). The note references it by ``token`` via
+    ``/tasks/<id>/note-image/<token>`` instead of carrying a base64 blob."""
+    token = StringField(required=True)
+    content_type = StringField(default="image/webp")
+    data = BinaryField(required=True)
+    created_at = DateTimeField(default=_utcnow)
 
 
 class Item(Document):
@@ -149,6 +167,12 @@ class Item(Document):
 
     # comments live with the item
     comments = EmbeddedDocumentListField(Comment)
+
+    # simple checklist (checkbox + text) on a task
+    checklist = EmbeddedDocumentListField(ChecklistItem)
+
+    # compressed images pasted into the note, stored inline (see NoteImage)
+    note_images = EmbeddedDocumentListField(NoteImage)
 
     # ----- project-flavoured fields -----
     project_type = StringField(choices=PROJECT_TYPES, default="parallel")
@@ -343,6 +367,19 @@ class Item(Document):
         self.comments.append(comment)
         self.save()
         return comment
+
+    # ----- checklist helpers -----
+    @property
+    def checklist_done(self) -> int:
+        return sum(1 for c in self.checklist if c.done)
+
+    @property
+    def checklist_progress(self) -> int:
+        """Percentage of checklist items done (0-100). 0 when empty."""
+        total = len(self.checklist)
+        if not total:
+            return 0
+        return round(self.checklist_done * 100 / total)
 
     def assign_to(self, new_assignee, *, by_user=None):
         if new_assignee is None:

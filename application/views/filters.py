@@ -1,5 +1,41 @@
 """Jinja filters and globals."""
+import re
 from datetime import datetime, timezone
+
+# Raster image data-URI prefixes we accept inline in note/comment markdown.
+# SVG is deliberately excluded — ``data:image/svg+xml`` can carry script.
+_ALLOWED_DATA_IMG = (
+    "data:image/png",
+    "data:image/jpeg",
+    "data:image/gif",
+    "data:image/webp",
+)
+# A URL carries an explicit scheme when it matches this; schemeless values are
+# relative/internal links (e.g. ``/static/…``) and are always safe.
+_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:")
+
+
+def _img_attr_ok(tag, name, value):
+    if name in ("alt", "title"):
+        return True
+    if name != "src":
+        return False
+    if value.startswith(_ALLOWED_DATA_IMG):
+        return True  # inline (pasted, compressed) image stored in the item
+    if not _SCHEME_RE.match(value):
+        return True  # relative URL (legacy /static/uploads/… references)
+    return value.startswith(("http://", "https://"))
+
+
+def _a_attr_ok(tag, name, value):
+    if name == "title":
+        return True
+    if name != "href":
+        return False
+    if not _SCHEME_RE.match(value):
+        return True  # relative/internal link
+    return value.startswith(("http://", "https://", "mailto:"))
+
 
 def register_filters(app):
     # Bust browser caches whenever the process boots (dev) or new deploys (prod).
@@ -95,10 +131,15 @@ def register_filters(app):
                 "th", "td", "img",
             ],
             attributes={
-                "a": ["href", "title"],
-                "img": ["src", "alt", "title"],
+                "a": _a_attr_ok,
+                "img": _img_attr_ok,
             },
-            protocols=["http", "https", "mailto"],
+            # ``data`` is needed for the inline (pasted, compressed) images we
+            # store in the note itself. It's only honoured on ``img src`` and
+            # only for raster types — ``_img_attr_ok`` / ``_a_attr_ok`` gate
+            # everything else so ``a href="data:…"`` (an XSS vector) can't slip
+            # through.
+            protocols=["http", "https", "mailto", "data"],
             strip=True,
         )
         return Markup(cleaned)

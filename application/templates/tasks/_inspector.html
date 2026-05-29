@@ -12,9 +12,14 @@
 
   <div class="inspector-section">
     {{ form.title.label(class="form-label small text-uppercase text-muted") }}
-    {{ form.title(class="form-control form-control-lg",
-                   placeholder="What needs to happen?  e.g. ‘Call mom tomorrow @phone p1’",
-                   autofocus="autofocus") }}
+    {% if inspector_inline %}
+      {{ form.title(class="form-control form-control-lg",
+                     placeholder="What needs to happen?  e.g. ‘Call mom tomorrow @phone p1’") }}
+    {% else %}
+      {{ form.title(class="form-control form-control-lg",
+                     placeholder="What needs to happen?  e.g. ‘Call mom tomorrow @phone p1’",
+                     autofocus="autofocus") }}
+    {% endif %}
     {% if not task %}
       <div class="form-text small text-muted mt-1">
         Tokens get parsed automatically:
@@ -215,7 +220,11 @@
 {% endif %}
 
 <div class="inspector-footer">
-  {% if task %}
+  {% if task and not inspector_inline %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('tasks.detail', task_id=task.pk) }}"
+       title="Open full task detail page">
+      <i class="bi bi-box-arrow-up-right"></i> Detail
+    </a>
     <form method="post" action="{{ url_for('tasks.convert_to_project', task_id=task.pk) }}"
           class="m-0" data-inspector-side
           data-confirm="Promote this task to a project? It will keep the title and note.">

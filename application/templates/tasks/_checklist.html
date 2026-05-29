@@ -1,0 +1,44 @@
+{# Checklist body — re-rendered server-side and swapped in via JS after every
+   add / toggle / delete, so the markup lives in exactly one place. #}
+<h2 class="h6 text-muted small text-uppercase mb-2">
+  Checklist
+  <span class="text-muted">({{ task.checklist_done }}/{{ task.checklist|length }})</span>
+</h2>
+{% if task.checklist|length >= 2 %}
+  <div class="progress mb-3" style="height: 6px;" title="{{ task.checklist_progress }}%">
+    <div class="progress-bar bg-success" style="width: {{ task.checklist_progress }}%;"></div>
+  </div>
+{% endif %}
+
+<ul class="task-checklist list-unstyled mb-3">
+  {% for ci in task.checklist %}
+    <li class="d-flex align-items-center gap-2 py-1">
+      <form method="post" class="m-0" data-checklist-toggle
+            action="{{ url_for('tasks.checklist_toggle', task_id=task.pk, index=loop.index0) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-link p-0 checklist-toggle" type="submit"
+                title="{{ 'Mark undone' if ci.done else 'Mark done' }}">
+          <i class="bi {{ 'bi-check-square-fill text-success' if ci.done else 'bi-square' }} fs-5"></i>
+        </button>
+      </form>
+      <span class="checklist-text {% if ci.done %}text-decoration-line-through text-muted{% endif %}">{{ ci.text }}</span>
+      <form method="post" class="m-0 ms-auto" data-checklist-delete
+            action="{{ url_for('tasks.checklist_delete', task_id=task.pk, index=loop.index0) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-link btn-sm p-0 text-muted" type="submit" title="Remove item">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </form>
+    </li>
+  {% else %}
+    <li class="text-muted small">No checklist items yet.</li>
+  {% endfor %}
+</ul>
+
+<form method="post" action="{{ url_for('tasks.checklist_add', task_id=task.pk) }}"
+      class="d-flex gap-2" data-checklist-add>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="text" name="text" class="form-control form-control-sm checklist-add-input"
+         placeholder="Add a checklist item…" maxlength="500" autocomplete="off" required>
+  <button class="btn btn-sm btn-outline-primary" type="submit">Add</button>
+</form>

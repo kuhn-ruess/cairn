@@ -55,6 +55,12 @@
           {% if task.status == 'next' and current_user.show_field('next_chip', view_key=_vk) %}
             <span class="next-chip" title="Next action">NEXT</span>
           {% endif %}
+          {% if task.checklist|length >= 2 %}
+            <span class="badge text-bg-light text-muted ms-1"
+                  title="Checklist {{ task.checklist_done }}/{{ task.checklist|length }} done">
+              <i class="bi bi-check2-square"></i> {{ task.checklist_progress }}%
+            </span>
+          {% endif %}
           <div class="task-meta">
             {% if task.project and current_user.show_field('project', view_key=_vk) %}
               <a class="badge text-bg-light text-decoration-none" href="{{ url_for('projects.detail', project_id=task.project.pk) }}">

@@ -866,7 +866,38 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
   font-weight: 600;
   margin: .4em 0 .2em;
 }
+/* Inline images in rendered markdown stay inside their column; click to open
+   the full-size version in the lightbox (see md-lightbox.js). */
+.md-body img {
+  max-width: 100%;
+  max-height: 360px;
+  height: auto;
+  border-radius: 6px;
+  cursor: zoom-in;
+}
+.md-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 2050;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: rgba(0, 0, 0, .82);
+  cursor: zoom-out;
+}
+.md-lightbox.is-open { display: flex; }
+.md-lightbox img {
+  max-width: 95vw;
+  max-height: 95vh;
+  border-radius: 6px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .5);
+}
+
 .task-note.md-body { display: -webkit-box; }
+/* The 2-line row excerpt is text-only — images would blow up the row height;
+   they stay available on the task detail page. */
+.task-note.md-body img { display: none; }
 /* The task-row excerpt clamps to 2 lines via -webkit-line-clamp;
    the box-orient was already set on .task-note. */
 
