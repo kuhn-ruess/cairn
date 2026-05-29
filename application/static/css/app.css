@@ -1172,6 +1172,31 @@ body.inspector-docked #bulk-bar {
 .qa-chip.qa-date     { background: var(--gv-aqua-br); color: #1d2021; }
 .qa-chip.qa-prio     { background: var(--gv-red-br); color: #fbf1c7; font-weight: 600; }
 .qa-chip.qa-flag     { background: var(--gv-yellow-br); color: #1d2021; font-weight: 600; }
+.qa-chip.qa-assignee { background: var(--gv-purple-br, #d3869b); color: #1d2021; }
+
+/* +assignee autocomplete dropdown in the quick-add modal */
+.qa-assignee-ac {
+  margin-top: .35rem;
+  border: 1px solid var(--gv-bg3);
+  border-radius: .35rem;
+  background: var(--gv-bg0-soft, var(--gv-bg1));
+  overflow: hidden;
+  max-height: 13rem;
+  overflow-y: auto;
+}
+.qa-ac-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--gv-fg1);
+  padding: .35rem .6rem;
+  font-size: .9rem;
+}
+.qa-ac-item:hover,
+.qa-ac-item.active { background: var(--gv-bg2); }
+.qa-ac-item .bi { color: var(--gv-fg4); margin-right: .35rem; }
 .quick-add-hint code {
   background: var(--gv-bg1);
   color: var(--gv-fg2);

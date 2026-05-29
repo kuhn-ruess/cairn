@@ -34,6 +34,7 @@ WEEKDAYS = {
 PRIORITY_RE = re.compile(r"(?<!\S)p([1-4])(?!\S)", re.IGNORECASE)
 TAG_RE = re.compile(r"(?<!\S)@([A-Za-z0-9_\-äöüÄÖÜß]+)\b")
 PROJECT_RE = re.compile(r"(?<!\S)#([A-Za-z0-9_\-äöüÄÖÜß]+)\b")
+ASSIGNEE_RE = re.compile(r"(?<!\S)\+([A-Za-z0-9._\-äöüÄÖÜß]+)\b")
 FLAG_RE = re.compile(r"(?<!\S)!(?!\S)")
 TODAY_RE = re.compile(r"\b(today|heute)\b", re.IGNORECASE)
 TOMORROW_RE = re.compile(r"\b(tomorrow|morgen)\b", re.IGNORECASE)
@@ -55,8 +56,10 @@ class ParsedTask:
     priority: int | None = None
     due_date: datetime | None = None
     flagged: bool = False
+    assignee: Any = None
     unresolved_tags: list[str] = field(default_factory=list)
     unresolved_project: str | None = None
+    unresolved_assignee: str | None = None
 
     def as_summary(self) -> dict:
         return {
@@ -66,8 +69,10 @@ class ParsedTask:
             "priority": self.priority,
             "due_date": self.due_date.isoformat() if self.due_date else None,
             "flagged": self.flagged,
+            "assignee": str(self.assignee) if self.assignee else None,
             "unresolved_tags": self.unresolved_tags,
             "unresolved_project": self.unresolved_project,
+            "unresolved_assignee": self.unresolved_assignee,
         }
 
 def _end_of_day(d: datetime) -> datetime:
@@ -119,6 +124,18 @@ def parse_task_text(text: str, user, default_project=None) -> ParsedTask:
         else:
             parsed.unresolved_project = name
         text = PROJECT_RE.sub(" ", text, count=1)
+
+    # Assignee — ``+name`` resolves to a user the actor may assign to.
+    am = ASSIGNEE_RE.search(text)
+    if am:
+        from application.services.permissions import resolve_assignable_user_by_name
+        name = am.group(1)
+        assignee = resolve_assignable_user_by_name(user, name)
+        if assignee:
+            parsed.assignee = assignee
+        else:
+            parsed.unresolved_assignee = name
+        text = ASSIGNEE_RE.sub(" ", text, count=1)
 
     # ---- date parsing ----
     now = datetime.now(timezone.utc)

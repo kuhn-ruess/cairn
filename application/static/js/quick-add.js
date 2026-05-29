@@ -45,6 +45,7 @@
     { re: /(?<!\S)p([1-4])(?!\S)/i, label: m => `P${m[1]}`, cls: "qa-prio" },
     { re: /(?<!\S)@([\w\-äöüÄÖÜß]+)\b/g, label: m => `@${m[1]}`, cls: "qa-tag" },
     { re: /(?<!\S)#([\w\-äöüÄÖÜß]+)\b/g, label: m => `#${m[1]}`, cls: "qa-project" },
+    { re: /(?<!\S)\+([\w.\-äöüÄÖÜß]+)\b/g, label: m => `+${m[1]}`, cls: "qa-assignee" },
     { re: /(?<!\S)!(?!\S)/, label: () => "flagged", cls: "qa-flag" },
     { re: /\b(today|tomorrow|yesterday|heute|morgen|gestern)\b/i,
       label: m => m[1].toLowerCase(), cls: "qa-date" },
@@ -83,6 +84,93 @@
     return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   }
   input.addEventListener("input", () => { preview(); updateProjectHint(); });
+
+  // ----- Assignee autocomplete for the +name token -----
+  // A small dropdown appears while typing a +token at the caret; picking an
+  // entry replaces the partial token with the full +username.
+  const acBox = document.createElement("div");
+  acBox.className = "qa-assignee-ac d-none";
+  (previewEl.parentNode || modalEl).insertBefore(acBox, previewEl);
+  let acItems = [];
+  let acIndex = -1;
+  let acToken = null;   // { start, end, query }
+  let acSeq = 0;
+
+  function tokenAtCaret() {
+    const pos = input.selectionStart || 0;
+    const before = input.value.slice(0, pos);
+    const m = before.match(/(?:^|\s)\+([\w.\-äöüÄÖÜß]*)$/);
+    if (!m) return null;
+    return { start: pos - m[1].length, end: pos, query: m[1] };
+  }
+
+  function hideAc() {
+    acBox.classList.add("d-none");
+    acBox.innerHTML = "";
+    acItems = []; acIndex = -1; acToken = null;
+  }
+
+  function renderAc() {
+    if (!acItems.length) { hideAc(); return; }
+    acBox.innerHTML = acItems.map((u, i) => {
+      const label = u.display_name && u.display_name !== u.username
+        ? `${escape(u.username)} <span class="text-muted">${escape(u.display_name)}</span>`
+        : escape(u.username);
+      return `<button type="button" class="qa-ac-item${i === acIndex ? " active" : ""}" data-i="${i}">`
+        + `<i class="bi bi-person"></i> ${label}${u.is_me ? ' <span class="text-muted">(me)</span>' : ""}</button>`;
+    }).join("");
+    acBox.classList.remove("d-none");
+  }
+
+  async function refreshAc() {
+    const tok = tokenAtCaret();
+    if (!tok) { hideAc(); return; }
+    acToken = tok;
+    const seq = ++acSeq;
+    try {
+      const resp = await fetch(`/tasks/assignees?q=${encodeURIComponent(tok.query)}`,
+                               { credentials: "same-origin" });
+      if (!resp.ok || seq !== acSeq) return;
+      const data = await resp.json();
+      acItems = data.users || [];
+      acIndex = acItems.length ? 0 : -1;
+      renderAc();
+    } catch (e) { hideAc(); }
+  }
+
+  function applyAc(i) {
+    const u = acItems[i];
+    if (!u || !acToken) return;
+    const v = input.value;
+    const replacement = "+" + u.username + " ";
+    input.value = v.slice(0, acToken.start) + replacement + v.slice(acToken.end);
+    const caret = acToken.start + replacement.length;
+    input.setSelectionRange(caret, caret);
+    hideAc();
+    preview();
+    input.focus();
+  }
+
+  input.addEventListener("input", refreshAc);
+  input.addEventListener("keydown", (ev) => {
+    if (acBox.classList.contains("d-none") || !acItems.length) return;
+    if (ev.key === "ArrowDown") {
+      ev.preventDefault(); acIndex = (acIndex + 1) % acItems.length; renderAc();
+    } else if (ev.key === "ArrowUp") {
+      ev.preventDefault(); acIndex = (acIndex - 1 + acItems.length) % acItems.length; renderAc();
+    } else if (ev.key === "Enter" || ev.key === "Tab") {
+      ev.preventDefault(); ev.stopPropagation(); applyAc(acIndex);
+    } else if (ev.key === "Escape") {
+      hideAc();
+    }
+  });
+  acBox.addEventListener("mousedown", (ev) => {
+    const btn = ev.target.closest(".qa-ac-item");
+    if (!btn) return;
+    ev.preventDefault();
+    applyAc(parseInt(btn.dataset.i, 10));
+  });
+  input.addEventListener("blur", () => setTimeout(hideAc, 120));
 
   // ----- Submit -----
   form.addEventListener("submit", async (ev) => {

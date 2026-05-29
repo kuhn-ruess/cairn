@@ -110,6 +110,44 @@ def resolve_visible_item(actor, item_id):
     return item
 
 
+def assignable_users(actor) -> list:
+    """Users the actor may assign tasks to: themselves plus the members of
+    every team they participate in (deduped, actor first). Powers the
+    ``+name`` quick-add token and its autocomplete."""
+    out = [actor]
+    seen = {str(actor.pk)}
+    for team in teams_of(actor):
+        for u in team_members(team):
+            if str(u.pk) not in seen:
+                seen.add(str(u.pk))
+                out.append(u)
+    return out
+
+
+def resolve_assignable_user_by_name(actor, name):
+    """Resolve a ``+name`` token to an assignable user. Matches username or
+    display name, case-insensitive: exact match first, then a unique prefix.
+    Returns None when nothing matches or a prefix is ambiguous."""
+    if not name:
+        return None
+    nl = name.strip().lower()
+    if not nl:
+        return None
+    users = assignable_users(actor)
+
+    def names(u):
+        return (
+            (u.username or "").lower(),
+            (getattr(u, "display_name", "") or "").lower(),
+        )
+
+    for u in users:
+        if nl in names(u):
+            return u
+    prefix = [u for u in users if any(n.startswith(nl) for n in names(u) if n)]
+    return prefix[0] if len(prefix) == 1 else None
+
+
 def resolve_assignable_user(actor, user_id):
     """Look up a User by pk and assert the actor may assign to them.
 

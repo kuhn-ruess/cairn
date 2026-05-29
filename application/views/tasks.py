@@ -39,6 +39,9 @@ def _apply_smart_tokens(task: "Item", raw_title: str, user) -> None:
         task.due_date = parsed.due_date
     if parsed.flagged:
         task.flagged = True
+    # +assignee fills the gap when the form didn't set one explicitly.
+    if parsed.assignee and not task.assigned_to:
+        task.assign_to(parsed.assignee, by_user=user)
 
 def _render_empty_task_inspector(user, *, parent_project=None, just_added_title=None):
     """Reset the inspector to a fresh empty new-task form.
@@ -1282,6 +1285,28 @@ def delete(task_id):
         back = url_for("dashboard.home")
     return redirect(back)
 
+@tasks_bp.route("/assignees")
+@login_required
+def assignees():
+    """Assignable users for the ``+name`` quick-add autocomplete. Optional
+    ``?q=`` prefix-filters by username / display name."""
+    from flask import jsonify
+    from application.services.permissions import assignable_users
+    user = current_user._get_current_object()
+    q = (request.args.get("q") or "").strip().lower()
+    out = []
+    for u in assignable_users(user):
+        uname = u.username or ""
+        disp = getattr(u, "display_name", "") or ""
+        if q and q not in uname.lower() and q not in disp.lower():
+            continue
+        out.append({
+            "username": uname,
+            "display_name": disp,
+            "is_me": u.pk == user.pk,
+        })
+    return jsonify({"users": out[:20]})
+
 @tasks_bp.route("/quick-add", methods=["POST"])
 @login_required
 def quick_add():
@@ -1326,6 +1351,8 @@ def quick_add():
         flagged=parsed.flagged,
         status="open",
     )
+    if parsed.assignee:
+        task.assign_to(parsed.assignee, by_user=user)
     task.save()
     _writeback_calendar(task, user)
     return jsonify({
@@ -1338,10 +1365,12 @@ def quick_add():
             "priority": task.priority,
             "due_date": task.due_date.isoformat() if task.due_date else None,
             "flagged": task.flagged,
+            "assignee": str(task.assigned_to) if task.assigned_to else None,
         },
         "warnings": {
             "unresolved_tags": parsed.unresolved_tags,
             "unresolved_project": parsed.unresolved_project,
+            "unresolved_assignee": parsed.unresolved_assignee,
         },
     })
 
