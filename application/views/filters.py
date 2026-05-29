@@ -181,14 +181,11 @@ def register_filters(app):
         nav_counts = {}
         if current_user.is_authenticated:
             user = current_user._get_current_object()
-            from application.views.tasks import next_count, today_plate_count
+            from application.views.tasks import sidebar_counts
             from application.views.review import review_due_count
             _now = datetime.now(timezone.utc)
-            nav_counts = {
-                "today": today_plate_count(user, _now),
-                "next": next_count(user),
-                "review": review_due_count(user, _now),
-            }
+            nav_counts = sidebar_counts(user, _now)
+            nav_counts["review"] = review_due_count(user, _now)
 
         from application import APP_VERSION
         return {

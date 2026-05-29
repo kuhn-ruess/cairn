@@ -118,14 +118,12 @@ def toggle_collapse(task_id):
 def _scope(user):
     return Q(owner=user) | Q(assigned_to=user)
 
-def next_count(user) -> int:
-    """Number of Next actions — for the sidebar badge."""
-    return Item.objects(_scope(user), kind="task", status="next").count()
-
-def today_plate_count(user, now=None) -> int:
-    """Count of today's "now" plate (overdue/due-today/flagged/planned-today/
-    just-unblocked) — for the sidebar badge. Mirrors the today() view's
-    is_today_now predicate; skips project milestones + tag filter."""
+def sidebar_counts(user, now=None) -> dict:
+    """Item counts for the sidebar perspective badges, keyed by perspective
+    key. The status/date-based counts come from a single pass over the user's
+    open tasks (scalar fields only — no per-doc dereferences); the two
+    reference-based ones (inbox parent, assignee) use cheap count() queries.
+    Mirrors each perspective view's filter; completed/home get no badge."""
     now = now or datetime.now(timezone.utc)
     try:
         from zoneinfo import ZoneInfo
@@ -134,17 +132,38 @@ def today_plate_count(user, now=None) -> int:
         tz = timezone.utc
     today_date = now.astimezone(tz).date()
     today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
-    qs = (Item.objects(_scope(user), kind="task",
-                       status__nin=["done", "dropped", "someday"])
-          .only("due_date", "flagged", "plan_date", "defer_date", "status"))
-    n = 0
+    horizon = now + timedelta(days=14)
+
+    c = {k: 0 for k in ("today", "next", "waiting", "someday",
+                        "scheduled", "flagged", "forecast")}
+    qs = (Item.objects(_scope(user), kind="task", status__nin=["done", "dropped"])
+          .only("status", "flagged", "due_date", "plan_date", "defer_date"))
     for t in qs:
-        if ((t.due_date and t.due_date <= today_end)
-                or t.flagged
-                or (t.plan_date and t.plan_date.date() <= today_date)
-                or (t.defer_date and t.defer_date <= now and t.status == "next")):
-            n += 1
-    return n
+        st = t.status
+        if st == "next":
+            c["next"] += 1
+        elif st == "waiting":
+            c["waiting"] += 1
+        elif st == "someday":
+            c["someday"] += 1
+        if t.defer_date and t.defer_date > now:
+            c["scheduled"] += 1
+        if t.flagged:
+            c["flagged"] += 1
+        if st != "someday":
+            if ((t.due_date and t.due_date <= today_end)
+                    or t.flagged
+                    or (t.plan_date and t.plan_date.date() <= today_date)
+                    or (t.defer_date and t.defer_date <= now and st == "next")):
+                c["today"] += 1
+            if t.due_date and t.due_date <= horizon:
+                c["forecast"] += 1
+    # Reference-based perspectives — count() avoids dereferencing per task.
+    c["inbox"] = Item.objects(_scope(user), kind="task", parent=None,
+                              status__nin=["done", "dropped"]).count()
+    c["assigned"] = Item.objects(assigned_to=user, kind="task",
+                                 status__nin=["done", "dropped"]).count()
+    return c
 
 def _writeback_calendar(task, user) -> list[str]:
     """Push plan/due dates to the user's chosen Google calendar.
