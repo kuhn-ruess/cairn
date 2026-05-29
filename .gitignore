@@ -13,3 +13,8 @@ instance/
 .idea/
 .vscode/
 node_modules/
+
+# Pasted note images are stored inline on the item now, not on disk.
+# Anything that still lands here (legacy uploads, dev artifacts) is local-only.
+application/static/uploads/*
+!application/static/uploads/.gitkeep

@@ -57,7 +57,18 @@
     el.dataset.sortableInit = "1";
     const isKanban = !!el.closest(".kanban-board");
     const opts = {
-      group: "bktodo-tasks",
+      // The sidebar's project rows are HTML5-draggable for the
+      // "drag-to-reparent" gesture inside the sidebar. Without a put
+      // filter, SortableJS would happily accept those LIs into a
+      // task-list — visually moving the DOM but never firing onEnd
+      // (the source isn't a Sortable), so the drop wouldn't persist
+      // and a reload restores the original state. Restrict drops to
+      // items the task-list actually knows how to handle.
+      group: {
+        name: "bktodo-tasks",
+        put: (_to, _from, dragEl) =>
+          !!(dragEl && (dragEl.dataset.taskId || dragEl.dataset.spId)),
+      },
       animation: 150,
       ghostClass: "drag-ghost",
       onStart: (ev) => {
@@ -521,7 +532,15 @@
     if (li.dataset.sortableInit) return;
     li.dataset.sortableInit = "1";
     new Sortable(li, {
-      group: "bktodo-tasks",
+      // Same put filter as the main task-list: only accept items that
+      // actually have a server-side identity. Without this the
+      // sidebar would swallow LIs dragged from itself, leaving them
+      // visually inside a sister row with no DB write to back it up.
+      group: {
+        name: "bktodo-tasks",
+        put: (_to, _from, dragEl) =>
+          !!(dragEl && (dragEl.dataset.taskId || dragEl.dataset.spId)),
+      },
       animation: 0,
       sort: false,             // don't let items rearrange inside the sidebar
       ghostClass: "drag-ghost",
