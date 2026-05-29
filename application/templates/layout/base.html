@@ -50,10 +50,11 @@
       {% endif %}
     </div>
 
-    <form class="d-flex me-3" role="search" action="{{ url_for('tasks.search') }}">
+    <form class="d-flex me-3" role="search" action="{{ url_for('tasks.search') }}"
+          id="navbarSearchForm">
       <input class="form-control form-control-sm" type="search" name="q"
-             placeholder="Search…" aria-label="Search"
-             value="{{ request.args.get('q', '') }}">
+             id="navbarSearch" placeholder="Search…  (p)" aria-label="Search"
+             autocomplete="off" value="{{ request.args.get('q', '') }}">
     </form>
 
     <div class="dropdown">
@@ -189,14 +190,24 @@
     <div class="modal-content">
       <form id="quickAddForm" autocomplete="off" class="m-0">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" id="quickAddProject" name="project_id" value="">
         <div class="modal-body p-3">
           <input id="quickAddText" type="text" name="text"
                  class="form-control form-control-lg quick-add-input"
                  placeholder="What needs to happen?  e.g. ‘Call mom tomorrow @phone p1’"
                  autocomplete="off">
           <div id="quickAddPreview" class="quick-add-preview small mt-2 d-none"></div>
-          <div id="quickAddProjectHint" class="form-text mt-2"></div>
+          <div class="d-flex align-items-center gap-2 mt-2">
+            <label for="quickAddProject" class="form-label small text-muted mb-0">
+              <i class="bi bi-folder"></i> Project
+            </label>
+            <select id="quickAddProject" name="project_id" class="form-select form-select-sm w-auto">
+              <option value="">Inbox</option>
+              {% for p in user_projects %}
+                <option value="{{ p.pk }}">{% if p.parent %}{{ p.parent.name }} › {% endif %}{{ p.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div id="quickAddProjectHint" class="form-text mt-1"></div>
           <div class="quick-add-hint mt-3 small text-muted">
             <code>@tag</code> · <code>#project</code> · <code>p1</code>…<code>p4</code> ·
             <code>!</code> flag · <code>today</code> / <code>tomorrow</code> /

@@ -25,16 +25,20 @@
     return m ? m[1] : "";
   }
   function updateProjectHint() {
-    const pid = projectInput.value;
-    if (!pid) {
-      projectHint.textContent = "Goes to Inbox unless a #project is specified.";
-      projectHint.className = "form-text mt-2 text-muted";
+    // A #project token typed into the text overrides the dropdown.
+    const tokenMatch = input.value.match(/(?<!\S)#([\w\-äöüÄÖÜß]+)\b/);
+    if (tokenMatch) {
+      projectHint.innerHTML =
+        `<i class="bi bi-hash"></i> The <code>#${escape(tokenMatch[1])}</code> token overrides the project above.`;
+      projectHint.className = "form-text mt-1 text-info";
       return;
     }
+    const label = projectInput.options[projectInput.selectedIndex].textContent.trim();
     projectHint.innerHTML =
-      '<i class="bi bi-folder"></i> Goes into the current project unless overridden.';
-    projectHint.className = "form-text mt-2 text-info";
+      `<i class="bi bi-folder"></i> Goes into <strong>${escape(label)}</strong>. Type <code>#project</code> to override.`;
+    projectHint.className = "form-text mt-1 text-muted";
   }
+  projectInput.addEventListener("change", updateProjectHint);
 
   // ----- Light client-side preview parser (mirrors server tokens) -----
   const PREVIEW_PATTERNS = [
@@ -78,7 +82,7 @@
   function escape(s) {
     return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   }
-  input.addEventListener("input", preview);
+  input.addEventListener("input", () => { preview(); updateProjectHint(); });
 
   // ----- Submit -----
   form.addEventListener("submit", async (ev) => {
@@ -152,11 +156,16 @@
     // (e.g., the "+" next to a project row in the list). That wins over
     // URL-based detection.
     const trigger = ev.relatedTarget;
+    let wanted = "";
     if (trigger && trigger.dataset && "quickaddProject" in trigger.dataset) {
-      projectInput.value = trigger.dataset.quickaddProject || "";
+      wanted = trigger.dataset.quickaddProject || "";
     } else {
-      projectInput.value = detectCurrentProject();
+      wanted = detectCurrentProject();
     }
+    // Only select it if it's actually an option (e.g. a folder context has
+    // no matching project option — fall back to Inbox).
+    projectInput.value = wanted;
+    if (projectInput.value !== wanted) projectInput.value = "";
     updateProjectHint();
     input.value = "";
     previewEl.classList.add("d-none");

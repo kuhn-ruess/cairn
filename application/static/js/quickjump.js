@@ -125,4 +125,29 @@
       bsModal.show();
     }
   });
+
+  // The navbar search box is a shortcut into this same command bar — focusing
+  // or submitting it opens the quickjump overlay (carrying any typed text)
+  // instead of navigating to the full search page.
+  const navForm = document.getElementById("navbarSearchForm");
+  const navInput = document.getElementById("navbarSearch");
+  if (navForm && navInput) {
+    const openWith = (seed) => {
+      navInput.blur();
+      bsModal.show();
+      if (seed) {
+        // 'shown.bs.modal' resets the input, so seed after it fires.
+        modal.addEventListener("shown.bs.modal", function once() {
+          modal.removeEventListener("shown.bs.modal", once);
+          input.value = seed;
+          search(seed);
+        });
+      }
+    };
+    navInput.addEventListener("focus", () => openWith(navInput.value.trim()));
+    navForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      openWith(navInput.value.trim());
+    });
+  }
 })();
