@@ -22,10 +22,16 @@
       <div class="task-detail-meta small text-muted d-flex flex-wrap gap-2 align-items-center">
         <span class="badge text-bg-secondary text-uppercase">{{ task.status }}</span>
         {% if task.project %}
-          <span><i class="bi bi-collection"></i>
-            <a class="text-decoration-none"
-               href="{{ url_for('projects.detail', project_id=task.project.pk) }}">{{ task.project.name }}</a>
-          </span>
+          {% if can_view_container(task.project) %}
+            <span><i class="bi bi-collection"></i>
+              <a class="text-decoration-none"
+                 href="{{ url_for('projects.detail', project_id=task.project.pk) }}">{{ task.project.name }}</a>
+            </span>
+          {% else %}
+            <span class="text-muted" title="You don't have access to this project">
+              <i class="bi bi-collection"></i> {{ task.project.name }}
+            </span>
+          {% endif %}
         {% else %}
           <span><i class="bi bi-inbox"></i>
             <a class="text-decoration-none" href="{{ url_for('tasks.inbox') }}">Inbox</a>
@@ -48,7 +54,9 @@
             every {{ task.repeat_every_days }} {{ (task.repeat_unit or 'day') }}{{ '' if task.repeat_every_days == 1 else 's' }}
           </span>
         {% endif %}
-        {% if task.assigned_to %}
+        {% if task.assigned_to == current_user and task.assigned_by and task.assigned_by != current_user %}
+          <span class="badge text-bg-warning"><i class="bi bi-person-arms-up"></i> from {{ task.assigned_by }}</span>
+        {% elif task.assigned_to %}
           <span><i class="bi bi-person-check"></i> {{ task.assigned_to }}</span>
         {% endif %}
         {% for tag_name in (task.tags or []) %}

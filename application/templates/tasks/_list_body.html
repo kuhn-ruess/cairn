@@ -63,7 +63,7 @@
           {% endif %}
           <div class="task-meta">
             {% if task.project and current_user.show_field('project', view_key=_vk) %}
-              <a class="badge text-bg-light text-decoration-none" href="{{ url_for('projects.detail', project_id=task.project.pk) }}">
+              {% set _proj_icon %}
                 {% if task.project.color %}
                   <span class="proj-dot" style="background: {{ task.project.color }};"></span>
                 {% elif task.project.is_section %}
@@ -73,8 +73,18 @@
                 {% else %}
                   <i class="bi bi-collection text-info"></i>
                 {% endif %}
-                {{ task.project.name }}
-              </a>
+              {% endset %}
+              {% if can_view_container(task.project) %}
+                <a class="badge text-bg-light text-decoration-none" href="{{ url_for('projects.detail', project_id=task.project.pk) }}">
+                  {{ _proj_icon }}{{ task.project.name }}
+                </a>
+              {% else %}
+                {# Assigned task in a project the user can't open — show the
+                   name as inert context so the badge never 404s. #}
+                <span class="badge text-bg-light text-muted" title="You don't have access to this project">
+                  {{ _proj_icon }}{{ task.project.name }}
+                </span>
+              {% endif %}
             {% endif %}
             {% if current_user.show_field('tags', view_key=_vk) %}
               {% for tag_name in task.tags %}

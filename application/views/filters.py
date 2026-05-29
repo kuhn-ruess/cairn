@@ -79,6 +79,47 @@ def register_filters(app):
             from application.views.projects import project_tree_for_sidebar
             return project_tree_for_sidebar(current_user._get_current_object())
 
+        def _can_view_container(item):
+            """True if the current user may open ``item`` — a task's parent
+            project/folder/section, given either as an Item or as a pk
+            string. Used to decide whether to render the project badge as a
+            link or as inert context: an assignee can see a task without
+            being able to view its container.
+
+            The set of viewable container pks is loaded once per request
+            and cached on ``flask.g`` so this never queries inside a Jinja
+            loop (see the per-page DB-load guidance)."""
+            if not item or not current_user.is_authenticated:
+                return False
+            pk_str = str(item.pk) if hasattr(item, "pk") else str(item)
+            from flask import g
+            cache = getattr(g, "_viewable_container_pks", None)
+            if cache is None:
+                user = current_user._get_current_object()
+                # Containers the user owns or is a direct member of.
+                pks = {
+                    str(pk) for pk in Item.objects(
+                        (Q(owner=user) | Q(members=user)),
+                        kind__in=["project", "folder", "section"],
+                    ).values_list("pk")
+                }
+                # Plus children of folders the user is a member of (parent
+                # membership grants child visibility — mirror of
+                # Item.can_be_viewed_by).
+                member_folders = Item.objects(
+                    members=user, kind__in=["folder", "project"],
+                ).values_list("pk")
+                member_folders = list(member_folders)
+                if member_folders:
+                    pks |= {
+                        str(pk) for pk in Item.objects(
+                            parent__in=member_folders,
+                            kind__in=["project", "folder", "section"],
+                        ).values_list("pk")
+                    }
+                cache = g._viewable_container_pks = pks
+            return pk_str in cache
+
         from application import APP_VERSION
         return {
             "now_utc": lambda: datetime.now(timezone.utc),
@@ -87,6 +128,7 @@ def register_filters(app):
             "sidebar_custom_perspectives": sidebar_custom_perspectives,
             "static_version": static_version,
             "project_tree": _project_tree,
+            "can_view_container": _can_view_container,
             "app_version": APP_VERSION,
         }
 
