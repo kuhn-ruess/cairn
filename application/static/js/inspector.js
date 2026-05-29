@@ -27,6 +27,24 @@
     }
   });
 
+  // The inspector is docked (data-bs-backdrop="false"), so Bootstrap's
+  // backdrop-click and focus-based Escape don't fire. Wire both ourselves
+  // so the panel never gets "stuck" open swallowing clicks behind it.
+  function isOpen() {
+    return panel.classList.contains("show");
+  }
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && isOpen()) bsOffcanvas.hide();
+  });
+  document.addEventListener("click", (ev) => {
+    if (!isOpen()) return;
+    // Clicks inside the panel, or on something that opens the inspector
+    // (a trigger reloads the body — handled elsewhere), must not close it.
+    if (panel.contains(ev.target)) return;
+    if (ev.target.closest("[data-inspector-url]")) return;
+    bsOffcanvas.hide();
+  }, true);
+
   function withInspectorParam(url) {
     const u = new URL(url, window.location.origin);
     u.searchParams.set("inspector", "1");
