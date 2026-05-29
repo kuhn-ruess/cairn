@@ -94,6 +94,18 @@ class TaskForm(FlaskForm):
         default="day",
     )
     repeat_from_completion = BooleanField("Repeat from completion")
+    # Specific weekdays (0=Mon … 6=Sun) — when any are picked they drive the
+    # recurrence instead of the every-N-units schedule. Coerce to int so the
+    # submitted string values land as the ints the model stores.
+    repeat_weekdays = SelectMultipleField(
+        "Repeat on weekdays",
+        choices=[
+            ("0", "Mon"), ("1", "Tue"), ("2", "Wed"), ("3", "Thu"),
+            ("4", "Fri"), ("5", "Sat"), ("6", "Sun"),
+        ],
+        coerce=int,
+        validators=[Optional()],
+    )
     assigned_to = SelectField("Assign to", choices=[], validators=[Optional()])
     is_internal = BooleanField("Internal — hide from public share dashboard")
     add_another = BooleanField("Add another after saving")

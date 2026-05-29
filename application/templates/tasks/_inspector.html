@@ -132,6 +132,17 @@
                                  placeholder="0 = off", style="max-width: 5rem;") }}
       {{ form.repeat_unit(class="form-select form-select-sm", style="max-width: 7rem;") }}
     </div>
+    <div class="mt-2">
+      <span class="form-text small text-muted d-block mb-1">…or on specific weekdays:</span>
+      <div class="btn-group btn-group-sm flex-wrap repeat-weekdays" role="group">
+        {% for val, lbl in form.repeat_weekdays.choices %}
+          <input type="checkbox" class="btn-check" name="repeat_weekdays"
+                 value="{{ val }}" id="rwd-{{ val }}"
+                 {% if form.repeat_weekdays.data and (val|int) in form.repeat_weekdays.data %}checked{% endif %}>
+          <label class="btn btn-outline-secondary" for="rwd-{{ val }}">{{ lbl }}</label>
+        {% endfor %}
+      </div>
+    </div>
     <div class="form-check mt-2">
       {{ form.repeat_from_completion(class="form-check-input") }}
       {{ form.repeat_from_completion.label(class="form-check-label small") }}

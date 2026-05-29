@@ -157,6 +157,10 @@ class Item(Document):
     repeat_every_days = IntField()
     repeat_unit = StringField(choices=REPEAT_UNITS, default="day")
     repeat_from_completion = BooleanField(default=False)
+    # Specific weekdays the task repeats on (0=Mon … 6=Sun). When set, the
+    # next occurrence lands on the soonest selected weekday after the anchor,
+    # ignoring repeat_every_days/unit. Empty = use the every-N-units schedule.
+    repeat_weekdays = ListField(IntField(min_value=0, max_value=6))
     is_internal = BooleanField(default=False)
 
     # collaboration / assignment
@@ -277,7 +281,7 @@ class Item(Document):
         self.status = "done"
         self.completed_at = _utcnow()
         self.save()
-        if not self.repeat_every_days:
+        if not self.repeat_every_days and not self.repeat_weekdays:
             return None
         anchor = (
             self.completed_at if self.repeat_from_completion
@@ -298,7 +302,19 @@ class Item(Document):
 
         new_due = None
         defer_delta = None
-        if anchor:
+        # Specific-weekday recurrence (e.g. every Mon/Wed/Fri) takes
+        # precedence over the every-N-units schedule and lands on the next
+        # selected weekday strictly after the anchor.
+        if self.repeat_weekdays and anchor:
+            valid = set(self.repeat_weekdays)
+            d = anchor
+            for _ in range(7):
+                d = d + _td(days=1)
+                if d.weekday() in valid:
+                    break
+            new_due = d
+            defer_delta = (new_due - anchor) if self.defer_date else None
+        elif anchor:
             if unit == "week":
                 new_due = anchor + relativedelta(weeks=n)
                 defer_delta = relativedelta(weeks=n)
@@ -338,6 +354,10 @@ class Item(Document):
             repeat_every_days=self.repeat_every_days,
             repeat_unit=self.repeat_unit,
             repeat_from_completion=self.repeat_from_completion,
+            repeat_weekdays=list(self.repeat_weekdays or []),
+            # Carry the checklist over but reset every item to unchecked —
+            # a fresh occurrence starts with nothing ticked off.
+            checklist=[ChecklistItem(text=ci.text, done=False) for ci in (self.checklist or [])],
         )
         clone.save()
         return clone

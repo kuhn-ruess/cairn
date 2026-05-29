@@ -204,6 +204,7 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     task.repeat_every_days = form.repeat_every_days.data
     task.repeat_unit = form.repeat_unit.data or "day"
     task.repeat_from_completion = form.repeat_from_completion.data
+    task.repeat_weekdays = sorted(form.repeat_weekdays.data or [])
     # ``form.project.data`` should be a project pk string from the
     # select. Use the shared visibility helper so a tampered POST can't
     # reparent into a project the user doesn't own/share. Invalid /
