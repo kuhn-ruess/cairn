@@ -1,5 +1,7 @@
 {% extends "layout/base.html" %}
-{% set page_project_sidebar = true %}
+{# Inbox is "tasks with no project", so a project filter sidebar makes no
+   sense there. Every other perspective keeps it. #}
+{% set page_project_sidebar = (perspective != "inbox") %}
 {# Owning-project pks for the rendered tasks — the sidebar uses these
    to filter to the relevant subset. Walk past sections so a task in a
    section bubbles up to its parent project. #}
