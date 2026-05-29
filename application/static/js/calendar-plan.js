@@ -51,9 +51,13 @@
     draggingId = null;
     day.classList.remove("cal-drop-hover");
     if (!id) return;
+    await planTask(id, day.dataset.date);
+  });
+
+  async function planTask(id, date) {
     const fd = new FormData();
     fd.append("csrf_token", csrfToken());
-    fd.append("date", day.dataset.date);
+    fd.append("date", date);
     try {
       const resp = await fetch(`/tasks/${id}/schedule`, {
         method: "POST", body: fd, credentials: "same-origin",
@@ -63,5 +67,28 @@
     } catch (e) {
       alert("Planen fehlgeschlagen (" + e.message + ").");
     }
-  });
+  }
+
+  // Let the "Unscheduled" list (and any other task list) drop tasks onto a
+  // day. Those rows are SortableJS items in the "bktodo-tasks" group, so we
+  // make each day a drop target in the same group; onAdd plans the task.
+  // (sortable-tasks.js skips its own move handler for calendar-day drops.)
+  if (window.Sortable) {
+    cal.querySelectorAll(".calendar-day[data-date]").forEach((day) => {
+      new Sortable(day, {
+        group: {
+          name: "bktodo-tasks",
+          pull: false,
+          put: (_to, _from, dragEl) => !!(dragEl && dragEl.dataset && dragEl.dataset.taskId),
+        },
+        sort: false,
+        draggable: "[data-task-id]",
+        onAdd: (evt) => {
+          const id = evt.item && evt.item.dataset && evt.item.dataset.taskId;
+          if (id) planTask(id, day.dataset.date);
+          else window.location.reload();
+        },
+      });
+    });
+  }
 })();

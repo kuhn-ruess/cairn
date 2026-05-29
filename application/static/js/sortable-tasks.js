@@ -441,6 +441,11 @@
 
   async function onEnd(ev) {
     const row = ev.item;
+    // Dropped onto a calendar day → that's a "plan this task" gesture, handled
+    // by calendar-plan.js (sets plan_date). Don't also treat it as a list move.
+    if (ev.to && ev.to.classList && ev.to.classList.contains("calendar-day")) {
+      return;
+    }
     // Sub-project rows take a separate API path — re-parent the project
     // instead of moving a task.
     if (row.dataset.spId) {
