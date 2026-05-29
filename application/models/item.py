@@ -122,6 +122,12 @@ class Item(Document):
     created_at = DateTimeField(default=_utcnow)
     updated_at = DateTimeField(default=_utcnow)
     completed_at = DateTimeField()
+    # Who/what closed this task (done or dropped). ``completed_by`` is the
+    # acting user when known (manual completion); ``completed_via`` records
+    # the channel — "user", "zammad", "todoist", "api", "cleanup" … — so a
+    # close driven by an external sync is distinguishable from a manual one.
+    completed_by = ReferenceField(User)
+    completed_via = StringField()
     # Stable identifier from whichever external system the item came
     # from. Conventions for the prefix:
     #   no prefix   — Todoist (the original importer)
@@ -207,9 +213,32 @@ class Item(Document):
             if self.status in ("done", "dropped"):
                 if not self.completed_at:
                     self.completed_at = _utcnow()
+                # Default the channel for direct status writes (edit form,
+                # bulk set-status) that didn't go through mark_done/complete.
+                # An external sync sets completed_via before saving, so this
+                # only fills the gap for manual closes.
+                if not self.completed_via:
+                    self.completed_via = "user"
             else:
+                # Reopened — clear the whole completion record (who/when/how).
                 self.completed_at = None
+                self.completed_by = None
+                self.completed_via = None
         return super().save(*args, **kwargs)
+
+    def mark_done(self, *, by=None, via="user", status="done"):
+        """Close this task, recording who/when/how. Use this instead of
+        setting ``status`` by hand so the completion bookkeeping
+        (completed_at / completed_by / completed_via) is always consistent.
+
+        ``status`` may be ``done`` or ``dropped``. ``via`` is the channel
+        ("user", "zammad", "todoist", "api", "cleanup")."""
+        self.status = status
+        if not self.completed_at:
+            self.completed_at = _utcnow()
+        self.completed_by = by
+        self.completed_via = via
+        self.save()
 
     # ----- aliases for code/templates from the pre-unified era -----
     # ``task.project`` used to mean "the container this task is in".
@@ -280,6 +309,8 @@ class Item(Document):
         from dateutil.relativedelta import relativedelta
         self.status = "done"
         self.completed_at = _utcnow()
+        self.completed_by = by_user
+        self.completed_via = "user"
         self.save()
         if not self.repeat_every_days and not self.repeat_weekdays:
             return None

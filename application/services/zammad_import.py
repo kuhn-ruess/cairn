@@ -268,8 +268,21 @@ def import_for_user(
         if not include_closed:
             state = (raw.get("state") or raw.get("state_name") or "").lower()
             if state in closed_states:
-                stats.filtered_closed += 1
-                continue
+                # Don't create NEW tasks for already-closed tickets, but a
+                # ticket we previously imported and that has since been
+                # closed in Zammad MUST still flow through so its Cairn task
+                # gets marked done — otherwise closing in Zammad never
+                # propagates here. Only brand-new closed tickets are skipped.
+                zid = raw.get("id")
+                already = (
+                    zid is not None
+                    and Item.objects(
+                        owner=user, external_id=f"zammad:{zid}"
+                    ).first() is not None
+                )
+                if not already:
+                    stats.filtered_closed += 1
+                    continue
         filtered.append(raw)
     tickets = filtered
 
@@ -293,8 +306,8 @@ def import_for_user(
                 continue
             if it.status == "done":
                 continue  # already closed, nothing to do
-            it.status = "done"
-            it.save()  # Item.save stamps completed_at automatically
+            # mark_done records when + that the Zammad sync closed it.
+            it.mark_done(via="zammad")
             stats.tickets_dropped += 1
 
     if not dry_run:
@@ -403,6 +416,14 @@ def _upsert_ticket(
             existing.status = cairn_status
             if priority is not None:
                 existing.priority = priority
+            # Record the close channel when Zammad's state closed it, so
+            # it's clear the task was completed by the Zammad sync and when.
+            if cairn_status == "done":
+                existing.completed_via = "zammad"
+                if not existing.completed_at:
+                    existing.completed_at = datetime.now(timezone.utc)
+            else:
+                existing.completed_via = None
         # Tag-driven status rules ("Warte auf Kunde → waiting", etc.)
         # run AFTER the Zammad-state assignment so they win: a tag
         # rule is more specific than the generic state mapping.
