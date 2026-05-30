@@ -220,10 +220,23 @@
       '<input type="text" class="form-control form-control-sm" ' +
       'autocomplete="off" placeholder="' +
       (kind === "folder" ? "Folder" : "Project") + ' name — Enter / Esc">';
-    // Drop it just below the Inbox row (the first list item).
-    const first = list.querySelector("li");
-    if (first && first.nextSibling) list.insertBefore(li, first.nextSibling);
-    else list.appendChild(li);
+    // Place the naming row where the new item will actually live: just
+    // under the currently-open project/folder (id in the URL), indented
+    // one level past it, so it doesn't flash at the top and then jump
+    // into the project after the refresh. No selection → below Inbox.
+    const m = window.location.pathname.match(/\/projects\/([a-f0-9]{24})/i);
+    const parentRow = m && list.querySelector(`li[data-project-id="${m[1]}"]`);
+    if (parentRow) {
+      const parentLink = parentRow.querySelector(".ps-row");
+      const pad = parentLink ? parseInt(parentLink.style.paddingLeft, 10) || 8 : 8;
+      li.style.paddingLeft = (pad + 14) + "px";
+      parentRow.insertAdjacentElement("afterend", li);
+    } else {
+      // Drop it just below the Inbox row (the first list item).
+      const first = list.querySelector("li");
+      if (first && first.nextSibling) list.insertBefore(li, first.nextSibling);
+      else list.appendChild(li);
+    }
     const input = li.querySelector("input");
     input.focus();
 
