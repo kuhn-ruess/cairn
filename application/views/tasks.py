@@ -957,14 +957,14 @@ def next_actions():
 def forecast():
     user = current_user._get_current_object()
     horizon = datetime.now(timezone.utc) + timedelta(days=14)
-    tasks = (
+    tasks = _filter_by_project(
         Item.objects(
             _scope(user),
             status__nin=["done", "dropped", "someday"],
             due_date__lte=horizon,
-        )
-        .order_by("+due_date")
-    )
+        ),
+        user,
+    ).order_by("+due_date")
     return render_template(
         "tasks/list.html", title="Forecast (14d)", perspective="forecast", tasks=tasks
     )
@@ -979,14 +979,14 @@ def scheduled():
     """
     user = current_user._get_current_object()
     now = datetime.now(timezone.utc)
-    tasks = (
+    tasks = _filter_by_project(
         Item.objects(
             _scope(user),
             status__nin=["done", "dropped"],
             defer_date__gt=now,
-        )
-        .order_by("+defer_date")
-    )
+        ),
+        user,
+    ).order_by("+defer_date")
     return render_template(
         "tasks/list.html", title="Scheduled", perspective="scheduled", tasks=tasks
     )
