@@ -174,10 +174,12 @@
       input,
       async () => {
         try {
-          const resp = await postForm("/projects/quick-create", {
-            name: input.value.trim(),
-            kind,
-          });
+          // Create inside the project/folder currently open (its id is in
+          // the URL on a detail page). No selection → top level.
+          const _m = window.location.pathname.match(/\/projects\/([a-f0-9]{24})/i);
+          const _payload = { name: input.value.trim(), kind };
+          if (_m) _payload.parent = _m[1];
+          const resp = await postForm("/projects/quick-create", _payload);
           const data = await resp.json().catch(() => ({}));
           if (!resp.ok) {
             flashError(data.error || `Create failed (${resp.status}).`);
@@ -229,10 +231,12 @@
       input,
       async () => {
         try {
-          const resp = await postForm("/projects/quick-create", {
-            name: input.value.trim(),
-            kind,
-          });
+          // Create inside the project/folder currently open (its id is in
+          // the URL on a detail page). No selection → top level.
+          const _m = window.location.pathname.match(/\/projects\/([a-f0-9]{24})/i);
+          const _payload = { name: input.value.trim(), kind };
+          if (_m) _payload.parent = _m[1];
+          const resp = await postForm("/projects/quick-create", _payload);
           const data = await resp.json().catch(() => ({}));
           if (!resp.ok) {
             flashError(data.error || `Create failed (${resp.status}).`);

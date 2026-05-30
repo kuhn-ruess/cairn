@@ -260,6 +260,14 @@ def register_filters(app):
             protocols=["http", "https", "mailto", "data"],
             strip=True,
         )
+        # Auto-link bare URLs / emails that weren't written with Markdown
+        # link syntax (e.g. a pasted https://… or an app link). Existing
+        # <a> tags are left alone by linkify; code/pre are skipped so URLs
+        # in snippets stay literal. Open in a new tab, no referrer leak.
+        from bleach.callbacks import nofollow, target_blank
+        cleaned = bleach.linkify(
+            cleaned, callbacks=[nofollow, target_blank], skip_tags=["pre", "code"],
+        )
         return Markup(cleaned)
 
     @app.template_filter("relativedate")
