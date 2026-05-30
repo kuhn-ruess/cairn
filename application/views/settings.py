@@ -209,6 +209,49 @@ def api_token_revoke(token_id):
     return redirect(url_for("settings.profile") + "#api-tokens")
 
 
+def _cli_loopback_port(raw) -> int | None:
+    """Validate a loopback-redirect port from the CLI authorize flow.
+
+    Only unprivileged ports are accepted; the redirect target is always
+    forced to 127.0.0.1 so this can never be turned into an open redirect.
+    """
+    try:
+        port = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return port if 1024 <= port <= 65535 else None
+
+
+@settings_bp.route("/cli-authorize", methods=["GET", "POST"])
+@login_required
+def cli_authorize():
+    """Browser leg of the CLI login flow (gh-style loopback).
+
+    The CLI opens this URL with ``port`` (its local callback server),
+    ``state`` (a nonce it will verify), and an optional ``name`` for the
+    token. The user is already authenticated via the web session; on
+    approval we mint an API token and 302 the browser back to
+    ``http://127.0.0.1:<port>/`` carrying the raw token + state. The
+    token is never rendered on a Cairn page — it only lives in the
+    redirect to loopback.
+    """
+    port = _cli_loopback_port(request.values.get("port"))
+    state = (request.values.get("state") or "").strip()[:128]
+    name = (request.values.get("name") or "CLI").strip()[:128] or "CLI"
+    if not port:
+        abort(400, "missing or invalid loopback port")
+
+    if request.method == "POST":
+        user = current_user._get_current_object()
+        _tok, raw = user.issue_api_token(name=name)
+        query = urllib.parse.urlencode({"token": raw, "state": state})
+        return redirect(f"http://127.0.0.1:{port}/?{query}")
+
+    return render_template(
+        "settings/cli_authorize.html", port=port, state=state, name=name,
+    )
+
+
 @settings_bp.route("/password", methods=["GET", "POST"])
 @login_required
 def change_password():

@@ -119,6 +119,47 @@ curl -H "Authorization: Bearer $TOKEN" \
      http://localhost:5004/api/v1/tasks
 ```
 
+## Command-line client
+
+A standalone CLI (in [`client/`](client/)) fires tasks into your inbox and lists
+them from the terminal. Pure Python standard library — no third-party
+dependencies — and runs on macOS and Linux (Python 3.9+).
+
+```sh
+pipx install ./client      # or: pip install -e ./client
+```
+
+Log in once. This suggests `https://app.cairn-app.de`, opens your browser to
+authorize, mints an API token on the server, and writes it back into the local
+config automatically — no copy-pasting:
+
+```sh
+cairn login                          # point elsewhere with: cairn login --host https://my.cairn
+```
+
+The token lands in `~/.config/cairn/config.json` (mode `0600`). Revoke it from
+**Settings → Profile → API tokens**, or locally with `cairn logout`.
+
+```sh
+cairn add "Buy milk"                 # → Inbox
+cairn add "Ship release" -p "Work"   # → a project (by name)
+cairn add "Call Sam" -f --due 2026-06-01 -t phone   # flagged, due date, tag
+cairn config set default_project "Work"   # plain `add` now goes to Work…
+cairn add "Quick note" --inbox            # …unless you force the inbox
+
+cairn list                           # recent tasks
+cairn list --inbox                   # only inbox
+cairn list -p "Work" -s next         # filter by project and status
+cairn list -f                        # only flagged
+
+cairn projects                       # list project names
+cairn whoami
+```
+
+Env overrides: `CAIRN_HOST`, `CAIRN_TOKEN` (handy in CI/scripts). Full reference
+in [`client/README.md`](client/README.md). The browser login leg is served by
+the app at `/settings/cli-authorize`.
+
 ## Layout
 
 ```

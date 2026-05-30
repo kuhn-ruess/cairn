@@ -1,0 +1,32 @@
+{% extends "layout/base.html" %}
+{% block title %}Authorize CLI · Cairn{% endblock %}
+{% block content %}
+<div class="card mx-auto mt-4" style="max-width: 520px;">
+  <div class="card-body">
+    <h1 class="h5 mb-3"><i class="bi bi-terminal"></i> Authorize command-line access</h1>
+    <p class="mb-3">
+      The Cairn CLI client
+      <strong>{{ name }}</strong>
+      is requesting access to your account
+      (<span class="text-muted">{{ current_user.display_name or current_user.email }}</span>).
+    </p>
+    <p class="small text-muted mb-4">
+      Approving mints a new API token and hands it to the client running on
+      this machine. You can revoke it any time from
+      <a href="{{ url_for('settings.profile') }}#api-tokens">your profile</a>.
+    </p>
+    <form method="post" action="{{ url_for('settings.cli_authorize') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="port" value="{{ port }}">
+      <input type="hidden" name="state" value="{{ state }}">
+      <input type="hidden" name="name" value="{{ name }}">
+      <div class="d-flex gap-2">
+        <button class="btn btn-primary">
+          <i class="bi bi-check-lg"></i> Authorize
+        </button>
+        <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
