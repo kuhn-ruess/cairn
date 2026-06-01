@@ -60,6 +60,35 @@ def project(p) -> dict[str, Any]:
     }
 
 
+def _filter_clause(c) -> dict[str, Any]:
+    if c.kind == "group":
+        return {
+            "kind": "group",
+            "group_op": c.group_op or "and",
+            "children": [_filter_clause(ch) for ch in (c.children or [])],
+        }
+    return {"kind": "leaf", "field": c.field, "op": c.op, "value": c.value}
+
+
+def perspective(p) -> dict[str, Any]:
+    """Serialize a CustomPerspective (filter tree + grouping/sort) so a
+    client can evaluate it locally against its own task cache."""
+    return {
+        "pid": p.pid,
+        "name": p.name,
+        "icon": p.icon,
+        "color": p.color,
+        "in_sidebar": bool(p.in_sidebar),
+        "root_op": p.root_op or "and",
+        "clauses": [_filter_clause(c) for c in (p.clauses or [])],
+        "grouping": p.grouping,
+        "grouping_tag": p.grouping_tag or None,
+        "sort": p.sort,
+        "include_completed": bool(p.include_completed),
+        "show_blocked": bool(p.show_blocked),
+    }
+
+
 def comment(c) -> dict[str, Any]:
     return {
         "author": user_brief(c.author),
@@ -87,9 +116,13 @@ def task_compact(t) -> dict[str, Any]:
         "priority": t.priority,
         "defer_date": iso(t.defer_date),
         "due_date": iso(t.due_date),
+        "plan_date": iso(t.plan_date),
         "project_id": str(t.project.pk) if t.project else None,
+        "sort_order": t.sort_order,
+        "repeating": bool(t.repeat_every_days),
         "tags": list(t.tags or []),
-        "assigned_to": user_brief(t.assigned_to),
+        "assigned_to_id": str(t.assigned_to.pk) if t.assigned_to else None,
+        "created_at": iso(t.created_at),
         "updated_at": iso(t.updated_at),
         "completed_at": iso(t.completed_at),
     }

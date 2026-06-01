@@ -9,6 +9,7 @@ from application.api.serializers import project as ser_project
 from application.api.serializers import tag as ser_tag
 from application.api.serializers import task as ser_task
 from application.api.serializers import task_compact as ser_task_compact
+from application.api.serializers import perspective as ser_perspective
 
 from application.models.user import User
 from application.models.item import (
@@ -563,6 +564,32 @@ def delete_tag(tag_name):
     user.tags = [t for t in user.tags if t.name != tag.name]
     user.save()
     return "", 204
+
+# ---------------- perspectives ----------------
+
+@api_v1_bp.get("/perspectives")
+@token_required
+def list_perspectives():
+    """Sidebar layout + the user's custom perspective definitions.
+
+    Built-in perspectives are evaluated client-side from their well-known
+    keys; custom ones ship their full filter tree so a client can apply
+    the same filtering/grouping/sort offline."""
+    from application.services.perspectives import (
+        ALL_PERSPECTIVES, visible_keys,
+    )
+    user = g.current_user
+    return jsonify(
+        {
+            "sidebar": visible_keys(user),
+            "builtins": [
+                {"key": p.key, "label": p.label, "icon": p.icon}
+                for p in ALL_PERSPECTIVES
+            ],
+            "custom": [ser_perspective(p) for p in (user.custom_perspectives or [])],
+        }
+    )
+
 
 # ---------------- misc ----------------
 
