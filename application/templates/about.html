@@ -15,14 +15,14 @@
 
 <div class="card" style="max-width: 720px;">
   <div class="card-body">
-    <h2 class="h6 text-muted small text-uppercase mb-2">Impressum</h2>
+    <h2 class="h6 text-muted small text-uppercase mb-2">Rechtliches</h2>
     <p class="mb-1">
-      <a href="https://bastian-kuhn.de/impressum/" target="_blank" rel="noopener noreferrer">
-        bastian-kuhn.de/impressum <i class="bi bi-box-arrow-up-right small"></i>
-      </a>
+      <a href="{{ url_for('dashboard.impressum') }}">Impressum</a>
+      &nbsp;·&nbsp;
+      <a href="{{ url_for('dashboard.datenschutz') }}">Datenschutz</a>
     </p>
     <p class="text-muted small mb-0">
-      Hosted by Bastian Kuhn. Source + contact details on the linked page.
+      Betrieben von Bastian Kuhn.
     </p>
   </div>
 </div>
