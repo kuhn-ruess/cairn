@@ -1,0 +1,5 @@
+{% extends "layout/base.html" %}
+{% block title %}Impressum · Cairn{% endblock %}
+{# Render in both layout states so the page is reachable logged-in or not. #}
+{% block content %}{% include "legal/_impressum_body.html" %}{% endblock %}
+{% block anon_content %}{% include "legal/_impressum_body.html" %}{% endblock %}

@@ -20,6 +20,13 @@ def about():
     from application import APP_VERSION
     return render_template("about.html", app_version=APP_VERSION)
 
+
+# Legal pages are intentionally public (no @login_required) — an Impressum
+# must be reachable without an account.
+@dashboard_bp.route("/impressum")
+def impressum():
+    return render_template("legal/impressum.html")
+
 def _scope(user):
     return Q(owner=user) | Q(assigned_to=user)
 
