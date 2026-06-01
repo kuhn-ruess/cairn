@@ -27,6 +27,11 @@ def about():
 def impressum():
     return render_template("legal/impressum.html")
 
+
+@dashboard_bp.route("/datenschutz")
+def datenschutz():
+    return render_template("legal/datenschutz.html")
+
 def _scope(user):
     return Q(owner=user) | Q(assigned_to=user)
 
