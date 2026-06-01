@@ -48,7 +48,9 @@ def _populate_choices(form: ProjectForm, user: User, current: Item | None = None
     # a section ancestor — they're not offered as choices themselves.
     containers = list(
         Item.objects(owner=user, kind__in=["project", "folder", "section"])
-        .only("pk", "name", "kind", "parent")
+        # ``name`` is a property alias for the ``title`` field — project the
+        # real field, or mongoengine raises LookUpError on .only().
+        .only("pk", "title", "kind", "parent")
     )
     by_id = {str(c.pk): c for c in containers}
 
