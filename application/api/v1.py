@@ -387,7 +387,10 @@ def create_project():
     data = request.get_json(silent=True) or {}
     if not data.get("name"):
         return _bad_request("name is required")
-    p = Item(owner=user, name=data["name"])
+    # ``name`` is a property (alias for ``title``), not a constructor field —
+    # passing it as a kwarg raises FieldDoesNotExist (500). Build empty, then
+    # let _apply_project_payload set the name via the property.
+    p = Item(owner=user)
     _apply_project_payload(p, data)
     p.save()
     return jsonify(ser_project(p)), 201
