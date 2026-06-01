@@ -17,7 +17,8 @@
     </p>
     <form method="post" action="{{ url_for('settings.cli_authorize') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="port" value="{{ port }}">
+      <input type="hidden" name="port" value="{{ port or '' }}">
+      <input type="hidden" name="scheme" value="{{ scheme or '' }}">
       <input type="hidden" name="state" value="{{ state }}">
       <input type="hidden" name="name" value="{{ name }}">
       <div class="d-flex gap-2">

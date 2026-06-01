@@ -68,6 +68,33 @@ def comment(c) -> dict[str, Any]:
     }
 
 
+def task_compact(t) -> dict[str, Any]:
+    """Slim task projection for list/sync endpoints.
+
+    Drops the heavy / rarely-needed-in-a-list fields (comments, external
+    bookkeeping, the ``tag_names`` alias, audit timestamps) so a mobile
+    client can pull a large working set — and small incremental deltas —
+    cheaply. ``kind`` is included so the caller can tell tasks apart from
+    project/folder/section items the unfiltered query may return. Fetch
+    ``GET /tasks/<id>`` for the full record (note images, comments, …)."""
+    return {
+        "id": str(t.pk),
+        "kind": t.kind,
+        "title": t.title,
+        "note": t.note,
+        "status": t.status,
+        "flagged": t.flagged,
+        "priority": t.priority,
+        "defer_date": iso(t.defer_date),
+        "due_date": iso(t.due_date),
+        "project_id": str(t.project.pk) if t.project else None,
+        "tags": list(t.tags or []),
+        "assigned_to": user_brief(t.assigned_to),
+        "updated_at": iso(t.updated_at),
+        "completed_at": iso(t.completed_at),
+    }
+
+
 def task(t) -> dict[str, Any]:
     return {
         "id": str(t.pk),

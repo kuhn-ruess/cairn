@@ -222,33 +222,50 @@ def _cli_loopback_port(raw) -> int | None:
     return port if 1024 <= port <= 65535 else None
 
 
+# App URL schemes allowed as a cli-authorize redirect target. Kept to a
+# fixed allow-list so this can never be turned into a token-exfiltration
+# / open-redirect primitive (an attacker can't aim the token at an
+# arbitrary scheme of their choosing).
+ALLOWED_APP_SCHEMES = {"cairn"}
+
+
 @settings_bp.route("/cli-authorize", methods=["GET", "POST"])
 @login_required
 def cli_authorize():
-    """Browser leg of the CLI login flow (gh-style loopback).
+    """Browser leg of the CLI / mobile-app login flow (gh-style).
 
-    The CLI opens this URL with ``port`` (its local callback server),
-    ``state`` (a nonce it will verify), and an optional ``name`` for the
-    token. The user is already authenticated via the web session; on
-    approval we mint an API token and 302 the browser back to
-    ``http://127.0.0.1:<port>/`` carrying the raw token + state. The
-    token is never rendered on a Cairn page — it only lives in the
-    redirect to loopback.
+    The caller opens this URL with ``state`` (a nonce it will verify),
+    an optional token ``name``, and exactly one redirect target:
+
+    * ``port=<n>``      — desktop CLI loopback → ``http://127.0.0.1:<n>/``
+    * ``scheme=cairn``  — iOS/iPadOS app → ``cairn://auth`` (intercepted by
+      ``ASWebAuthenticationSession``)
+
+    The user is already authenticated via the web session; on approval we
+    mint an API token and 302 back to the target carrying the raw token +
+    state. The token is never rendered on a Cairn page — it only lives in
+    the redirect.
     """
     port = _cli_loopback_port(request.values.get("port"))
+    scheme = (request.values.get("scheme") or "").strip().lower()
+    use_scheme = scheme in ALLOWED_APP_SCHEMES
     state = (request.values.get("state") or "").strip()[:128]
     name = (request.values.get("name") or "CLI").strip()[:128] or "CLI"
-    if not port:
-        abort(400, "missing or invalid loopback port")
+    if not port and not use_scheme:
+        abort(400, "missing or invalid redirect target")
 
     if request.method == "POST":
         user = current_user._get_current_object()
         _tok, raw = user.issue_api_token(name=name)
         query = urllib.parse.urlencode({"token": raw, "state": state})
+        if use_scheme:
+            return redirect(f"{scheme}://auth?{query}")
         return redirect(f"http://127.0.0.1:{port}/?{query}")
 
     return render_template(
-        "settings/cli_authorize.html", port=port, state=state, name=name,
+        "settings/cli_authorize.html",
+        port=port, state=state, name=name,
+        scheme=scheme if use_scheme else "",
     )
 
 

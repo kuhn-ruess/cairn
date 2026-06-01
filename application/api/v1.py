@@ -8,9 +8,12 @@ from application.api.auth import token_required
 from application.api.serializers import project as ser_project
 from application.api.serializers import tag as ser_tag
 from application.api.serializers import task as ser_task
+from application.api.serializers import task_compact as ser_task_compact
 
 from application.models.user import User
-from application.models.item import Item, PROJECT_STATUS, PROJECT_TYPES, TASK_STATUS
+from application.models.item import (
+    Item, ITEM_KINDS, PROJECT_STATUS, PROJECT_TYPES, TASK_STATUS,
+)
 
 api_v1_bp = Blueprint("api_v1", __name__, url_prefix="/api/v1")
 
@@ -41,6 +44,14 @@ def list_tasks():
         if status not in TASK_STATUS:
             return _bad_request(f"invalid status: {status}")
         qs = qs.filter(status=status)
+    kind = request.args.get("kind")
+    if kind:
+        # The query is not kind-filtered by default, so it returns
+        # project/folder/section items too. Clients that only want
+        # actionable tasks pass ``kind=task``.
+        if kind not in ITEM_KINDS:
+            return _bad_request(f"invalid kind: {kind}")
+        qs = qs.filter(kind=kind)
     project_id = request.args.get("project_id")
     if project_id:
         qs = qs.filter(parent=project_id)
@@ -51,12 +62,25 @@ def list_tasks():
         qs = qs.filter(flagged=True)
     if request.args.get("assigned_to_me") == "true":
         qs = qs.filter(assigned_to=user)
+    updated_since = request.args.get("updated_since")
+    if updated_since:
+        # Incremental sync: only rows touched at/after this instant.
+        # Pair with ``-updated_at`` ordering so the client can advance
+        # its cursor from items[0].updated_at.
+        since = _parse_dt(updated_since)
+        if not since:
+            return _bad_request("invalid updated_since")
+        qs = qs.filter(updated_at__gte=since)
+
+    # ``compact=true`` returns the slim projection (see serializers) — the
+    # default for sync-heavy mobile clients; full records via /tasks/<id>.
+    serialize = ser_task_compact if request.args.get("compact") == "true" else ser_task
 
     limit = min(int(request.args.get("limit", 100)), 500)
     offset = int(request.args.get("offset", 0))
     qs = qs.order_by("-updated_at").skip(offset).limit(limit)
 
-    return jsonify({"items": [ser_task(t) for t in qs], "limit": limit, "offset": offset})
+    return jsonify({"items": [serialize(t) for t in qs], "limit": limit, "offset": offset})
 
 @api_v1_bp.post("/tasks")
 @token_required
