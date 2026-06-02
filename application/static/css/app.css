@@ -701,6 +701,18 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
 .comments-block.is-expanded .comments-list {
   height: 60vh;
 }
+/* Newest-first: reverse visually only — the DOM stays in chronological
+   order so data-comment-index stays valid and a JS-appended comment still
+   lands at the top. Applies to the inspector list and the detail page. */
+.comments-block .comments-list.newest-first,
+.task-detail-comments.newest-first {
+  flex-direction: column-reverse;
+}
+.task-detail-comments {
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+}
 .comments-block .comments-empty {
   margin: auto;
   text-align: center;

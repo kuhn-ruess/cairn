@@ -186,6 +186,9 @@
       });
     }
 
+    // Apply the remembered comment sort order to the freshly-loaded panel.
+    applyCommentSort(body);
+
     // ``autofocus`` is only honoured on initial page load; after we swap
     // the inspector body (e.g. after "Add another") we want the title to
     // be ready to type into immediately.
@@ -311,6 +314,37 @@
     const btn = ev.target.closest(".comment-visibility-toggle");
     if (btn) onVisibilityToggle({ preventDefault() {}, currentTarget: btn });
   });
+
+  // ---- Comment sort order (newest vs oldest first) -----------------------
+  // Remembered per browser. Newest-first is the default and is applied by
+  // reversing the flex container visually — the DOM stays chronological so
+  // comment indices and JS-appended comments keep working.
+  const COMMENT_SORT_KEY = "cairn:comment-sort";
+  function commentsNewestFirst() {
+    try { return localStorage.getItem(COMMENT_SORT_KEY) !== "oldest"; }
+    catch (e) { return true; }
+  }
+  function applyCommentSort(scope) {
+    const newest = commentsNewestFirst();
+    (scope || document)
+      .querySelectorAll(".comments-list, .task-detail-comments")
+      .forEach((list) => list.classList.toggle("newest-first", newest));
+    document.querySelectorAll(".comment-sort-toggle").forEach((btn) => {
+      const icon = btn.querySelector("i");
+      if (icon) icon.className = newest ? "bi bi-sort-down" : "bi bi-sort-up";
+      btn.title = newest
+        ? "Newest first — click to show oldest first"
+        : "Oldest first — click to show newest first";
+    });
+  }
+  document.addEventListener("click", (ev) => {
+    if (!ev.target.closest(".comment-sort-toggle")) return;
+    try {
+      localStorage.setItem(COMMENT_SORT_KEY, commentsNewestFirst() ? "oldest" : "newest");
+    } catch (e) { /* private mode — fall back to default each load */ }
+    applyCommentSort();
+  });
+  applyCommentSort();  // initial pass for the current page (e.g. task detail)
 
   async function onCommentAdd(ev) {
     ev.preventDefault();

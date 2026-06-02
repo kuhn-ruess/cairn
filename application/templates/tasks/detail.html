@@ -119,10 +119,17 @@
     </section>
 
     <section class="task-detail-section">
-      <h2 class="h6 text-muted small text-uppercase mb-2">
+      <h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center">
         Comments
-        <span class="text-muted">({{ task.comments|length }})</span>
+        <span class="text-muted ms-1">({{ task.comments|length }})</span>
+        {% if task.comments %}
+        <button type="button" class="btn btn-sm btn-link text-muted p-0 ms-2 comment-sort-toggle"
+                title="Toggle comment order (newest / oldest first)">
+          <i class="bi bi-sort-down"></i>
+        </button>
+        {% endif %}
       </h2>
+      <div class="task-detail-comments newest-first">
       {% for c in task.comments %}
         <div class="task-detail-comment {% if c.is_public %}is-public{% endif %}"
              data-comment-index="{{ loop.index0 }}">
@@ -153,6 +160,7 @@
       {% else %}
         <p class="text-muted small">No comments yet.</p>
       {% endfor %}
+      </div>
 
       <form method="post" action="{{ url_for('tasks.comment', task_id=task.pk) }}" class="task-detail-comment-form mt-3">
         {{ comment_form.hidden_tag() }}
