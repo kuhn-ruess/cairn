@@ -460,13 +460,20 @@ def _upsert_ticket(
 
     from application.services.label_rules import apply_label_rules
 
+    # Status tags (those the user mapped to a Cairn status) are owned by the
+    # Zammad workflow: a stale one ("Warte auf Kunde" after the ticket moved
+    # to "Warte auf Antwort") must drop even if it predates external_tags
+    # tracking and looks user-added. Plain context tags stay preserved.
+    managed_names = {t.name for t in (user.tags or []) if t.maps_to_status}
+
     if existing:
         existing.title = title
         existing.note = note
         existing.source = "zammad"
         existing.external_ref = znum
         existing.tags = merge_external_tags(
-            existing.tags, existing.external_tags, new_external)
+            existing.tags, existing.external_tags, new_external,
+            managed_names=managed_names)
         existing.external_tags = new_external
         # Task vs project have completely different status vocabularies
         # (open/next/waiting vs active/on_hold/completed). The

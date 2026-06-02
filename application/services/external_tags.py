@@ -15,14 +15,26 @@ def merge_external_tags(
     existing_tags: list[str] | None,
     existing_external: list[str] | None,
     new_external: list[str] | None,
+    managed_names: set[str] | None = None,
 ) -> list[str]:
     """Return the merged ``tags`` list after a sync.
 
     ``user_added = existing_tags − existing_external`` is preserved in
     order; the new external tags are then appended (deduplicated).
+
+    ``managed_names`` is a set of tag names the upstream system fully owns
+    (e.g. status tags driven by a Zammad workflow). Any such name is
+    dropped from the preserved set, so it survives only if it's in
+    ``new_external``. This self-heals tasks imported before
+    ``external_tags`` tracking, where a stale status tag would otherwise
+    look "user-added" and never get removed. Plain tags are untouched.
     """
     ext_old = set(existing_external or [])
-    user_added = [t for t in (existing_tags or []) if t not in ext_old]
+    managed = set(managed_names or [])
+    user_added = [
+        t for t in (existing_tags or [])
+        if t not in ext_old and t not in managed
+    ]
     merged: list[str] = list(user_added)
     for t in (new_external or []):
         if t and t not in merged:
