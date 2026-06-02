@@ -113,10 +113,6 @@ def _request(url: str, token: str, *, params: dict | None = None,
         raise ZammadError(f"unparseable JSON from {url}: {exc}")
 
 
-_PRIORITY_MAP = {
-    "1 low": 4, "2 normal": 3, "3 high": 2,
-    "1": 4, "2": 3, "3": 2,
-}
 _DONE_STATES = {"closed", "merged"}
 _OPEN_STATES = {"open", "new", "pending close", "pending reminder"}
 
@@ -401,7 +397,9 @@ def _upsert_ticket(
 
     # Identification is strictly via the Zammad-stamped external_id.
     existing = Item.objects(owner=user, external_id=todoist_key).first()
-    priority = _PRIORITY_MAP.get((raw.get("priority") or "").lower())
+    # Priority is intentionally NOT imported — every Zammad ticket carries a
+    # default priority ("2 normal"), which would stamp a Cairn priority on
+    # every task. Leave it to the user.
     state = (raw.get("state") or "").lower()
     if state in _DONE_STATES:
         cairn_status = "done"
@@ -482,8 +480,8 @@ def _upsert_ticket(
         # the lifecycle locally; don't clobber their status / priority.
         if existing.kind == "task":
             existing.status = cairn_status
-            if priority is not None:
-                existing.priority = priority
+            # Priority left untouched — not imported from Zammad (see above),
+            # and a re-sync must never clobber a priority the user set.
             # Record the close channel when Zammad's state closed it, so
             # it's clear the task was completed by the Zammad sync and when.
             if cairn_status == "done":
@@ -509,7 +507,6 @@ def _upsert_ticket(
             title=title,
             note=note,
             status=cairn_status,
-            priority=priority,
             parent=project,
             external_id=todoist_key,
             external_ref=znum,

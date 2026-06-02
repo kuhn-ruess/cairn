@@ -196,13 +196,6 @@ def _parse_due(due: dict | None) -> datetime | None:
     except ValueError:
         return None
 
-def _invert_priority(todoist_priority: int | None) -> int | None:
-    """Todoist 4 (highest) -> bktodo 1; Todoist 1 (default/none) -> None."""
-    if not todoist_priority or todoist_priority == 1:
-        return None
-    return 5 - int(todoist_priority)
-
-
 _NUM_WORDS = {
     "other": 2,
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
@@ -702,7 +695,7 @@ def _import_task(
         existing.external_tags = list(tags)
         existing.status = base_status
         existing.due_date = due
-        existing.priority = _invert_priority(raw.get("priority"))
+        # Priority intentionally not imported; never clobber a user-set one.
         existing.external_id = external_id
         if repeat_every is not None:
             existing.repeat_every_days = repeat_every
@@ -733,7 +726,6 @@ def _import_task(
             external_tags=list(tags),
             status=base_status,
             due_date=due,
-            priority=_invert_priority(raw.get("priority")),
             sort_order=int(sort_order),
             external_id=external_id,
             completed_at=datetime.now(timezone.utc) if completed else None,
@@ -773,7 +765,10 @@ def _import_task(
                 key = (body, created.isoformat() if created else None)
                 if key in existing_keys:
                     continue
-                kwargs = {"author": user, "body": body}
+                # Imported comments are external: no Cairn account behind them,
+                # so they carry an external author label and render flagged as
+                # "external" (same treatment as the Zammad import).
+                kwargs = {"external_author": "Todoist", "body": body}
                 if created:
                     kwargs["created_at"] = created
                 task.comments.append(Comment(**kwargs))

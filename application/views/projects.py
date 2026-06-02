@@ -1666,15 +1666,21 @@ def import_csv(project_id):
                     ts = author = ""
                     body = cell
                 body = body.replace("\r\n", "\n").replace("\r", "\n").strip()
-                head_bits = []
-                if author:
-                    head_bits.append(f"**{author}**")
+                # Imported comments are external: the real author has no Cairn
+                # account, so keep their name in ``external_author`` (rendered
+                # with an "external" badge) rather than crediting the importing
+                # user. Use the row timestamp as created_at when it parses;
+                # otherwise keep it visible as a small prefix so nothing is lost.
+                created = None
                 if ts:
-                    head_bits.append(ts)
-                rendered = (" — ".join(head_bits) + "\n\n" + body) if head_bits else body
-                target.comments.append(
-                    ItemComment(author=user, body=rendered)
-                )
+                    try:
+                        created = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    except ValueError:
+                        body = f"_{ts}_\n\n{body}" if body else ts
+                ckwargs = {"external_author": author or "Import", "body": body}
+                if created:
+                    ckwargs["created_at"] = created
+                target.comments.append(ItemComment(**ckwargs))
 
         if csv_id:
             target.external_id = f"csv:{csv_id}"
