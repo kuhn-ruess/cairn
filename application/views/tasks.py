@@ -1899,7 +1899,7 @@ def comment(task_id):
                 {
                     "ok": True,
                     "index": len(task.comments) - 1,
-                    "author": str(c.author),
+                    "author": c.author_name,
                     "body": c.body,
                     "created_at": c.created_at.isoformat(),
                     "is_public": c.is_public,

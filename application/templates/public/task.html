@@ -47,7 +47,8 @@
       {% for c in comments %}
         <div class="list-group-item">
           <div class="small mb-1">
-            <strong>{{ c.author.display_name or c.author.username }}</strong>
+            <strong>{{ c.author_name }}</strong>
+            {% if c.is_external %}<span class="badge text-bg-secondary">external</span>{% endif %}
             <span class="text-muted">· {{ c.created_at|date }}</span>
           </div>
           <div class="md-body">{{ c.body|markdown }}</div>

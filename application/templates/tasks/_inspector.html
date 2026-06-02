@@ -197,10 +197,13 @@
         {% for c in task.comments %}
           <div class="comment-item {% if c.is_public %}is-public{% endif %}"
                data-comment-index="{{ loop.index0 }}">
-            <div class="comment-avatar">{{ (c.author.display_name or c.author.username)[:1]|upper }}</div>
+            <div class="comment-avatar">{{ (c.author_name or '?')[:1]|upper }}</div>
             <div class="comment-body-wrap">
               <div class="comment-header">
-                <strong class="comment-author">{{ c.author }}</strong>
+                <strong class="comment-author">{{ c.author_name }}</strong>
+                {% if c.is_external %}
+                  <span class="badge text-bg-secondary" title="Imported from an external system — not a Cairn user"><i class="bi bi-box-arrow-in-down"></i> external</span>
+                {% endif %}
                 <span class="comment-time">{{ c.created_at|localdt }}</span>
                 <button type="button"
                         class="comment-visibility-toggle"

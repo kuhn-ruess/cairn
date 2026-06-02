@@ -12,7 +12,9 @@ Modelled after :mod:`application.services.todoist_import`:
 Mapping
 -------
 * Ticket subject → ``title``
-* Ticket article body (the first one) → ``note``
+* First article body → ``note``; every later reply → a Cairn comment
+  (authored by the external sender, deduped by the Zammad article id) so
+  ticket updates keep flowing in on re-sync
 * Priority "1 low"/"2 normal"/"3 high" → Cairn P4/P3/P2
 * State "open"/"new"/"pending close" → ``status=next``;
   "closed"/"merged" → ``status=done`` with ``completed_at`` stamped;
@@ -31,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from application.models.item import Item
+from application.models.item import Comment, Item
 from application.models.user import User
 
 log = logging.getLogger(__name__)
@@ -53,6 +55,7 @@ class ZammadStats:
     filtered_assignee: int = 0
     filtered_closed: int = 0
     tickets_dropped: int = 0  # orphans closed (status=done) during reconcile
+    comments_imported: int = 0  # ticket replies mirrored in as comments
     me_id: Any = None
     fetched_via: str = ""
     errors: list[str] = field(default_factory=list)
@@ -66,6 +69,7 @@ class ZammadStats:
             "filtered_assignee": self.filtered_assignee,
             "filtered_closed": self.filtered_closed,
             "tickets_dropped": self.tickets_dropped,
+            "comments_imported": self.comments_imported,
             "me_id": self.me_id,
             "fetched_via": self.fetched_via,
             "errors": list(self.errors),
@@ -354,10 +358,15 @@ def _upsert_ticket(
     else:
         cairn_status = "open"
 
+    # Pull the whole article thread once. The first article (the original
+    # message) is the task note; every later reply is mirrored in as a
+    # comment further down so ticket updates actually reach Cairn.
+    articles = _fetch_articles(base, token, zid, stats)
     note_parts = []
-    article = _first_article(base, token, zid, stats)
-    if article:
-        note_parts.append(article)
+    if articles:
+        first = _article_body(articles[0])
+        if first:
+            note_parts.append(first)
     # Back-link to the Zammad ticket itself for context.
     web_url = base.replace("/api/v1", "") + f"/#ticket/zoom/{zid}"
     note_parts.append(f"[Zammad #{zid}]({web_url})")
@@ -428,6 +437,7 @@ def _upsert_ticket(
         # run AFTER the Zammad-state assignment so they win: a tag
         # rule is more specific than the generic state mapping.
         apply_label_rules(existing, user)
+        _sync_article_comments(existing, articles, stats)
         # Parent stays put either way: the user might have moved the
         # task / project into a specific place after the first import.
         existing.save()
@@ -449,6 +459,7 @@ def _upsert_ticket(
             external_tags=list(new_external),
         )
         apply_label_rules(item, user)
+        _sync_article_comments(item, articles, stats)
         item.save()
         stats.tickets_created += 1
         return item
@@ -471,8 +482,8 @@ def _ensure_user_has_tags(user, names) -> None:
     user.save()
 
 
-def _first_article(base: str, token: str, ticket_id: str, stats: ZammadStats) -> str:
-    """Pull the ticket's first article (the original message) for the note."""
+def _fetch_articles(base: str, token: str, ticket_id: str, stats: ZammadStats) -> list[dict]:
+    """Return the ticket's article thread (oldest → newest), or ``[]``."""
     try:
         arts = _request(
             base + f"/ticket_articles/by_ticket/{ticket_id}",
@@ -480,14 +491,72 @@ def _first_article(base: str, token: str, ticket_id: str, stats: ZammadStats) ->
         )
     except ZammadError as exc:
         stats.errors.append(f"articles for {ticket_id}: {exc}")
-        return ""
-    if not isinstance(arts, list) or not arts:
-        return ""
-    a = arts[0]
+        return []
+    return arts if isinstance(arts, list) else []
+
+
+def _article_body(a: dict) -> str:
+    """Markdown body of a single article (HTML emails are converted)."""
     body = (a.get("body") or "").strip()
-    # Zammad articles come back as HTML for incoming email. Notes in
-    # Cairn are Markdown, so convert at the boundary.
+    # Zammad articles come back as HTML for incoming email. Notes and
+    # comments in Cairn are Markdown, so convert at the boundary.
     if a.get("content_type") == "text/html":
         from application.services.html_to_markdown import html_to_markdown
         body = html_to_markdown(body)
     return body
+
+
+def _article_sender(a: dict) -> str:
+    """Real sender name of an article, without the trailing ``<email>``."""
+    raw = (a.get("from") or a.get("sender") or "").strip()
+    if "<" in raw:  # "Ali Bekiroglu <ali@example.com>" → "Ali Bekiroglu"
+        raw = raw.split("<", 1)[0].strip().strip('"').strip()
+    return raw or "Zammad"
+
+
+def _article_dt(a: dict) -> datetime:
+    """Parse an article's ``created_at``; fall back to now on bad input."""
+    val = a.get("created_at")
+    if not val:
+        return datetime.now(timezone.utc)
+    try:
+        return datetime.fromisoformat(str(val).replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.now(timezone.utc)
+
+
+def _sync_article_comments(item: Item, articles: list[dict], stats: ZammadStats) -> None:
+    """Mirror ticket replies (every article after the first) onto the task
+    as comments, so updates made in Zammad show up in Cairn.
+
+    The first article is the task note; the rest become comments authored
+    by the real (external) sender — no Cairn account, flagged via
+    ``Comment.is_external``. Deduped by the Zammad article id stored in
+    ``Comment.external_id`` so a re-sync refreshes the thread instead of
+    piling up duplicates. Comments the user wrote in Cairn (no
+    ``external_id``) are never touched.
+    """
+    existing = {c.external_id: c for c in (item.comments or []) if c.external_id}
+    for a in articles[1:]:
+        aid = str(a.get("id") or "")
+        if not aid:
+            continue
+        body = _article_body(a)
+        if not body:
+            continue
+        is_public = not bool(a.get("internal"))
+        sender = _article_sender(a)
+        comment = existing.get(aid)
+        if comment:
+            comment.body = body
+            comment.external_author = sender
+            comment.is_public = is_public
+        else:
+            item.comments.append(Comment(
+                external_author=sender,
+                body=body,
+                external_id=aid,
+                created_at=_article_dt(a),
+                is_public=is_public,
+            ))
+            stats.comments_imported += 1

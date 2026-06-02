@@ -54,10 +54,30 @@ REPEAT_UNITS = ("day", "weekday", "weekend", "week", "month", "year")
 
 
 class Comment(EmbeddedDocument):
-    author = ReferenceField(User, required=True)
+    # ``author`` is the in-app user who wrote the comment. It's optional
+    # because comments can also be mirrored in from an external system
+    # (e.g. a Zammad ticket reply): those have no Cairn account, so we keep
+    # the real sender name in ``external_author`` and leave ``author`` unset.
+    # ``external_id`` is the source-side id (Zammad article id) used to
+    # dedupe on re-sync so a refreshed thread updates instead of duplicating.
+    author = ReferenceField(User)
+    external_author = StringField()
+    external_id = StringField()
     body = StringField(required=True)
     created_at = DateTimeField(default=_utcnow)
     is_public = BooleanField(default=False)
+
+    @property
+    def is_external(self) -> bool:
+        """True when this comment came from an external system (no app user)."""
+        return self.author is None
+
+    @property
+    def author_name(self) -> str:
+        """Display name for the comment, app user or external sender alike."""
+        if self.author:
+            return self.author.display_name or self.author.username
+        return self.external_author or "Unknown"
 
 
 class ChecklistItem(EmbeddedDocument):

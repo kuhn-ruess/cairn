@@ -90,8 +90,13 @@ def perspective(p) -> dict[str, Any]:
 
 
 def comment(c) -> dict[str, Any]:
+    # ``author`` is null for comments mirrored in from an external system
+    # (e.g. a Zammad ticket reply). ``author_name`` is always a display
+    # string and ``is_external`` flags the non-app-user case for clients.
     return {
         "author": user_brief(c.author),
+        "author_name": c.author_name,
+        "is_external": c.is_external,
         "body": c.body,
         "created_at": iso(c.created_at),
     }
