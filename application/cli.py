@@ -247,6 +247,109 @@ def import_zammad(username, url, token, project_id, assignee_only, include_close
         click.echo("(dry-run: no changes written)")
 
 
+@cairn_cli.command("zammad-diagnose")
+@click.argument("username")
+@click.argument("ticket")
+def zammad_diagnose(username, ticket):
+    """Explain why a Zammad TICKET (number or id) isn't syncing for USERNAME.
+
+    Read-only. Prints whether the ticket is fetched by the sync, its live
+    Zammad tags, the Cairn task's stored tags, the user's status-tag set,
+    and exactly what the next sync would do to the tags.
+    """
+    from application.models.item import Item
+    from application.services.crypto import decrypt_for_user
+    from application.services.external_tags import merge_external_tags
+    from application.services import zammad_import as Z
+
+    user = User.objects(username=username).first()
+    if not user:
+        raise click.ClickException(f"user '{username}' not found")
+    if not user.zammad_url or not user.zammad_token:
+        raise click.ClickException("Zammad URL/token not configured for this user")
+    token = decrypt_for_user(user, user.zammad_token)
+    base = user.zammad_url.rstrip("/")
+    if not base.endswith("/api/v1"):
+        base += "/api/v1"
+
+    def req(path, **params):
+        return Z._request(base + path, token, params=params or None)
+
+    me = req("/users/me")
+    me_id = me.get("id") if isinstance(me, dict) else None
+    click.echo(f"token holder: {me.get('login')} (id={me_id})")
+
+    # Resolve ticket by number, then by id.
+    t = None
+    res = req("/tickets/search", query=f"number:{ticket}", expand="true", per_page=5)
+    rows = res if isinstance(res, list) else []
+    if isinstance(res, dict) and "tickets" in res:
+        ids = res.get("tickets") or []
+        assets = (res.get("assets") or {}).get("Ticket") or {}
+        rows = [assets[str(i)] for i in ids if str(i) in assets]
+    if rows:
+        t = rows[0]
+    else:
+        try:
+            t = req(f"/tickets/{ticket}", expand="true")
+        except Z.ZammadError:
+            t = None
+    if not t:
+        raise click.ClickException(f"ticket '{ticket}' not found in Zammad")
+
+    zid = t.get("id")
+    click.echo(f"ticket id={zid} number={t.get('number')} state={t.get('state')} "
+               f"owner_id={t.get('owner_id')} customer_id={t.get('customer_id')}")
+
+    # Is it returned by the owner search the sync uses?
+    in_search = False
+    page = 1
+    while True:
+        r = req("/tickets/search", query=f"owner_id:{me_id}", expand="true",
+                per_page=200, page=page)
+        ch = r if isinstance(r, list) else []
+        if isinstance(r, dict) and "tickets" in r:
+            ch = r.get("tickets") or []
+            ch = [{"id": i} for i in ch]
+        if not ch:
+            break
+        if any((row.get("id") if isinstance(row, dict) else row) == zid for row in ch):
+            in_search = True
+            break
+        page += 1
+        if page > 50:
+            break
+    click.echo(f"fetched by sync (owner_id:{me_id} search)? {in_search}")
+    if not in_search:
+        click.echo("  → NOT fetched: the sync never sees this ticket, so nothing "
+                   "updates. Likely you're not the Zammad owner (only "
+                   "owner-of-record tickets are pulled).")
+
+    live = Z._ticket_tags(base, token, str(zid))
+    click.echo(f"live Zammad tags: {live}")
+
+    task = Item.all_objects(owner=user, external_id=f"zammad:{zid}").first()
+    if not task:
+        click.echo("Cairn task: none yet (would be created on next sync).")
+        return
+    click.echo(f"Cairn task: status={task.status} trashed={bool(task.trashed_at)}")
+    click.echo(f"  tags         = {task.tags}")
+    click.echo(f"  external_tags= {task.external_tags}")
+
+    managed = {tg.name for tg in (user.tags or []) if tg.maps_to_status}
+    click.echo(f"status-mapped tags (managed): {sorted(managed)}")
+    would = merge_external_tags(task.tags, task.external_tags, live, managed_names=managed)
+    click.echo(f"next sync would set tags = {would}")
+    if set(would) == set(task.tags or []):
+        click.echo("  → no change expected. If the live tags above are already "
+                   "right, the ticket simply isn't being re-synced (deploy / "
+                   "filter / ownership). If a stale tag persists, it's a non-"
+                   "status tag — add maps_to_status to it or use reconcile-zammad-tags.")
+    else:
+        click.echo("  → a sync SHOULD update this task. If it didn't, the running "
+                   "build is older than this code — redeploy.")
+
+
 @cairn_cli.command("reconcile-zammad-tags")
 @click.option("--user", "username", default=None,
               help="Limit to one user; omit to run for every user with Zammad set up.")
