@@ -607,5 +607,67 @@ def build_openapi_spec() -> dict:
                     "responses": {"204": {"description": "Deleted"}},
                 },
             },
+            "/braindump": {
+                "get": {
+                    "summary": "Get the saved braindump scratch-pad text",
+                    "tags": ["braindump"],
+                    "responses": {
+                        "200": {"description": "Text",
+                                "content": {"application/json": {"schema": {
+                                    "type": "object",
+                                    "properties": {"text": {"type": "string"}},
+                                }}}},
+                    },
+                },
+                "put": {
+                    "summary": "Save the braindump scratch-pad text",
+                    "tags": ["braindump"],
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {
+                            "type": "object",
+                            "properties": {"text": {"type": "string"}},
+                        }}},
+                    },
+                    "responses": {"200": {"description": "Saved"}},
+                },
+            },
+            "/braindump/convert": {
+                "post": {
+                    "summary": "Convert the Markdown dump into projects + tasks",
+                    "description": ("Headings become projects (existing ones "
+                                    "reused by name), list items become tasks, "
+                                    "indentation nests sub-tasks. Idempotent: a "
+                                    "task with the same title in the same project "
+                                    "is updated, not duplicated."),
+                    "tags": ["braindump"],
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {
+                            "type": "object",
+                            "properties": {"text": {"type": "string"}},
+                            "required": ["text"],
+                        }}},
+                    },
+                    "responses": {
+                        "200": {"description": "Conversion stats",
+                                "content": {"application/json": {"schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "ok": {"type": "boolean"},
+                                        "stats": {
+                                            "type": "object",
+                                            "properties": {
+                                                "projects_created": {"type": "integer"},
+                                                "projects_matched": {"type": "integer"},
+                                                "tasks_created": {"type": "integer"},
+                                                "tasks_updated": {"type": "integer"},
+                                            },
+                                        },
+                                    },
+                                }}}},
+                    },
+                },
+            },
         },
     }

@@ -610,6 +610,38 @@ def me():
         }
     )
 
+# ---------------- braindump ----------------
+
+@api_v1_bp.get("/braindump")
+@token_required
+def get_braindump():
+    return jsonify({"text": g.current_user.braindump or ""})
+
+
+@api_v1_bp.put("/braindump")
+@token_required
+def save_braindump():
+    data = request.get_json(silent=True) or {}
+    user = g.current_user
+    user.braindump = data.get("text") or ""
+    user.save()
+    return jsonify({"text": user.braindump})
+
+
+@api_v1_bp.post("/braindump/convert")
+@token_required
+def convert_braindump():
+    """Parse the Markdown dump and create/update projects + tasks. Mirrors
+    the web blueprint; see application.services.braindump."""
+    from application.services.braindump import apply_braindump
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        return _bad_request("Nothing to convert.")
+    stats = apply_braindump(text, g.current_user)
+    return jsonify({"ok": True, "stats": stats})
+
+
 @api_v1_bp.errorhandler(ValueError)
 def _value_error(exc):
     return jsonify({"error": str(exc)}), 400
