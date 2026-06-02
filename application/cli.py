@@ -247,6 +247,39 @@ def import_zammad(username, url, token, project_id, assignee_only, include_close
         click.echo("(dry-run: no changes written)")
 
 
+@cairn_cli.command("reconcile-zammad-tags")
+@click.option("--user", "username", default=None,
+              help="Limit to one user; omit to run for every user with Zammad set up.")
+@click.option("--dry-run", is_flag=True, help="Report only, don't write.")
+def reconcile_zammad_tags_cmd(username, dry_run):
+    """Hard-reset every Zammad task's tags to the live Zammad set.
+
+    One-off repair for stale status tags (e.g. "Warte auf Kunde" left over
+    after the ticket moved to "Warte auf Antwort") on tasks imported before
+    external-tag tracking. Zammad becomes authoritative — manually added
+    tags on Zammad tasks are dropped.
+    """
+    from application.services.crypto import decrypt_for_user
+    from application.services.zammad_import import reconcile_tags
+
+    users = User.objects(username=username) if username else User.objects(zammad_url__nin=[None, ""])
+    total_changed = 0
+    for user in users:
+        if not user.zammad_url or not user.zammad_token:
+            if username:
+                raise click.ClickException(f"{user.username}: Zammad URL/token not configured")
+            continue
+        token = decrypt_for_user(user, user.zammad_token)
+        if not token:
+            click.echo(f"{user.username}: saved token couldn't be decrypted — skipped")
+            continue
+        res = reconcile_tags(user, user.zammad_url, token, dry_run=dry_run)
+        total_changed += res["changed"]
+        verb = "would update" if dry_run else "updated"
+        click.echo(f"{user.username}: {verb} {res['changed']}/{res['scanned']} Zammad task(s)")
+    click.echo(f"{'(dry-run) ' if dry_run else ''}total: {total_changed} task(s)")
+
+
 @cairn_cli.command("apply-label-rules")
 @click.option("--user", "username", default=None,
               help="Limit to a single user; omit to run for everyone.")

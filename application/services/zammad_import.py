@@ -320,6 +320,58 @@ def import_for_user(
     return stats
 
 
+def _ticket_tags(base: str, token: str, zid: str) -> list[str]:
+    """Current Zammad tags for one ticket (``[]`` on error/none)."""
+    try:
+        resp = _request(base + "/tags", token,
+                        params={"object": "Ticket", "o_id": zid})
+    except ZammadError:
+        return []
+    tags = (resp or {}).get("tags") if isinstance(resp, dict) else []
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
+    return [t for t in (tags or []) if t]
+
+
+def reconcile_tags(user: User, url: str, token: str, *, dry_run: bool = False) -> dict:
+    """Hard-overwrite each Zammad task's tags with the live Zammad set.
+
+    One-off repair for tasks imported before external-tag tracking, where
+    a stale status tag (e.g. "Warte auf Kunde") lingers because it isn't
+    recorded in ``external_tags`` and so the normal merge preserves it.
+    Both ``tags`` and ``external_tags`` are set to exactly what Zammad
+    reports now; ``apply_label_rules`` then re-derives status. Manually
+    added tags on Zammad tasks are NOT kept — this is the deliberate
+    "Zammad is authoritative" reset.
+    """
+    from application.services.external_tags import ensure_user_has_tags
+    from application.services.label_rules import apply_label_rules
+
+    base = url.rstrip("/")
+    if not base.endswith("/api/v1"):
+        base = base + "/api/v1"
+
+    changed = 0
+    scanned = 0
+    for it in Item.all_objects(owner=user, source="zammad",
+                               external_id__startswith="zammad:"):
+        scanned += 1
+        zid = it.external_id.split(":", 1)[1]
+        live = _ticket_tags(base, token, zid)
+        if set(live) == set(it.tags or []) and set(live) == set(it.external_tags or []):
+            continue
+        changed += 1
+        if dry_run:
+            continue
+        it.tags = list(live)
+        it.external_tags = list(live)
+        if live:
+            ensure_user_has_tags(user, live, group="Zammad")
+        apply_label_rules(it, user)
+        it.save()
+    return {"scanned": scanned, "changed": changed}
+
+
 def _upsert_ticket(
     user: User,
     raw: dict,
@@ -495,14 +547,38 @@ def _fetch_articles(base: str, token: str, ticket_id: str, stats: ZammadStats) -
     return arts if isinstance(arts, list) else []
 
 
+def _strip_quoted_history(html: str) -> str:
+    """Drop the quoted mail history from a reply, keeping only the new text.
+
+    Zammad's editor marks the boundary before the quoted thread / signature
+    with ``<span class="js-signatureMarker">``; inbound clients usually wrap
+    the quote in ``<blockquote>``. Cut at whichever appears first so we don't
+    re-import the whole prior conversation on every reply.
+    """
+    cut = len(html)
+    i = html.find("js-signatureMarker")
+    if i != -1:
+        # back up to the start of the element carrying the marker
+        start = html.rfind("<", 0, i)
+        cut = min(cut, start if start != -1 else i)
+    j = html.lower().find("<blockquote")
+    if j != -1:
+        cut = min(cut, j)
+    return html[:cut]
+
+
 def _article_body(a: dict) -> str:
-    """Markdown body of a single article (HTML emails are converted)."""
+    """Markdown body of a single article (HTML emails are converted).
+
+    Quoted mail history below a reply is stripped so only the new message
+    is imported.
+    """
     body = (a.get("body") or "").strip()
     # Zammad articles come back as HTML for incoming email. Notes and
     # comments in Cairn are Markdown, so convert at the boundary.
     if a.get("content_type") == "text/html":
         from application.services.html_to_markdown import html_to_markdown
-        body = html_to_markdown(body)
+        body = html_to_markdown(_strip_quoted_history(body))
     return body
 
 
