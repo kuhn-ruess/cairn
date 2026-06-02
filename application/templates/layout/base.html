@@ -120,6 +120,7 @@
       <h6 class="text-muted small text-uppercase">Organize</h6>
       <ul class="nav flex-column">
         <li><a class="nav-link py-1" href="{{ url_for('projects.index') }}"><i class="bi bi-collection"></i> Projects</a></li>
+        <li><a class="nav-link py-1" href="{{ url_for('braindump.index') }}"><i class="bi bi-stars"></i> Braindump</a></li>
         <li><a class="nav-link py-1" href="{{ url_for('tree.index') }}"><i class="bi bi-diagram-3"></i> Tree</a></li>
         <li><a class="nav-link py-1" href="{{ url_for('tags.index') }}"><i class="bi bi-tag"></i> Tags / Contexts</a></li>
         <li><a class="nav-link py-1" href="{{ url_for('custom_perspectives.index') }}"><i class="bi bi-funnel"></i> Perspectives</a></li>
@@ -455,6 +456,7 @@
 <script src="{{ url_for('static', filename='js/quick-date.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/project-sidebar.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/calendar-plan.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/braindump.js') }}?v={{ static_version }}"></script>
 <script>
 /* Navbar Todoist sync button — fire-and-forget POST, spin while running,
    then reload to show new items. */

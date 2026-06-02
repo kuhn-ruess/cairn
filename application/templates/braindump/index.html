@@ -1,0 +1,31 @@
+{% extends "layout/base.html" %}
+{% block title %}Braindump · Cairn{% endblock %}
+{% block content %}
+<div class="braindump-page">
+<div class="d-flex align-items-center mb-3">
+  <h1 class="h3 mb-0 me-auto"><i class="bi bi-stars"></i> Braindump</h1>
+  <span class="text-muted small me-3" id="braindumpStatus"></span>
+  <button type="button" class="btn btn-outline-secondary me-2" id="braindumpClear">
+    <i class="bi bi-eraser"></i> Clear
+  </button>
+  <button type="button" class="btn btn-primary" id="braindumpConvert">
+    <i class="bi bi-magic"></i> Convert to projects &amp; tasks
+  </button>
+</div>
+
+<p class="text-muted small mb-2">
+  Write freely in Markdown. <strong>Headings</strong> (<code># Project</code>)
+  become projects — an existing project with the same name is reused.
+  <strong>List items</strong> (<code>- task</code>) become tasks; indent with
+  <kbd>Tab</kbd> to make sub-tasks. Inline tokens
+  <code>@tag</code> · <code>p1</code> · <code>!</code> ·
+  <code>today</code> / <code>tomorrow</code> work on each task line.
+</p>
+
+<input type="hidden" id="braindumpCsrf" name="csrf_token" value="{{ csrf_token() }}">
+<textarea id="braindumpText" class="form-control braindump-text" spellcheck="false"
+          placeholder="# Website relaunch&#10;- Draft copy @writing today&#10;    - Collect testimonials&#10;- Pick a theme p1&#10;&#10;# Groceries&#10;- Milk&#10;- Bread">{{ draft }}</textarea>
+
+<div id="braindumpResult" class="mt-3"></div>
+</div>
+{% endblock %}

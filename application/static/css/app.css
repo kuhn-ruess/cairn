@@ -1153,6 +1153,31 @@ body.inspector-docked #bulk-bar {
   border-color: var(--gv-yellow);
   box-shadow: 0 0 0 .15rem rgba(250, 189, 47, .2);
 }
+.braindump-page {
+  /* Fill the main area: viewport minus the 56px navbar and the .app-main
+     py-3 padding (1rem top + 1rem bottom). */
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 56px - 2rem);
+}
+.braindump-text {
+  flex: 1 1 auto;
+  min-height: 0;
+  font-family: var(--bs-font-monospace);
+  font-size: .95rem;
+  line-height: 1.6;
+  tab-size: 4;
+  white-space: pre;
+  background: var(--gv-bg0-hard);
+  border: 1px solid var(--gv-bg2);
+  color: var(--gv-fg0);
+}
+.braindump-text:focus {
+  background: var(--gv-bg0-hard);
+  color: var(--gv-fg0);
+  border-color: var(--gv-yellow);
+  box-shadow: 0 0 0 .15rem rgba(250, 189, 47, .2);
+}
 .quick-add-preview {
   display: flex;
   flex-wrap: wrap;

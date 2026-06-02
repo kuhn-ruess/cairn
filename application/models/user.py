@@ -149,6 +149,11 @@ class User(UserMixin, Document):
     # single read returns the whole set per request.
     collapsed_items = ListField(StringField())
 
+    # Braindump scratch pad — the raw Markdown text the user is drafting on
+    # the /braindump page. Persisted server-side so the dump survives across
+    # devices/browsers (not just localStorage) and stays put after a convert.
+    braindump = StringField(default="")
+
     # Today perspective preferences (persisted across sessions).
     today_grouping = StringField(default="none")
     today_filter_tag = StringField()  # Tag.pk to filter Today to a single tag, optional
