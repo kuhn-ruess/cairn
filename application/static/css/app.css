@@ -1277,6 +1277,15 @@ body.inspector-docked #bulk-bar {
 .bulk-check { display: none !important; }
 /* Hide the table column entirely on the projects list. */
 table td:has(.bulk-check) { display: none; }
+/* The projects list has an (invisible) leading checkbox column. Hiding only
+   the cells that *contain* a checkbox collapsed just the project rows, so
+   their names slid one column left while the header and the Inbox row (whose
+   leading cell is an empty placeholder, not a checkbox) stayed put. Hide the
+   whole leading column instead — header cell + every row's first cell — but
+   never the colspan rows (group headers, empty-state), whose single cell must
+   keep spanning the table. */
+.project-table > thead > tr > th:first-child,
+.project-table > tbody > tr > td:first-child:not([colspan]) { display: none; }
 
 /* Selected row affordance — clear without being visually loud. */
 .task-row.selected {

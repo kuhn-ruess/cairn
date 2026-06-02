@@ -122,6 +122,18 @@
       form.addEventListener("keydown", (ev) => {
         if (ev.key !== "Enter" || ev.isComposing) return;
         const t = ev.target;
+        // The comment box lives inside the task form but is its own action:
+        // Cmd/Ctrl+Enter posts the comment (never a task save), plain Enter
+        // stays a newline. This keeps the two saves from clobbering each other.
+        if (t && t.name === "comment_body") {
+          if (ev.metaKey || ev.ctrlKey) {
+            ev.preventDefault();
+            const wrap = t.closest("[data-inspector-comment-form]");
+            const addBtn = wrap && wrap.querySelector(".comment-add-btn");
+            if (addBtn) addBtn.click();
+          }
+          return;
+        }
         const tag = t && t.tagName;
         if (tag === "BUTTON" || tag === "A" || tag === "SELECT" ||
             (t && t.isContentEditable)) return;
@@ -439,6 +451,29 @@
     return div.innerHTML;
   }
 
+  // The comment box lives inside the task form but is a separate action.
+  // Before saving the task, persist any typed-but-unposted comment so the
+  // save doesn't silently discard it (the form re-render would wipe the
+  // textarea). The freshly-saved fragment then shows the new comment.
+  async function flushPendingComment(form) {
+    const wrap = form.querySelector("[data-inspector-comment-form]");
+    if (!wrap) return;
+    const textarea = wrap.querySelector("textarea[name=comment_body]");
+    const value = textarea && textarea.value.trim();
+    if (!value) return;
+    try {
+      const fd = new FormData();
+      const csrf = form.querySelector('input[name="csrf_token"]') ||
+                   document.querySelector('input[name="csrf_token"]');
+      if (csrf) fd.append("csrf_token", csrf.value);
+      fd.append("body", value);
+      await fetch(wrap.dataset.action, {
+        method: "POST", body: fd, headers: { "X-Inspector-Request": "1" },
+      });
+      textarea.value = "";  // don't resend it with the task save / re-render
+    } catch (e) { /* non-fatal — proceed with the task save */ }
+  }
+
   async function onFormSubmit(ev) {
     ev.preventDefault();
     const form = ev.currentTarget;
@@ -446,6 +481,7 @@
     if (submitBtn) submitBtn.disabled = true;
 
     try {
+      await flushPendingComment(form);
       const resp = await fetch(form.action || window.location.href, {
         method: form.method || "POST",
         body: new FormData(form),
