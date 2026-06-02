@@ -63,14 +63,22 @@ class Comment(EmbeddedDocument):
     author = ReferenceField(User)
     external_author = StringField()
     external_id = StringField()
+    # ``external`` marks a comment that came from an imported system, kept
+    # independent of ``author``: an imported comment written by the importing
+    # user gets both a resolved ``author`` (correct attribution) AND this flag
+    # (so it still renders with the "external" badge).
+    external = BooleanField(default=False)
     body = StringField(required=True)
     created_at = DateTimeField(default=_utcnow)
     is_public = BooleanField(default=False)
 
     @property
     def is_external(self) -> bool:
-        """True when this comment came from an external system (no app user)."""
-        return self.author is None
+        """True for comments mirrored in from an external system.
+
+        Either the explicit flag is set, or there's no app user behind it
+        (covers comments imported before the flag existed)."""
+        return bool(self.external) or self.author is None
 
     @property
     def author_name(self) -> str:

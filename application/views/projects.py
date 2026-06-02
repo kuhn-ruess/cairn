@@ -1677,7 +1677,18 @@ def import_csv(project_id):
                         created = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                     except ValueError:
                         body = f"_{ts}_\n\n{body}" if body else ts
-                ckwargs = {"external_author": author or "Import", "body": body}
+                # A comment the importing user wrote themselves is attributed to
+                # their Cairn account (matched by name) but still flagged
+                # external; everyone else keeps just their name.
+                mine = author and author.strip().lower() in {
+                    (user.display_name or "").strip().lower(),
+                    (user.username or "").strip().lower(),
+                }
+                ckwargs = {"external": True, "body": body}
+                if mine:
+                    ckwargs["author"] = user
+                else:
+                    ckwargs["external_author"] = author or "Import"
                 if created:
                     ckwargs["created_at"] = created
                 target.comments.append(ItemComment(**ckwargs))

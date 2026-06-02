@@ -768,7 +768,7 @@ def _import_task(
                 # Imported comments are external: no Cairn account behind them,
                 # so they carry an external author label and render flagged as
                 # "external" (same treatment as the Zammad import).
-                kwargs = {"external_author": "Todoist", "body": body}
+                kwargs = {"external_author": "Todoist", "external": True, "body": body}
                 if created:
                     kwargs["created_at"] = created
                 task.comments.append(Comment(**kwargs))

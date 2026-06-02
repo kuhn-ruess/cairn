@@ -288,7 +288,7 @@ def import_for_user(
 
     for raw in tickets:
         try:
-            _upsert_ticket(user, raw, base, token, project, stats, dry_run)
+            _upsert_ticket(user, raw, base, token, project, stats, dry_run, me_id=me_id)
         except ZammadError as exc:
             stats.errors.append(f"ticket {raw.get('id')}: {exc}")
             stats.tickets_skipped += 1
@@ -376,6 +376,7 @@ def _upsert_ticket(
     project: Item | None,
     stats: ZammadStats,
     dry_run: bool,
+    me_id=None,
 ) -> "Item | None":
     """Create or update a Cairn task for a Zammad ticket and return it.
 
@@ -494,7 +495,7 @@ def _upsert_ticket(
         # run AFTER the Zammad-state assignment so they win: a tag
         # rule is more specific than the generic state mapping.
         apply_label_rules(existing, user)
-        _sync_article_comments(existing, articles, stats)
+        _sync_article_comments(existing, articles, stats, user, me_id)
         # Parent stays put either way: the user might have moved the
         # task / project into a specific place after the first import.
         existing.save()
@@ -515,7 +516,7 @@ def _upsert_ticket(
             external_tags=list(new_external),
         )
         apply_label_rules(item, user)
-        _sync_article_comments(item, articles, stats)
+        _sync_article_comments(item, articles, stats, user, me_id)
         item.save()
         stats.tickets_created += 1
         return item
@@ -605,16 +606,19 @@ def _article_dt(a: dict) -> datetime:
         return datetime.now(timezone.utc)
 
 
-def _sync_article_comments(item: Item, articles: list[dict], stats: ZammadStats) -> None:
+def _sync_article_comments(item: Item, articles: list[dict], stats: ZammadStats,
+                           user: User, me_id=None) -> None:
     """Mirror ticket replies (every article after the first) onto the task
     as comments, so updates made in Zammad show up in Cairn.
 
-    The first article is the task note; the rest become comments authored
-    by the real (external) sender — no Cairn account, flagged via
-    ``Comment.is_external``. Deduped by the Zammad article id stored in
-    ``Comment.external_id`` so a re-sync refreshes the thread instead of
-    piling up duplicates. Comments the user wrote in Cairn (no
-    ``external_id``) are never touched.
+    The first article is the task note; the rest become comments. Each is
+    flagged external. A reply written by the importing user (Zammad
+    ``created_by_id == me_id``) is additionally attributed to their Cairn
+    account, so it reads as theirs while still showing the external badge;
+    everyone else keeps just their name in ``external_author``. Deduped by
+    the Zammad article id in ``Comment.external_id`` so a re-sync refreshes
+    instead of duplicating. Cairn-written comments (no ``external_id``) are
+    left untouched.
     """
     existing = {c.external_id: c for c in (item.comments or []) if c.external_id}
     for a in articles[1:]:
@@ -625,15 +629,21 @@ def _sync_article_comments(item: Item, articles: list[dict], stats: ZammadStats)
         if not body:
             continue
         is_public = not bool(a.get("internal"))
-        sender = _article_sender(a)
+        mine = me_id is not None and a.get("created_by_id") == me_id
+        author = user if mine else None
+        sender = None if mine else _article_sender(a)
         comment = existing.get(aid)
         if comment:
             comment.body = body
+            comment.author = author
             comment.external_author = sender
+            comment.external = True
             comment.is_public = is_public
         else:
             item.comments.append(Comment(
+                author=author,
                 external_author=sender,
+                external=True,
                 body=body,
                 external_id=aid,
                 created_at=_article_dt(a),
