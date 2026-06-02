@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from flask import (
     Blueprint, abort, current_app, flash, jsonify, redirect,
-    render_template, request, session, url_for,
+    render_template, request, send_file, session, url_for,
 )
 from flask_login import current_user, login_required
 from flask_wtf import FlaskForm
@@ -178,6 +178,32 @@ def profile():
         task_row_fields=TASK_ROW_FIELDS,
         fresh_token=fresh_token,
         fresh_token_name=fresh_token_name,
+    )
+
+
+@settings_bp.route("/export")
+@login_required
+def export_data():
+    """Download a JSON backup of all your own data.
+
+    Credential-free (no password hash, integration tokens or OAuth blobs) —
+    a portability/backup export, not a secrets dump. Re-importable by an
+    operator via ``cairn import-user``.
+    """
+    import io
+    import json
+    from application.services.backup import build_export
+
+    user = current_user._get_current_object()
+    bundle = build_export(user, include_trashed=True, redact_secrets=True)
+    buf = io.BytesIO(json.dumps(bundle, indent=2).encode("utf-8"))
+    buf.seek(0)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return send_file(
+        buf,
+        mimetype="application/json",
+        as_attachment=True,
+        download_name=f"cairn-export-{user.username}-{stamp}.json",
     )
 
 

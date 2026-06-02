@@ -429,6 +429,65 @@ def seed_demo(username):
 
     click.echo("Seeded demo data.")
 
+@cairn_cli.command("export-user")
+@click.argument("username")
+@click.option("--output", "-o", required=True, help="Path to write the backup JSON to.")
+@click.option("--include-trashed/--no-include-trashed", default=True,
+              help="Include soft-deleted (trashed) items. On by default.")
+def export_user(username, output, include_trashed):
+    """Export a user's complete data (profile + all items) to a JSON backup.
+
+    Full export — includes credentials so a restore into a fresh DB is
+    faithful. Keep the file safe. The GUI download (/settings/export) is
+    the redacted, credential-free counterpart for end users.
+    """
+    import json
+    from application.services.backup import build_export
+
+    user = User.objects(username=username).first()
+    if not user:
+        raise click.ClickException(f"user '{username}' not found")
+    bundle = build_export(user, include_trashed=include_trashed, redact_secrets=False)
+    with open(output, "w", encoding="utf-8") as fh:
+        json.dump(bundle, fh, indent=2)
+    click.echo(f"Exported {username}: {len(bundle['items'])} item(s) → {output}")
+
+
+@cairn_cli.command("import-user")
+@click.argument("backup_file")
+@click.option("--as-user", "target_username", default=None,
+              help="Import into this existing user, remapping ownership. "
+                   "Default: restore to the original user (matched by id/username, "
+                   "created if absent).")
+@click.option("--replace", is_flag=True,
+              help="Delete the target user's existing items first (clean restore "
+                   "instead of merge).")
+def import_user(backup_file, target_username, replace):
+    """Import a backup produced by ``export-user`` (or the GUI download).
+
+    Idempotent for restore-to-original: items upsert by their original id.
+    Use --as-user to clone a user's data into another account.
+    """
+    import json
+    from application.services.backup import BackupError, import_bundle
+
+    try:
+        with open(backup_file, encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(f"can't read backup: {exc}")
+    try:
+        stats = import_bundle(payload, replace=replace, target_username=target_username)
+    except BackupError as exc:
+        raise click.ClickException(str(exc))
+
+    verb = "created" if stats["user_created"] else "updated"
+    msg = f"User '{stats['username']}' {verb}; imported {stats['items_imported']} item(s)"
+    if stats["items_deleted"]:
+        msg += f", deleted {stats['items_deleted']} existing"
+    click.echo(msg)
+
+
 def register_cli(app):
     app.cli.add_command(cairn_cli)
 

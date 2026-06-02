@@ -59,6 +59,17 @@
       </div>
     </a>
   </div>
+  <div class="col-sm-6 col-md-4 col-xl-3">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.export_data') }}">
+      <div class="card-body d-flex align-items-center gap-3">
+        <i class="bi bi-download fs-3 text-secondary"></i>
+        <div>
+          <div class="fw-semibold">Export your data</div>
+          <div class="small text-muted">Download a full JSON backup</div>
+        </div>
+      </div>
+    </a>
+  </div>
 </div>
 
 {% if inbox_preview %}
