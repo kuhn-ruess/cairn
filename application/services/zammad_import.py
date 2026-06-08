@@ -59,6 +59,11 @@ class ZammadStats:
     me_id: Any = None
     fetched_via: str = ""
     errors: list[str] = field(default_factory=list)
+    # Per-ticket decision log for the debug console. Only populated when a
+    # sync is run with ``debug=True`` (the Settings → Zammad page), so the
+    # frequent navbar sync stays lean. Each entry explains exactly what the
+    # sync saw and what it did/would do — especially for tags.
+    trace: list[dict] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -73,6 +78,7 @@ class ZammadStats:
             "me_id": self.me_id,
             "fetched_via": self.fetched_via,
             "errors": list(self.errors),
+            "trace": list(self.trace),
         }
 
 
@@ -126,6 +132,7 @@ def import_for_user(
     assignee_only: bool = True,
     include_closed: bool = False,
     dry_run: bool = False,
+    debug: bool = False,
 ) -> ZammadStats:
     """Pull tickets from Zammad and merge them into Cairn for ``user``.
 
@@ -288,7 +295,8 @@ def import_for_user(
 
     for raw in tickets:
         try:
-            _upsert_ticket(user, raw, base, token, project, stats, dry_run, me_id=me_id)
+            _upsert_ticket(user, raw, base, token, project, stats, dry_run,
+                           me_id=me_id, debug=debug)
         except ZammadError as exc:
             stats.errors.append(f"ticket {raw.get('id')}: {exc}")
             stats.tickets_skipped += 1
@@ -309,6 +317,14 @@ def import_for_user(
             # mark_done records when + that the Zammad sync closed it.
             it.mark_done(via="zammad")
             stats.tickets_dropped += 1
+            if debug:
+                stats.trace.append({
+                    "number": it.external_ref or "",
+                    "zid": (it.external_id or "").split(":", 1)[-1],
+                    "title": it.title,
+                    "action": "closed-orphan",
+                    "note": "no longer returned by Zammad — marked done",
+                })
 
     if not dry_run:
         user.last_zammad_sync_at = datetime.now(timezone.utc)
@@ -384,6 +400,7 @@ def _upsert_ticket(
     stats: ZammadStats,
     dry_run: bool,
     me_id=None,
+    debug: bool = False,
 ) -> "Item | None":
     """Create or update a Cairn task for a Zammad ticket and return it.
 
@@ -430,18 +447,14 @@ def _upsert_ticket(
     note_parts.append(f"[Zammad #{zid}]({web_url})")
     note = "\n\n".join(note_parts)
 
-    if dry_run:
-        if existing:
-            stats.tickets_updated += 1
-        else:
-            stats.tickets_created += 1
-        return None
-
     # Mirror Zammad tags onto the Cairn task. The Zammad side is
     # authoritative for tags it owns — they live in ``external_tags``
     # and get replaced wholesale on each sync. Anything the user added
     # in Cairn (= tags present on the task but not in the old
     # external_tags) is preserved untouched.
+    #
+    # Fetched here (read-only) BEFORE the dry-run gate so the debug console
+    # can preview exactly what a real sync would do to the tags.
     #
     # Zammad's /tickets responses don't carry tags (they live in a
     # separate object). We fetch them per ticket via /tags?object=
@@ -460,22 +473,64 @@ def _upsert_ticket(
         tags_fetched = True
     except ZammadError as exc:
         stats.errors.append(f"tags for {zid}: {exc}")
-    if new_external:
-        from application.services.external_tags import ensure_user_has_tags
-        ensure_user_has_tags(user, new_external, group="Zammad")
 
-    from application.services.external_tags import overwrite_group_tags
-
+    from application.services.external_tags import (
+        ensure_user_has_tags, overwrite_group_tags,
+    )
     from application.services.label_rules import apply_label_rules
 
-    # Tags that live under the "Zammad" group are owned by Zammad: replace
-    # them wholesale with the live ticket set so a switched workflow label
-    # ("Warte auf Kunde" → "Warte auf Antwort") actually flips. Every other
-    # tag on the task — user contexts, other importers — is left untouched.
-    # A failed tag fetch (``tags_fetched`` False) leaves tags as they are
-    # rather than wiping the group on a transient error.
+    # A tag is Zammad-owned (so a sync may drop/replace it) if it's under the
+    # "Zammad" group OR it was in this task's previous external_tags — i.e. a
+    # value Zammad itself set last sync. The group alone wasn't enough: an old
+    # workflow label that was never parented under "Zammad" (older imports,
+    # manual creates, the ungrouped _ensure_user_has_tags path) wasn't
+    # recognised as owned, so the live value got *appended* and the stale one
+    # lingered — looking like "the Zammad tag never overwrote the old one".
+    # external_tags is the authoritative per-task record of Zammad's own tags,
+    # so fold it in. User-added tags (never grouped, never in external_tags)
+    # still survive untouched. A failed tag fetch (``tags_fetched`` False)
+    # leaves tags as they are rather than wiping the group on a transient error.
     zammad_owned = {t.name for t in (user.tags or [])
                     if t.parent == "Zammad" or t.name == "Zammad"}
+    old_tags = list(existing.tags or []) if existing else []
+    owned = zammad_owned | (set(existing.external_tags or []) if existing else set())
+    if existing and tags_fetched:
+        would_tags = overwrite_group_tags(old_tags, owned, new_external)
+    elif existing:
+        would_tags = old_tags          # fetch failed → leave tags as-is
+    else:
+        would_tags = list(new_external)  # new task → exactly the live set
+
+    if debug:
+        stats.trace.append({
+            "number": znum,
+            "zid": zid,
+            "title": title,
+            "state": state,
+            "exists": bool(existing),
+            "action": (("would-update" if existing else "would-create")
+                       if dry_run else ("update" if existing else "create")),
+            "status_to": cairn_status,
+            "tags_fetched": tags_fetched,
+            "live_tags": list(new_external),
+            "old_tags": old_tags,
+            "owned": sorted(owned),
+            "new_tags": list(would_tags),
+            "tag_changed": set(would_tags) != set(old_tags),
+        })
+
+    if dry_run:
+        if existing:
+            stats.tickets_updated += 1
+        else:
+            stats.tickets_created += 1
+        return None
+
+    # Real run only past here. Make sure the live tags exist as styled tags
+    # under the Zammad group (skipped above in dry-run so we don't mutate
+    # user.tags while only previewing).
+    if new_external:
+        ensure_user_has_tags(user, new_external, group="Zammad")
 
     if existing:
         existing.title = title
@@ -483,18 +538,6 @@ def _upsert_ticket(
         existing.source = "zammad"
         existing.external_ref = znum
         if tags_fetched:
-            # A tag is Zammad-owned (so a sync may drop/replace it) if it's
-            # under the "Zammad" group OR it was in this task's previous
-            # external_tags — i.e. a value Zammad itself set last sync. The
-            # group alone wasn't enough: an old workflow label that was never
-            # parented under "Zammad" (older imports, manual creates, the
-            # ungrouped _ensure_user_has_tags path) wasn't recognised as owned,
-            # so the live value got *appended* and the stale one lingered —
-            # looking like "the Zammad tag never overwrote the old one".
-            # external_tags is the authoritative per-task record of Zammad's
-            # own tags, so fold it in. User-added tags (never grouped, never
-            # in external_tags) still survive untouched.
-            owned = zammad_owned | set(existing.external_tags or [])
             existing.tags = overwrite_group_tags(
                 existing.tags, owned, new_external)
             existing.external_tags = new_external

@@ -583,6 +583,7 @@ def zammad():
                 assignee_only=form.assignee_only.data,
                 include_closed=form.include_closed.data,
                 dry_run=form.dry_run.data,
+                debug=True,  # populate the per-ticket trace for the debug console
             )
         except ZammadError as exc:
             flash(str(exc), "danger")

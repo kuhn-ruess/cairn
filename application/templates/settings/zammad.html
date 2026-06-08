@@ -109,6 +109,91 @@
       {% endif %}
     </div>
   </div>
+
+  {# ----- Debug console: per-ticket decision trace ------------------- #}
+  {% if stats.trace %}
+    <div class="card mt-3 zammad-debug" style="max-width: 1080px;">
+      <div class="card-body">
+        <div class="d-flex align-items-center mb-2">
+          <h2 class="h6 mb-0"><i class="bi bi-terminal"></i> Debug console</h2>
+          <span class="badge text-bg-secondary ms-2">{{ stats.trace|length }} tickets</span>
+          <div class="form-check form-switch ms-auto mb-0">
+            <input class="form-check-input" type="checkbox" id="debug-only-changed">
+            <label class="form-check-label small text-muted" for="debug-only-changed">
+              Only tag changes
+            </label>
+          </div>
+        </div>
+        <p class="form-text small mt-0">
+          What the sync saw and did per ticket. Tick <strong>Dry run</strong> above
+          to preview without writing. <code>owned</code> = tags the sync may
+          replace (Zammad group ∪ this task's previous external_tags);
+          <code>live</code> = current Zammad tags; <code>new</code> = resulting
+          Cairn tags. A red <code>tags fetch FAILED</code> row means the
+          per-ticket <code>/tags</code> call errored — then nothing changes.
+        </p>
+        <div class="table-responsive" style="max-height: 28rem; overflow-y: auto;">
+          <table class="table table-sm table-hover small font-monospace align-middle mb-0">
+            <thead class="sticky-top bg-body">
+              <tr>
+                <th>Ticket</th><th>Action</th><th>live</th>
+                <th>old → new</th><th>owned</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for t in stats.trace %}
+                <tr class="zammad-trace-row{{ ' tag-changed' if t.tag_changed else '' }}"
+                    data-changed="{{ '1' if t.tag_changed else '0' }}">
+                  <td>
+                    <strong>#{{ t.number }}</strong>
+                    <div class="text-muted text-truncate" style="max-width: 22ch;"
+                         title="{{ t.title }}">{{ t.title }}</div>
+                  </td>
+                  <td>
+                    <span class="badge text-bg-{{ 'info' if 'create' in t.action else 'secondary' }}">{{ t.action }}</span>
+                    {% if t.status_to %}<div class="text-muted">→ {{ t.status_to }}</div>{% endif %}
+                  </td>
+                  <td>
+                    {% if t.action == 'closed-orphan' %}
+                      <span class="text-muted">{{ t.note }}</span>
+                    {% elif t.tags_fetched %}
+                      {{ t.live_tags|join(', ') or '—' }}
+                    {% else %}
+                      <span class="text-danger">tags fetch FAILED</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if t.action != 'closed-orphan' %}
+                      <span class="text-muted">{{ t.old_tags|join(', ') or '—' }}</span>
+                      {% if t.tag_changed %}
+                        <i class="bi bi-arrow-right text-success"></i>
+                        <strong class="text-success">{{ t.new_tags|join(', ') or '—' }}</strong>
+                      {% else %}
+                        <span class="text-muted">(no change)</span>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                  <td class="text-muted">{{ t.owned|join(', ') if t.owned is defined else '' }}</td>
+                  <td>{% if t.tag_changed %}<i class="bi bi-tag-fill text-success" title="tags change"></i>{% endif %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        const cb = document.getElementById("debug-only-changed");
+        if (!cb) return;
+        cb.addEventListener("change", () => {
+          document.querySelectorAll(".zammad-trace-row").forEach((r) => {
+            r.style.display = (cb.checked && r.dataset.changed !== "1") ? "none" : "";
+          });
+        });
+      })();
+    </script>
+  {% endif %}
 {% endif %}
 
 {% if current_user.last_zammad_sync_at %}
