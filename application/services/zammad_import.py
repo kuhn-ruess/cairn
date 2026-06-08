@@ -482,13 +482,26 @@ def _upsert_ticket(
             existing.tags = overwrite_group_tags(
                 existing.tags, zammad_owned, new_external)
             existing.external_tags = new_external
+        # A task the user parked as "scheduled" with a plan date is a
+        # deliberate deferral ("I'll deal with this on day X"). A sync must
+        # leave that status alone — neither the Zammad-state mapping below
+        # nor the tag rules may yank it back to "next". A Zammad *close*
+        # still wins (cairn_status == "done") so a finished ticket doesn't
+        # linger forever as a scheduled task.
+        keep_scheduled = (
+            existing.kind == "task"
+            and existing.status == "scheduled"
+            and existing.plan_date is not None
+            and cairn_status != "done"
+        )
         # Task vs project have completely different status vocabularies
         # (open/next/waiting vs active/on_hold/completed). The
         # ``cairn_status`` we compute from Zammad's state only fits
         # tasks. For a project the user has clearly chosen to manage
         # the lifecycle locally; don't clobber their status / priority.
         if existing.kind == "task":
-            existing.status = cairn_status
+            if not keep_scheduled:
+                existing.status = cairn_status
             # Priority left untouched — not imported from Zammad (see above),
             # and a re-sync must never clobber a priority the user set.
             # Record the close channel when Zammad's state closed it, so
@@ -501,8 +514,10 @@ def _upsert_ticket(
                 existing.completed_via = None
         # Tag-driven status rules ("Warte auf Kunde → waiting", etc.)
         # run AFTER the Zammad-state assignment so they win: a tag
-        # rule is more specific than the generic state mapping.
-        apply_label_rules(existing, user)
+        # rule is more specific than the generic state mapping. Skipped
+        # for a kept-scheduled task so the deferral survives the sync.
+        if not keep_scheduled:
+            apply_label_rules(existing, user)
         _sync_article_comments(existing, articles, stats, user, me_id)
         # Parent stays put either way: the user might have moved the
         # task / project into a specific place after the first import.
