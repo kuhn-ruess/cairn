@@ -42,6 +42,32 @@ def merge_external_tags(
     return merged
 
 
+def overwrite_group_tags(
+    current_tags: list[str] | None,
+    group_owned: set[str] | None,
+    live_tags: list[str] | None,
+) -> list[str]:
+    """Replace an importer-group's tags wholesale, leave everything else.
+
+    ``group_owned`` is the set of tag names the importer owns (e.g. every
+    tag parented under the "Zammad" group). Any such name on the task is
+    dropped unless it's in ``live_tags``; tags outside the group — user
+    contexts, other importers — are preserved untouched and in order.
+
+    This is the simple, reliable alternative to ``merge_external_tags``:
+    group membership is an explicit, persisted fact (the tag's parent),
+    so a stale upstream tag can't masquerade as user-added the way it can
+    when the boundary is inferred from an ``external_tags`` snapshot.
+    """
+    owned = set(group_owned or [])
+    live = [t for t in (live_tags or []) if t]
+    result = [t for t in (current_tags or []) if t not in owned and t not in live]
+    for t in live:
+        if t not in result:
+            result.append(t)
+    return result
+
+
 def ensure_user_has_tags(user, names, *, group: str | None = None) -> None:
     """Make sure every name in ``names`` exists as a Tag on the user.
 

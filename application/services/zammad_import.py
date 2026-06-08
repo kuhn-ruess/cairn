@@ -330,17 +330,17 @@ def _ticket_tags(base: str, token: str, zid: str) -> list[str]:
 
 
 def reconcile_tags(user: User, url: str, token: str, *, dry_run: bool = False) -> dict:
-    """Hard-overwrite each Zammad task's tags with the live Zammad set.
+    """Re-overwrite each Zammad task's *Zammad-group* tags with the live set.
 
-    One-off repair for tasks imported before external-tag tracking, where
-    a stale status tag (e.g. "Warte auf Kunde") lingers because it isn't
-    recorded in ``external_tags`` and so the normal merge preserves it.
-    Both ``tags`` and ``external_tags`` are set to exactly what Zammad
-    reports now; ``apply_label_rules`` then re-derives status. Manually
-    added tags on Zammad tasks are NOT kept — this is the deliberate
-    "Zammad is authoritative" reset.
+    One-off repair to drop stale upstream labels left over from older
+    imports. Only tags under the "Zammad" group are reset to exactly what
+    Zammad reports now; user-added context tags (and tags from other
+    importers) are left untouched. ``apply_label_rules`` then re-derives
+    status. This mirrors the normal sync — same group-based overwrite.
     """
-    from application.services.external_tags import ensure_user_has_tags
+    from application.services.external_tags import (
+        ensure_user_has_tags, overwrite_group_tags,
+    )
     from application.services.label_rules import apply_label_rules
 
     base = url.rstrip("/")
@@ -354,15 +354,18 @@ def reconcile_tags(user: User, url: str, token: str, *, dry_run: bool = False) -
         scanned += 1
         zid = it.external_id.split(":", 1)[1]
         live = _ticket_tags(base, token, zid)
-        if set(live) == set(it.tags or []) and set(live) == set(it.external_tags or []):
+        if live:
+            ensure_user_has_tags(user, live, group="Zammad")
+        zammad_owned = {t.name for t in (user.tags or [])
+                        if t.parent == "Zammad" or t.name == "Zammad"}
+        new_tags = overwrite_group_tags(it.tags, zammad_owned, live)
+        if set(new_tags) == set(it.tags or []) and set(live) == set(it.external_tags or []):
             continue
         changed += 1
         if dry_run:
             continue
-        it.tags = list(live)
+        it.tags = new_tags
         it.external_tags = list(live)
-        if live:
-            ensure_user_has_tags(user, live, group="Zammad")
         apply_label_rules(it, user)
         it.save()
     return {"scanned": scanned, "changed": changed}
@@ -440,6 +443,7 @@ def _upsert_ticket(
     # separate object). We fetch them per ticket via /tags?object=
     # Ticket&o_id=<id>. The endpoint returns ``{"tags": [...]}``.
     new_external: list[str] = []
+    tags_fetched = False
     try:
         tag_resp = _request(
             base + "/tags", token,
@@ -449,31 +453,35 @@ def _upsert_ticket(
         if isinstance(z_tags, str):
             z_tags = [t.strip() for t in z_tags.split(",") if t.strip()]
         new_external = [t for t in (z_tags or []) if t]
+        tags_fetched = True
     except ZammadError as exc:
         stats.errors.append(f"tags for {zid}: {exc}")
     if new_external:
         from application.services.external_tags import ensure_user_has_tags
         ensure_user_has_tags(user, new_external, group="Zammad")
 
-    from application.services.external_tags import merge_external_tags
+    from application.services.external_tags import overwrite_group_tags
 
     from application.services.label_rules import apply_label_rules
 
-    # Status tags (those the user mapped to a Cairn status) are owned by the
-    # Zammad workflow: a stale one ("Warte auf Kunde" after the ticket moved
-    # to "Warte auf Antwort") must drop even if it predates external_tags
-    # tracking and looks user-added. Plain context tags stay preserved.
-    managed_names = {t.name for t in (user.tags or []) if t.maps_to_status}
+    # Tags that live under the "Zammad" group are owned by Zammad: replace
+    # them wholesale with the live ticket set so a switched workflow label
+    # ("Warte auf Kunde" → "Warte auf Antwort") actually flips. Every other
+    # tag on the task — user contexts, other importers — is left untouched.
+    # A failed tag fetch (``tags_fetched`` False) leaves tags as they are
+    # rather than wiping the group on a transient error.
+    zammad_owned = {t.name for t in (user.tags or [])
+                    if t.parent == "Zammad" or t.name == "Zammad"}
 
     if existing:
         existing.title = title
         existing.note = note
         existing.source = "zammad"
         existing.external_ref = znum
-        existing.tags = merge_external_tags(
-            existing.tags, existing.external_tags, new_external,
-            managed_names=managed_names)
-        existing.external_tags = new_external
+        if tags_fetched:
+            existing.tags = overwrite_group_tags(
+                existing.tags, zammad_owned, new_external)
+            existing.external_tags = new_external
         # Task vs project have completely different status vocabularies
         # (open/next/waiting vs active/on_hold/completed). The
         # ``cairn_status`` we compute from Zammad's state only fits

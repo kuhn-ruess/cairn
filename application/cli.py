@@ -259,7 +259,7 @@ def zammad_diagnose(username, ticket):
     """
     from application.models.item import Item
     from application.services.crypto import decrypt_for_user
-    from application.services.external_tags import merge_external_tags
+    from application.services.external_tags import overwrite_group_tags
     from application.services import zammad_import as Z
 
     user = User.objects(username=username).first()
@@ -336,15 +336,17 @@ def zammad_diagnose(username, ticket):
     click.echo(f"  tags         = {task.tags}")
     click.echo(f"  external_tags= {task.external_tags}")
 
-    managed = {tg.name for tg in (user.tags or []) if tg.maps_to_status}
-    click.echo(f"status-mapped tags (managed): {sorted(managed)}")
-    would = merge_external_tags(task.tags, task.external_tags, live, managed_names=managed)
+    zammad_owned = {tg.name for tg in (user.tags or [])
+                    if tg.parent == "Zammad" or tg.name == "Zammad"}
+    click.echo(f"Zammad-group tags (owned, overwritten on sync): {sorted(zammad_owned)}")
+    would = overwrite_group_tags(task.tags, zammad_owned, live)
     click.echo(f"next sync would set tags = {would}")
     if set(would) == set(task.tags or []):
         click.echo("  → no change expected. If the live tags above are already "
                    "right, the ticket simply isn't being re-synced (deploy / "
-                   "filter / ownership). If a stale tag persists, it's a non-"
-                   "status tag — add maps_to_status to it or use reconcile-zammad-tags.")
+                   "filter / ownership). If a stale tag persists, it isn't under "
+                   "the 'Zammad' group — move it under the Zammad parent tag so "
+                   "the sync owns it, or use reconcile-zammad-tags.")
     else:
         click.echo("  → a sync SHOULD update this task. If it didn't, the running "
                    "build is older than this code — redeploy.")
