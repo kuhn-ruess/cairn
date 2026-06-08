@@ -294,6 +294,26 @@ class Item(Document):
         self.completed_via = via
         self.save()
 
+    def external_url(self, user=None):
+        """Deep link to the upstream item this was imported from, or None.
+
+        ``user`` (optional) supplies the integration config (e.g.
+        ``zammad_url``); pass the viewing user when rendering lists so we
+        don't dereference ``self.owner`` per row. Falls back to the owner's
+        config when ``user`` has none (e.g. an assignee viewing a shared
+        task imported by someone else).
+        """
+        if self.source == "zammad" and (self.external_id or "").startswith("zammad:"):
+            base = getattr(user, "zammad_url", None) or getattr(self.owner, "zammad_url", None)
+            if not base:
+                return None
+            base = base.rstrip("/")
+            if base.endswith("/api/v1"):
+                base = base[: -len("/api/v1")].rstrip("/")
+            zid = self.external_id.split(":", 1)[1]
+            return f"{base}/#ticket/zoom/{zid}"
+        return None
+
     # ----- aliases for code/templates from the pre-unified era -----
     # ``task.project`` used to mean "the container this task is in".
     # That's now just ``parent``. ``project.parent`` already worked.

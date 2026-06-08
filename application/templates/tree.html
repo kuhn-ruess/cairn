@@ -26,9 +26,17 @@
           <span class="source-chip source-{{ t.source }} ms-1">{{ t.source }}</span>
         {% endif %}
         {% if t.external_ref %}
-          <span class="external-id-chip ms-1" title="External ticket reference">
-            <i class="bi bi-link-45deg"></i> {{ t.external_ref }}
-          </span>
+          {% set t_ext_url = t.external_url(current_user) %}
+          {% if t_ext_url %}
+            <a class="external-id-chip ms-1 text-decoration-none" href="{{ t_ext_url }}"
+               target="_blank" rel="noopener" title="Open in {{ t.source or 'source' }}">
+              <i class="bi bi-link-45deg"></i> {{ t.external_ref }}
+            </a>
+          {% else %}
+            <span class="external-id-chip ms-1" title="External ticket reference">
+              <i class="bi bi-link-45deg"></i> {{ t.external_ref }}
+            </span>
+          {% endif %}
         {% endif %}
         <span class="tree-row-actions ms-auto">
           <button type="button" class="tree-action-btn task-delete-btn"
@@ -66,9 +74,17 @@
         <span class="source-chip source-{{ p.source }} ms-1">{{ p.source }}</span>
       {% endif %}
       {% if p.external_ref %}
-        <span class="external-id-chip ms-1" title="External ticket reference">
-          <i class="bi bi-link-45deg"></i> {{ p.external_ref }}
-        </span>
+        {% set p_ext_url = p.external_url(current_user) %}
+        {% if p_ext_url %}
+          <a class="external-id-chip ms-1 text-decoration-none" href="{{ p_ext_url }}"
+             target="_blank" rel="noopener" title="Open in {{ p.source or 'source' }}">
+            <i class="bi bi-link-45deg"></i> {{ p.external_ref }}
+          </a>
+        {% else %}
+          <span class="external-id-chip ms-1" title="External ticket reference">
+            <i class="bi bi-link-45deg"></i> {{ p.external_ref }}
+          </span>
+        {% endif %}
       {% endif %}
 
       <span class="tree-row-actions ms-auto">

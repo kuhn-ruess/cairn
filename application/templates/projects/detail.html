@@ -36,9 +36,17 @@
               <span class="source-chip source-{{ sp.source }} ms-1">{{ sp.source }}</span>
             {% endif %}
             {% if sp.external_ref %}
-              <span class="external-id-chip ms-1" title="External ticket reference">
-                <i class="bi bi-link-45deg"></i> {{ sp.external_ref }}
-              </span>
+              {% set sp_ext_url = sp.external_url(current_user) %}
+              {% if sp_ext_url %}
+                <a class="external-id-chip ms-1 text-decoration-none" href="{{ sp_ext_url }}"
+                   target="_blank" rel="noopener" title="Open in {{ sp.source or 'source' }}">
+                  <i class="bi bi-link-45deg"></i> {{ sp.external_ref }}
+                </a>
+              {% else %}
+                <span class="external-id-chip ms-1" title="External ticket reference">
+                  <i class="bi bi-link-45deg"></i> {{ sp.external_ref }}
+                </span>
+              {% endif %}
             {% endif %}
             <a class="task-inspector-btn" href="{{ url_for('projects.edit', project_id=sp.pk) }}"
                data-inspector-url="{{ url_for('projects.edit', project_id=sp.pk) }}"
@@ -214,9 +222,17 @@
         <span class="source-chip source-{{ project.source }}">{{ project.source }}</span>
       {% endif %}
       {% if project.external_ref %}
-        <span class="external-id-chip" title="External ticket reference">
-          <i class="bi bi-link-45deg"></i> {{ project.external_ref }}
-        </span>
+        {% set proj_ext_url = project.external_url(current_user) %}
+        {% if proj_ext_url %}
+          <a class="external-id-chip text-decoration-none" href="{{ proj_ext_url }}"
+             target="_blank" rel="noopener" title="Open in {{ project.source or 'source' }}">
+            <i class="bi bi-link-45deg"></i> {{ project.external_ref }}
+          </a>
+        {% else %}
+          <span class="external-id-chip" title="External ticket reference">
+            <i class="bi bi-link-45deg"></i> {{ project.external_ref }}
+          </span>
+        {% endif %}
       {% endif %}
     </h1>
     <div class="text-muted small">

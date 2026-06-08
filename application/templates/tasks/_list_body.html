@@ -149,9 +149,17 @@
               </span>
             {% endif %}
             {% if task.external_ref and current_user.show_field('external_id', view_key=_vk) %}
-              <span class="external-id-chip" title="External ticket reference">
-                <i class="bi bi-link-45deg"></i> {{ task.external_ref }}
-              </span>
+              {% set task_ext_url = task.external_url(current_user) %}
+              {% if task_ext_url %}
+                <a class="external-id-chip text-decoration-none" href="{{ task_ext_url }}"
+                   target="_blank" rel="noopener" title="Open in {{ task.source or 'source' }}">
+                  <i class="bi bi-link-45deg"></i> {{ task.external_ref }}
+                </a>
+              {% else %}
+                <span class="external-id-chip" title="External ticket reference">
+                  <i class="bi bi-link-45deg"></i> {{ task.external_ref }}
+                </span>
+              {% endif %}
             {% endif %}
           </div>
           {% if task.note and current_user.show_field('note', view_key=_vk) %}
