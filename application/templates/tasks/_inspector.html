@@ -181,6 +181,14 @@
   {% endif %}
 {%- endmacro -%}
 
+{%- macro sec_related() -%}
+  {% if task %}
+    <div class="inspector-section related-block" data-section="related" id="related">
+      {% include "tasks/_related.html" %}
+    </div>
+  {% endif %}
+{%- endmacro -%}
+
 {%- macro sec_comments() -%}
   {% if task %}
     <div class="inspector-section comments-block" data-section="comments">
@@ -252,7 +260,7 @@
   "dates": sec_dates, "plan": sec_plan, "priority_estimate": sec_priority_estimate,
   "repeat": sec_repeat, "review": sec_review,
   "assigned_to": sec_assigned_to, "flags": sec_flags,
-  "checklist": sec_checklist, "comments": sec_comments,
+  "checklist": sec_checklist, "related": sec_related, "comments": sec_comments,
 } -%}
 
 <form method="post" action="{{ form_action }}" data-inspector-form

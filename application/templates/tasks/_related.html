@@ -1,0 +1,43 @@
+{# Related items — symmetric "see also" links, shown only in the inspector.
+   Re-rendered server-side and swapped in via related.js after add/remove, so
+   the markup lives in exactly one place.
+
+   Pure references: no list/perspective/tree query filters by ``related``, so
+   these never group or reorder anything. No nested <form> (the inspector wraps
+   everything in one form); each action is a button carrying its endpoint in
+   data-action, fetched by related.js. #}
+{% set rel = task.related_items() %}
+<h2 class="h6 text-muted small text-uppercase mb-2">
+  Related
+  <span class="text-muted">({{ rel|length }})</span>
+</h2>
+
+<ul class="related-list list-unstyled mb-2">
+  {% for r in rel %}
+    {% set is_container = r.kind in ["project", "folder"] %}
+    <li class="d-flex align-items-center gap-2 py-1" data-related-id="{{ r.pk }}">
+      <i class="bi {{ 'bi-folder' if is_container else 'bi-check2-square' }} text-muted"></i>
+      <a class="related-link text-truncate"
+         href="{{ url_for('projects.detail', project_id=r.pk) if is_container
+                 else url_for('tasks.detail', task_id=r.pk) }}">{{ r.title }}</a>
+      {% if r.external_ref %}<code class="small text-muted">{{ r.external_ref }}</code>{% endif %}
+      <button type="button" class="btn btn-link btn-sm p-0 text-muted ms-auto related-remove"
+              data-action="{{ url_for('tasks.related_remove', task_id=task.pk, rel_id=r.pk) }}"
+              title="Remove link">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </li>
+  {% else %}
+    <li class="text-muted small">No related items yet.</li>
+  {% endfor %}
+</ul>
+
+<div class="related-add position-relative"
+     data-action="{{ url_for('tasks.related_add', task_id=task.pk) }}"
+     data-search="{{ url_for('tasks.quickjump') }}"
+     data-self="{{ task.pk }}">
+  <input type="text" class="form-control form-control-sm related-add-input"
+         placeholder="Link another item… (type to search)" autocomplete="off">
+  <div class="related-results list-group position-absolute w-100 shadow-sm"
+       style="z-index: 1080; display: none; max-height: 16rem; overflow-y: auto;"></div>
+</div>

@@ -1106,6 +1106,7 @@ def quickjump():
     out = []
     for p in projects:
         out.append({
+            "id": str(p.pk),
             "kind": "folder" if p.is_folder else "project",
             "title": p.title,
             "url": url_for("projects.detail", project_id=str(p.pk)),
@@ -1113,6 +1114,7 @@ def quickjump():
         })
     for t in tasks:
         out.append({
+            "id": str(t.pk),
             "kind": "task",
             "title": t.title,
             "url": url_for("tasks.detail", task_id=str(t.pk)),
@@ -2073,3 +2075,39 @@ def checklist_delete(task_id, index):
     task.checklist.pop(index)
     task.save()
     return _checklist_response(task)
+
+
+def _related_response(task):
+    """Re-render the related-items partial for AJAX callers, else redirect
+    back to the detail page (no-JS fallback). Mirrors _checklist_response."""
+    if request.headers.get("X-Partial") == "1":
+        return render_template("tasks/_related.html", task=task)
+    return redirect(url_for("tasks.detail", task_id=str(task.pk)) + "#related")
+
+
+@tasks_bp.route("/<task_id>/related", methods=["POST"])
+@login_required
+def related_add(task_id):
+    """Link another item as 'related' (symmetric). The link is purely a
+    reference shown in the inspector — it never groups anything in views."""
+    task = _editable_task_or_404(task_id)
+    user = current_user._get_current_object()
+    rel_id = (request.form.get("related_id") or "").strip()
+    # Only link to a visible item the user may edit (the link writes the
+    # other side too), and never to self.
+    other = Item.objects(pk=rel_id).first() if rel_id else None
+    if other and other.pk != task.pk and other.can_be_edited_by(user):
+        task.relate_to(other)
+    return _related_response(task)
+
+
+@tasks_bp.route("/<task_id>/related/<rel_id>/remove", methods=["POST"])
+@login_required
+def related_remove(task_id, rel_id):
+    """Drop a related link from both sides. ``all_objects`` so a link to a
+    trashed item can still be removed; a purged target (other=None) just
+    clears the dangling ref on this side."""
+    task = _editable_task_or_404(task_id)
+    other = Item.all_objects(pk=rel_id).first()
+    task.unrelate_from(other)
+    return _related_response(task)

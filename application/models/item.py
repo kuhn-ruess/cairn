@@ -134,6 +134,12 @@ class Item(Document):
     owner = ReferenceField(User, required=True)
     parent = ReferenceField("Item")
     sort_order = IntField(default=0)
+    # Loose, symmetric "see also" links between items. Purely a reference
+    # surfaced in the inspector — deliberately NOT a hierarchy: no query
+    # anywhere filters/groups by ``related``, so it never affects lists,
+    # perspectives, the tree, or completion. Both sides carry the link
+    # (see ``relate_to`` / ``unrelate_from``).
+    related = ListField(ReferenceField("Item"))
 
     # common content
     title = StringField(required=True, max_length=500)
@@ -293,6 +299,44 @@ class Item(Document):
         self.completed_by = by
         self.completed_via = via
         self.save()
+
+    def related_items(self):
+        """Resolved related items for the inspector: skip dangling refs
+        (the other side was purged — mongoengine may leave a bare DBRef)
+        and trashed items (reference deref bypasses the ``objects`` manager,
+        so a trashed link would otherwise still show)."""
+        out = []
+        for r in self.related or []:
+            if not isinstance(r, Item) or r.trashed_at:
+                continue
+            out.append(r)
+        return out
+
+    def relate_to(self, other):
+        """Create a symmetric related link to ``other`` and persist both
+        sides. No-op for a self-link or an existing one. Compared by pk so
+        we don't depend on Document __eq__ across lazy dereferences."""
+        if other is None or other.pk == self.pk:
+            return
+        if all(getattr(r, "pk", None) != other.pk for r in self.related or []):
+            self.related.append(other)
+            self.save()
+        if all(getattr(r, "pk", None) != self.pk for r in other.related or []):
+            other.related.append(self)
+            other.save()
+
+    def unrelate_from(self, other):
+        """Drop the symmetric link to ``other`` from both sides. ``other``
+        may be None (already purged) — then only this side is cleaned up,
+        which also strips any dangling DBRef left in our list."""
+        oid = getattr(other, "pk", None)
+        self.related = [r for r in self.related or []
+                        if isinstance(r, Item) and r.pk != oid]
+        self.save()
+        if other is not None:
+            other.related = [r for r in other.related or []
+                             if isinstance(r, Item) and r.pk != self.pk]
+            other.save()
 
     def external_url(self, user=None):
         """Deep link to the upstream item this was imported from, or None.
