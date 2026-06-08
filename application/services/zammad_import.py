@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -37,6 +38,12 @@ from application.models.item import Comment, Item
 from application.models.user import User
 
 log = logging.getLogger(__name__)
+
+
+# Transient HTTP statuses worth retrying (rate-limit + gateway/5xx). Anything
+# else (auth, not-found, validation) is permanent and fails fast.
+_RETRY_STATUSES = {429, 500, 502, 503, 504}
+_MAX_RETRIES = 3
 
 
 class ZammadError(RuntimeError):
@@ -105,18 +112,40 @@ def _request(url: str, token: str, *, params: dict | None = None,
         data = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            raw = resp.read().decode("utf-8")
-            if not raw:
-                return None
-            return json.loads(raw)
-    except urllib.error.HTTPError as exc:
-        raise ZammadError(f"HTTP {exc.code} from {url}: {exc.read().decode('utf-8', errors='replace')[:300]}")
-    except urllib.error.URLError as exc:
-        raise ZammadError(f"network error: {exc.reason}")
-    except json.JSONDecodeError as exc:
-        raise ZammadError(f"unparseable JSON from {url}: {exc}")
+    # Retry transient failures with exponential backoff. Without this, a
+    # single rate-limit (429) or brief network blip on a per-ticket /tags or
+    # /articles call just skips that piece for the run — which is why a sync
+    # "eventually works after a few tries". Permanent client errors
+    # (401/403/404/422 …) are NOT retried — they won't fix themselves.
+    last_err: "ZammadError | None" = None
+    for attempt in range(_MAX_RETRIES + 1):
+        retry_after = None
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                raw = resp.read().decode("utf-8")
+                if not raw:
+                    return None
+                return json.loads(raw)
+        except urllib.error.HTTPError as exc:
+            if exc.code not in _RETRY_STATUSES:
+                body = exc.read().decode("utf-8", errors="replace")[:300]
+                raise ZammadError(f"HTTP {exc.code} from {url}: {body}")
+            retry_after = exc.headers.get("Retry-After") if exc.headers else None
+            last_err = ZammadError(f"HTTP {exc.code} from {url}")
+        except urllib.error.URLError as exc:
+            last_err = ZammadError(f"network error: {exc.reason}")
+        except json.JSONDecodeError as exc:
+            # A truncated body from an overloaded server can re-read cleanly.
+            last_err = ZammadError(f"unparseable JSON from {url}: {exc}")
+        if attempt < _MAX_RETRIES:
+            if retry_after and str(retry_after).isdigit():
+                delay = min(float(retry_after), 30.0)
+            else:
+                delay = 2.0 ** attempt          # 1s, 2s, 4s …
+            log.warning("Zammad %s — retrying in %.0fs (attempt %d/%d)",
+                        last_err, delay, attempt + 1, _MAX_RETRIES)
+            time.sleep(delay)
+    raise last_err
 
 
 _DONE_STATES = {"closed", "merged"}
