@@ -358,7 +358,11 @@ def reconcile_tags(user: User, url: str, token: str, *, dry_run: bool = False) -
             ensure_user_has_tags(user, live, group="Zammad")
         zammad_owned = {t.name for t in (user.tags or [])
                         if t.parent == "Zammad" or t.name == "Zammad"}
-        new_tags = overwrite_group_tags(it.tags, zammad_owned, live)
+        # Fold in the task's previous external_tags — Zammad's own last-set
+        # tags — so stale labels that were never parented under "Zammad" still
+        # get dropped. (Same reasoning as the per-ticket sync in _upsert.)
+        owned = zammad_owned | set(it.external_tags or [])
+        new_tags = overwrite_group_tags(it.tags, owned, live)
         if set(new_tags) == set(it.tags or []) and set(live) == set(it.external_tags or []):
             continue
         changed += 1
@@ -479,8 +483,20 @@ def _upsert_ticket(
         existing.source = "zammad"
         existing.external_ref = znum
         if tags_fetched:
+            # A tag is Zammad-owned (so a sync may drop/replace it) if it's
+            # under the "Zammad" group OR it was in this task's previous
+            # external_tags — i.e. a value Zammad itself set last sync. The
+            # group alone wasn't enough: an old workflow label that was never
+            # parented under "Zammad" (older imports, manual creates, the
+            # ungrouped _ensure_user_has_tags path) wasn't recognised as owned,
+            # so the live value got *appended* and the stale one lingered —
+            # looking like "the Zammad tag never overwrote the old one".
+            # external_tags is the authoritative per-task record of Zammad's
+            # own tags, so fold it in. User-added tags (never grouped, never
+            # in external_tags) still survive untouched.
+            owned = zammad_owned | set(existing.external_tags or [])
             existing.tags = overwrite_group_tags(
-                existing.tags, zammad_owned, new_external)
+                existing.tags, owned, new_external)
             existing.external_tags = new_external
         # A task the user parked as "scheduled" with a plan date is a
         # deliberate deferral ("I'll deal with this on day X"). A sync must

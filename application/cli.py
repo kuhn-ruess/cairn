@@ -338,15 +338,21 @@ def zammad_diagnose(username, ticket):
 
     zammad_owned = {tg.name for tg in (user.tags or [])
                     if tg.parent == "Zammad" or tg.name == "Zammad"}
-    click.echo(f"Zammad-group tags (owned, overwritten on sync): {sorted(zammad_owned)}")
-    would = overwrite_group_tags(task.tags, zammad_owned, live)
+    # A tag is owned (and thus overwritten) if it's under the Zammad group OR
+    # it was in this task's previous external_tags (= Zammad's own last-set
+    # tags). Mirrors the sync in zammad_import so this prediction is accurate.
+    owned = zammad_owned | set(task.external_tags or [])
+    click.echo(f"Zammad-group tags: {sorted(zammad_owned)}")
+    click.echo(f"owned this task (group ∪ prior external_tags): {sorted(owned)}")
+    would = overwrite_group_tags(task.tags, owned, live)
     click.echo(f"next sync would set tags = {would}")
     if set(would) == set(task.tags or []):
         click.echo("  → no change expected. If the live tags above are already "
                    "right, the ticket simply isn't being re-synced (deploy / "
-                   "filter / ownership). If a stale tag persists, it isn't under "
-                   "the 'Zammad' group — move it under the Zammad parent tag so "
-                   "the sync owns it, or use reconcile-zammad-tags.")
+                   "filter / ownership). If a stale tag persists and it's NOT in "
+                   "'owned' above, the sync never recorded it as Zammad's (older "
+                   "import / pre-existing user tag) — use reconcile-zammad-tags, "
+                   "or remove it once by hand.")
     else:
         click.echo("  → a sync SHOULD update this task. If it didn't, the running "
                    "build is older than this code — redeploy.")
