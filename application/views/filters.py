@@ -222,6 +222,17 @@ def register_filters(app):
             return ""
         return value.strftime("%Y-%m-%d")
 
+    @app.template_filter("duration")
+    def duration(value):
+        """Minutes → human duration: ``2h 30m`` / ``45m`` / ``3h`` / ``0m``."""
+        total = int(value or 0)
+        h, m = divmod(total, 60)
+        if h and m:
+            return f"{h}h {m}m"
+        if h:
+            return f"{h}h"
+        return f"{m}m"
+
     @app.template_filter("markdown")
     def markdown_filter(value):
         """Render Markdown to safe HTML for note bodies + comments.

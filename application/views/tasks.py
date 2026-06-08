@@ -2145,3 +2145,139 @@ def related_remove(task_id, rel_id):
     other = Item.all_objects(pk=rel_id).first()
     task.unrelate_from(other)
     return _related_response(task)
+
+
+# ---------- time tracking ----------
+
+def _parse_duration(raw: str) -> int | None:
+    """Parse a logged duration into whole minutes, or None if unparseable.
+
+    Accepts: ``90`` (minutes), ``1:30`` (h:mm), ``1h30m`` / ``1h`` / ``30m``,
+    ``1.5h`` / ``1,5h`` (decimal hours). Lenient on spaces."""
+    import re
+    s = (raw or "").strip().lower().replace(" ", "")
+    if not s:
+        return None
+    # H:MM
+    m = re.fullmatch(r"(\d+):([0-5]?\d)", s)
+    if m:
+        return int(m.group(1)) * 60 + int(m.group(2))
+    # decimal hours, e.g. 1.5h / 1,5h
+    m = re.fullmatch(r"(\d+(?:[.,]\d+)?)h", s)
+    if m:
+        return round(float(m.group(1).replace(",", ".")) * 60)
+    # XhYm / Xh / Ym (m optional unit too)
+    m = re.fullmatch(r"(?:(\d+)h)?(?:(\d+)m?)?", s)
+    if m and (m.group(1) or m.group(2)):
+        return int(m.group(1) or 0) * 60 + int(m.group(2) or 0)
+    # plain number → minutes
+    if s.isdigit():
+        return int(s)
+    return None
+
+
+def _time_response(task):
+    if request.headers.get("X-Partial") == "1":
+        return render_template("tasks/_time.html", task=task)
+    return redirect(url_for("tasks.detail", task_id=str(task.pk)) + "#time")
+
+
+@tasks_bp.route("/<task_id>/time", methods=["POST"])
+@login_required
+def time_add(task_id):
+    """Log a chunk of time on a task (manual duration + date + note)."""
+    from datetime import datetime as _dt
+    from application.models.item import TimeEntry
+    from application.services.tz import attach_user_tz, user_zone
+    task = _editable_task_or_404(task_id)
+    user = current_user._get_current_object()
+    minutes = _parse_duration(request.form.get("duration") or "")
+    if minutes:
+        raw_date = (request.form.get("spent_on") or "").strip()
+        try:
+            when = attach_user_tz(_dt.strptime(raw_date, "%Y-%m-%d"), user)
+        except (ValueError, TypeError):
+            when = datetime.now(user_zone(user))  # default: today, user-local
+        task.time_entries.append(TimeEntry(
+            minutes=minutes, spent_on=when, user=user,
+            note=(request.form.get("note") or "").strip()[:200],
+        ))
+        task.save()
+    return _time_response(task)
+
+
+@tasks_bp.route("/<task_id>/time/<int:index>/delete", methods=["POST"])
+@login_required
+def time_delete(task_id, index):
+    """Remove a logged time entry by its position in the list."""
+    task = _editable_task_or_404(task_id)
+    if 0 <= index < len(task.time_entries or []):
+        task.time_entries.pop(index)
+        task.save()
+    return _time_response(task)
+
+
+@tasks_bp.route("/time-report")
+@login_required
+def time_report():
+    """Monthly time overview: month → project → task, for the current
+    user's own logged entries (newest month first)."""
+    from application.services.tz import to_user_naive
+    user = current_user._get_current_object()
+
+    def _root(item):
+        cur, depth = item, 0
+        while cur is not None and depth < 12:
+            if cur.kind in ("project", "folder"):
+                return cur
+            cur, depth = cur.parent, depth + 1
+        return None
+
+    def _path(p):
+        parts, cur, depth = [], p, 0
+        while cur is not None and depth < 12:
+            if cur.kind in ("project", "folder"):
+                parts.append(cur.name)
+            cur, depth = cur.parent, depth + 1
+        return " / ".join(reversed(parts)) if parts else (p.name if p else "")
+
+    months: dict = {}
+    for it in Item.objects(time_entries__user=user):
+        proj = _root(it)
+        pid = str(proj.pk) if proj else "__inbox__"
+        pname = _path(proj) if proj else "Inbox / no project"
+        for e in (it.time_entries or []):
+            if not e.user or e.user.id != user.id:
+                continue  # only the viewer's own entries
+            local = to_user_naive(e.spent_on, user) or e.spent_on
+            key = f"{local.year:04d}-{local.month:02d}"
+            mo = months.setdefault(key, {
+                "key": key, "label": local.strftime("%B %Y"),
+                "total": 0, "projects": {},
+            })
+            mo["total"] += e.minutes
+            pr = mo["projects"].setdefault(
+                pid, {"name": pname, "total": 0, "tasks": {}})
+            pr["total"] += e.minutes
+            tk = pr["tasks"].setdefault(str(it.pk), {
+                "title": it.title, "id": str(it.pk), "total": 0, "entries": []})
+            tk["total"] += e.minutes
+            tk["entries"].append(
+                {"date": local, "minutes": e.minutes, "note": e.note})
+
+    months_out = []
+    for key in sorted(months, reverse=True):
+        mo = months[key]
+        projects = []
+        for pr in sorted(mo["projects"].values(), key=lambda p: -p["total"]):
+            tasks = sorted(pr["tasks"].values(), key=lambda t: -t["total"])
+            for t in tasks:
+                t["entries"].sort(key=lambda x: x["date"], reverse=True)
+            projects.append({**pr, "tasks": tasks})
+        months_out.append({**mo, "projects": projects})
+
+    return render_template(
+        "tasks/time_report.html",
+        months=months_out,
+        grand_total=sum(m["total"] for m in months_out),
+    )

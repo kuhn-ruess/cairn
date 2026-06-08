@@ -60,6 +60,17 @@
     </a>
   </div>
   <div class="col-sm-6 col-md-4 col-xl-3">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('tasks.time_report') }}">
+      <div class="card-body d-flex align-items-center gap-3">
+        <i class="bi bi-stopwatch fs-3 text-success"></i>
+        <div>
+          <div class="fw-semibold">Time report</div>
+          <div class="small text-muted">Logged time by month → project → task</div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-sm-6 col-md-4 col-xl-3">
     <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.export_data') }}">
       <div class="card-body d-flex align-items-center gap-3">
         <i class="bi bi-download fs-3 text-secondary"></i>

@@ -1,0 +1,56 @@
+{% extends "layout/base.html" %}
+{% block title %}Time report · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <h1 class="h4 mb-0"><i class="bi bi-stopwatch"></i> Time report</h1>
+  {% if grand_total %}
+    <span class="badge text-bg-primary ms-3">{{ grand_total|duration }} total</span>
+  {% endif %}
+</div>
+<p class="text-muted small">
+  Your logged time, grouped by month → project → task. Log time on a task in
+  the inspector's <strong>Time tracking</strong> section.
+</p>
+
+{% if not months %}
+  <div class="text-muted">No time logged yet.</div>
+{% endif %}
+
+{% for mo in months %}
+  <div class="card shadow-sm mb-3">
+    <div class="card-header d-flex align-items-center">
+      <h2 class="h6 mb-0">{{ mo.label }}</h2>
+      <span class="badge text-bg-secondary ms-auto">{{ mo.total|duration }}</span>
+    </div>
+    <div class="card-body py-2">
+      {% for pr in mo.projects %}
+        <div class="mb-2">
+          <div class="d-flex align-items-center border-bottom py-1">
+            <i class="bi bi-folder text-muted me-2"></i>
+            <span class="fw-semibold">{{ pr.name }}</span>
+            <span class="text-muted ms-auto small">{{ pr.total|duration }}</span>
+          </div>
+          {% for t in pr.tasks %}
+            <details class="ms-3 py-1">
+              <summary class="d-flex align-items-center" style="cursor: pointer;">
+                <a href="{{ url_for('tasks.detail', task_id=t.id) }}"
+                   class="text-decoration-none text-truncate">{{ t.title }}</a>
+                <span class="text-muted ms-auto small">{{ t.total|duration }}</span>
+              </summary>
+              <ul class="list-unstyled small text-muted mt-1 mb-0 ms-3">
+                {% for e in t.entries %}
+                  <li class="d-flex gap-2 py-1">
+                    <span class="badge text-bg-light">{{ e.date|date }}</span>
+                    <strong class="text-body">{{ e.minutes|duration }}</strong>
+                    {% if e.note %}<span class="text-truncate">{{ e.note }}</span>{% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            </details>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endfor %}
+{% endblock %}

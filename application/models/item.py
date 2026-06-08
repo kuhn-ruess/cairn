@@ -105,6 +105,18 @@ class NoteImage(EmbeddedDocument):
     created_at = DateTimeField(default=_utcnow)
 
 
+class TimeEntry(EmbeddedDocument):
+    """A manually logged chunk of time spent on a task: ``minutes`` worked on
+    ``spent_on`` (the date the work happened, tz-aware), with an optional
+    note. ``user`` records who logged it, since a task may be shared/assigned
+    — the monthly report groups each person's own entries."""
+    minutes = IntField(required=True, min_value=1)
+    spent_on = DateTimeField(default=_utcnow)
+    note = StringField(default="")
+    user = ReferenceField(User)
+    created_at = DateTimeField(default=_utcnow)
+
+
 class Item(Document):
     meta = {
         "collection": "items",
@@ -222,6 +234,9 @@ class Item(Document):
 
     # compressed images pasted into the note, stored inline (see NoteImage)
     note_images = EmbeddedDocumentListField(NoteImage)
+
+    # manually logged time spent on this task (see TimeEntry + time report)
+    time_entries = EmbeddedDocumentListField(TimeEntry)
 
     # ----- project-flavoured fields -----
     project_type = StringField(choices=PROJECT_TYPES, default="parallel")
@@ -618,6 +633,12 @@ class Item(Document):
         if not total:
             return 0
         return round(self.checklist_done * 100 / total)
+
+    # ----- time tracking -----
+    @property
+    def tracked_minutes(self) -> int:
+        """Total minutes logged across all time entries on this task."""
+        return sum(e.minutes or 0 for e in (self.time_entries or []))
 
     def assign_to(self, new_assignee, *, by_user=None):
         if new_assignee is None:

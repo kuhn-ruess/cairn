@@ -23,6 +23,7 @@ INSPECTOR_SECTIONS = (
     ("assigned_to", "Assignee"),
     ("flags", "Flags"),
     ("checklist", "Checklist"),
+    ("time", "Time tracking"),
     ("related", "Related"),
     ("comments", "Comments"),
 )

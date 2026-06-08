@@ -1,0 +1,39 @@
+{# Time tracking — re-rendered server-side and swapped in via time-entries.js
+   after every add / delete, so the markup lives in one place. No nested
+   <form> (the inspector wraps everything in one form): each action is a
+   button carrying its endpoint in data-action. ``fmt`` formats minutes. #}
+<h2 class="h6 text-muted small text-uppercase mb-2">
+  Time tracking
+  <span class="text-muted">({{ task.tracked_minutes|duration }})</span>
+  {% if task.time_entries %}
+    <a class="ms-1 small text-muted" href="{{ url_for('tasks.time_report') }}"
+       title="Monthly overview"><i class="bi bi-bar-chart"></i></a>
+  {% endif %}
+</h2>
+
+<ul class="time-list list-unstyled mb-2">
+  {% for e in task.time_entries %}
+    <li class="d-flex align-items-center gap-2 py-1">
+      <span class="badge text-bg-light text-muted">{{ e.spent_on|date }}</span>
+      <strong>{{ e.minutes|duration }}</strong>
+      {% if e.note %}<span class="text-muted text-truncate" title="{{ e.note }}">{{ e.note }}</span>{% endif %}
+      <button type="button" class="btn btn-link btn-sm p-0 text-muted ms-auto time-delete"
+              data-action="{{ url_for('tasks.time_delete', task_id=task.pk, index=loop.index0) }}"
+              title="Remove entry"><i class="bi bi-x-lg"></i></button>
+    </li>
+  {% else %}
+    <li class="text-muted small">No time logged yet.</li>
+  {% endfor %}
+</ul>
+
+<div class="time-add d-flex gap-2 flex-wrap align-items-center"
+     data-action="{{ url_for('tasks.time_add', task_id=task.pk) }}">
+  <input type="text" class="form-control form-control-sm time-add-duration"
+         style="max-width: 6.5rem;" placeholder="e.g. 1h30m" autocomplete="off"
+         title="90 · 1:30 · 1h30m · 1.5h">
+  <input type="date" class="form-control form-control-sm time-add-date"
+         style="max-width: 9.5rem;">
+  <input type="text" class="form-control form-control-sm time-add-note"
+         placeholder="Note (optional)" autocomplete="off" maxlength="200">
+  <button type="button" class="btn btn-sm btn-outline-primary time-add-btn">Log</button>
+</div>
