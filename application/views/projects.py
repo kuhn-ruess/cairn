@@ -1590,7 +1590,6 @@ def import_csv(project_id):
         due_val = _row_get(values, "due", "due date", "duedate",
                            "fälligkeitsdatum", "fälligkeit")
         if due_val:
-            from datetime import datetime
             from application.services.tz import attach_user_tz
             try:
                 # CSV dates are wall-clock in the user's local time;
