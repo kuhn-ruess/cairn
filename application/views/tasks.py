@@ -2217,13 +2217,12 @@ def time_delete(task_id, index):
     return _time_response(task)
 
 
-@tasks_bp.route("/time-report")
-@login_required
-def time_report():
-    """Monthly time overview: month → project → task, for the current
-    user's own logged entries (newest month first)."""
+def _user_time_rows(user) -> list[dict]:
+    """Flat list of the user's own logged time entries, with the owning
+    project resolved. Shared by the HTML report and the CSV export so both
+    see exactly the same data. Each row: date (user-local naive), month_key,
+    month_label, project, task(+id), minutes, note."""
     from application.services.tz import to_user_naive
-    user = current_user._get_current_object()
 
     def _root(item):
         cur, depth = item, 0
@@ -2241,29 +2240,48 @@ def time_report():
             cur, depth = cur.parent, depth + 1
         return " / ".join(reversed(parts)) if parts else (p.name if p else "")
 
-    months: dict = {}
+    rows = []
     for it in Item.objects(time_entries__user=user):
         proj = _root(it)
-        pid = str(proj.pk) if proj else "__inbox__"
         pname = _path(proj) if proj else "Inbox / no project"
         for e in (it.time_entries or []):
             if not e.user or e.user.id != user.id:
                 continue  # only the viewer's own entries
             local = to_user_naive(e.spent_on, user) or e.spent_on
-            key = f"{local.year:04d}-{local.month:02d}"
-            mo = months.setdefault(key, {
-                "key": key, "label": local.strftime("%B %Y"),
-                "total": 0, "projects": {},
+            rows.append({
+                "date": local,
+                "month_key": f"{local.year:04d}-{local.month:02d}",
+                "month_label": local.strftime("%B %Y"),
+                "project": pname,
+                "task": it.title,
+                "task_id": str(it.pk),
+                "minutes": e.minutes,
+                "note": e.note or "",
             })
-            mo["total"] += e.minutes
-            pr = mo["projects"].setdefault(
-                pid, {"name": pname, "total": 0, "tasks": {}})
-            pr["total"] += e.minutes
-            tk = pr["tasks"].setdefault(str(it.pk), {
-                "title": it.title, "id": str(it.pk), "total": 0, "entries": []})
-            tk["total"] += e.minutes
-            tk["entries"].append(
-                {"date": local, "minutes": e.minutes, "note": e.note})
+    return rows
+
+
+@tasks_bp.route("/time-report")
+@login_required
+def time_report():
+    """Monthly time overview: month → project → task, for the current
+    user's own logged entries (newest month first)."""
+    user = current_user._get_current_object()
+    months: dict = {}
+    for r in _user_time_rows(user):
+        mo = months.setdefault(r["month_key"], {
+            "key": r["month_key"], "label": r["month_label"],
+            "total": 0, "projects": {},
+        })
+        mo["total"] += r["minutes"]
+        pr = mo["projects"].setdefault(
+            r["project"], {"name": r["project"], "total": 0, "tasks": {}})
+        pr["total"] += r["minutes"]
+        tk = pr["tasks"].setdefault(r["task_id"], {
+            "title": r["task"], "id": r["task_id"], "total": 0, "entries": []})
+        tk["total"] += r["minutes"]
+        tk["entries"].append(
+            {"date": r["date"], "minutes": r["minutes"], "note": r["note"]})
 
     months_out = []
     for key in sorted(months, reverse=True):
@@ -2280,4 +2298,40 @@ def time_report():
         "tasks/time_report.html",
         months=months_out,
         grand_total=sum(m["total"] for m in months_out),
+    )
+
+
+@tasks_bp.route("/time-report.csv")
+@login_required
+def time_report_csv():
+    """Download the time log as a flat CSV (one row per entry, oldest first)
+    — a timesheet for billing/export."""
+    import csv
+    import io
+    user = current_user._get_current_object()
+    rows = sorted(_user_time_rows(user), key=lambda r: r["date"])
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Date", "Month", "Project", "Task",
+                     "Minutes", "Hours", "Note"])
+    for r in rows:
+        writer.writerow([
+            r["date"].strftime("%Y-%m-%d"),
+            r["month_key"],
+            r["project"],
+            r["task"],
+            r["minutes"],
+            f"{r['minutes'] / 60:.2f}",
+            r["note"],
+        ])
+
+    return Response(
+        buf.getvalue(),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition":
+                f"attachment; filename=cairn-time-report-"
+                f"{datetime.now(timezone.utc):%Y%m%d}.csv",
+        },
     )

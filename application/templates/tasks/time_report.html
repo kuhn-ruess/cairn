@@ -6,6 +6,12 @@
   {% if grand_total %}
     <span class="badge text-bg-primary ms-3">{{ grand_total|duration }} total</span>
   {% endif %}
+  {% if months %}
+    <a class="btn btn-sm btn-outline-secondary ms-auto"
+       href="{{ url_for('tasks.time_report_csv') }}">
+      <i class="bi bi-filetype-csv"></i> Export CSV
+    </a>
+  {% endif %}
 </div>
 <p class="text-muted small">
   Your logged time, grouped by month → project → task. Log time on a task in
