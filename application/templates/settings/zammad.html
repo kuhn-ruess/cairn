@@ -34,9 +34,17 @@
     {{ form.save_credentials(class="form-check-input") }}
     {{ form.save_credentials.label(class="form-check-label") }}
   </div>
-  <div class="form-check mb-3">
+  <div class="form-check mb-2">
     {{ form.show_sync_button(class="form-check-input") }}
     {{ form.show_sync_button.label(class="form-check-label") }}
+  </div>
+  <div class="form-check mb-3">
+    {{ form.auto_sync(class="form-check-input") }}
+    {{ form.auto_sync.label(class="form-check-label") }}
+    <div class="form-text small">
+      Runs in the background via the worker, every few minutes, using the
+      project + scope options below. Needs “Remember URL + token” ticked.
+    </div>
   </div>
 
   <div class="mb-3">

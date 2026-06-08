@@ -61,6 +61,7 @@ commands beyond the user-facing ones in the README:
 - `./cairn import-todoist <user> --token <todoist-token>` — full import of projects/labels/tasks/comments
 - `./cairn cleanup-completed-tasks [--dry-run] [--user <name>]` — cron-friendly sweep of done/dropped tasks past each user's retention window
 - `./cairn cleanup-trash [--dry-run] [--user <name>]` — cron-friendly purge of trashed items past each user's `trash_retention_days` (default 30; `0` = keep until emptied)
+- `./cairn sync-zammad-all [--all-configured] [--force] [--concurrency N]` — sync Zammad for all opted-in users in a thread pool. No-broker fallback / local-test equivalent of the Celery worker+beat (shares `application/services/zammad_auto.py`)
 - `./cairn migrate-tags-to-embedded` / `./cairn wipe-legacy-collections` — one-shot migrations from the older schema (see Architecture)
 
 ### Tests
@@ -118,6 +119,22 @@ Implications when writing queries or features:
   Reference dereferences (`parent`/`owner`/`assigned_to`) bypass the manager, so
   a trashed parent still resolves. Purge logic lives in
   `application/services/trash.py` (`./cairn cleanup-trash`).
+
+### Background workers (Celery + Redis)
+
+Distributed Zammad auto-sync runs on Celery, NOT in the web process.
+`application/celery_app.py` builds the Celery app (it calls `create_app()`
+so every task runs inside a Flask app context with the mongoengine
+connection). Two `@shared_task`s in `application/services/sync_tasks.py`:
+`zammad.enqueue_due` (Celery beat fires it every minute → fans out per due
+user) and `zammad.sync_user` (one user; horizontally scalable). A per-user
+Redis lock prevents double-runs. The broker-agnostic core is
+`application/services/zammad_auto.py` (`due_user_ids` + `sync_user`), shared
+by the tasks AND the `sync-zammad-all` CLI fallback — so swapping the broker
+later only touches the wrapper. Compose adds `redis`, `worker`, and `beat`
+services (run exactly one `beat`; scale `worker` with `--scale worker=N`).
+Per-user opt-in + replayed import options (project/scope) live on `User`
+(`zammad_auto_sync`, `zammad_sync_project`, …).
 
 ### Tags are embedded on `User`, not a top-level collection
 

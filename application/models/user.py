@@ -96,6 +96,14 @@ class User(UserMixin, Document):
     zammad_token = StringField()
     show_zammad_sync = BooleanField(default=False)
     last_zammad_sync_at = DateTimeField()
+    # Background auto-sync (Celery beat enqueues opted-in users periodically).
+    # The import options below mirror the user's last manual sync choices so
+    # the background run drops tickets in the same place. zammad_sync_project
+    # holds a project id ("" = inbox).
+    zammad_auto_sync = BooleanField(default=False)
+    zammad_sync_project = StringField(default="")
+    zammad_assignee_only = BooleanField(default=True)
+    zammad_include_closed = BooleanField(default=False)
 
     # Password reset
     password_reset_token = StringField()

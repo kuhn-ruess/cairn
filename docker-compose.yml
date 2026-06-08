@@ -1,3 +1,11 @@
+# Shared env for the app + Celery worker/beat (all run the same image and
+# need the same Mongo/Redis/secret config). Override real secrets via .env.
+x-app-env: &app-env
+  BKTODO_MONGO_HOST: mongo
+  BKTODO_MONGO_DB: bktodo
+  BKTODO_SECRET_KEY: change-me-in-production
+  BKTODO_REDIS_URL: redis://redis:6379/0
+
 services:
   mongo:
     image: mongo:7
@@ -9,6 +17,12 @@ services:
     environment:
       MONGO_INITDB_DATABASE: bktodo
 
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
   app:
     build: .
     restart: unless-stopped
@@ -17,11 +31,51 @@ services:
     env_file:
       - .env
     environment:
-      BKTODO_MONGO_HOST: mongo
-      BKTODO_MONGO_DB: bktodo
-      BKTODO_SECRET_KEY: change-me-in-production
+      <<: *app-env
     depends_on:
       - mongo
+      - redis
+
+  # Background sync workers — scale horizontally with
+  #   docker compose up -d --scale worker=N
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: *app-env
+    command:
+      - celery
+      - -A
+      - application.celery_app.celery
+      - worker
+      - --loglevel=info
+      - --concurrency=8
+      - -Q
+      - zammad
+    depends_on:
+      - mongo
+      - redis
+
+  # Single scheduler — enqueues due users every minute. Run exactly ONE.
+  beat:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: *app-env
+    command:
+      - celery
+      - -A
+      - application.celery_app.celery
+      - beat
+      - --loglevel=info
+      - --schedule=/tmp/celerybeat-schedule
+    depends_on:
+      - redis
 
 volumes:
   mongo-data:
+  redis-data:

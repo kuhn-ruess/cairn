@@ -391,6 +391,57 @@ def reconcile_zammad_tags_cmd(username, dry_run):
     click.echo(f"{'(dry-run) ' if dry_run else ''}total: {total_changed} task(s)")
 
 
+@cairn_cli.command("sync-zammad-all")
+@click.option("--all-configured", is_flag=True,
+              help="Sync everyone with Zammad set up, ignoring the auto-sync opt-in.")
+@click.option("--concurrency", default=8, show_default=True,
+              help="How many users to sync in parallel (I/O-bound, threads).")
+@click.option("--force", is_flag=True,
+              help="Ignore the per-user interval; sync even if recently synced.")
+def sync_zammad_all_cmd(all_configured, concurrency, force):
+    """Sync Zammad for all opted-in (or all configured) users, in parallel.
+
+    This is the no-broker fallback / local-test equivalent of the Celery
+    beat+worker setup — it shares the same core (application.services
+    .zammad_auto), so behaviour matches the background workers.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from flask import current_app
+    from application.services import zammad_auto
+    from application.services.zammad_import import ZammadError
+
+    interval = int(current_app.config.get("ZAMMAD_SYNC_INTERVAL_MIN", 5))
+    ids = zammad_auto.due_user_ids(interval, force=force,
+                                   all_configured=all_configured)
+    if not ids:
+        click.echo("No users due for a Zammad sync.")
+        return
+    click.echo(f"Syncing {len(ids)} user(s) with concurrency {concurrency}…")
+
+    def _run(uid):
+        try:
+            return uid, zammad_auto.sync_user(uid), None
+        except ZammadError as exc:
+            return uid, None, str(exc)
+
+    ok = failed = 0
+    with ThreadPoolExecutor(max_workers=max(concurrency, 1)) as pool:
+        futures = [pool.submit(_run, uid) for uid in ids]
+        for fut in as_completed(futures):
+            uid, stats, err = fut.result()
+            if err:
+                failed += 1
+                click.echo(f"  {uid}: ERROR {err}")
+            elif stats is None:
+                click.echo(f"  {uid}: skipped (not configured)")
+            else:
+                ok += 1
+                click.echo(f"  {uid}: created {stats.tickets_created}, "
+                           f"updated {stats.tickets_updated}, "
+                           f"errors {len(stats.errors)}")
+    click.echo(f"Done — {ok} ok, {failed} failed.")
+
+
 @cairn_cli.command("apply-label-rules")
 @click.option("--user", "username", default=None,
               help="Limit to a single user; omit to run for everyone.")

@@ -56,6 +56,7 @@ class ZammadImportForm(FlaskForm):
     token = PasswordField("Zammad API token", validators=[Optional()])
     save_credentials = BooleanField("Remember URL + token for future syncs")
     show_sync_button = BooleanField("Show a one-click Sync button in the toolbar")
+    auto_sync = BooleanField("Sync automatically in the background (every few minutes)")
     project = SelectField("Import into project", choices=[], validators=[Optional()])
     assignee_only = BooleanField("Only tickets assigned to me", default=True)
     include_closed = BooleanField("Include closed tickets")
@@ -565,6 +566,10 @@ def zammad():
         form.url.data = user.zammad_url or ""
         form.save_credentials.data = bool(user.zammad_url and user.zammad_token)
         form.show_sync_button.data = bool(user.show_zammad_sync)
+        form.auto_sync.data = bool(user.zammad_auto_sync)
+        form.project.data = user.zammad_sync_project or ""
+        form.assignee_only.data = bool(user.zammad_assignee_only)
+        form.include_closed.data = bool(user.zammad_include_closed)
 
     if form.validate_on_submit():
         url = (form.url.data or "").strip() or user.zammad_url
@@ -596,7 +601,17 @@ def zammad():
                 user.zammad_url = url
                 user.zammad_token = encrypt_for_user(user, token)
             user.show_zammad_sync = bool(form.show_sync_button.data)
+            # Persist the import options so the background auto-sync replays
+            # the same choices (project, scope) the user picked here.
+            user.zammad_auto_sync = bool(form.auto_sync.data)
+            user.zammad_sync_project = form.project.data or ""
+            user.zammad_assignee_only = bool(form.assignee_only.data)
+            user.zammad_include_closed = bool(form.include_closed.data)
             user.save()
+            if form.auto_sync.data and not (user.zammad_url and user.zammad_token):
+                flash("Auto-sync needs saved credentials — tick "
+                      "“Remember URL + token” so the background worker can "
+                      "authenticate.", "warning")
     return render_template("settings/zammad.html", form=form, stats=stats)
 
 

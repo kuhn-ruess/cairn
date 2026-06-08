@@ -13,6 +13,14 @@ class BaseConfig:
     TASKS_PER_PAGE = 50
     REVIEW_DEFAULT_INTERVAL_DAYS = 7
 
+    # Redis broker/result backend for the Celery background workers
+    # (distributed Zammad auto-sync). Override with BKTODO_REDIS_URL; in
+    # Docker that's ``redis://redis:6379/0``.
+    REDIS_URL = "redis://localhost:6379/0"
+    # How stale a user's last Zammad sync may get before the beat scheduler
+    # re-enqueues them. Beat ticks every minute; this spaces the actual syncs.
+    ZAMMAD_SYNC_INTERVAL_MIN = 5
+
     # IANA timezone name attached to Google Calendar events when the
     # task's datetime is naive (the datetime-local form input has no
     # offset). Set via BKTODO_DEFAULT_TZ in env, e.g. ``Europe/Berlin``.
