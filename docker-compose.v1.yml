@@ -20,6 +20,14 @@ services:
     volumes:
       - mongo-data:/data/db
 
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - redis-data:/data
+
   app:
     build:
       context: .
@@ -37,9 +45,50 @@ services:
       BKTODO_MONGO_HOST: mongo
       BKTODO_MONGO_DB: bktodo
       BKTODO_SECRET_KEY: change-me-in-production
+      BKTODO_REDIS_URL: redis://redis:6379/0
     command: ["gunicorn", "--bind", "0.0.0.0:8004", "--workers", "3", "--timeout", "600", "wsgi:app"]
     depends_on:
       - mongo
+      - redis
+
+  # Background Zammad sync workers. Scale out with
+  #   docker-compose -f docker-compose.v1.yml -p bktodo up -d --scale worker=N
+  worker:
+    build:
+      context: .
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - .env
+    environment:
+      BKTODO_MONGO_HOST: mongo
+      BKTODO_MONGO_DB: bktodo
+      BKTODO_SECRET_KEY: change-me-in-production
+      BKTODO_REDIS_URL: redis://redis:6379/0
+    command: ["celery", "-A", "application.celery_app.celery", "worker", "--loglevel=info", "--concurrency=8", "-Q", "zammad"]
+    depends_on:
+      - mongo
+      - redis
+
+  # Scheduler — enqueues due users every minute. Run exactly ONE.
+  beat:
+    build:
+      context: .
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - .env
+    environment:
+      BKTODO_MONGO_HOST: mongo
+      BKTODO_MONGO_DB: bktodo
+      BKTODO_SECRET_KEY: change-me-in-production
+      BKTODO_REDIS_URL: redis://redis:6379/0
+    command: ["celery", "-A", "application.celery_app.celery", "beat", "--loglevel=info", "--schedule=/tmp/celerybeat-schedule"]
+    depends_on:
+      - redis
 
 volumes:
   mongo-data:
+  redis-data:
