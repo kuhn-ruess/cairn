@@ -422,19 +422,24 @@ class Item(Document):
                 new_due = anchor + relativedelta(days=n)
                 defer_delta = relativedelta(days=n)
 
-        # Roll the defer and plan dates forward in step with the due date so
-        # their relationship to it is preserved each cycle. Prefer the
-        # relativedelta (month/year stay calendar-correct); for weekday/
-        # weekend/specific-weekday schedules — which have no relativedelta —
-        # shift by the raw difference between the new and old due dates.
+        # Roll the defer and plan dates forward so their relationship to the
+        # due date is preserved each cycle. When the task has a due date we
+        # anchor on it directly: keep each date's fixed offset to the due
+        # date and reapply it to the new due date. That stays correct even
+        # when ``repeat_from_completion`` makes the due date jump by the
+        # (possibly large) completion gap rather than by one period — the old
+        # ``defer_delta`` shift left the defer date lagging in the past in
+        # that case. With no due date to anchor against, fall back to the
+        # per-period shift (relativedelta where we have one, else the raw new
+        # vs. old due difference for weekday/weekend schedules).
         def _roll(date):
-            if not date or anchor is None:
+            if not date or new_due is None:
                 return None
+            if self.due_date is not None:
+                return new_due + (date - self.due_date)
             if defer_delta is not None:
                 return date + defer_delta
-            if new_due is not None:
-                return date + (new_due - anchor)
-            return None
+            return date + (new_due - anchor)
 
         new_defer = _roll(self.defer_date)
         new_plan = _roll(self.plan_date)

@@ -16,18 +16,27 @@ TASK_STATUSES = {
 }
 
 
-def apply_label_rules(item, user) -> bool:
+def apply_label_rules(item, user, only_tags=None) -> bool:
     """Return True if the item's status changed; caller should save it.
 
     First tag with a ``maps_to_status`` value wins — iterating in
     ``item.tags`` order. Subsequent tags don't reach this code so the
     order on the task acts as a priority list.
+
+    ``only_tags`` restricts the rule to a subset of tag names (e.g. the
+    tags *newly added* in this edit). This is how the inspector keeps a
+    status-mapping tag from re-snapping the status on every save: once
+    the tag is already on the task, a later manual status change must
+    stick. Pass ``None`` (default) to consider every tag — used by the
+    importers and the ``apply-label-rules`` CLI re-derive command.
     """
     if not item or getattr(item, "kind", None) != "task":
         return False
     if not item.tags:
         return False
     for name in item.tags:
+        if only_tags is not None and name not in only_tags:
+            continue
         tag = user.tag_by_name(name)
         if not tag or not tag.maps_to_status:
             continue

@@ -279,6 +279,11 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     task.project = resolve_visible_item(user, form.project.data) if form.project.data else None
     # Tags are stored as a list of names; the multi-select submits names.
     submitted = list(form.tags.data or [])
+    # Snapshot the tags already on the task so the label rule below only
+    # fires for tags added in *this* edit. Without this, a status-mapping
+    # tag re-snaps the status on every save and you can never move the
+    # task off that status by hand.
+    previously = set(task.tags or [])
     # Enforce exclusive-children groups: at most one child tag from a
     # parent flagged as exclusive_children.
     final, seen_excl = [], set()
@@ -300,7 +305,7 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     # is authoritative — if the user adds "Warte auf Kunde" the task
     # should become waiting regardless of what the dropdown said.
     from application.services.label_rules import apply_label_rules
-    apply_label_rules(task, user)
+    apply_label_rules(task, user, only_tags=set(final) - previously)
 
     if form.assigned_to.data:
         from application.services.permissions import resolve_assignable_user
