@@ -489,6 +489,11 @@
         redirect: "follow",
       });
       if (resp.status >= 200 && resp.status < 400) {
+        // The save dropped the actor out of scope (e.g. they reassigned a
+        // task they only saw via assignment). Don't keep an inspector open
+        // on a task they can no longer load — navigate where the server says.
+        const goTo = resp.headers.get("X-Inspector-Redirect");
+        if (goTo) { window.location.href = goTo; return; }
         // Server returns the saved-state inspector fragment. Keep the panel
         // open and just swap the body.
         body.innerHTML = await resp.text();

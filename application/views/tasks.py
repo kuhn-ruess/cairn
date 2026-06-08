@@ -1219,6 +1219,18 @@ def edit(task_id):
         _apply_smart_tokens(task, form.title.data, user)
         task.save()
         _writeback_calendar(task, user)
+        # An assignee who isn't the owner can reassign the task away from
+        # themselves — which drops them out of the visibility scope (owner OR
+        # assigned_to). Don't then bounce them to a detail page they can no
+        # longer load (that 404 is exactly what users hit): send them back to
+        # the inbox. They can hit "Take ownership" first to keep access.
+        if not task.can_be_viewed_by(user):
+            flash("Reassigned — it's no longer in your inbox.", "info")
+            if _is_inspector():
+                resp = Response(status=204)
+                resp.headers["X-Inspector-Redirect"] = url_for("tasks.inbox")
+                return resp
+            return redirect(url_for("tasks.inbox"))
         if _is_inspector():
             return _render_task_inspector(task, user, just_saved=True)
         flash("Item updated.", "success")
@@ -1231,6 +1243,28 @@ def edit(task_id):
     if _is_inspector():
         return render_template("tasks/_inspector.html", **context)
     return render_template("tasks/form.html", **context)
+
+
+@tasks_bp.route("/<task_id>/take-ownership", methods=["POST"])
+@login_required
+def take_ownership(task_id):
+    """Become the owner of a task you can see but don't own — e.g. a ticket
+    imported by someone else and merely assigned to you.
+
+    Owner is part of the visibility scope (owner OR assigned_to), so taking
+    ownership lets you keep access even after reassigning the task to a third
+    person. Requires only current view access; refuses if you can't see it."""
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_viewed_by(user):
+        abort(404)
+    if task.owner != user:
+        task.owner = user
+        task.save()
+    flash("You now own this task — it stays in your inbox even if you reassign it.",
+          "success")
+    return redirect(request.referrer or url_for("tasks.detail", task_id=str(task.pk)))
+
 
 @tasks_bp.route("/<task_id>/complete", methods=["POST"])
 @login_required

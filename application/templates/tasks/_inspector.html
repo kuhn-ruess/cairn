@@ -316,6 +316,20 @@
 </form>
 
 <div class="inspector-footer">
+  {% if task and not inspector_inline and task.owner and current_user.is_authenticated
+        and task.owner.id != current_user.id %}
+    {# You can see this task (assignee/member) but someone else owns it.
+       Taking ownership keeps it in your scope even after you reassign it. #}
+    <form method="post" action="{{ url_for('tasks.take_ownership', task_id=task.pk) }}"
+          class="m-0" data-inspector-side
+          data-confirm="Dieses Ticket übernehmen? Du wirst zum Owner und behältst den Zugriff, auch wenn du es jemand anderem zuweist.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-outline-secondary"
+              title="Übernehmen — du wirst Owner ({{ task.owner.display_name or task.owner.username }} ist es aktuell)">
+        <i class="bi bi-person-check"></i> Übernehmen
+      </button>
+    </form>
+  {% endif %}
   {% if task and not inspector_inline %}
     <form method="post" action="{{ url_for('tasks.convert_to_project', task_id=task.pk) }}"
           class="m-0" data-inspector-side
