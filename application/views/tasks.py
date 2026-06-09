@@ -470,17 +470,17 @@ def _plan_day_tasks(user, day_date, tz, *, is_today):
     single-day plate for an arbitrary date so the timeline + auto-plan share
     one definition of "today's work"."""
     from datetime import time as _time
+    day_start = datetime.combine(day_date, _time(0, 0)).replace(tzinfo=tz)
+    next_day = day_start + timedelta(days=1)
     day_end = datetime.combine(day_date, _time(23, 59, 59)).replace(tzinfo=tz)
-    out = []
-    for t in Item.objects(_scope(user), kind="task",
-                          status__nin=["done", "dropped", "someday"]):
-        pl = _as_tz(t.plan_date, tz)
-        du = _as_tz(t.due_date, tz)
-        if (pl and pl.date() == day_date) \
-           or (du and du <= day_end) \
-           or (is_today and t.flagged):
-            out.append(t)
-    return out
+    # Push the date filter into Mongo instead of scanning every open task:
+    # planned on this day OR due by end of it (overdue counts) OR flagged.
+    cond = (Q(plan_date__gte=day_start, plan_date__lt=next_day)
+            | Q(due_date__ne=None, due_date__lte=day_end))
+    if is_today:
+        cond = cond | Q(flagged=True)
+    return list(Item.objects(_scope(user), kind="task",
+                             status__nin=["done", "dropped", "someday"]).filter(cond))
 
 
 def _plan_classify(tasks, events, tz, day_date, now_utc):

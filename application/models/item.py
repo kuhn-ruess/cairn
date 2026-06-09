@@ -135,6 +135,11 @@ class Item(Document):
             ("owner", "kind"),
             ("owner", "status"),
             ("assigned_to", "status"),
+            # Today/Plan/forecast filter by owner+kind on a date field.
+            ("owner", "kind", "plan_date"),
+            ("owner", "kind", "due_date"),
+            # Project detail / sequential-blocking walk children by parent.
+            ("owner", "kind", "parent"),
         ],
         "ordering": ["+sort_order", "+created_at"],
     }
