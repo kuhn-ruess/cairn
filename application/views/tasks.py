@@ -2538,6 +2538,25 @@ def related_remove(task_id, rel_id):
     return _related_response(task)
 
 
+@tasks_bp.route("/<task_id>/subtasks", methods=["GET", "POST"])
+@login_required
+def subtasks(task_id):
+    """List + add sub-tasks of a task. The parent stays a task (no
+    ensure_container / project conversion) — a task can hold child tasks
+    directly. GET/POST both return the ``_subtasks`` partial for AJAX
+    callers; a plain POST redirects back to the detail page."""
+    task = _editable_task_or_404(task_id)
+    if request.method == "POST":
+        title = (request.form.get("title") or "").strip()[:500]
+        if title:
+            user = current_user._get_current_object()
+            Item(owner=user, kind="task", title=title, parent=task,
+                 status="next").save()
+        if request.headers.get("X-Partial") != "1":
+            return redirect(url_for("tasks.detail", task_id=str(task.pk)) + "#subtasks")
+    return render_template("tasks/_subtasks.html", task=task)
+
+
 # ---------- time tracking ----------
 
 def _parse_duration(raw: str) -> int | None:

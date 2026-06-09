@@ -132,6 +132,10 @@
       </form>
     </section>
 
+    <section class="task-detail-section" id="subtasks">
+      {% include "tasks/_subtasks.html" %}
+    </section>
+
     <section class="task-detail-section">
       <h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center">
         Comments
@@ -268,6 +272,62 @@
     } catch (err) {
       form.submit();
     }
+  });
+})();
+
+/* Subtasks — add + toggle without a full reload (re-render the partial). */
+(function () {
+  const section = document.getElementById("subtasks");
+  if (!section) return;
+  const csrf = () => {
+    const el = document.querySelector('input[name="csrf_token"]');
+    return el ? el.value : "";
+  };
+  async function refresh() {
+    const wrap = section.querySelector(".task-subtasks");
+    if (!wrap) return;
+    try {
+      const resp = await fetch(wrap.dataset.refreshUrl, { headers: { "X-Partial": "1" } });
+      if (resp.ok) section.innerHTML = await resp.text();
+    } catch (e) { /* leave as-is */ }
+  }
+  // add a subtask
+  section.addEventListener("submit", async (ev) => {
+    const form = ev.target.closest(".subtask-add");
+    if (!form) return;
+    ev.preventDefault();
+    const input = form.querySelector(".subtask-add-input");
+    const title = input.value.trim();
+    if (!title) return;
+    const fd = new FormData();
+    fd.append("csrf_token", csrf());
+    fd.append("title", title);
+    try {
+      const resp = await fetch(form.dataset.action, {
+        method: "POST", body: fd, credentials: "same-origin",
+        headers: { "X-Partial": "1" },
+      });
+      if (resp.ok) {
+        section.innerHTML = await resp.text();
+        const next = section.querySelector(".subtask-add-input");
+        if (next) next.focus();
+      }
+    } catch (e) { form.submit(); }
+  });
+  // complete / reopen a subtask
+  section.addEventListener("click", async (ev) => {
+    const btn = ev.target.closest(".subtask-toggle");
+    if (!btn) return;
+    ev.preventDefault();
+    const fd = new FormData();
+    fd.append("csrf_token", csrf());
+    try {
+      const resp = await fetch(btn.dataset.action, {
+        method: "POST", body: fd, credentials: "same-origin",
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      });
+      if (resp.ok) refresh();
+    } catch (e) { /* ignore */ }
   });
 })();
 

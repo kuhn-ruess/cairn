@@ -332,6 +332,11 @@ class Item(Document):
             out.append(r)
         return out
 
+    def child_tasks(self):
+        """Direct sub-tasks (``kind='task'`` children). A task can hold these
+        while staying a task — it does NOT have to become a project."""
+        return Item.objects(parent=self, kind="task").order_by("+sort_order", "+created_at")
+
     @property
     def related_count(self) -> int:
         """Cheap count of related links for list rows: reads the raw stored

@@ -2565,3 +2565,8 @@ body.ps-resizing * {
   transition: opacity .2s, transform .2s;
 }
 .plan-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* Sub-tasks on the task detail page */
+.subtask-item.is-done .subtask-title { text-decoration: line-through; }
+.subtask-toggle { line-height: 1; }
+.subtask-add-input { max-width: 28rem; }
