@@ -486,8 +486,15 @@ def _plan_day_tasks(user, day_date, tz, *, is_today):
             | Q(due_date__ne=None, due_date__lte=day_end))
     if is_today:
         cond = cond | Q(flagged=True)
-    return list(Item.objects(_scope(user), kind="task",
-                             status__nin=["done", "dropped", "someday"]).filter(cond))
+    active = list(Item.objects(_scope(user), kind="task",
+                               status__nin=["done", "dropped", "completed", "someday"])
+                  .filter(cond))
+    # Completed/dropped tasks that were planned (with a time) on this day stay
+    # on the timeline struck through — _plan_classify only keeps the timed ones.
+    done = list(Item.objects(_scope(user), kind="task",
+                             status__in=["done", "completed", "dropped"],
+                             plan_date__gte=day_start, plan_date__lt=next_day))
+    return active + done
 
 
 def _plan_classify(tasks, events, tz, day_date, now_utc):
@@ -520,11 +527,17 @@ def _plan_classify(tasks, events, tz, day_date, now_utc):
     for t in tasks:
         pl = _as_tz(t.plan_date, tz)
         dur = t.estimated_minutes or 30
+        is_done = t.status in ("done", "completed", "dropped")
         if pl and pl.date() == day_date and (pl.hour or pl.minute):
             end = pl + timedelta(minutes=dur)
             timed.append({"kind": "task", "obj": t, "start": pl, "end": end,
-                          "duration_min": dur, "title": t.title})
-            busy.append((pl, end))
+                          "duration_min": dur, "title": t.title, "done": is_done})
+            # A completed task stays on the timeline (struck through) but no
+            # longer blocks its slot for auto-plan.
+            if not is_done:
+                busy.append((pl, end))
+        elif is_done:
+            continue  # done with no time-of-day → don't clutter the backlog
         elif not t.is_blocked(now_utc):
             backlog.append({"kind": "task", "obj": t, "title": t.title,
                             "duration_min": dur})
@@ -900,7 +913,21 @@ def today():
                 "start": dt,
                 "end": dt + timedelta(minutes=t.estimated_minutes or 30),
                 "duration_min": t.estimated_minutes or 30,
-                "title": t.title,
+                "title": t.title, "done": False,
+            })
+        # Completed/dropped tasks that were planned in this window stay on the
+        # grid, struck through (filtered excludes them as it drives the list).
+        for t in Item.objects(_scope(user), kind="task",
+                              status__in=["done", "completed", "dropped"],
+                              plan_date__gte=start_dt, plan_date__lt=end_dt):
+            dt = _to_user(t.plan_date)
+            if not dt:
+                continue
+            timed_items.append({
+                "kind": "task", "obj": t, "start": dt,
+                "end": dt + timedelta(minutes=t.estimated_minutes or 30),
+                "duration_min": t.estimated_minutes or 30,
+                "title": t.title, "done": True,
             })
         timed_items.sort(key=lambda x: x["start"])
 

@@ -1854,6 +1854,9 @@ body.is-resizing-cal * { cursor: ns-resize !important; user-select: none !import
 .cal-pill-task {
   border-left-color: var(--gv-yellow-br);
 }
+/* completed task stays on the calendar grid, struck through + dimmed */
+.cal-pill-task.is-done { opacity: .6; filter: grayscale(.4); cursor: default; }
+.cal-pill-task.is-done .cal-pill-link { text-decoration: line-through; color: var(--gv-fg4); }
 .cal-pill-time {
   color: var(--gv-fg4);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
@@ -2511,10 +2514,11 @@ body.ps-resizing * {
 .plan-ico.plan-complete:hover {
   background: var(--gv-green); color: var(--gv-bg0); transform: scale(1.1);
 }
-.plan-card-done {
-  opacity: 0; transform: scale(.96);
-  transition: opacity .24s ease, transform .24s ease;
-}
+/* completed task stays on the timeline, struck through + dimmed */
+.plan-card.is-done { opacity: .62; filter: grayscale(.4); cursor: default; }
+.plan-card.is-done .plan-card-title { text-decoration: line-through; }
+.plan-card.is-done:hover { transform: none; box-shadow: 0 1px 3px rgba(0, 0, 0, .16); }
+.plan-card.is-done .plan-card-resize { display: none; }
 /* current / in-progress card (overlaps "now") */
 .plan-card-current {
   box-shadow: 0 0 0 2px var(--gv-aqua), 0 6px 16px rgba(0, 0, 0, .3) !important;

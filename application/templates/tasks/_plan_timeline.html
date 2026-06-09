@@ -111,15 +111,16 @@
               </div>
             </div>
           {% else %}
-            <div class="plan-card plan-card-task{% if is_current %} plan-card-current{% endif %}{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
-                 draggable="true"
+            <div class="plan-card plan-card-task{% if it.done %} is-done{% endif %}{% if is_current and not it.done %} plan-card-current{% endif %}{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
+                 draggable="{{ 'false' if it.done else 'true' }}"
                  data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
                  data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
                  data-inspector-title="{{ it.obj.title }}"
                  style="--top: {{ smin - range0 }}; --dur: {{ it.duration_min }};
                         --col: {{ it.col }}; --cols: {{ it.cols }};">
-              <button type="button" class="plan-ico plan-ico-task plan-complete" title="Mark done">
-                <i class="bi bi-check2"></i>
+              <button type="button" class="plan-ico plan-ico-task plan-complete"
+                      title="{{ 'Reopen' if it.done else 'Mark done' }}">
+                <i class="bi {{ 'bi-check-circle-fill text-success' if it.done else 'bi-check2' }}"></i>
               </button>
               <div class="plan-card-body">
                 <div class="plan-card-title">

@@ -287,7 +287,9 @@
     } catch (e) { alert("Resize failed (network)."); }
   });
 
-  // ---------- complete from the timeline (click the check chip) ----------
+  // ---------- complete / reopen from the timeline (click the check chip) ----
+  // Done tasks STAY on the timeline, struck through — the chip toggles state
+  // in place instead of removing the card.
   document.addEventListener("click", (ev) => {
     const chip = ev.target.closest && ev.target.closest(".plan-complete");
     if (!chip || !document.getElementById("plan-track")) return;
@@ -295,9 +297,14 @@
     const card = chip.closest("[data-task-id]");
     if (!card) return;
     const id = card.dataset.taskId;
-    card.classList.add("plan-card-done");
-    setTimeout(() => { card.remove(); relayoutColumns(ctx()); }, 240);
-    postForm(`/tasks/${id}/complete`, {})
+    const wasDone = card.classList.contains("is-done");
+    card.classList.toggle("is-done", !wasDone);
+    card.setAttribute("draggable", wasDone ? "true" : "false");
+    if (!wasDone) card.classList.remove("plan-card-current");
+    const icon = chip.querySelector("i");
+    if (icon) icon.className = wasDone ? "bi bi-check2" : "bi bi-check-circle-fill text-success";
+    chip.title = wasDone ? "Mark done" : "Reopen";
+    postForm(`/tasks/${id}/${wasDone ? "reopen" : "complete"}`, {})
       .then((r) => { if (!r.ok) throw new Error(r.status); })
       .catch(() => window.location.reload());
   });

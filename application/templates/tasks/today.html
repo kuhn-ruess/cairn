@@ -152,8 +152,8 @@
         {% else %}{{ it.title }}{% endif %}
       </span>
     {% else %}
-      <span class="cal-pill cal-pill-task"
-         draggable="true"
+      <span class="cal-pill cal-pill-task{% if it.done %} is-done{% endif %}"
+         draggable="{{ 'false' if it.done else 'true' }}"
          data-task-id="{{ it.obj.pk }}"
          data-est="{{ it.obj.estimated_minutes or 30 }}"
          data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
@@ -163,7 +163,7 @@
         {% if it.start %}<span class="cal-pill-time">{{ '%02d:%02d'|format(it.start.hour, it.start.minute) }}</span>{% endif %}
         <a class="cal-pill-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
         <span class="cal-pill-dur" title="Estimated duration">{{ it.obj.estimated_minutes or 30 }}m</span>
-        <span class="cal-pill-resize" title="Drag to change duration">⇕</span>
+        {% if not it.done %}<span class="cal-pill-resize" title="Drag to change duration">⇕</span>{% endif %}
       </span>
     {% endif %}
   {% endmacro %}
