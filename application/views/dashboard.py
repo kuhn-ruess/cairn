@@ -59,17 +59,20 @@ def home():
 
     # Two separate previews so the home page matches the GTD flow: deal
     # with the inbox (untriaged) first, then look at what's actually next.
-    next_actions = (
+    next_actions = list(
         Item.objects(_scope(user), status="next")
         .order_by("+due_date", "-flagged")
         .limit(10)
     )
-    inbox_preview = (
+    inbox_preview = list(
         Item.objects(_scope(user), kind="task", parent=None,
                      status__nin=["done", "dropped"])
         .order_by("-created_at")
         .limit(10)
     )
+    # Resolve parent/assignee refs in bulk so the row template doesn't N+1.
+    from application.services.prefetch import prefetch_refs
+    prefetch_refs(next_actions + inbox_preview)
 
     return render_template(
         "dashboard.html",

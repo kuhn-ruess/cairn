@@ -463,39 +463,7 @@ def _as_tz(dt, tz):
     return dt.astimezone(tz)
 
 
-def _prefetch_refs(items):
-    """Warm mongoengine's reference cache for a batch of items so template
-    access to ``.project`` (parent) / ``.assigned_to`` / ``.assigned_by``
-    resolves from memory instead of firing one query per row (N+1). One
-    ``$in`` query per referenced collection. Dangling refs keep their raw
-    value (unchanged behaviour). ``all_objects`` so a trashed parent still
-    resolves, mirroring how reference deref bypasses the queryset manager."""
-    from application.models.user import User as _User
-
-    def _rawid(raw):
-        return getattr(raw, "id", None) or getattr(raw, "pk", None)
-
-    item_ids, user_ids = set(), set()
-    for t in items:
-        praw = t._data.get("parent")
-        if praw is not None and not isinstance(praw, Item):
-            item_ids.add(_rawid(praw))
-        for f in ("assigned_to", "assigned_by"):
-            uraw = t._data.get(f)
-            if uraw is not None and not isinstance(uraw, _User):
-                user_ids.add(_rawid(uraw))
-    item_ids.discard(None)
-    user_ids.discard(None)
-    items_by_id = {p.pk: p for p in Item.all_objects(pk__in=list(item_ids))} if item_ids else {}
-    users_by_id = {u.pk: u for u in _User.objects(pk__in=list(user_ids))} if user_ids else {}
-    for t in items:
-        praw = t._data.get("parent")
-        if praw is not None and not isinstance(praw, Item):
-            t._data["parent"] = items_by_id.get(_rawid(praw), praw)
-        for f in ("assigned_to", "assigned_by"):
-            uraw = t._data.get(f)
-            if uraw is not None and not isinstance(uraw, _User):
-                t._data[f] = users_by_id.get(_rawid(uraw), uraw)
+from application.services.prefetch import prefetch_refs as _prefetch_refs
 
 
 def _plan_day_tasks(user, day_date, tz, *, is_today):
