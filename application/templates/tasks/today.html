@@ -695,6 +695,37 @@
     return card;
   }
 
+  // Re-pack overlapping cards into side-by-side columns (mirrors the
+  // server's _assign_columns) so same-time items never stack on top of
+  // each other after a client-side move/resize.
+  function relayoutColumns() {
+    const items = Array.from(lane.querySelectorAll(".plan-card")).map((el) => {
+      const start = RANGE0 + (parseFloat(el.style.getPropertyValue("--top")) || 0);
+      const dur = parseFloat(el.style.getPropertyValue("--dur")) || 30;
+      return { el, start, end: start + dur };
+    }).sort((a, b) => a.start - b.start || a.end - b.end);
+    let cluster = [], clusterEnd = null;
+    const flush = (group) => {
+      const colEnds = [];
+      group.forEach((it) => {
+        let col = colEnds.findIndex((e) => e <= it.start);
+        if (col === -1) { col = colEnds.length; colEnds.push(it.end); }
+        else colEnds[col] = it.end;
+        it.col = col;
+      });
+      group.forEach((it) => {
+        it.el.style.setProperty("--col", String(it.col));
+        it.el.style.setProperty("--cols", String(colEnds.length));
+      });
+    };
+    items.forEach((it) => {
+      if (cluster.length && it.start >= clusterEnd) { flush(cluster); cluster = []; clusterEnd = null; }
+      cluster.push(it);
+      clusterEnd = clusterEnd === null ? it.end : Math.max(clusterEnd, it.end);
+    });
+    if (cluster.length) flush(cluster);
+  }
+
   // Ghost preview that snaps to where the task will land + shows the time.
   const ghost = document.createElement("div");
   ghost.className = "plan-ghost";
@@ -759,6 +790,7 @@
     // if the server rejects it.
     if (el) el.classList.remove("plan-card-dragging");
     placeOnTimeline(el, minutes, est);
+    relayoutColumns();
     postForm(`/tasks/${id}/schedule`, {
       date: DATE, hour: String(Math.floor(minutes / 60)), minute: String(minutes % 60),
     }).then((r) => { if (!r.ok) throw new Error(r.status); })
@@ -796,6 +828,7 @@
     pill.setAttribute("draggable", "true");
     document.body.classList.remove("is-resizing-cal");
     if (minutes === start) return;
+    relayoutColumns();
     try {
       const r = await postForm(`/tasks/${pill.dataset.taskId}/duration`,
                                { minutes: String(minutes) });
