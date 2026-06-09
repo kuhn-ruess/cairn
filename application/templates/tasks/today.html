@@ -43,6 +43,7 @@
          value="{{ start_date.isoformat() }}"
          onchange="window.location='?date='+this.value+'&days={{ days }}&view={{ view_mode }}'">
 
+  {% if view_mode != 'plan' %}
   <span class="text-muted small ms-2">Range:</span>
   <div class="btn-group btn-group-sm" role="group">
     {% for n, label in [(1, '1 d'), (3, '3 d'), (7, '1 w'), (14, '2 w')] %}
@@ -50,6 +51,7 @@
          href="?date={{ start_date.isoformat() }}&days={{ n }}&view={{ view_mode }}">{{ label }}</a>
     {% endfor %}
   </div>
+  {% endif %}
 
   <span class="text-muted small ms-2">View:</span>
   <div class="btn-group btn-group-sm" role="group">
