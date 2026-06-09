@@ -1,0 +1,52 @@
+{% extends "layout/base.html" %}
+{# Owning-project pks across all groups so the sidebar can scope itself. #}
+{% set ns = namespace(pks=[]) %}
+{% for g in date_groups %}{% for t in g.tasks %}
+  {% set p = t.parent %}
+  {% if p and p.is_section %}{% set p = p.parent %}{% endif %}
+  {% if p and (p.pk|string) not in ns.pks %}{% set ns.pks = ns.pks + [p.pk|string] %}{% endif %}
+{% endfor %}{% endfor %}
+{% set page_affected_pks = ns.pks %}
+{% block title %}{{ title }} · Cairn{% endblock %}
+{% block content %}
+{% set view_key = "completed" %}
+{% set view_label = title %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <h1 class="h4 mb-0 me-auto">{{ title }} <span class="text-muted small">({{ total }})</span></h1>
+  {% include "tasks/_display_dropdown.html" %}
+</div>
+
+{% if date_groups %}
+  {% for g in date_groups %}
+    <section class="completed-day-group mb-3">
+      <h2 class="h6 text-muted small text-uppercase mb-2 completed-day-header">
+        <i class="bi bi-calendar-check"></i> {{ g.label }}
+        <span class="text-muted">({{ g.tasks|length }})</span>
+      </h2>
+      {% with tasks = g.tasks, view_key = "completed" %}
+        {% include "tasks/_list_body.html" %}
+      {% endwith %}
+    </section>
+  {% endfor %}
+
+  {% if has_prev or has_next %}
+    <nav class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top">
+      {% if has_prev %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('tasks.completed', page=page - 1) }}">
+          <i class="bi bi-chevron-left"></i> Newer
+        </a>
+      {% else %}<span></span>{% endif %}
+      <span class="text-muted small">
+        Page {{ page }}{% if total %} · {{ count }} of {{ total }}{% endif %}
+      </span>
+      {% if has_next %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('tasks.completed', page=page + 1) }}">
+          Older <i class="bi bi-chevron-right"></i>
+        </a>
+      {% else %}<span></span>{% endif %}
+    </nav>
+  {% endif %}
+{% else %}
+  <p class="text-muted">Nothing completed{% if page > 1 %} on this page{% endif %} yet.</p>
+{% endif %}
+{% endblock %}

@@ -1271,12 +1271,43 @@ def completed():
     user = current_user._get_current_object()
     # Tasks close as "done", projects as "completed" — show both so a
     # project that auto-completed (or was completed by hand) appears here
-    # alongside the tasks.
-    tasks = _filter_by_project(
+    # alongside the tasks. Paginated + grouped by completion date.
+    from collections import OrderedDict
+    PAGE_SIZE = 50
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except (TypeError, ValueError):
+        page = 1
+    base = _filter_by_project(
         Item.objects(_scope(user), status__in=["done", "completed"]), user,
-    ).order_by("-completed_at").limit(200)
+    ).order_by("-completed_at")
+    total = base.count()
+    items = prepare_list(base.skip((page - 1) * PAGE_SIZE).limit(PAGE_SIZE))
+
+    tz = resolve_tz(user)
+    today = datetime.now(tz).date()
+
+    def _label(d):
+        if d is None:
+            return "No completion date"
+        delta = (today - d).days
+        if delta == 0:
+            return "Today"
+        if delta == 1:
+            return "Yesterday"
+        return d.strftime("%A, %-d %b %Y")
+
+    buckets = OrderedDict()
+    for t in items:
+        d = t.completed_at.astimezone(tz).date() if t.completed_at else None
+        buckets.setdefault(d, []).append(t)
+    date_groups = [{"label": _label(d), "tasks": ts} for d, ts in buckets.items()]
+
     return render_template(
-        "tasks/list.html", title="Completed", perspective="completed", tasks=prepare_list(tasks)
+        "tasks/completed.html", title="Completed", perspective="completed",
+        date_groups=date_groups, count=len(items), total=total,
+        page=page, has_prev=page > 1, has_next=page * PAGE_SIZE < total,
+        page_size=PAGE_SIZE,
     )
 
 @tasks_bp.route("/search")
