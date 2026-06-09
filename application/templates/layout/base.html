@@ -22,8 +22,9 @@
       var m = document.cookie.match(/(?:^|;\s*)tz=([^;]+)/);
       var cur = m ? decodeURIComponent(m[1]) : null;
       if (cur === tz) return;
-      document.cookie = "tz=" + encodeURIComponent(tz) +
-                        "; path=/; max-age=31536000; samesite=Lax";
+      // Zone names are cookie-safe (letters, "/", "_", "-", "+"); store raw so
+      // the server doesn't receive a percent-encoded "/" it can't parse.
+      document.cookie = "tz=" + tz + "; path=/; max-age=31536000; samesite=Lax";
       if (document.cookie.indexOf("tz=") === -1) return;  // couldn't set → no reload loop
       location.reload();
     } catch (e) { /* no Intl / no cookies → fall back to profile/default tz */ }

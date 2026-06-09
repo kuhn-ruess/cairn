@@ -35,7 +35,10 @@ def resolve_tzname(user=None) -> str:
         return "UTC"
 
     if has_request_context():
-        ck = (request.cookies.get("tz") or "").strip()
+        # The browser may percent-encode the "/" in zone names (Europe%2FBerlin);
+        # unquote so ZoneInfo can parse it. (Stale encoded cookies live a year.)
+        from urllib.parse import unquote
+        ck = unquote((request.cookies.get("tz") or "").strip())
         if _valid(ck):
             return ck
 
