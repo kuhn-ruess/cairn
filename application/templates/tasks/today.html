@@ -178,7 +178,7 @@
         <div class="day-grid-row day-grid-head">
           <div class="day-hour-label"></div>
           {% for d in timeline.days %}
-            <div class="day-col-head">
+            <div class="day-col-head{% if d == timeline.today %} is-today{% endif %}">
               <div class="small text-muted">{{ d.strftime('%a') }}</div>
               <div class="fw-semibold">{{ d.strftime('%-d %b') }}</div>
             </div>
@@ -201,12 +201,19 @@
         </div>
       {% endif %}
       {% for h in timeline.hours %}
+        {% set is_now_hour = timeline.now_hour == h and timeline.today in timeline.days %}
         <div class="day-grid-row">
-          <div class="day-hour-label">{{ '%02d:00'|format(h) }}</div>
+          <div class="day-hour-label{% if is_now_hour %} is-now{% endif %}">{{ '%02d:00'|format(h) }}</div>
           {% for d in timeline.days %}
-            <div class="day-col-cell day-hour-slots day-drop"
+            <div class="day-col-cell day-hour-slots day-drop{% if d == timeline.today %} is-today-col{% endif %}"
                  data-day="{{ d.isoformat() }}"
                  data-hour="{{ h }}">
+              {% if is_now_hour and d == timeline.today %}
+                <div class="cal-now" style="--cal-top-min: {{ timeline.now_minute }};">
+                  <span class="cal-now-dot"></span>
+                  <span class="cal-now-time">{{ '%02d:%02d'|format(timeline.now_hour, timeline.now_minute) }}</span>
+                </div>
+              {% endif %}
               {% for it in timeline.by_day[d]['hours'][h] %}{{ item_pill(it) }}{% endfor %}
             </div>
           {% endfor %}

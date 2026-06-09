@@ -933,10 +933,14 @@ def today():
         else:
             lo, hi = 8, 18
 
+        now_local = now.astimezone(user_tz)
         timeline = {
             "hours": list(range(lo, hi)),
             "days": days_in_window,
             "by_day": by_day,
+            "today": today_date,            # real today, for column/now-line marking
+            "now_hour": now_local.hour,
+            "now_minute": now_local.minute,
         }
 
     # Single-column "Plan" timeline (structured.app-style day planner).

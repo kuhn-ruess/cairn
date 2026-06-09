@@ -1781,6 +1781,29 @@ body.is-dragging .ps-drop-target:hover,
 .day-calendar .day-hour-slots .cal-pill-task.cal-pill-dragging {
   z-index: 6;
 }
+/* current-time marker on the calendar grid */
+.day-col-cell.is-today-col { background: rgba(131, 165, 152, .05); }
+.day-col-head.is-today {
+  background: color-mix(in srgb, var(--gv-aqua) 16%, transparent);
+  box-shadow: inset 0 -2px 0 var(--gv-aqua);
+}
+.day-hour-label.is-now { color: var(--gv-red); font-weight: 700; }
+.cal-now {
+  position: absolute; left: 0; right: 0; z-index: 4;
+  top: calc(var(--cal-top-min, 0) * 0.633px);
+  border-top: 2px solid var(--gv-red); pointer-events: none;
+}
+.cal-now-dot {
+  position: absolute; left: -1px; top: -5px;
+  width: 8px; height: 8px; border-radius: 50%; background: var(--gv-red);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--gv-red) 60%, transparent);
+  animation: plan-now-pulse 2.4s ease-out infinite;
+}
+.cal-now-time {
+  position: absolute; right: 2px; top: -.62rem;
+  font-size: .6rem; font-weight: 700; color: #fff;
+  background: var(--gv-red); padding: 0 .3rem; border-radius: 1rem;
+}
 .cal-pill-link {
   color: inherit;
   text-decoration: none;
