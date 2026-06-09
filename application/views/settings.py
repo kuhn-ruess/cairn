@@ -83,6 +83,7 @@ TASK_ROW_FIELDS = (
     ("assignee",     "Assignee",      "Who the task is assigned to / from"),
     ("status_badge", "Status badge",  "Waiting / scheduled / someday badge"),
     ("comments",     "Comment count", "Chat icon + number of comments"),
+    ("related",      "Related count", "Link icon + number of related items"),
     ("note",         "Task note",     "Inline excerpt of the task's note text"),
     ("external_id",  "External ID",   "Imported ticket / row id (csv:…, zammad:…)"),
     ("source",       "Source chip",   "Where the task came from (jira / zammad / csv …)"),

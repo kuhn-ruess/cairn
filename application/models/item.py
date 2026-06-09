@@ -327,6 +327,16 @@ class Item(Document):
             out.append(r)
         return out
 
+    @property
+    def related_count(self) -> int:
+        """Cheap count of related links for list rows: reads the raw stored
+        refs straight from ``_data`` so it never dereferences (accessing
+        ``self.related`` would fire one $in query per row → N+1 down a list).
+        May include dangling/trashed refs the inspector's ``related_items``
+        filters out — a tiny over-count on a badge is the right trade for
+        zero extra queries (see CLAUDE.md: minimise DB load per page)."""
+        return len(self._data.get("related") or [])
+
     def relate_to(self, other):
         """Create a symmetric related link to ``other`` and persist both
         sides. No-op for a self-link or an existing one. Compared by pk so
