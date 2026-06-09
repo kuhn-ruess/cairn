@@ -21,6 +21,12 @@
             title="Clear today's task times and re-pack everything from scratch">
       <i class="bi bi-arrow-repeat"></i> Re-pack
     </button>
+    {% if plan_data.carryover_count %}
+      <button type="button" id="plan-carryover-btn" class="btn btn-sm btn-outline-warning"
+              title="Move unfinished tasks from before today onto today">
+        <i class="bi bi-arrow-down-left-circle"></i> Carry over {{ plan_data.carryover_count }}
+      </button>
+    {% endif %}
     <span class="text-muted small">
       Slots the <strong>Unplanned</strong> tasks into free time
       {{ '%02d:00'|format(plan_data.work_start_min // 60) }}–{{ '%02d:00'|format(plan_data.work_end_min // 60) }}

@@ -859,6 +859,19 @@
     if (!confirm("Re-pack the whole day? This clears today's task times and re-schedules them from scratch.")) return;
     runAutoPlan(repack, { date: repack.dataset.date, mode: "repack" }, "Re-packing…");
   });
+  const carry = document.getElementById("plan-carryover-btn");
+  if (carry) carry.addEventListener("click", async () => {
+    const orig = carry.innerHTML;
+    carry.disabled = true;
+    carry.innerHTML = '<i class="bi bi-hourglass-split"></i> Carrying over…';
+    try {
+      const r = await postForm("/tasks/carry-over", {});
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { alert("Carry-over failed (" + r.status + ")"); carry.disabled = false; carry.innerHTML = orig; return; }
+      sessionStorage.setItem("plan_toast", `Carried ${j.moved} task(s) to today.`);
+      window.location.reload();
+    } catch (e) { alert("Carry-over failed (network)."); carry.disabled = false; carry.innerHTML = orig; }
+  });
 
   // ---- complete a task straight from the timeline (click the check chip) ----
   document.addEventListener("click", (ev) => {

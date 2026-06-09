@@ -1001,15 +1001,25 @@ def today():
             for m, titles in sorted(due_raw.items())
         ]
         now_min = None
+        carryover_count = 0
         if plan_is_today:
             n_local = now.astimezone(_u_tz)
             now_min = n_local.hour * 60 + n_local.minute
+            # Unfinished tasks stranded in the past (offered as "carry over").
+            from datetime import time as _time2
+            day_start_local = datetime.combine(start_date, _time2(0, 0)).replace(tzinfo=_u_tz)
+            carryover_count = Item.objects(
+                _scope(user), kind="task",
+                status__nin=["done", "dropped", "someday"],
+                plan_date__ne=None, plan_date__lt=day_start_local,
+            ).count()
         plan_data = {
             "timed": timed,
             "allday": cls["allday"],
             "backlog": cls["backlog"],
             "next_pool": next_pool,
             "due_markers": due_markers,
+            "carryover_count": carryover_count,
             "range_start_min": lo_min,
             "range_end_min": hi_min,
             "work_start_min": start_h * 60,
@@ -1730,6 +1740,32 @@ def unschedule(task_id):
     task.save()
     warnings = _writeback_calendar(task, user) or []
     return jsonify({"ok": True, "warnings": warnings})
+
+
+@tasks_bp.route("/carry-over", methods=["POST"])
+@login_required
+def carry_over():
+    """Pull forward unfinished tasks whose plan time is before today: their
+    ``plan_date`` is reset to today (midnight → today's Plan backlog) so they
+    resurface instead of being stranded in the past."""
+    from flask import jsonify
+    from datetime import time as _t
+    user = current_user._get_current_object()
+    now = datetime.now(timezone.utc)
+    tz = resolve_tz(user)
+    today = now.astimezone(tz).date()
+    day_start = datetime.combine(today, _t(0, 0)).replace(tzinfo=tz)
+    moved, warnings = 0, []
+    for t in Item.objects(_scope(user), kind="task",
+                          status__nin=["done", "dropped", "someday"],
+                          plan_date__ne=None, plan_date__lt=day_start):
+        if not t.can_be_edited_by(user):
+            continue
+        t.plan_date = day_start
+        t.save()
+        warnings.extend(_writeback_calendar(t, user) or [])
+        moved += 1
+    return jsonify({"ok": True, "moved": moved, "warnings": warnings})
 
 
 @tasks_bp.route("/auto-plan", methods=["POST"])
