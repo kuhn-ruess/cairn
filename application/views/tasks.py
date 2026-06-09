@@ -528,6 +528,9 @@ def _plan_classify(tasks, events, tz, day_date, now_utc):
       - backlog: tasks with no time yet (auto-plan candidates), not blocked.
       - busy: [(start, end)] intervals the auto-planner must avoid.
     """
+    # Warm parent/assignee refs in bulk: is_blocked() below dereferences
+    # each task's parent, which would otherwise N+1 down the candidate list.
+    _prefetch_refs(tasks)
     timed, allday, backlog, busy = [], [], [], []
     for ev in events:
         s = _as_tz(ev.start, tz)
@@ -994,9 +997,13 @@ def today():
         # work in by hand without "Plan my day" hoovering it all up.
         seen_pks = ({c["obj"].pk for c in cls["backlog"]}
                     | {it["obj"].pk for it in timed if it["kind"] == "task"})
+        # Materialise a bounded slice + prefetch so the is_blocked() parent
+        # deref below doesn't N+1 (we only need 50 after filtering).
+        next_candidates = list(Item.objects(_scope(user), kind="task", status="next")
+                               .order_by("+sort_order", "+due_date").limit(200))
+        _prefetch_refs(next_candidates)
         next_pool = []
-        for t in Item.objects(_scope(user), kind="task", status="next") \
-                     .order_by("+sort_order", "+due_date"):
+        for t in next_candidates:
             if t.pk in seen_pks or t.is_blocked(now):
                 continue
             next_pool.append({"obj": t, "title": t.title,
