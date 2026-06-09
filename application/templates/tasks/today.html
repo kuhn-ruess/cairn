@@ -852,6 +852,67 @@
     } catch (e) { alert("Auto-plan failed (network)."); auto.disabled = false; }
   });
 
+  // ---- complete a task straight from the timeline (click the check chip) ----
+  document.addEventListener("click", (ev) => {
+    const chip = ev.target.closest && ev.target.closest(".plan-complete");
+    if (!chip) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const card = chip.closest("[data-task-id]");
+    if (!card) return;
+    const id = card.dataset.taskId;
+    card.classList.add("plan-card-done");
+    setTimeout(() => { card.remove(); relayoutColumns(); }, 240);
+    postForm(`/tasks/${id}/complete`, {})
+      .then((r) => { if (!r.ok) throw new Error(r.status); })
+      .catch(() => window.location.reload());
+  });
+
+  // ---- drag a timeline card back to the backlog → unschedule ----
+  function cardToRail(card, rail) {
+    const link = card.querySelector(".plan-card-title a");
+    const est = card.dataset.est || "30";
+    const item = document.createElement("div");
+    item.className = "plan-rail-item plan-card-task" + prioClass(card);
+    item.setAttribute("draggable", "true");
+    item.dataset.taskId = card.dataset.taskId;
+    item.dataset.est = est;
+    if (card.dataset.inspectorUrl) item.dataset.inspectorUrl = card.dataset.inspectorUrl;
+    if (card.dataset.inspectorTitle) item.dataset.inspectorTitle = card.dataset.inspectorTitle;
+    item.innerHTML = '<i class="bi bi-grip-vertical plan-grip"></i>' +
+      '<a class="plan-rail-link"></a><span class="plan-rail-dur">' + est + "m</span>";
+    const a = item.querySelector(".plan-rail-link");
+    a.setAttribute("href", link ? link.getAttribute("href") : "#");
+    a.textContent = link ? link.textContent.trim() : "";
+    rail.appendChild(item);
+    card.remove();
+  }
+  const backlog = document.getElementById("plan-backlog");
+  if (backlog) {
+    const canDrop = () => dragId && dragEl && dragEl.classList.contains("plan-card");
+    backlog.addEventListener("dragover", (ev) => {
+      if (!canDrop()) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = "move";
+      track.classList.remove("is-drop-over"); hideGhost();
+      backlog.classList.add("is-drop-over");
+    });
+    backlog.addEventListener("dragleave", (ev) => {
+      if (!backlog.contains(ev.relatedTarget)) backlog.classList.remove("is-drop-over");
+    });
+    backlog.addEventListener("drop", (ev) => {
+      if (!canDrop()) return;
+      ev.preventDefault();
+      backlog.classList.remove("is-drop-over");
+      const id = dragId, el = dragEl;
+      dragId = null; dragEl = null;
+      cardToRail(el, backlog);
+      relayoutColumns();
+      postForm(`/tasks/${id}/unschedule`, {})
+        .then((r) => { if (!r.ok) throw new Error(r.status); })
+        .catch(() => window.location.reload());
+    });
+  }
+
   // ---- surface the post-reload toast ----
   const toast = sessionStorage.getItem("plan_toast");
   if (toast) {

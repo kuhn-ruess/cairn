@@ -968,17 +968,38 @@ def today():
                               "duration_min": t.estimated_minutes or 30})
             if len(next_pool) >= 50:
                 break
+        # Deadline markers: tasks in today's plate whose due date lands on
+        # this day get a line on the timeline at their due time.
+        due_raw = {}  # minute-of-day → [titles]
+        for src in (timed,
+                    [{"obj": c["obj"]} for c in cls["backlog"]],
+                    [{"obj": c["obj"]} for c in next_pool]):
+            for it in src:
+                t = it["obj"]
+                if it.get("kind") == "event":
+                    continue
+                du = _as_tz(getattr(t, "due_date", None), _u_tz)
+                if du and du.date() == start_date:
+                    due_raw.setdefault(du.hour * 60 + du.minute, []).append(t.title)
+
         start_h = user.plan_day_start if user.plan_day_start is not None else 9
         end_h = user.plan_day_end if user.plan_day_end is not None else 18
-        # Render range = working window, widened to any timed item outside it,
-        # snapped to whole hours.
+        # Render range = working window, widened to any timed item or due
+        # marker outside it, snapped to whole hours.
         lo_min, hi_min = start_h * 60, end_h * 60
         for it in cls["timed"]:
             s, e = it["start"], it["end"]
             lo_min = min(lo_min, s.hour * 60 + s.minute)
             hi_min = max(hi_min, e.hour * 60 + e.minute)
+        for dm in due_raw:
+            lo_min = min(lo_min, dm)
+            hi_min = max(hi_min, dm)
         lo_min = (lo_min // 60) * 60
         hi_min = min(24 * 60, ((hi_min + 59) // 60) * 60)
+        due_markers = [
+            {"min": m, "label": " · ".join(titles[:3])}
+            for m, titles in sorted(due_raw.items())
+        ]
         now_min = None
         if plan_is_today:
             n_local = now.astimezone(_u_tz)
@@ -988,6 +1009,7 @@ def today():
             "allday": cls["allday"],
             "backlog": cls["backlog"],
             "next_pool": next_pool,
+            "due_markers": due_markers,
             "range_start_min": lo_min,
             "range_end_min": hi_min,
             "work_start_min": start_h * 60,
@@ -1692,6 +1714,22 @@ def duration(task_id):
     task.save()
     warnings = _writeback_calendar(task, user) or []
     return jsonify({"ok": True, "estimated_minutes": minutes, "warnings": warnings})
+
+
+@tasks_bp.route("/<task_id>/unschedule", methods=["POST"])
+@login_required
+def unschedule(task_id):
+    """Clear a task's ``plan_date`` (drag it off the Plan timeline back into
+    the backlog). Removes the mirrored plan event from Google too."""
+    from flask import jsonify
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_edited_by(user):
+        abort(404)
+    task.plan_date = None
+    task.save()
+    warnings = _writeback_calendar(task, user) or []
+    return jsonify({"ok": True, "warnings": warnings})
 
 
 @tasks_bp.route("/auto-plan", methods=["POST"])

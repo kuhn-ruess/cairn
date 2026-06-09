@@ -69,13 +69,25 @@
         </div>
       {% endif %}
 
+      {# deadline markers — a red line at each task's due time #}
+      {% for dm in plan_data.due_markers %}
+        {% if dm.min >= range0 and dm.min <= plan_data.range_end_min %}
+          <div class="plan-due" style="--top: {{ dm.min - range0 }};">
+            <span class="plan-due-label">
+              <i class="bi bi-flag-fill"></i> {{ '%02d:%02d'|format(dm.min // 60, dm.min % 60) }}{% if dm.label %} · {{ dm.label }}{% endif %}
+            </span>
+          </div>
+        {% endif %}
+      {% endfor %}
+
       {# one chronological column; overlaps split into --col/--cols #}
       <div class="plan-lane">
         {% for it in plan_data.timed %}
           {% set smin = it.start.hour * 60 + it.start.minute %}
           {% set tspan = '%02d:%02d–%02d:%02d'|format(it.start.hour, it.start.minute, it.end.hour, it.end.minute) %}
+          {% set is_current = plan_data.now_min is not none and smin <= plan_data.now_min < smin + it.duration_min %}
           {% if it.kind == 'event' %}
-            <div class="plan-card plan-card-event"
+            <div class="plan-card plan-card-event{% if is_current %} plan-card-current{% endif %}"
                  style="--top: {{ smin - range0 }}; --dur: {{ it.duration_min }};
                         --col: {{ it.col }}; --cols: {{ it.cols }}; --c: {{ it.obj.calendar_color }};">
               <span class="plan-ico"><i class="bi bi-calendar-event"></i></span>
@@ -88,14 +100,16 @@
               </div>
             </div>
           {% else %}
-            <div class="plan-card plan-card-task{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
+            <div class="plan-card plan-card-task{% if is_current %} plan-card-current{% endif %}{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
                  draggable="true"
                  data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
                  data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
                  data-inspector-title="{{ it.obj.title }}"
                  style="--top: {{ smin - range0 }}; --dur: {{ it.duration_min }};
                         --col: {{ it.col }}; --cols: {{ it.cols }};">
-              <span class="plan-ico plan-ico-task"><i class="bi bi-check2"></i></span>
+              <button type="button" class="plan-ico plan-ico-task plan-complete" title="Mark done">
+                <i class="bi bi-check2"></i>
+              </button>
               <div class="plan-card-body">
                 <div class="plan-card-title">
                   <a href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
@@ -114,10 +128,11 @@
      what "Plan my day" auto-fills). "Next" = other next-actions you can pull
      in by hand — never auto-planned. Drag any pill onto the track. #}
   <div class="plan-rails mt-3">
-    <div class="plan-rail">
+    <div class="plan-rail" id="plan-backlog">
       <h2 class="plan-rail-head">
         <i class="bi bi-inbox"></i> Unplanned <span class="plan-rail-count">{{ plan_data.backlog|length }}</span>
       </h2>
+      <div class="plan-rail-hint">Drag a card here to unschedule it</div>
       {% for it in plan_data.backlog %}
         <div class="plan-rail-item plan-card-task{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
              draggable="true"

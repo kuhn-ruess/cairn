@@ -2480,6 +2480,46 @@ body.ps-resizing * {
   background: var(--gv-bg3); border-radius: 1rem; padding: 0 .45rem;
 }
 
+/* complete-from-timeline chip */
+.plan-ico.plan-complete {
+  border: 0; padding: 0; line-height: 1; cursor: pointer;
+  transition: background .12s ease, color .12s ease, transform .12s ease;
+}
+.plan-ico.plan-complete:hover {
+  background: var(--gv-green); color: var(--gv-bg0); transform: scale(1.1);
+}
+.plan-card-done {
+  opacity: 0; transform: scale(.96);
+  transition: opacity .24s ease, transform .24s ease;
+}
+/* current / in-progress card (overlaps "now") */
+.plan-card-current {
+  box-shadow: 0 0 0 2px var(--gv-aqua), 0 6px 16px rgba(0, 0, 0, .3) !important;
+}
+.plan-card-current .plan-ico { animation: plan-now-pulse 2.4s ease-out infinite; }
+
+/* deadline markers */
+.plan-due {
+  position: absolute; left: 0; right: 0; z-index: 7;
+  top: calc(var(--top) * var(--plan-ppm));
+  border-top: 1px dashed var(--gv-red); pointer-events: none;
+}
+.plan-due-label {
+  position: absolute; right: .4rem; top: -.7rem;
+  display: inline-flex; align-items: center; gap: .25rem;
+  font-size: .62rem; font-weight: 700; color: var(--gv-red);
+  background: var(--gv-bg0); padding: .03rem .4rem; border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--gv-red) 50%, transparent);
+  max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* backlog as an unschedule drop target */
+.plan-rail-hint { font-size: .67rem; color: var(--gv-fg4); margin-bottom: .45rem; }
+#plan-backlog.is-drop-over {
+  outline: 2px dashed var(--gv-aqua); outline-offset: 4px; border-radius: .6rem;
+  background: color-mix(in srgb, var(--gv-aqua) 7%, transparent);
+}
+
 .plan-toast {
   position: fixed; bottom: 1.2rem; left: 50%;
   transform: translateX(-50%) translateY(1rem);
