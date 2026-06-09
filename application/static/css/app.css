@@ -2409,6 +2409,21 @@ body.ps-resizing * {
   outline: 2px dashed var(--gv-aqua); outline-offset: -2px;
   background: color-mix(in srgb, var(--gv-aqua) 5%, var(--gv-bg1));
 }
+/* live drop preview: where the dragged task will land + its time span */
+.plan-ghost {
+  position: absolute; left: 0; right: 0; z-index: 9;
+  top: calc(var(--top) * var(--plan-ppm));
+  height: calc(var(--dur) * var(--plan-ppm));
+  min-height: 1.3rem; pointer-events: none;
+  border: 2px dashed var(--gv-aqua); border-radius: .4rem;
+  background: color-mix(in srgb, var(--gv-aqua) 14%, transparent);
+}
+.plan-ghost-label {
+  position: absolute; top: -.55rem; left: .4rem;
+  font-size: .68rem; font-weight: 700; color: var(--gv-aqua);
+  background: var(--gv-bg1); padding: 0 .3rem; border-radius: .25rem;
+  white-space: nowrap;
+}
 .plan-toast {
   position: fixed; bottom: 1.2rem; left: 50%;
   transform: translateX(-50%) translateY(1rem);

@@ -650,11 +650,37 @@
   }
 
   // ---- drag a task / backlog pill onto the track → set plan time ----
-  let dragId = null;
+  let dragId = null, dragEst = 30;
+  const fmt = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" +
+                     String(m % 60).padStart(2, "0");
+
+  // Ghost preview that snaps to where the task will land + shows the time.
+  const ghost = document.createElement("div");
+  ghost.className = "plan-ghost";
+  ghost.style.display = "none";
+  ghost.innerHTML = '<span class="plan-ghost-label"></span>';
+  track.appendChild(ghost);
+  const ghostLabel = ghost.querySelector(".plan-ghost-label");
+
+  function snapAt(clientY) {
+    const rect = track.getBoundingClientRect();
+    let m = RANGE0 + (clientY - rect.top) / PPM;
+    m = Math.round(m / SNAP) * SNAP;
+    return Math.max(0, Math.min(24 * 60 - SNAP, m));
+  }
+  function showGhost(minutes) {
+    ghost.style.setProperty("--top", String(minutes - RANGE0));
+    ghost.style.setProperty("--dur", String(dragEst));
+    ghostLabel.textContent = fmt(minutes) + "–" + fmt(minutes + dragEst);
+    ghost.style.display = "block";
+  }
+  function hideGhost() { ghost.style.display = "none"; }
+
   document.addEventListener("dragstart", (ev) => {
     const p = ev.target.closest && ev.target.closest(".plan-pill-task[data-task-id]");
     if (!p) return;
     dragId = p.dataset.taskId;
+    dragEst = parseInt(p.dataset.est || "30", 10) || 30;
     ev.dataTransfer.effectAllowed = "move";
     ev.dataTransfer.setData("text/plain", dragId);
     p.classList.add("plan-pill-dragging");
@@ -663,6 +689,7 @@
     const p = ev.target.closest && ev.target.closest(".plan-pill-task");
     if (p) p.classList.remove("plan-pill-dragging");
     track.classList.remove("is-drop-over");
+    hideGhost();
     dragId = null;
   });
   track.addEventListener("dragover", (ev) => {
@@ -670,18 +697,20 @@
     ev.preventDefault();
     ev.dataTransfer.dropEffect = "move";
     track.classList.add("is-drop-over");
+    showGhost(snapAt(ev.clientY));
   });
   track.addEventListener("dragleave", (ev) => {
-    if (!track.contains(ev.relatedTarget)) track.classList.remove("is-drop-over");
+    if (!track.contains(ev.relatedTarget)) {
+      track.classList.remove("is-drop-over");
+      hideGhost();
+    }
   });
   track.addEventListener("drop", async (ev) => {
     if (!dragId) return;
     ev.preventDefault();
     track.classList.remove("is-drop-over");
-    const rect = track.getBoundingClientRect();
-    let minutes = RANGE0 + (ev.clientY - rect.top) / PPM;
-    minutes = Math.round(minutes / SNAP) * SNAP;
-    minutes = Math.max(0, Math.min(24 * 60 - SNAP, minutes));
+    hideGhost();
+    const minutes = snapAt(ev.clientY);
     const id = dragId; dragId = null;
     try {
       const r = await postForm(`/tasks/${id}/schedule`, {
