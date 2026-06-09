@@ -173,6 +173,11 @@ class User(UserMixin, Document):
     # auto-scheduling only fills free slots between these two hours.
     plan_day_start = IntField(default=9, min_value=0, max_value=23)
     plan_day_end = IntField(default=18, min_value=1, max_value=24)
+    # Buffer (minutes) auto-plan keeps between consecutive tasks.
+    plan_buffer_min = IntField(default=0, min_value=0, max_value=120)
+    # Lunch break kept free by auto-plan (hours). start == end → disabled.
+    plan_lunch_start = IntField(default=0, min_value=0, max_value=23)
+    plan_lunch_end = IntField(default=0, min_value=0, max_value=23)
 
     # Custom sidebar perspective ordering. Empty = use the canonical default
     # (all perspectives shown). When non-empty, only these keys are shown,

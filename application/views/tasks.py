@@ -1784,23 +1784,49 @@ def auto_plan():
         _plan_day_tasks(user, d, tz, is_today=is_today),
         events, tz, d, now,
     )
+    mode = (request.form.get("mode") or "").strip()
+    gap = user.plan_buffer_min or 0
+
+    events_busy = [(it["start"], it["end"]) for it in cls["timed"] if it["kind"] == "event"]
+    timed_tasks = [it for it in cls["timed"] if it["kind"] == "task"]
+    # Optional lunch break kept free (start == end → disabled).
+    ls, le = user.plan_lunch_start or 0, user.plan_lunch_end or 0
+    lunch_busy = []
+    if le > ls:
+        lunch_busy = [(_dt.combine(d, _t(ls, 0)).replace(tzinfo=tz),
+                       _dt.combine(d, _t(le, 0)).replace(tzinfo=tz))]
+
+    if mode == "repack":
+        # Destructive: re-plan backlog AND already-timed tasks from scratch;
+        # only calendar events + lunch stay fixed.
+        cands = list(cls["backlog"]) + [
+            {"obj": it["obj"], "duration_min": it["duration_min"]} for it in timed_tasks
+        ]
+        busy = events_busy + lunch_busy
+    else:
+        # Non-destructive: fill only the backlog around what's already placed.
+        cands = list(cls["backlog"])
+        busy = events_busy + [(it["start"], it["end"]) for it in timed_tasks] + lunch_busy
+
     # Candidate order: priority (P1 first), then due date, then manual order.
     FAR = datetime(9999, 1, 1, tzinfo=timezone.utc)
-    backlog = sorted(
-        cls["backlog"],
-        key=lambda c: (c["obj"].priority or 99,
-                       _as_tz(c["obj"].due_date, timezone.utc) or FAR,
-                       c["obj"].sort_order or 0),
-    )
-    starts = plan_day([c["duration_min"] for c in backlog], cls["busy"],
-                      window_start, window_end)
+    cands.sort(key=lambda c: (c["obj"].priority or 99,
+                              _as_tz(c["obj"].due_date, timezone.utc) or FAR,
+                              c["obj"].sort_order or 0))
+    starts = plan_day([c["duration_min"] for c in cands], busy,
+                      window_start, window_end, gap=gap)
 
     planned, skipped, warnings = 0, 0, []
-    for c, start in zip(backlog, starts):
+    for c, start in zip(cands, starts):
+        task = c["obj"]
         if start is None:
+            # In repack, a task that no longer fits is pushed back to the backlog.
+            if mode == "repack" and task.plan_date is not None:
+                task.plan_date = None
+                task.save()
+                warnings.extend(_writeback_calendar(task, user) or [])
             skipped += 1
             continue
-        task = c["obj"]
         task.plan_date = start
         task.save()
         warnings.extend(_writeback_calendar(task, user) or [])

@@ -160,6 +160,17 @@ def profile():
             pds, pde = 9, 18
         user.plan_day_start = pds
         user.plan_day_end = pde
+        try:
+            user.plan_buffer_min = max(0, min(120, int(request.form.get("plan_buffer_min") or 0)))
+        except ValueError:
+            user.plan_buffer_min = 0
+        try:
+            ls = max(0, min(23, int(request.form.get("plan_lunch_start") or 0)))
+            le = max(0, min(23, int(request.form.get("plan_lunch_end") or 0)))
+        except ValueError:
+            ls = le = 0
+        # start == end (or end < start) disables the lunch break.
+        user.plan_lunch_start, user.plan_lunch_end = (ls, le) if le > ls else (0, 0)
         # Form posts the visible fields. Anything missing from that set
         # is added to the hidden blocklist.
         visible = set(request.form.getlist("task_row_visible"))

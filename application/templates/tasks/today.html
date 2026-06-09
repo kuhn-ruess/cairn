@@ -836,20 +836,28 @@
     } catch (e) { alert("Resize failed (network)."); }
   });
 
-  // ---- "Plan my day" → auto-plan endpoint ----
-  const auto = document.getElementById("plan-auto-btn");
-  if (auto) auto.addEventListener("click", async () => {
-    auto.disabled = true;
-    auto.innerHTML = '<i class="bi bi-hourglass-split"></i> Planning…';
+  // ---- "Plan my day" / "Re-pack" → auto-plan endpoint ----
+  async function runAutoPlan(btn, body, busyLabel) {
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> ' + busyLabel;
     try {
-      const r = await postForm("/tasks/auto-plan", { date: auto.dataset.date });
+      const r = await postForm("/tasks/auto-plan", body);
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) { alert("Auto-plan failed (" + r.status + ")"); auto.disabled = false; return; }
+      if (!r.ok) { alert("Auto-plan failed (" + r.status + ")"); btn.disabled = false; btn.innerHTML = orig; return; }
       sessionStorage.setItem("plan_toast", j.skipped
         ? `Planned ${j.planned}, ${j.skipped} didn't fit before the day ends.`
         : `Planned ${j.planned} task(s).`);
       window.location.reload();
-    } catch (e) { alert("Auto-plan failed (network)."); auto.disabled = false; }
+    } catch (e) { alert("Auto-plan failed (network)."); btn.disabled = false; btn.innerHTML = orig; }
+  }
+  const auto = document.getElementById("plan-auto-btn");
+  if (auto) auto.addEventListener("click", () =>
+    runAutoPlan(auto, { date: auto.dataset.date }, "Planning…"));
+  const repack = document.getElementById("plan-repack-btn");
+  if (repack) repack.addEventListener("click", () => {
+    if (!confirm("Re-pack the whole day? This clears today's task times and re-schedules them from scratch.")) return;
+    runAutoPlan(repack, { date: repack.dataset.date, mode: "repack" }, "Re-packing…");
   });
 
   // ---- complete a task straight from the timeline (click the check chip) ----

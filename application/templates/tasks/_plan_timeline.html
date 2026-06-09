@@ -16,6 +16,11 @@
             data-date="{{ plan_data.date }}">
       <i class="bi bi-magic"></i> Plan my day
     </button>
+    <button type="button" id="plan-repack-btn" class="btn btn-sm btn-outline-secondary"
+            data-date="{{ plan_data.date }}"
+            title="Clear today's task times and re-pack everything from scratch">
+      <i class="bi bi-arrow-repeat"></i> Re-pack
+    </button>
     <span class="text-muted small">
       Slots the <strong>Unplanned</strong> tasks into free time
       {{ '%02d:00'|format(plan_data.work_start_min // 60) }}–{{ '%02d:00'|format(plan_data.work_end_min // 60) }}

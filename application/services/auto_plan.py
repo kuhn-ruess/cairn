@@ -46,13 +46,14 @@ def _earliest(start: datetime, need: timedelta, busy_sorted, window_end, snap):
     return None
 
 
-def plan_day(durations, busy, window_start, window_end, *, snap: int = SNAP_MIN):
+def plan_day(durations, busy, window_start, window_end, *, snap: int = SNAP_MIN, gap: int = 0):
     """Assign start datetimes to a list of task durations.
 
     Args:
         durations: minutes per candidate, in the order they should be tried.
         busy: iterable of (start_dt, end_dt) tz-aware intervals to avoid.
         window_start / window_end: tz-aware bounds of the working day.
+        gap: buffer in minutes kept after each placed task before the next.
         snap: slot granularity in minutes.
 
     Returns a list aligned with ``durations``: each entry is the assigned
@@ -70,5 +71,6 @@ def plan_day(durations, busy, window_start, window_end, *, snap: int = SNAP_MIN)
             out.append(None)
             continue
         out.append(start)
-        cursor = start + need          # next candidate starts after this one
+        # next candidate starts after this one + the buffer
+        cursor = start + need + timedelta(minutes=max(0, gap))
     return out
