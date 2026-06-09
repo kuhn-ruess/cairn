@@ -159,6 +159,13 @@ def index():
     # Sections live inside a project; they belong on the project detail
     # page, not in the top-level project list.
     show_inactive = request.args.get("show_inactive") == "1"
+    # Availability toggle (OmniFocus-style): persisted so the sidebar tree
+    # honours it too. ``?show_deferred=0/1`` flips and saves it.
+    sd = request.args.get("show_deferred")
+    if sd is not None:
+        user.show_deferred_projects = (sd == "1")
+        user.save()
+    show_deferred = bool(user.show_deferred_projects)
     qs = Item.objects(
         (Q(owner=user) | Q(members=user)),
         kind__in=["project", "folder"],
@@ -168,6 +175,10 @@ def index():
     # dropped don't clutter the overview.
     if not show_inactive:
         qs = qs.filter(Q(kind="folder") | Q(status="active"))
+    # Hide projects deferred to a future date unless explicitly shown.
+    now = datetime.now(timezone.utc)
+    if not show_deferred:
+        qs = qs.filter(Q(kind="folder") | Q(defer_date=None) | Q(defer_date__lte=now))
     projects = list(qs.order_by("+name"))
 
     # Group-by: when the user has a tag with children, projects can be
@@ -217,6 +228,8 @@ def index():
         "projects/list.html",
         projects=_as_tree(projects),
         show_inactive=show_inactive,
+        show_deferred=show_deferred,
+        now=now,
         groups=groups,
         group_parent=group_parent,
         group_options=group_options,
@@ -251,13 +264,16 @@ def project_tree_for_sidebar(user):
     when computing the nesting key — a project whose parent is a
     section bubbles up under the section's owning project/folder.
     """
-    projects = list(
-        Item.objects(
-            (Q(owner=user) | Q(members=user)),
-            kind__in=["project", "folder"],
-            status="active",
-        ).order_by("+name")
+    proj_q = Item.objects(
+        (Q(owner=user) | Q(members=user)),
+        kind__in=["project", "folder"],
+        status="active",
     )
+    # Hide deferred projects from the navigator too (unless the user opted in).
+    if not getattr(user, "show_deferred_projects", False):
+        now = datetime.now(timezone.utc)
+        proj_q = proj_q.filter(Q(kind="folder") | Q(defer_date=None) | Q(defer_date__lte=now))
+    projects = list(proj_q.order_by("+name"))
     # Need sections to resolve "skip-past" parent links. Fetch them in
     # one query, then build a {section_pk: effective_parent_pk} map.
     sections = list(

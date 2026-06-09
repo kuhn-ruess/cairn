@@ -169,6 +169,9 @@ class User(UserMixin, Document):
     # calendar) — remembered so the view comes back the way the user left it.
     today_days = IntField(default=1, min_value=1)
     today_view_mode = StringField(default="list")
+    # OmniFocus-style availability: deferred projects (defer_date in the
+    # future) are hidden from the project list + sidebar unless this is on.
+    show_deferred_projects = BooleanField(default=False)
     # Working-day window (hours) for the Today "Plan" timeline + auto-plan:
     # auto-scheduling only fills free slots between these two hours.
     plan_day_start = IntField(default=9, min_value=0, max_value=23)

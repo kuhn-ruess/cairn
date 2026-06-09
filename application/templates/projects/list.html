@@ -35,6 +35,11 @@
         <span class="text-muted">—</span>
       {% else %}
         <span class="badge text-bg-secondary">{{ p.status }}</span>
+        {% if p.defer_date and p.defer_date > now_utc() %}
+          <span class="badge text-bg-warning ms-1" title="Deferred until {{ p.defer_date|localdt }}">
+            <i class="bi bi-hourglass-split"></i> deferred
+          </span>
+        {% endif %}
       {% endif %}
     </td>
     <td>
@@ -133,6 +138,12 @@
      title="{{ 'Hide on hold / completed / dropped' if show_inactive else 'Show on hold / completed / dropped' }}">
     <i class="bi {{ 'bi-eye-slash' if show_inactive else 'bi-eye' }}"></i>
     {{ 'Active only' if show_inactive else 'Show all' }}
+  </a>
+  <a href="{{ url_for('projects.index', show_deferred=(0 if show_deferred else 1), group_by=(group_parent or None)) }}"
+     class="btn btn-sm {{ 'btn-secondary' if show_deferred else 'btn-outline-secondary' }}"
+     title="{{ 'Hide deferred projects' if show_deferred else 'Show deferred projects (deferred until a future date)' }}">
+    <i class="bi bi-hourglass-split"></i>
+    {{ 'Hide deferred' if show_deferred else 'Show deferred' }}
   </a>
   <div class="btn-group">
     <a href="{{ url_for('projects.create') }}" class="btn btn-sm btn-primary"
