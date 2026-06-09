@@ -197,6 +197,14 @@
   {% endif %}
 {%- endmacro -%}
 
+{%- macro sec_subtasks() -%}
+  {% if task and task.kind == 'task' %}
+    <div class="inspector-section subtasks-block" data-section="subtasks">
+      {% include "tasks/_subtasks.html" %}
+    </div>
+  {% endif %}
+{%- endmacro -%}
+
 {%- macro sec_comments() -%}
   {% if task %}
     <div class="inspector-section comments-block" data-section="comments">
@@ -269,7 +277,7 @@
   "repeat": sec_repeat, "review": sec_review,
   "assigned_to": sec_assigned_to, "flags": sec_flags,
   "checklist": sec_checklist, "time": sec_time,
-  "related": sec_related, "comments": sec_comments,
+  "related": sec_related, "subtasks": sec_subtasks, "comments": sec_comments,
 } -%}
 
 <form method="post" action="{{ form_action }}" data-inspector-form
@@ -315,10 +323,10 @@
   </div>
 
   {% for key in (inspector_section_order or []) %}
-    {# On the detail page (inline inspector) comments render in their own
-       column section, so skip the inspector's comments block to avoid a
-       duplicate. Everything else (incl. checklist) shows inline. #}
-    {% if key in _section_macros and not (inspector_inline and key == "comments") %}
+    {# On the detail page (inline inspector) comments + subtasks render in
+       their own column sections, so skip them here to avoid a duplicate.
+       Everything else (incl. checklist) shows inline. #}
+    {% if key in _section_macros and not (inspector_inline and key in ("comments", "subtasks")) %}
       {{ _section_macros[key]() }}
     {% endif %}
   {% endfor %}

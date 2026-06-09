@@ -24,6 +24,7 @@ INSPECTOR_SECTIONS = (
     ("flags", "Flags"),
     ("checklist", "Checklist"),
     ("time", "Time tracking"),
+    ("subtasks", "Subtasks"),
     ("related", "Related"),
     ("comments", "Comments"),
 )

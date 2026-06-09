@@ -25,10 +25,10 @@
       <li class="text-muted small">No subtasks yet.</li>
     {% endfor %}
   </ul>
-  <form class="subtask-add d-flex gap-2"
-        data-action="{{ url_for('tasks.subtasks', task_id=task.pk) }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="text" name="title" class="form-control form-control-sm subtask-add-input"
+  {# Plain input (not a <form>) so it nests safely inside the inspector's
+     edit form. JS submits on Enter to data-action. #}
+  <div class="subtask-add" data-action="{{ url_for('tasks.subtasks', task_id=task.pk) }}">
+    <input type="text" class="form-control form-control-sm subtask-add-input"
            placeholder="Add a subtask… (Enter)" autocomplete="off" maxlength="500">
-  </form>
+  </div>
 </div>
