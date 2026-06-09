@@ -127,6 +127,7 @@ class ProjectForm(FlaskForm):
     note = TextAreaField("Note", validators=[Optional()])
     color = StringField("Color (hex)", validators=[Optional(), Length(max=16)])
     tags = SelectMultipleField("Labels", choices=[])
+    defer_date = DateTimeLocalField("Defer until", format="%Y-%m-%dT%H:%M", validators=[Optional()])
     due_date = DateTimeLocalField("Due date", format="%Y-%m-%dT%H:%M", validators=[Optional()])
     plan_date = DateTimeLocalField("Plan date", format="%Y-%m-%dT%H:%M", validators=[Optional()])
     kind = SelectField(

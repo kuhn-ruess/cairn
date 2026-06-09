@@ -82,6 +82,16 @@
 
   <div class="inspector-section grid-2" data-show-for="project,section">
     <div>
+      {{ form.defer_date.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.defer_date(class="form-control form-control-sm", id="proj_defer_date") }}
+      <div class="quick-date-row btn-group btn-group-sm mt-1">
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_defer_date" data-set="today">Today</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_defer_date" data-set="tomorrow">Tomorrow</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_defer_date" data-set="next-monday">Next Mon</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_defer_date" data-set="clear">×</button>
+      </div>
+    </div>
+    <div>
       {{ form.due_date.label(class="form-label small text-uppercase text-muted") }}
       {{ form.due_date(class="form-control form-control-sm") }}
     </div>

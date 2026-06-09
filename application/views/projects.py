@@ -88,6 +88,7 @@ def _apply(form: ProjectForm, project: Item) -> None:
     project.note = form.note.data or ""
     project.color = (form.color.data or "").strip()
     project.tags = list(form.tags.data or [])
+    project.defer_date = attach_user_tz(form.defer_date.data, user)
     project.due_date = attach_user_tz(form.due_date.data, user)
     project.plan_date = attach_user_tz(form.plan_date.data, user)
     kind = form.kind.data or "project"
