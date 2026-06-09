@@ -69,6 +69,13 @@
               <i class="bi bi-check2-square"></i> {{ task.checklist_progress }}%
             </span>
           {% endif %}
+          {% if task._subtask_total|default(0) %}
+            <a class="badge text-bg-light text-muted ms-1 text-decoration-none"
+               href="{{ url_for('tasks.detail', task_id=task.pk) }}#subtasks"
+               title="{{ task._subtask_done }}/{{ task._subtask_total }} subtasks done">
+              <i class="bi bi-diagram-3"></i> {{ task._subtask_done }}/{{ task._subtask_total }}
+            </a>
+          {% endif %}
           <div class="task-meta">
             {% if task.project and current_user.show_field('project', view_key=_vk) %}
               {% set _proj_icon = item_icon(task.project) %}

@@ -70,9 +70,11 @@ def home():
         .order_by("-created_at")
         .limit(10)
     )
-    # Resolve parent/assignee refs in bulk so the row template doesn't N+1.
-    from application.services.prefetch import prefetch_refs
+    # Resolve parent/assignee refs + subtask counts in bulk so the row
+    # template doesn't N+1.
+    from application.services.prefetch import prefetch_refs, annotate_subtask_counts
     prefetch_refs(next_actions + inbox_preview)
+    annotate_subtask_counts(next_actions + inbox_preview)
 
     return render_template(
         "dashboard.html",

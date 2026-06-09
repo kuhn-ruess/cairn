@@ -451,7 +451,7 @@ def inbox():
                           status__nin=["done", "dropped"])
              .order_by("-created_at"))
     return render_template(
-        "tasks/list.html", title="Inbox", perspective="inbox", tasks=tasks
+        "tasks/list.html", title="Inbox", perspective="inbox", tasks=prepare_list(tasks)
     )
 
 def _as_tz(dt, tz):
@@ -463,7 +463,11 @@ def _as_tz(dt, tz):
     return dt.astimezone(tz)
 
 
-from application.services.prefetch import prefetch_refs as _prefetch_refs
+from application.services.prefetch import (
+    prefetch_refs as _prefetch_refs,
+    annotate_subtask_counts as _annotate_subtask_counts,
+    prepare_list,
+)
 
 
 def _plan_day_tasks(user, day_date, tz, *, is_today):
@@ -681,8 +685,10 @@ def today():
         ]
 
     # Batch-resolve parent/assignee refs once so the row template doesn't
-    # dereference them one-by-one (N+1) while iterating.
+    # dereference them one-by-one (N+1) while iterating, and batch-count
+    # subtasks for the row badge in a single query.
     _prefetch_refs(filtered + projects_with_dates)
+    _annotate_subtask_counts(filtered)
 
     # Grouping — same options as the project detail view; persisted on the user.
     grouping = (request.args.get("group") or user.today_grouping or "project").strip()
@@ -1139,7 +1145,7 @@ def next_actions():
         Item.objects(_scope(user), status="next"), user,
     ).order_by("+due_date", "+sort_order")
     return render_template(
-        "tasks/list.html", title="Next", perspective="next", tasks=tasks
+        "tasks/list.html", title="Next", perspective="next", tasks=prepare_list(tasks)
     )
 
 @tasks_bp.route("/forecast")
@@ -1156,7 +1162,7 @@ def forecast():
         user,
     ).order_by("+due_date")
     return render_template(
-        "tasks/list.html", title="Forecast (14d)", perspective="forecast", tasks=tasks
+        "tasks/list.html", title="Forecast (14d)", perspective="forecast", tasks=prepare_list(tasks)
     )
 
 @tasks_bp.route("/scheduled")
@@ -1178,7 +1184,7 @@ def scheduled():
         user,
     ).order_by("+defer_date")
     return render_template(
-        "tasks/list.html", title="Scheduled", perspective="scheduled", tasks=tasks
+        "tasks/list.html", title="Scheduled", perspective="scheduled", tasks=prepare_list(tasks)
     )
 
 @tasks_bp.route("/waiting")
@@ -1189,7 +1195,7 @@ def waiting():
         Item.objects(_scope(user), status="waiting"), user,
     ).order_by("+due_date")
     return render_template(
-        "tasks/list.html", title="Waiting", perspective="waiting", tasks=tasks
+        "tasks/list.html", title="Waiting", perspective="waiting", tasks=prepare_list(tasks)
     )
 
 @tasks_bp.route("/flagged")
@@ -1201,7 +1207,7 @@ def flagged():
         user,
     ).order_by("+due_date")
     return render_template(
-        "tasks/list.html", title="Flagged", perspective="flagged", tasks=tasks
+        "tasks/list.html", title="Flagged", perspective="flagged", tasks=prepare_list(tasks)
     )
 
 @tasks_bp.route("/someday")
@@ -1212,7 +1218,7 @@ def someday():
         Item.objects(_scope(user), status="someday"), user,
     ).order_by("-updated_at")
     return render_template(
-        "tasks/list.html", title="Someday / Maybe", perspective="someday", tasks=tasks
+        "tasks/list.html", title="Someday / Maybe", perspective="someday", tasks=prepare_list(tasks)
     )
 
 @tasks_bp.route("/assigned")
@@ -1224,7 +1230,7 @@ def assigned_to_me():
         user,
     ).order_by("+due_date")
     return render_template(
-        "tasks/list.html", title="Assigned to me", perspective="assigned", tasks=tasks
+        "tasks/list.html", title="Assigned to me", perspective="assigned", tasks=prepare_list(tasks)
     )
 
 @tasks_bp.route("/completed")
@@ -1238,7 +1244,7 @@ def completed():
         Item.objects(_scope(user), status__in=["done", "completed"]), user,
     ).order_by("-completed_at").limit(200)
     return render_template(
-        "tasks/list.html", title="Completed", perspective="completed", tasks=tasks
+        "tasks/list.html", title="Completed", perspective="completed", tasks=prepare_list(tasks)
     )
 
 @tasks_bp.route("/search")
