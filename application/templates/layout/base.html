@@ -11,6 +11,25 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
   <script>
+  /* Tell the server which timezone this browser is in (cookie ``tz``), so
+     calendar events + task times render in the user's actual wall-clock.
+     Reload once when it first appears / changes so the current page picks
+     it up; guarded against a loop if cookies are blocked. */
+  (function () {
+    try {
+      var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (!tz) return;
+      var m = document.cookie.match(/(?:^|;\s*)tz=([^;]+)/);
+      var cur = m ? decodeURIComponent(m[1]) : null;
+      if (cur === tz) return;
+      document.cookie = "tz=" + encodeURIComponent(tz) +
+                        "; path=/; max-age=31536000; samesite=Lax";
+      if (document.cookie.indexOf("tz=") === -1) return;  // couldn't set → no reload loop
+      location.reload();
+    } catch (e) { /* no Intl / no cookies → fall back to profile/default tz */ }
+  })();
+  </script>
+  <script>
   /* Apply saved project-sidebar state SYNCHRONOUSLY before any content
      paints. We toggle a class on <html> so all CSS rules key off the
      same source, and persistence survives across pages without flash. */

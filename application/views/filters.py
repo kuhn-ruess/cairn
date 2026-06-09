@@ -214,16 +214,14 @@ def register_filters(app):
             return ""
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
-        # Localise to the signed-in user's timezone (falling back to the
-        # server default) so stored-as-UTC values and calendar events both
-        # read in *their* wall-clock — not UTC. The filter is named "localdt"
-        # but historically never actually localised.
+        # Localise to the browser/user timezone (see services.tzutil) so
+        # stored-as-UTC values and calendar events read in *their* wall-clock,
+        # not UTC. The filter is named "localdt" but never actually localised.
         try:
             from flask_login import current_user
-            from zoneinfo import ZoneInfo
-            tzname = (getattr(current_user, "timezone", "") or
-                      app.config.get("DEFAULT_TZ") or "UTC")
-            value = value.astimezone(ZoneInfo(tzname))
+            from application.services.tzutil import resolve_tz
+            user = current_user if getattr(current_user, "is_authenticated", False) else None
+            value = value.astimezone(resolve_tz(user))
         except Exception:
             pass
         return value.strftime("%Y-%m-%d %H:%M")

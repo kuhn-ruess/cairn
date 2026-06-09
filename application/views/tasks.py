@@ -5,6 +5,8 @@ from flask import (
     Blueprint, Response, abort, current_app, flash, jsonify, redirect, render_template, request, url_for,
 )
 
+from application.services.tzutil import resolve_tz
+
 def _is_inspector():
     return request.args.get("inspector") == "1" or request.headers.get("X-Inspector-Request") == "1"
 
@@ -140,11 +142,7 @@ def sidebar_counts(user, now=None, keys=None) -> dict:
     c = {}
 
     if want & _PASS_KEYS:
-        try:
-            from zoneinfo import ZoneInfo
-            tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
-        except Exception:
-            tz = timezone.utc
+        tz = resolve_tz(user)
         today_date = now.astimezone(tz).date()
         today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
         horizon = now + timedelta(days=14)
@@ -576,11 +574,7 @@ def today():
     # Berlin user dragging a task to the cell labelled "tomorrow"
     # writes plan_date for what the server thinks is "today" once the
     # UTC offset pushes the wall-clock past midnight.
-    try:
-        from zoneinfo import ZoneInfo
-        _today_tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
-    except Exception:
-        _today_tz = timezone.utc
+    _today_tz = resolve_tz(user)
     today_date = now.astimezone(_today_tz).date()
 
     # Window selection ------------------------------------------------
@@ -609,11 +603,7 @@ def today():
     # for 23:00 Berlin (= 21:00 UTC) on day D would fall outside a
     # ``date(D)`` UTC-midnight window — the row showing day D would miss
     # its own task and it would re-appear on day D+1.
-    try:
-        from zoneinfo import ZoneInfo
-        _u_tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
-    except Exception:
-        _u_tz = timezone.utc
+    _u_tz = resolve_tz(user)
     start_dt = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=_u_tz)
     end_dt = start_dt + timedelta(days=days)
     is_today_now = (start_date == today_date and days == 1)
@@ -772,11 +762,7 @@ def today():
     # plenty) and for calendar mode (the timeline already interleaves).
     daily_buckets = None
     if days > 1:
-        try:
-            from zoneinfo import ZoneInfo
-            _list_tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
-        except Exception:
-            _list_tz = timezone.utc
+        _list_tz = resolve_tz(user)
 
         def _to_user_list(dt):
             if not dt:
@@ -868,12 +854,7 @@ def today():
         # Bucket events/tasks in the user's configured timezone so
         # they land on the correct day + hour. zoneinfo falls back to
         # UTC if the name is unset or invalid.
-        try:
-            from zoneinfo import ZoneInfo
-            tzname = (user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
-            user_tz = ZoneInfo(tzname)
-        except Exception:
-            user_tz = timezone.utc
+        user_tz = resolve_tz(user)
 
         def _to_user(dt):
             if not dt:
@@ -1670,11 +1651,7 @@ def schedule(task_id):
         return jsonify({"error": "invalid date"}), 400
     # Interpret the wall-clock time in the user's timezone so it lands
     # on the right hour in their view.
-    try:
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
-    except Exception:
-        tz = timezone.utc
+    tz = resolve_tz(user)
     if hour_raw:
         try:
             h = max(0, min(23, int(hour_raw)))
@@ -1741,11 +1718,7 @@ def auto_plan():
         d = _dt.fromisoformat(date_raw).date() if date_raw else now.date()
     except ValueError:
         return jsonify({"error": "invalid date"}), 400
-    try:
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
-    except Exception:
-        tz = timezone.utc
+    tz = resolve_tz(user)
 
     is_today = (d == now.astimezone(tz).date())
     start_h = user.plan_day_start if user.plan_day_start is not None else 9
