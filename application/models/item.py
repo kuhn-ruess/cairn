@@ -337,6 +337,15 @@ class Item(Document):
         zero extra queries (see CLAUDE.md: minimise DB load per page)."""
         return len(self._data.get("related") or [])
 
+    @property
+    def assigned_to_id(self) -> str:
+        """Assignee's id as a string without dereferencing the ref — reads
+        the raw DBRef from ``_data`` so a list row never fires a per-row
+        query just to mark "assigned to me" (see CLAUDE.md: minimise DB
+        load per page). Empty string when unassigned."""
+        ref = self._data.get("assigned_to")
+        return str(ref.id) if ref is not None else ""
+
     def relate_to(self, other):
         """Create a symmetric related link to ``other`` and persist both
         sides. No-op for a self-link or an existing one. Compared by pk so

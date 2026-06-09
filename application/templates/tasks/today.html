@@ -81,6 +81,12 @@
     {% with view_key='today', view_label='Today' %}
       {% include "tasks/_display_dropdown.html" %}
     {% endwith %}
+
+    <button type="button" id="today-only-mine" class="btn btn-sm btn-outline-secondary ms-2"
+            data-me-id="{{ current_user.pk }}"
+            title="Hide tasks assigned to someone else">
+      <i class="bi bi-person-check"></i> Only mine
+    </button>
   {% endif %}
 
   <span class="text-muted small ms-2">Filter tag:</span>
@@ -606,4 +612,36 @@
 })();
 </script>
 {% endif %}
+
+<script>
+(function () {
+  // "Only mine" toggle: client-side, no reload. Hides rows assigned to
+  // someone else. Unassigned rows carry no data-assigned-to-id, so they
+  // stay visible (mine by ownership). A scoped <style> does the hiding so
+  // AJAX-swapped rows are covered for free. State persists in localStorage.
+  const btn = document.getElementById("today-only-mine");
+  if (!btn) return;
+  const meId = btn.dataset.meId || "";
+  const KEY = "today_only_mine";
+  const styleEl = document.createElement("style");
+  document.head.appendChild(styleEl);
+
+  function apply(on) {
+    styleEl.textContent = on
+      ? `.task-row[data-assigned-to-id]:not([data-assigned-to-id="${meId}"]) { display: none !important; }`
+      : "";
+    btn.classList.toggle("btn-toolbar-on", on);
+    btn.classList.toggle("btn-outline-secondary", !on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+
+  let on = localStorage.getItem(KEY) === "1";
+  apply(on);
+  btn.addEventListener("click", () => {
+    on = !on;
+    localStorage.setItem(KEY, on ? "1" : "0");
+    apply(on);
+  });
+})();
+</script>
 {% endblock %}

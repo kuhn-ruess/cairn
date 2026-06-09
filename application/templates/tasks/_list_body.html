@@ -27,7 +27,8 @@
                    {{ 'subtask' if _depth > 0 else '' }}
                    {% if task.priority and current_user.show_field('priority', view_key=_vk) %}task-priority-{{ task.priority }}{% endif %}"
            {% if _depth > 0 %}style="padding-left: {{ _depth * 12 }}px;"{% endif %}
-           data-task-id="{{ task.pk }}" data-task-status="{{ task.status }}">
+           data-task-id="{{ task.pk }}" data-task-status="{{ task.status }}"
+           {% if task.assigned_to_id %}data-assigned-to-id="{{ task.assigned_to_id }}"{% endif %}>
         <div class="d-flex align-items-center gap-1">
           <i class="bi bi-grip-vertical text-muted task-handle" title="Drag to reorder"></i>
           {% if task._has_children|default(false) %}
