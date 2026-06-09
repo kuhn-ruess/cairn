@@ -949,16 +949,16 @@ def today():
             _plan_day_tasks(user, start_date, _u_tz, is_today=plan_is_today),
             events, _u_tz, start_date, now,
         )
-        # Side-by-side columns per lane so same-time items don't hide each
-        # other (events and tasks live in separate lanes → layout apart).
-        timed_events = _assign_columns([it for it in cls["timed"] if it["kind"] == "event"])
-        timed_tasks = _assign_columns([it for it in cls["timed"] if it["kind"] == "task"])
+        # One chronological column (structured.app-style). Overlapping items
+        # — including a task that clashes with an event — split into
+        # side-by-side columns only where they actually overlap.
+        timed = _assign_columns(cls["timed"])
         # "Next actions" pool — actionable next-tasks that aren't already on
         # the day (no time, not in the auto-plan backlog). Draggable onto the
         # track but deliberately NOT auto-planned, so the user can pull extra
         # work in by hand without "Plan my day" hoovering it all up.
         seen_pks = ({c["obj"].pk for c in cls["backlog"]}
-                    | {it["obj"].pk for it in timed_tasks})
+                    | {it["obj"].pk for it in timed if it["kind"] == "task"})
         next_pool = []
         for t in Item.objects(_scope(user), kind="task", status="next") \
                      .order_by("+sort_order", "+due_date"):
@@ -984,8 +984,7 @@ def today():
             n_local = now.astimezone(_u_tz)
             now_min = n_local.hour * 60 + n_local.minute
         plan_data = {
-            "timed_events": timed_events,
-            "timed_tasks": timed_tasks,
+            "timed": timed,
             "allday": cls["allday"],
             "backlog": cls["backlog"],
             "next_pool": next_pool,

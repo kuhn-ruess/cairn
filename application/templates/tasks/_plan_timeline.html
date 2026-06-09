@@ -41,7 +41,7 @@
     </div>
   {% endif %}
 
-  <div class="plan-grid" style="--plan-ppm: 1.1px; --span: {{ span }}; --range0: {{ range0 }};">
+  <div class="plan-grid" style="--plan-ppm: 1.5px; --span: {{ span }}; --range0: {{ range0 }};">
     <div class="plan-axis">
       {% for h in range(h0, h1 + 1) %}
         <div class="plan-hour" style="--top: {{ h * 60 - range0 }};">{{ '%02d:00'|format(h) }}</div>
@@ -49,7 +49,7 @@
     </div>
 
     <div class="plan-track" id="plan-track"
-         data-date="{{ plan_data.date }}" data-range0="{{ range0 }}" data-ppm="1.1">
+         data-date="{{ plan_data.date }}" data-range0="{{ range0 }}" data-ppm="1.5">
       {# hour gridlines #}
       {% for h in range(h0, h1 + 1) %}
         <div class="plan-gridline" style="--top: {{ h * 60 - range0 }};"></div>
@@ -69,40 +69,42 @@
         </div>
       {% endif %}
 
-      {# events — left lane #}
-      <div class="plan-lane plan-lane-events">
-        {% for it in plan_data.timed_events %}
+      {# one chronological column; overlaps split into --col/--cols #}
+      <div class="plan-lane">
+        {% for it in plan_data.timed %}
           {% set smin = it.start.hour * 60 + it.start.minute %}
-          <div class="plan-pill plan-pill-event"
-               style="--top: {{ smin - range0 }}; --dur: {{ it.duration_min }};
-                      --col: {{ it.col }}; --cols: {{ it.cols }};
-                      --c: {{ it.obj.calendar_color }};">
-            <span class="plan-pill-time">{{ '%02d:%02d'|format(it.start.hour, it.start.minute) }}</span>
-            {% if it.obj.url %}
-              <a class="plan-pill-title" href="{{ it.obj.url }}" target="_blank" rel="noopener">{{ it.title }}</a>
-            {% else %}
-              <span class="plan-pill-title">{{ it.title }}</span>
-            {% endif %}
-          </div>
-        {% endfor %}
-      </div>
-
-      {# tasks — right lane (draggable / resizable) #}
-      <div class="plan-lane plan-lane-tasks">
-        {% for it in plan_data.timed_tasks %}
-          {% set smin = it.start.hour * 60 + it.start.minute %}
-          <div class="plan-pill plan-pill-task{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
-               draggable="true"
-               data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
-               data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
-               data-inspector-title="{{ it.obj.title }}"
-               style="--top: {{ smin - range0 }}; --dur: {{ it.duration_min }};
-                      --col: {{ it.col }}; --cols: {{ it.cols }};">
-            <span class="plan-pill-time">{{ '%02d:%02d'|format(it.start.hour, it.start.minute) }}</span>
-            <a class="plan-pill-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
-            <span class="plan-pill-dur" title="Estimated duration">{{ it.duration_min }}m</span>
-            <span class="plan-pill-resize" title="Drag to change duration">⇕</span>
-          </div>
+          {% set tspan = '%02d:%02d–%02d:%02d'|format(it.start.hour, it.start.minute, it.end.hour, it.end.minute) %}
+          {% if it.kind == 'event' %}
+            <div class="plan-card plan-card-event"
+                 style="--top: {{ smin - range0 }}; --dur: {{ it.duration_min }};
+                        --col: {{ it.col }}; --cols: {{ it.cols }}; --c: {{ it.obj.calendar_color }};">
+              <span class="plan-ico"><i class="bi bi-calendar-event"></i></span>
+              <div class="plan-card-body">
+                <div class="plan-card-title">
+                  {% if it.obj.url %}<a href="{{ it.obj.url }}" target="_blank" rel="noopener">{{ it.title }}</a>
+                  {% else %}{{ it.title }}{% endif %}
+                </div>
+                <div class="plan-card-meta">{{ tspan }}{% if it.obj.location %} · <i class="bi bi-geo-alt"></i> {{ it.obj.location }}{% endif %}</div>
+              </div>
+            </div>
+          {% else %}
+            <div class="plan-card plan-card-task{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
+                 draggable="true"
+                 data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
+                 data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
+                 data-inspector-title="{{ it.obj.title }}"
+                 style="--top: {{ smin - range0 }}; --dur: {{ it.duration_min }};
+                        --col: {{ it.col }}; --cols: {{ it.cols }};">
+              <span class="plan-ico plan-ico-task"><i class="bi bi-check2"></i></span>
+              <div class="plan-card-body">
+                <div class="plan-card-title">
+                  <a href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
+                </div>
+                <div class="plan-card-meta">{{ tspan }} · <span class="plan-card-dur">{{ it.duration_min }}m</span></div>
+              </div>
+              <span class="plan-card-resize" title="Drag to change duration"></span>
+            </div>
+          {% endif %}
         {% endfor %}
       </div>
     </div>
@@ -113,18 +115,18 @@
      in by hand — never auto-planned. Drag any pill onto the track. #}
   <div class="plan-rails mt-3">
     <div class="plan-rail">
-      <h2 class="h6 text-muted small text-uppercase mb-2">
-        <i class="bi bi-inbox"></i> Unplanned ({{ plan_data.backlog|length }})
+      <h2 class="plan-rail-head">
+        <i class="bi bi-inbox"></i> Unplanned <span class="plan-rail-count">{{ plan_data.backlog|length }}</span>
       </h2>
       {% for it in plan_data.backlog %}
-        <div class="plan-pill plan-pill-task plan-backlog-item{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
+        <div class="plan-rail-item plan-card-task{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
              draggable="true"
              data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
              data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
              data-inspector-title="{{ it.obj.title }}">
-          <i class="bi bi-grip-vertical text-muted"></i>
-          <a class="plan-pill-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
-          <span class="plan-pill-dur">{{ it.duration_min }}m</span>
+          <i class="bi bi-grip-vertical plan-grip"></i>
+          <a class="plan-rail-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
+          <span class="plan-rail-dur">{{ it.duration_min }}m</span>
         </div>
       {% else %}
         <p class="text-muted small mb-0">Everything for this day has a time. 🎉</p>
@@ -133,18 +135,18 @@
 
     {% if plan_data.next_pool %}
       <div class="plan-rail">
-        <h2 class="h6 text-muted small text-uppercase mb-2">
-          <i class="bi bi-arrow-right-circle"></i> Next actions ({{ plan_data.next_pool|length }})
+        <h2 class="plan-rail-head">
+          <i class="bi bi-arrow-right-circle"></i> Next actions <span class="plan-rail-count">{{ plan_data.next_pool|length }}</span>
         </h2>
         {% for it in plan_data.next_pool %}
-          <div class="plan-pill plan-pill-task plan-backlog-item plan-next-item{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
+          <div class="plan-rail-item plan-card-task plan-next-item{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
                draggable="true"
                data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
                data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
                data-inspector-title="{{ it.obj.title }}">
-            <i class="bi bi-grip-vertical text-muted"></i>
-            <a class="plan-pill-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
-            <span class="plan-pill-dur">{{ it.duration_min }}m</span>
+            <i class="bi bi-grip-vertical plan-grip"></i>
+            <a class="plan-rail-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
+            <span class="plan-rail-dur">{{ it.duration_min }}m</span>
           </div>
         {% endfor %}
       </div>

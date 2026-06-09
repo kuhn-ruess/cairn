@@ -677,17 +677,17 @@
   function hideGhost() { ghost.style.display = "none"; }
 
   document.addEventListener("dragstart", (ev) => {
-    const p = ev.target.closest && ev.target.closest(".plan-pill-task[data-task-id]");
+    const p = ev.target.closest && ev.target.closest(".plan-card-task[data-task-id]");
     if (!p) return;
     dragId = p.dataset.taskId;
     dragEst = parseInt(p.dataset.est || "30", 10) || 30;
     ev.dataTransfer.effectAllowed = "move";
     ev.dataTransfer.setData("text/plain", dragId);
-    p.classList.add("plan-pill-dragging");
+    p.classList.add("plan-card-dragging");
   });
   document.addEventListener("dragend", (ev) => {
-    const p = ev.target.closest && ev.target.closest(".plan-pill-task");
-    if (p) p.classList.remove("plan-pill-dragging");
+    const p = ev.target.closest && ev.target.closest(".plan-card-task");
+    if (p) p.classList.remove("plan-card-dragging");
     track.classList.remove("is-drop-over");
     hideGhost();
     dragId = null;
@@ -726,15 +726,15 @@
   const PX_PER_STEP = 20, STEP = 15;
   let rz = null;
   document.addEventListener("mousedown", (ev) => {
-    const h = ev.target.closest && ev.target.closest(".plan-pill-resize");
+    const h = ev.target.closest && ev.target.closest(".plan-card-resize");
     if (!h) return;
-    const pill = h.closest(".plan-pill-task");
+    const pill = h.closest(".plan-card-task");
     if (!pill) return;
     ev.preventDefault(); ev.stopPropagation();
     pill.setAttribute("draggable", "false");
     rz = { pill, startY: ev.clientY,
            start: parseInt(pill.dataset.est || "30", 10) || 30,
-           durEl: pill.querySelector(".plan-pill-dur") };
+           durEl: pill.querySelector(".plan-card-dur") };
     document.body.classList.add("is-resizing-cal");
   });
   document.addEventListener("mousemove", (ev) => {
