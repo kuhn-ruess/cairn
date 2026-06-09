@@ -486,14 +486,18 @@ def _plan_day_tasks(user, day_date, tz, *, is_today):
             | Q(due_date__ne=None, due_date__lte=day_end))
     if is_today:
         cond = cond | Q(flagged=True)
+    # The Plan view is a personal day-planner: hide tasks delegated to someone
+    # else. Keep tasks assigned to me + my own unassigned ones.
+    mine = Q(assigned_to=None) | Q(assigned_to=user)
     active = list(Item.objects(_scope(user), kind="task",
                                status__nin=["done", "dropped", "completed", "someday"])
-                  .filter(cond))
+                  .filter(cond).filter(mine))
     # Completed/dropped tasks that were planned (with a time) on this day stay
     # on the timeline struck through — _plan_classify only keeps the timed ones.
     done = list(Item.objects(_scope(user), kind="task",
                              status__in=["done", "completed", "dropped"],
-                             plan_date__gte=day_start, plan_date__lt=next_day))
+                             plan_date__gte=day_start, plan_date__lt=next_day)
+                .filter(mine))
     return active + done
 
 
@@ -1001,6 +1005,7 @@ def today():
         # Materialise a bounded slice + prefetch so the is_blocked() parent
         # deref below doesn't N+1 (we only need 50 after filtering).
         next_candidates = list(Item.objects(_scope(user), kind="task", status="next")
+                               .filter(Q(assigned_to=None) | Q(assigned_to=user))
                                .order_by("+sort_order", "+due_date").limit(200))
         _prefetch_refs(next_candidates)
         next_pool = []
