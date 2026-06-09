@@ -2310,7 +2310,6 @@ body.ps-resizing * {
   border: 1px solid var(--gv-bg3); border-radius: .4rem;
   background: var(--gv-bg1); overflow: hidden;
 }
-.plan-track.is-drop-over { outline: 2px dashed var(--gv-aqua); outline-offset: -2px; }
 .plan-gridline {
   position: absolute; left: 0; right: 0;
   top: calc(var(--top) * var(--plan-ppm));
@@ -2323,38 +2322,67 @@ body.ps-resizing * {
   background: color-mix(in srgb, var(--gv-aqua) 7%, transparent);
   pointer-events: none;
 }
-.plan-now {
-  position: absolute; left: 0; right: 0; z-index: 5;
-  top: calc(var(--top) * var(--plan-ppm));
-  border-top: 2px solid var(--gv-red);
+.plan-past {
+  position: absolute; left: 0; right: 0; top: 0;
+  height: calc(var(--dur) * var(--plan-ppm));
+  background: color-mix(in srgb, var(--gv-bg0) 35%, transparent);
+  pointer-events: none; z-index: 4;
 }
-.plan-now::before {
-  content: ""; position: absolute; left: 0; top: -5px;
-  width: 8px; height: 8px; border-radius: 50%; background: var(--gv-red);
+.plan-now {
+  position: absolute; left: 0; right: 0; z-index: 6;
+  top: calc(var(--top) * var(--plan-ppm));
+  border-top: 2px solid var(--gv-red); pointer-events: none;
+}
+.plan-now-dot {
+  position: absolute; left: -4px; top: -5px;
+  width: 9px; height: 9px; border-radius: 50%; background: var(--gv-red);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--gv-red) 60%, transparent);
+  animation: plan-now-pulse 2.4s ease-out infinite;
+}
+@keyframes plan-now-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--gv-red) 55%, transparent); }
+  70%  { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.plan-now-label {
+  position: absolute; right: 4px; top: -9px;
+  font-size: .65rem; font-weight: 700; color: var(--gv-red);
+  background: var(--gv-bg1); padding: 0 .25rem; border-radius: .2rem;
 }
 .plan-lane { position: absolute; top: 0; bottom: 0; }
 .plan-lane-events { left: 0; width: 42%; }
 .plan-lane-tasks  { right: 0; width: 56%; }
 .plan-pill {
-  position: absolute;
+  position: absolute; box-sizing: border-box;
   left: calc(var(--col, 0) * (100% / var(--cols, 1)));
   width: calc(100% / var(--cols, 1) - 3px);
   top: calc(var(--top) * var(--plan-ppm));
   height: calc(var(--dur) * var(--plan-ppm));
-  min-height: 1.15rem; overflow: hidden;
-  border-radius: .35rem; padding: .12rem .4rem;
-  font-size: .75rem; line-height: 1.2;
+  min-height: 1.3rem; overflow: hidden;
+  border-radius: .4rem; padding: .15rem .45rem;
+  font-size: .75rem; line-height: 1.25;
   border-left: 3px solid var(--c, var(--gv-aqua));
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .12); z-index: 5;
+  transition: box-shadow .14s ease, transform .14s ease, filter .14s ease;
 }
 .plan-pill-event {
-  background: color-mix(in srgb, var(--c) 16%, var(--gv-bg2));
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--c) 22%, var(--gv-bg2)),
+    color-mix(in srgb, var(--c) 12%, var(--gv-bg2)));
   color: var(--gv-fg2);
 }
 .plan-pill-task {
-  background: var(--gv-bg2); border-left-color: var(--gv-aqua); cursor: grab;
+  background: linear-gradient(180deg, var(--gv-bg3), var(--gv-bg2));
+  border-left-color: var(--gv-aqua); cursor: grab;
 }
-.plan-pill-task.plan-pill-dragging { opacity: .5; }
+.plan-pill-task:hover {
+  transform: translateY(-1px); filter: brightness(1.08);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, .22); z-index: 8;
+}
+.plan-pill-task:active { cursor: grabbing; }
+.plan-pill-task.plan-pill-dragging { opacity: .45; transform: scale(.98); }
+/* pills overlapping "now" read as in-progress */
+.plan-track.is-drop-over .plan-lane { pointer-events: none; }
 .plan-pill-time { font-weight: 600; margin-right: .25rem; color: var(--gv-fg4); }
 .plan-pill-link { color: var(--gv-fg1); text-decoration: none; }
 .plan-pill-link:hover { text-decoration: underline; }
@@ -2370,6 +2398,16 @@ body.ps-resizing * {
   position: static; width: auto; left: auto; display: flex;
   align-items: center; gap: .4rem; height: auto; min-height: 0;
   margin-bottom: .3rem; cursor: grab; border-left-width: 3px;
+}
+.plan-backlog-item .plan-pill-link { flex: 1 1 auto; }
+.plan-next-item { background: linear-gradient(180deg, var(--gv-bg2), var(--gv-bg1)); }
+.plan-rails {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem; align-items: start;
+}
+.plan-track.is-drop-over {
+  outline: 2px dashed var(--gv-aqua); outline-offset: -2px;
+  background: color-mix(in srgb, var(--gv-aqua) 5%, var(--gv-bg1));
 }
 .plan-toast {
   position: fixed; bottom: 1.2rem; left: 50%;

@@ -972,6 +972,21 @@ def today():
         # other (events and tasks live in separate lanes → layout apart).
         timed_events = _assign_columns([it for it in cls["timed"] if it["kind"] == "event"])
         timed_tasks = _assign_columns([it for it in cls["timed"] if it["kind"] == "task"])
+        # "Next actions" pool — actionable next-tasks that aren't already on
+        # the day (no time, not in the auto-plan backlog). Draggable onto the
+        # track but deliberately NOT auto-planned, so the user can pull extra
+        # work in by hand without "Plan my day" hoovering it all up.
+        seen_pks = ({c["obj"].pk for c in cls["backlog"]}
+                    | {it["obj"].pk for it in timed_tasks})
+        next_pool = []
+        for t in Item.objects(_scope(user), kind="task", status="next") \
+                     .order_by("+sort_order", "+due_date"):
+            if t.pk in seen_pks or t.is_blocked(now):
+                continue
+            next_pool.append({"obj": t, "title": t.title,
+                              "duration_min": t.estimated_minutes or 30})
+            if len(next_pool) >= 50:
+                break
         start_h = user.plan_day_start if user.plan_day_start is not None else 9
         end_h = user.plan_day_end if user.plan_day_end is not None else 18
         # Render range = working window, widened to any timed item outside it,
@@ -992,6 +1007,7 @@ def today():
             "timed_tasks": timed_tasks,
             "allday": cls["allday"],
             "backlog": cls["backlog"],
+            "next_pool": next_pool,
             "range_start_min": lo_min,
             "range_end_min": hi_min,
             "work_start_min": start_h * 60,

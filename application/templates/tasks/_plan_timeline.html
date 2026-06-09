@@ -17,7 +17,7 @@
       <i class="bi bi-magic"></i> Plan my day
     </button>
     <span class="text-muted small">
-      Fills free slots
+      Slots the <strong>Unplanned</strong> tasks into free time
       {{ '%02d:00'|format(plan_data.work_start_min // 60) }}–{{ '%02d:00'|format(plan_data.work_end_min // 60) }}
       around your events ·
       <a href="{{ url_for('settings.profile') }}">change hours</a>
@@ -61,7 +61,12 @@
                   --dur: {{ plan_data.work_end_min - plan_data.work_start_min }};"></div>
 
       {% if plan_data.now_min is not none and plan_data.now_min >= range0 and plan_data.now_min <= plan_data.range_end_min %}
-        <div class="plan-now" style="--top: {{ plan_data.now_min - range0 }};"></div>
+        {# dim everything before "now" so the eye goes to what's left of today #}
+        <div class="plan-past" style="--dur: {{ plan_data.now_min - range0 }};"></div>
+        <div class="plan-now" style="--top: {{ plan_data.now_min - range0 }};">
+          <span class="plan-now-dot"></span>
+          <span class="plan-now-label">{{ '%02d:%02d'|format(plan_data.now_min // 60, plan_data.now_min % 60) }}</span>
+        </div>
       {% endif %}
 
       {# events — left lane #}
@@ -103,23 +108,46 @@
     </div>
   </div>
 
-  {# Backlog rail — unplanned tasks, draggable onto the track. #}
-  <div class="plan-backlog mt-3">
-    <h2 class="h6 text-muted small text-uppercase mb-2">
-      <i class="bi bi-inbox"></i> Unplanned ({{ plan_data.backlog|length }})
-    </h2>
-    {% for it in plan_data.backlog %}
-      <div class="plan-pill plan-pill-task plan-backlog-item{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
-           draggable="true"
-           data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
-           data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
-           data-inspector-title="{{ it.obj.title }}">
-        <i class="bi bi-grip-vertical text-muted"></i>
-        <a class="plan-pill-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
-        <span class="plan-pill-dur">{{ it.duration_min }}m</span>
+  {# Draggable rails. "Unplanned" = today's tasks without a time (these are
+     what "Plan my day" auto-fills). "Next" = other next-actions you can pull
+     in by hand — never auto-planned. Drag any pill onto the track. #}
+  <div class="plan-rails mt-3">
+    <div class="plan-rail">
+      <h2 class="h6 text-muted small text-uppercase mb-2">
+        <i class="bi bi-inbox"></i> Unplanned ({{ plan_data.backlog|length }})
+      </h2>
+      {% for it in plan_data.backlog %}
+        <div class="plan-pill plan-pill-task plan-backlog-item{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
+             draggable="true"
+             data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
+             data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
+             data-inspector-title="{{ it.obj.title }}">
+          <i class="bi bi-grip-vertical text-muted"></i>
+          <a class="plan-pill-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
+          <span class="plan-pill-dur">{{ it.duration_min }}m</span>
+        </div>
+      {% else %}
+        <p class="text-muted small mb-0">Everything for this day has a time. 🎉</p>
+      {% endfor %}
+    </div>
+
+    {% if plan_data.next_pool %}
+      <div class="plan-rail">
+        <h2 class="h6 text-muted small text-uppercase mb-2">
+          <i class="bi bi-arrow-right-circle"></i> Next actions ({{ plan_data.next_pool|length }})
+        </h2>
+        {% for it in plan_data.next_pool %}
+          <div class="plan-pill plan-pill-task plan-backlog-item plan-next-item{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
+               draggable="true"
+               data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
+               data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
+               data-inspector-title="{{ it.obj.title }}">
+            <i class="bi bi-grip-vertical text-muted"></i>
+            <a class="plan-pill-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
+            <span class="plan-pill-dur">{{ it.duration_min }}m</span>
+          </div>
+        {% endfor %}
       </div>
-    {% else %}
-      <p class="text-muted small mb-0">Everything for this day has a time. 🎉</p>
-    {% endfor %}
+    {% endif %}
   </div>
 </div>

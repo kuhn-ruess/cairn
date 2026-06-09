@@ -637,6 +637,10 @@
   const DATE = track.dataset.date;
   const SNAP = 15;
 
+  // Open the day centred on "now" (like Structured) so you land on what's next.
+  const nowEl = track.querySelector(".plan-now");
+  if (nowEl) nowEl.scrollIntoView({ block: "center" });
+
   function postForm(url, data) {
     const fd = new FormData();
     fd.append("csrf_token", CSRF);
