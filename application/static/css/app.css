@@ -2513,6 +2513,18 @@ body.ps-resizing * {
   max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
+/* quick-add inline input on an empty slot */
+.plan-quickadd {
+  position: absolute; left: 4px; right: 4px; z-index: 10;
+  top: calc(var(--top) * var(--plan-ppm));
+  font-size: .78rem; padding: .35rem .55rem;
+  border: 2px solid var(--gv-aqua); border-radius: .55rem;
+  background: var(--gv-bg0); color: var(--gv-fg1);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+}
+.plan-track { cursor: text; }
+.plan-track .plan-card { cursor: grab; }
+
 /* backlog as an unschedule drop target */
 .plan-rail-hint { font-size: .67rem; color: var(--gv-fg4); margin-bottom: .45rem; }
 #plan-backlog.is-drop-over {

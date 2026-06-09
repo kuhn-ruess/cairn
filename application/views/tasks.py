@@ -1742,6 +1742,53 @@ def unschedule(task_id):
     return jsonify({"ok": True, "warnings": warnings})
 
 
+@tasks_bp.route("/plan-create", methods=["POST"])
+@login_required
+def plan_create():
+    """Quick-add from the Plan timeline: create a task planned at a slot.
+
+    Body: ``text`` (supports @tag / #project / pN tokens), ``date=YYYY-MM-DD``,
+    ``hour``, ``minute``, optional ``minutes`` (duration). Returns the new
+    task so the client can drop a card in place.
+    """
+    from flask import jsonify
+    from datetime import datetime as _dt, time as _t
+    from application.services.quick_parse import parse_task_text
+    user = current_user._get_current_object()
+    data = request.get_json(silent=True) or request.form
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "Empty input"}), 400
+    try:
+        d = _dt.fromisoformat((data.get("date") or "").strip()).date()
+        h = max(0, min(23, int(data.get("hour") or 0)))
+        m = max(0, min(59, int(data.get("minute") or 0)))
+    except ValueError:
+        return jsonify({"error": "invalid slot"}), 400
+    try:
+        minutes = max(5, min(1440, int(data.get("minutes") or 30)))
+    except ValueError:
+        minutes = 30
+    tz = resolve_tz(user)
+    parsed = parse_task_text(text, user)
+    if not parsed.title:
+        return jsonify({"error": "Couldn't extract a title."}), 400
+    task = Item(
+        owner=user, kind="task", title=parsed.title, parent=parsed.project,
+        tags=parsed.tags, priority=parsed.priority, due_date=parsed.due_date,
+        flagged=parsed.flagged, status="next", estimated_minutes=minutes,
+        plan_date=_dt.combine(d, _t(h, m)).replace(tzinfo=tz),
+    )
+    if parsed.assignee:
+        task.assign_to(parsed.assignee, by_user=user)
+    task.save()
+    _writeback_calendar(task, user)
+    return jsonify({"ok": True, "id": str(task.pk), "title": task.title,
+                    "minutes": minutes,
+                    "detail_url": url_for("tasks.detail", task_id=str(task.pk)),
+                    "edit_url": url_for("tasks.edit", task_id=str(task.pk))})
+
+
 @tasks_bp.route("/carry-over", methods=["POST"])
 @login_required
 def carry_over():

@@ -30,7 +30,7 @@
     <span class="text-muted small">
       Slots the <strong>Unplanned</strong> tasks into free time
       {{ '%02d:00'|format(plan_data.work_start_min // 60) }}–{{ '%02d:00'|format(plan_data.work_end_min // 60) }}
-      around your events ·
+      · click an empty slot to add ·
       <a href="{{ url_for('settings.profile') }}">change hours</a>
     </span>
     {% if plan_data.backlog %}

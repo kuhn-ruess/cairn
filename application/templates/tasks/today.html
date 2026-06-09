@@ -791,6 +791,7 @@
     if (el) el.classList.remove("plan-card-dragging");
     placeOnTimeline(el, minutes, est);
     relayoutColumns();
+    justDropped = true; setTimeout(() => { justDropped = false; }, 60);
     postForm(`/tasks/${id}/schedule`, {
       date: DATE, hour: String(Math.floor(minutes / 60)), minute: String(minutes % 60),
     }).then((r) => { if (!r.ok) throw new Error(r.status); })
@@ -933,6 +934,74 @@
         .catch(() => window.location.reload());
     });
   }
+
+  // ---- quick-add: click an empty slot → inline input → create a task ----
+  function newTaskCard(id, title, href, est, minutes) {
+    const card = document.createElement("div");
+    card.className = "plan-card plan-card-task";
+    card.setAttribute("draggable", "true");
+    card.dataset.taskId = id;
+    card.dataset.est = String(est);
+    card.innerHTML =
+      '<button type="button" class="plan-ico plan-ico-task plan-complete" title="Mark done"><i class="bi bi-check2"></i></button>' +
+      '<div class="plan-card-body"><div class="plan-card-title"><a></a></div>' +
+      '<div class="plan-card-meta"></div></div>' +
+      '<span class="plan-card-resize" title="Drag to change duration"></span>';
+    const a = card.querySelector(".plan-card-title a");
+    a.setAttribute("href", href || "#");
+    a.textContent = title;
+    card.style.setProperty("--col", "0");
+    card.style.setProperty("--cols", "1");
+    card.style.setProperty("--dur", String(est));
+    card.style.setProperty("--top", String(minutes - RANGE0));
+    card.querySelector(".plan-card-meta").innerHTML =
+      fmt(minutes) + "–" + fmt(minutes + est) + ' · <span class="plan-card-dur">' + est + "m</span>";
+    lane.appendChild(card);
+    return card;
+  }
+
+  let qa = null, justDropped = false;
+  function closeQuickAdd() { if (qa) { qa.remove(); qa = null; } }
+  function openQuickAdd(minutes) {
+    closeQuickAdd();
+    qa = document.createElement("input");
+    qa.type = "text";
+    qa.className = "plan-quickadd";
+    qa.placeholder = "New task at " + fmt(minutes) + " — Enter to add, Esc to cancel";
+    qa.style.setProperty("--top", String(minutes - RANGE0));
+    qa.dataset.min = String(minutes);
+    lane.appendChild(qa);
+    qa.focus();
+    qa.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { e.preventDefault(); closeQuickAdd(); }
+      else if (e.key === "Enter") { e.preventDefault(); submitQuickAdd(); }
+    });
+    qa.addEventListener("blur", () => { if (qa && !qa.value.trim()) closeQuickAdd(); });
+  }
+  async function submitQuickAdd() {
+    if (!qa) return;
+    const text = qa.value.trim();
+    const minutes = parseInt(qa.dataset.min, 10) || RANGE0;
+    if (!text) { closeQuickAdd(); return; }
+    const input = qa; qa = null; input.disabled = true;
+    try {
+      const r = await postForm("/tasks/plan-create", {
+        text, date: DATE, hour: String(Math.floor(minutes / 60)),
+        minute: String(minutes % 60), minutes: "30",
+      });
+      const j = await r.json().catch(() => ({}));
+      input.remove();
+      if (!r.ok) { alert(j.error || ("Create failed (" + r.status + ")")); return; }
+      newTaskCard(j.id, j.title, j.detail_url, j.minutes || 30, minutes);
+      relayoutColumns();
+    } catch (e) { input.remove(); alert("Create failed (network)."); }
+  }
+  track.addEventListener("click", (ev) => {
+    if (justDropped) return;
+    if (ev.target.closest(".plan-card") || ev.target.closest(".plan-quickadd") ||
+        ev.target.closest("a")) return;
+    openQuickAdd(snapAt(ev.clientY));
+  });
 
   // ---- surface the post-reload toast ----
   const toast = sessionStorage.getItem("plan_toast");
