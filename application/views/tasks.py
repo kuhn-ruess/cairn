@@ -2376,7 +2376,8 @@ def comment(task_id):
                 }
             )
         flash("Comment posted.", "success")
-    return redirect(url_for("tasks.detail", task_id=task_id))
+    # Stay where the comment was posted (task detail OR a project page).
+    return redirect(request.referrer or url_for("tasks.detail", task_id=task_id))
 
 @tasks_bp.route("/<task_id>/comments/<int:index>/toggle-visibility", methods=["POST"])
 @login_required

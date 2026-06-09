@@ -501,4 +501,10 @@
   {% endif %}
 {% endif %}
 
+<div class="project-comments mt-4" style="max-width: 840px;">
+  {% with item = project %}
+    {% include "tasks/_comments_section.html" %}
+  {% endwith %}
+</div>
+
 {% endblock %}

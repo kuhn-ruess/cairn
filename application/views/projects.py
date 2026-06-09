@@ -24,7 +24,7 @@ def _render_project_inspector(project, user, *, just_saved=False):
 from flask_login import current_user, login_required
 from mongoengine import Q
 
-from application.forms import ProjectForm
+from application.forms import ProjectForm, CommentForm
 
 from application.models.user import User
 from application.models.item import Item
@@ -640,6 +640,7 @@ def detail(project_id):
         view_mode=view_mode,
         calendar=calendar_data,
         all_tasks=all_tasks,
+        comment_form=CommentForm(),
     )
 
 def _build_calendar(tasks, month_param, tz=timezone.utc):
