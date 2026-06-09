@@ -2,6 +2,20 @@
 {% block title %}{{ task.title }} · Cairn{% endblock %}
 {% block content %}
 <header class="task-detail-header mb-3">
+  {% if ancestors %}
+    <nav aria-label="breadcrumb" class="project-breadcrumb">
+      <a href="{{ url_for('projects.index') }}" class="crumb crumb-root" title="All projects">
+        <i class="bi bi-house"></i>
+      </a>
+      {% for a in ancestors %}
+        <span class="crumb-sep">/</span>
+        <a href="{{ url_for('tasks.detail', task_id=a.pk) if a.kind == 'task' else url_for('projects.detail', project_id=a.pk) }}" class="crumb">
+          {% if a.kind == 'task' %}<i class="bi bi-check2-square text-muted"></i>{% else %}{{ item_icon(a) }}{% endif %}
+          {{ a.name }}
+        </a>
+      {% endfor %}
+    </nav>
+  {% endif %}
   <div class="d-flex align-items-start gap-2">
     <form method="post"
           action="{% if task.status == 'done' %}{{ url_for('tasks.reopen', task_id=task.pk) }}{% else %}{{ url_for('tasks.complete', task_id=task.pk) }}{% endif %}"

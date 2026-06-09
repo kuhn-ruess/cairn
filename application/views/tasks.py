@@ -1174,9 +1174,11 @@ def detail(task_id):
     # so the same item never renders as both kinds.
     if task.kind != "task":
         return redirect(url_for("projects.detail", project_id=task_id))
+    from application.views.projects import _ancestor_chain
     return render_template(
         "tasks/detail.html",
         task=task,
+        ancestors=_ancestor_chain(task),
         comment_form=CommentForm(),
         form=_build_task_form(task, user),
         form_action=url_for("tasks.edit", task_id=str(task.pk)),
