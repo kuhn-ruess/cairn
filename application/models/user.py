@@ -169,6 +169,10 @@ class User(UserMixin, Document):
     # calendar) — remembered so the view comes back the way the user left it.
     today_days = IntField(default=1, min_value=1)
     today_view_mode = StringField(default="list")
+    # Working-day window (hours) for the Today "Plan" timeline + auto-plan:
+    # auto-scheduling only fills free slots between these two hours.
+    plan_day_start = IntField(default=9, min_value=0, max_value=23)
+    plan_day_end = IntField(default=18, min_value=1, max_value=24)
 
     # Custom sidebar perspective ordering. Empty = use the canonical default
     # (all perspectives shown). When non-empty, only these keys are shown,

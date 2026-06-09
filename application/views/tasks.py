@@ -456,6 +456,74 @@ def inbox():
         "tasks/list.html", title="Inbox", perspective="inbox", tasks=tasks
     )
 
+def _as_tz(dt, tz):
+    """UTC-or-naive datetime → tz-aware in ``tz`` (None passes through)."""
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(tz)
+
+
+def _plan_day_tasks(user, day_date, tz, *, is_today):
+    """Actionable tasks for one day's Plan timeline: scope-visible, not
+    done/dropped/someday, and either planned on that day, due by end of it
+    (overdue counts), or flagged (only on the real today). Mirrors today()'s
+    single-day plate for an arbitrary date so the timeline + auto-plan share
+    one definition of "today's work"."""
+    from datetime import time as _time
+    day_end = datetime.combine(day_date, _time(23, 59, 59)).replace(tzinfo=tz)
+    out = []
+    for t in Item.objects(_scope(user), kind="task",
+                          status__nin=["done", "dropped", "someday"]):
+        pl = _as_tz(t.plan_date, tz)
+        du = _as_tz(t.due_date, tz)
+        if (pl and pl.date() == day_date) \
+           or (du and du <= day_end) \
+           or (is_today and t.flagged):
+            out.append(t)
+    return out
+
+
+def _plan_classify(tasks, events, tz, day_date, now_utc):
+    """Split tasks + events for ``day_date`` into timeline buckets.
+
+    Returns ``{timed, allday, backlog, busy}``:
+      - timed: events + tasks planned on this day WITH a time-of-day, each
+        ``{kind, obj, title, start, end, duration_min}`` (already placed).
+      - allday: all-day events for the day (chips above the track).
+      - backlog: tasks with no time yet (auto-plan candidates), not blocked.
+      - busy: [(start, end)] intervals the auto-planner must avoid.
+    """
+    timed, allday, backlog, busy = [], [], [], []
+    for ev in events:
+        s = _as_tz(ev.start, tz)
+        if ev.all_day:
+            if s and s.date() == day_date:
+                allday.append({"kind": "event", "obj": ev, "title": ev.title})
+            continue
+        e = _as_tz(ev.end, tz) or s
+        if not s or s.date() != day_date:
+            continue
+        dur = max(5, int((e - s).total_seconds() // 60)) if e and e > s else 30
+        timed.append({"kind": "event", "obj": ev, "start": s, "end": e,
+                      "duration_min": dur, "title": ev.title})
+        busy.append((s, e))
+    for t in tasks:
+        pl = _as_tz(t.plan_date, tz)
+        dur = t.estimated_minutes or 30
+        if pl and pl.date() == day_date and (pl.hour or pl.minute):
+            end = pl + timedelta(minutes=dur)
+            timed.append({"kind": "task", "obj": t, "start": pl, "end": end,
+                          "duration_min": dur, "title": t.title})
+            busy.append((pl, end))
+        elif not t.is_blocked(now_utc):
+            backlog.append({"kind": "task", "obj": t, "title": t.title,
+                            "duration_min": dur})
+    timed.sort(key=lambda x: x["start"])
+    return {"timed": timed, "allday": allday, "backlog": backlog, "busy": busy}
+
+
 @tasks_bp.route("/today")
 @login_required
 def today():
@@ -754,13 +822,13 @@ def today():
     # user; otherwise fall back to their last-used value.
     if request.args.get("view") is not None:
         view_mode = (request.args.get("view") or "list").strip()
-        if view_mode not in ("list", "calendar"):
+        if view_mode not in ("list", "calendar", "plan"):
             view_mode = "list"
         if view_mode != (user.today_view_mode or "list"):
             user.today_view_mode = view_mode
             user.save()
     else:
-        view_mode = user.today_view_mode if user.today_view_mode in ("list", "calendar") else "list"
+        view_mode = user.today_view_mode if user.today_view_mode in ("list", "calendar", "plan") else "list"
 
     timeline = None
     if view_mode == "calendar":
@@ -857,6 +925,43 @@ def today():
             "by_day": by_day,
         }
 
+    # Single-column "Plan" timeline (structured.app-style day planner).
+    plan_data = None
+    if view_mode == "plan":
+        # Plan is always single-day; decouple from the saved multi-day window
+        # so a user whose list view is on "3 d" still gets a clean day planner.
+        plan_is_today = (start_date == today_date)
+        cls = _plan_classify(
+            _plan_day_tasks(user, start_date, _u_tz, is_today=plan_is_today),
+            events, _u_tz, start_date, now,
+        )
+        start_h = user.plan_day_start if user.plan_day_start is not None else 9
+        end_h = user.plan_day_end if user.plan_day_end is not None else 18
+        # Render range = working window, widened to any timed item outside it,
+        # snapped to whole hours.
+        lo_min, hi_min = start_h * 60, end_h * 60
+        for it in cls["timed"]:
+            s, e = it["start"], it["end"]
+            lo_min = min(lo_min, s.hour * 60 + s.minute)
+            hi_min = max(hi_min, e.hour * 60 + e.minute)
+        lo_min = (lo_min // 60) * 60
+        hi_min = min(24 * 60, ((hi_min + 59) // 60) * 60)
+        now_min = None
+        if plan_is_today:
+            n_local = now.astimezone(_u_tz)
+            now_min = n_local.hour * 60 + n_local.minute
+        plan_data = {
+            "timed": cls["timed"],
+            "allday": cls["allday"],
+            "backlog": cls["backlog"],
+            "range_start_min": lo_min,
+            "range_end_min": hi_min,
+            "work_start_min": start_h * 60,
+            "work_end_min": end_h * 60,
+            "now_min": now_min,
+            "date": start_date.isoformat(),
+        }
+
     return render_template(
         "tasks/today.html",
         title=title,
@@ -880,6 +985,7 @@ def today():
         is_today_now=is_today_now,
         view_mode=view_mode,
         timeline=timeline,
+        plan_data=plan_data,
     )
 
 def _group_by_project(tasks, extra_projects=()):
@@ -1487,9 +1593,10 @@ def merge():
 def schedule(task_id):
     """Drag a task into a calendar slot → set ``plan_date``.
 
-    Body: ``date=YYYY-MM-DD`` and optional ``hour=0..23``. Without
-    hour the task becomes all-day at midnight (still gets a Plan-date
-    event when Google Calendar write-back is enabled). Triggers the
+    Body: ``date=YYYY-MM-DD`` and optional ``hour=0..23`` + ``minute=0..59``.
+    Without hour the task becomes all-day at midnight (still gets a Plan-date
+    event when Google Calendar write-back is enabled). ``minute`` lets the
+    Plan timeline drop a task at a 15-minute-precise time. Triggers the
     calendar writeback so the event mirrors on Google immediately.
     """
     from flask import jsonify
@@ -1500,6 +1607,7 @@ def schedule(task_id):
         abort(404)
     date_raw = (request.form.get("date") or "").strip()
     hour_raw = (request.form.get("hour") or "").strip()
+    minute_raw = (request.form.get("minute") or "").strip()
     if not date_raw:
         return jsonify({"error": "date required"}), 400
     try:
@@ -1516,9 +1624,10 @@ def schedule(task_id):
     if hour_raw:
         try:
             h = max(0, min(23, int(hour_raw)))
+            m = max(0, min(59, int(minute_raw))) if minute_raw else 0
         except ValueError:
-            return jsonify({"error": "invalid hour"}), 400
-        wall = _dt.combine(d, _t(h, 0))
+            return jsonify({"error": "invalid hour/minute"}), 400
+        wall = _dt.combine(d, _t(h, m))
     else:
         wall = _dt.combine(d, _t(0, 0))
     task.plan_date = wall.replace(tzinfo=tz)
@@ -1553,6 +1662,87 @@ def duration(task_id):
     task.save()
     warnings = _writeback_calendar(task, user) or []
     return jsonify({"ok": True, "estimated_minutes": minutes, "warnings": warnings})
+
+
+@tasks_bp.route("/auto-plan", methods=["POST"])
+@login_required
+def auto_plan():
+    """Auto-schedule a day's unplanned tasks into free slots (the Plan
+    timeline's "Plan my day" button).
+
+    Body: ``date=YYYY-MM-DD``. Non-destructive: only tasks without a
+    time-of-day are placed, around existing calendar events and tasks that
+    are already timed. Each placed task gets ``plan_date`` set + Google
+    write-back. Returns ``{ok, planned, skipped, warnings}``.
+    """
+    from flask import jsonify
+    from datetime import datetime as _dt, time as _t
+    from application.services.auto_plan import plan_day, _snap_up
+    from application.services.calendar_sync import fetch_events
+
+    user = current_user._get_current_object()
+    now = datetime.now(timezone.utc)
+    date_raw = (request.form.get("date") or "").strip()
+    try:
+        d = _dt.fromisoformat(date_raw).date() if date_raw else now.date()
+    except ValueError:
+        return jsonify({"error": "invalid date"}), 400
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
+    except Exception:
+        tz = timezone.utc
+
+    is_today = (d == now.astimezone(tz).date())
+    start_h = user.plan_day_start if user.plan_day_start is not None else 9
+    end_h = user.plan_day_end if user.plan_day_end is not None else 18
+    window_start = _dt.combine(d, _t(start_h, 0)).replace(tzinfo=tz)
+    if end_h >= 24:
+        window_end = _dt.combine(d, _t(0, 0)).replace(tzinfo=tz) + timedelta(days=1)
+    else:
+        window_end = _dt.combine(d, _t(end_h, 0)).replace(tzinfo=tz)
+    if is_today:
+        window_start = max(window_start, _snap_up(now.astimezone(tz)))
+
+    # Day's calendar events (same opt-in calendars as the Today view).
+    day_start = _dt.combine(d, _t(0, 0)).replace(tzinfo=tz)
+    events = []
+    for cal in (user.calendars or []):
+        if not cal.show_in_today:
+            continue
+        try:
+            events.extend(fetch_events(cal, day_start, day_start + timedelta(days=1),
+                                       user=user))
+        except Exception:  # noqa: BLE001 — a flaky calendar shouldn't block planning
+            pass
+
+    cls = _plan_classify(
+        _plan_day_tasks(user, d, tz, is_today=is_today),
+        events, tz, d, now,
+    )
+    # Candidate order: priority (P1 first), then due date, then manual order.
+    FAR = datetime(9999, 1, 1, tzinfo=timezone.utc)
+    backlog = sorted(
+        cls["backlog"],
+        key=lambda c: (c["obj"].priority or 99,
+                       _as_tz(c["obj"].due_date, timezone.utc) or FAR,
+                       c["obj"].sort_order or 0),
+    )
+    starts = plan_day([c["duration_min"] for c in backlog], cls["busy"],
+                      window_start, window_end)
+
+    planned, skipped, warnings = 0, 0, []
+    for c, start in zip(backlog, starts):
+        if start is None:
+            skipped += 1
+            continue
+        task = c["obj"]
+        task.plan_date = start
+        task.save()
+        warnings.extend(_writeback_calendar(task, user) or [])
+        planned += 1
+    return jsonify({"ok": True, "planned": planned, "skipped": skipped,
+                    "warnings": warnings})
 
 
 @tasks_bp.route("/<task_id>/move-options")

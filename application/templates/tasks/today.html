@@ -63,11 +63,16 @@
        title="Calendar / timeline view">
       <i class="bi bi-calendar3"></i> Calendar
     </a>
+    <a class="btn btn-sm {% if view_mode == 'plan' %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}"
+       href="?date={{ start_date.isoformat() }}&view=plan"
+       title="Day planner — tasks + calendar on one timeline">
+      <i class="bi bi-bounding-box"></i> Plan
+    </a>
   </div>
 </div>
 
 <div class="today-toolbar d-flex flex-wrap align-items-center gap-2 mb-3">
-  {% if view_mode != 'calendar' %}
+  {% if view_mode == 'list' %}
     <span class="text-muted small">Group by:</span>
     <div class="btn-group btn-group-sm" role="group">
       {% for value, label, icon in grouping_options %}
@@ -89,6 +94,7 @@
     </button>
   {% endif %}
 
+  {% if view_mode != 'plan' %}
   <span class="text-muted small ms-2">Filter tag:</span>
   <div class="dropdown">
     <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
@@ -115,6 +121,7 @@
       {% endfor %}
     </ul>
   </div>
+  {% endif %}
 </div>
 
 {% macro cal_event_row(ev) %}
@@ -226,6 +233,8 @@
       {% endfor %}
     </div>
   {% endif %}
+{% elif view_mode == 'plan' and plan_data %}
+  {% include "tasks/_plan_timeline.html" %}
 {% elif calendar_events and not daily_buckets %}
   {# Single-day list view: events live in their own block at the top.
      Multi-day list view interleaves them per-day below — see the
@@ -308,7 +317,7 @@
   </section>
 {% endif %}
 
-{% if not groups and not projects_with_dates %}
+{% if not groups and not projects_with_dates and view_mode != 'plan' %}
   <p class="text-muted">Nothing on your plate today. 🪨</p>
 {% endif %}
 
@@ -316,7 +325,7 @@
    inside the timeline above. Multi-day list view renders per-day
    buckets instead of project-grouped sections (see daily_buckets
    block below), so we silence the default groups loop too. #}
-{% if view_mode == 'calendar' or daily_buckets %}{% set groups = [] %}{% endif %}
+{% if view_mode in ('calendar', 'plan') or daily_buckets %}{% set groups = [] %}{% endif %}
 
 {% set view_key = 'today' %}
 {% macro render_project_rows(items) %}
@@ -352,7 +361,7 @@
   {% endfor %}
 {% endmacro %}
 
-{% if daily_buckets and view_mode != 'calendar' %}
+{% if daily_buckets and view_mode not in ('calendar', 'plan') %}
   <div class="daily-buckets">
   {% for day, items in daily_buckets.items() %}
     <section class="daily-bucket mb-3">
@@ -609,6 +618,142 @@
       ev.stopPropagation();
     }
   });
+})();
+</script>
+{% endif %}
+
+{% if view_mode == 'plan' %}
+<script>
+(function () {
+  // Plan timeline interactions: drag a task (or backlog item) onto the
+  // track to (re)schedule it 15-min-precise, drag the ⇕ handle to resize
+  // its duration, and "Plan my day" to auto-fill free slots. All POST to
+  // the existing /schedule, /duration and the new /auto-plan endpoints.
+  const track = document.getElementById("plan-track");
+  if (!track) return;
+  const CSRF = {{ csrf_token()|tojson }};
+  const PPM = parseFloat(track.dataset.ppm) || 1.1;
+  const RANGE0 = parseInt(track.dataset.range0, 10) || 0;
+  const DATE = track.dataset.date;
+  const SNAP = 15;
+
+  function postForm(url, data) {
+    const fd = new FormData();
+    fd.append("csrf_token", CSRF);
+    for (const k in data) fd.append(k, data[k]);
+    return fetch(url, { method: "POST", body: fd, credentials: "same-origin",
+                        headers: { "X-CSRFToken": CSRF } });
+  }
+
+  // ---- drag a task / backlog pill onto the track → set plan time ----
+  let dragId = null;
+  document.addEventListener("dragstart", (ev) => {
+    const p = ev.target.closest && ev.target.closest(".plan-pill-task[data-task-id]");
+    if (!p) return;
+    dragId = p.dataset.taskId;
+    ev.dataTransfer.effectAllowed = "move";
+    ev.dataTransfer.setData("text/plain", dragId);
+    p.classList.add("plan-pill-dragging");
+  });
+  document.addEventListener("dragend", (ev) => {
+    const p = ev.target.closest && ev.target.closest(".plan-pill-task");
+    if (p) p.classList.remove("plan-pill-dragging");
+    track.classList.remove("is-drop-over");
+    dragId = null;
+  });
+  track.addEventListener("dragover", (ev) => {
+    if (!dragId) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "move";
+    track.classList.add("is-drop-over");
+  });
+  track.addEventListener("dragleave", (ev) => {
+    if (!track.contains(ev.relatedTarget)) track.classList.remove("is-drop-over");
+  });
+  track.addEventListener("drop", async (ev) => {
+    if (!dragId) return;
+    ev.preventDefault();
+    track.classList.remove("is-drop-over");
+    const rect = track.getBoundingClientRect();
+    let minutes = RANGE0 + (ev.clientY - rect.top) / PPM;
+    minutes = Math.round(minutes / SNAP) * SNAP;
+    minutes = Math.max(0, Math.min(24 * 60 - SNAP, minutes));
+    const id = dragId; dragId = null;
+    try {
+      const r = await postForm(`/tasks/${id}/schedule`, {
+        date: DATE, hour: String(Math.floor(minutes / 60)),
+        minute: String(minutes % 60),
+      });
+      if (!r.ok) { alert("Reschedule failed (" + r.status + ")"); return; }
+      window.location.reload();
+    } catch (e) { alert("Reschedule failed (network)."); }
+  });
+
+  // ---- resize handle → estimated_minutes ----
+  const PX_PER_STEP = 20, STEP = 15;
+  let rz = null;
+  document.addEventListener("mousedown", (ev) => {
+    const h = ev.target.closest && ev.target.closest(".plan-pill-resize");
+    if (!h) return;
+    const pill = h.closest(".plan-pill-task");
+    if (!pill) return;
+    ev.preventDefault(); ev.stopPropagation();
+    pill.setAttribute("draggable", "false");
+    rz = { pill, startY: ev.clientY,
+           start: parseInt(pill.dataset.est || "30", 10) || 30,
+           durEl: pill.querySelector(".plan-pill-dur") };
+    document.body.classList.add("is-resizing-cal");
+  });
+  document.addEventListener("mousemove", (ev) => {
+    if (!rz) return;
+    const steps = Math.round((ev.clientY - rz.startY) / PX_PER_STEP);
+    const next = Math.max(STEP, Math.min(1440, rz.start + steps * STEP));
+    if (rz.durEl) rz.durEl.textContent = next + "m";
+    rz.pill.dataset.est = String(next);
+    rz.pill.style.setProperty("--dur", String(next));
+  });
+  document.addEventListener("mouseup", async () => {
+    if (!rz) return;
+    const pill = rz.pill, start = rz.start;
+    const minutes = parseInt(pill.dataset.est || "30", 10) || 30;
+    rz = null;
+    pill.setAttribute("draggable", "true");
+    document.body.classList.remove("is-resizing-cal");
+    if (minutes === start) return;
+    try {
+      const r = await postForm(`/tasks/${pill.dataset.taskId}/duration`,
+                               { minutes: String(minutes) });
+      if (!r.ok) alert("Resize failed (" + r.status + ")");
+    } catch (e) { alert("Resize failed (network)."); }
+  });
+
+  // ---- "Plan my day" → auto-plan endpoint ----
+  const auto = document.getElementById("plan-auto-btn");
+  if (auto) auto.addEventListener("click", async () => {
+    auto.disabled = true;
+    auto.innerHTML = '<i class="bi bi-hourglass-split"></i> Planning…';
+    try {
+      const r = await postForm("/tasks/auto-plan", { date: auto.dataset.date });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { alert("Auto-plan failed (" + r.status + ")"); auto.disabled = false; return; }
+      sessionStorage.setItem("plan_toast", j.skipped
+        ? `Planned ${j.planned}, ${j.skipped} didn't fit before the day ends.`
+        : `Planned ${j.planned} task(s).`);
+      window.location.reload();
+    } catch (e) { alert("Auto-plan failed (network)."); auto.disabled = false; }
+  });
+
+  // ---- surface the post-reload toast ----
+  const toast = sessionStorage.getItem("plan_toast");
+  if (toast) {
+    sessionStorage.removeItem("plan_toast");
+    const el = document.createElement("div");
+    el.className = "plan-toast";
+    el.textContent = toast;
+    document.body.appendChild(el);
+    requestAnimationFrame(() => el.classList.add("show"));
+    setTimeout(() => el.remove(), 4000);
+  }
 })();
 </script>
 {% endif %}

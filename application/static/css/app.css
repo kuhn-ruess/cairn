@@ -2285,3 +2285,97 @@ body.ps-resizing * {
 .app-main:has(.review-banner) {
   box-shadow: inset 3px 0 0 var(--gv-blue-br, #83a598);
 }
+
+/* ---- Today "Plan" timeline (structured.app-style day planner) ---- */
+.plan-wrap { max-width: 880px; }
+.plan-allday { display: flex; flex-wrap: wrap; gap: .35rem; }
+.plan-allday-chip {
+  font-size: .74rem; padding: .12rem .55rem; border-radius: 1rem;
+  border: 1px solid var(--c, var(--gv-gray)); color: var(--gv-fg2);
+  background: color-mix(in srgb, var(--c, var(--gv-gray)) 14%, transparent);
+}
+.plan-grid { position: relative; display: flex; gap: .5rem; }
+.plan-axis {
+  position: relative; width: 3rem; flex: 0 0 3rem;
+  height: calc(var(--span) * var(--plan-ppm));
+}
+.plan-hour {
+  position: absolute; top: calc(var(--top) * var(--plan-ppm));
+  right: .35rem; transform: translateY(-.5em);
+  font-size: .7rem; color: var(--gv-fg4); white-space: nowrap;
+}
+.plan-track {
+  position: relative; flex: 1 1 auto;
+  height: calc(var(--span) * var(--plan-ppm));
+  border: 1px solid var(--gv-bg3); border-radius: .4rem;
+  background: var(--gv-bg1); overflow: hidden;
+}
+.plan-track.is-drop-over { outline: 2px dashed var(--gv-aqua); outline-offset: -2px; }
+.plan-gridline {
+  position: absolute; left: 0; right: 0;
+  top: calc(var(--top) * var(--plan-ppm));
+  border-top: 1px solid var(--gv-bg2);
+}
+.plan-worktime {
+  position: absolute; left: 0; right: 0;
+  top: calc(var(--top) * var(--plan-ppm));
+  height: calc(var(--dur) * var(--plan-ppm));
+  background: color-mix(in srgb, var(--gv-aqua) 7%, transparent);
+  pointer-events: none;
+}
+.plan-now {
+  position: absolute; left: 0; right: 0; z-index: 5;
+  top: calc(var(--top) * var(--plan-ppm));
+  border-top: 2px solid var(--gv-red);
+}
+.plan-now::before {
+  content: ""; position: absolute; left: 0; top: -5px;
+  width: 8px; height: 8px; border-radius: 50%; background: var(--gv-red);
+}
+.plan-lane { position: absolute; top: 0; bottom: 0; }
+.plan-lane-events { left: 0; width: 42%; }
+.plan-lane-tasks  { right: 0; width: 56%; }
+.plan-pill {
+  position: absolute; left: 2%; right: 2%;
+  top: calc(var(--top) * var(--plan-ppm));
+  height: calc(var(--dur) * var(--plan-ppm));
+  min-height: 1.15rem; overflow: hidden;
+  border-radius: .35rem; padding: .12rem .4rem;
+  font-size: .75rem; line-height: 1.2;
+  border-left: 3px solid var(--c, var(--gv-aqua));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+}
+.plan-pill-event {
+  background: color-mix(in srgb, var(--c) 16%, var(--gv-bg2));
+  color: var(--gv-fg2);
+}
+.plan-pill-task {
+  background: var(--gv-bg2); border-left-color: var(--gv-aqua); cursor: grab;
+}
+.plan-pill-task.plan-pill-dragging { opacity: .5; }
+.plan-pill-time { font-weight: 600; margin-right: .25rem; color: var(--gv-fg4); }
+.plan-pill-link { color: var(--gv-fg1); text-decoration: none; }
+.plan-pill-link:hover { text-decoration: underline; }
+.plan-pill-dur { float: right; color: var(--gv-fg4); font-size: .68rem; }
+.plan-pill-resize {
+  position: absolute; right: 3px; bottom: 0; cursor: ns-resize;
+  font-size: .72rem; color: var(--gv-fg4); line-height: 1;
+}
+.plan-prio-1 { border-left-color: var(--gv-red) !important; }
+.plan-prio-2 { border-left-color: var(--gv-orange) !important; }
+.plan-prio-3 { border-left-color: var(--gv-yellow) !important; }
+.plan-backlog-item {
+  position: static; display: flex; align-items: center; gap: .4rem;
+  height: auto; min-height: 0; margin-bottom: .3rem; cursor: grab;
+  border-left-width: 3px;
+}
+.plan-toast {
+  position: fixed; bottom: 1.2rem; left: 50%;
+  transform: translateX(-50%) translateY(1rem);
+  background: var(--gv-bg0); color: var(--gv-fg1);
+  padding: .5rem .9rem; border-radius: .4rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .3);
+  font-size: .85rem; opacity: 0; z-index: 1090;
+  transition: opacity .2s, transform .2s;
+}
+.plan-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }

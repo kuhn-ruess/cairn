@@ -45,6 +45,26 @@
           </option>
         {% endfor %}
       </select>
+
+      <hr class="my-3">
+      <h2 class="h6 mb-2"><i class="bi bi-clock-history"></i> Working day</h2>
+      <p class="text-muted small mb-3">
+        The hours the Today <strong>Plan</strong> timeline auto-schedules into.
+        “Plan my day” only fills free slots between these two times.
+      </p>
+      <div class="d-flex align-items-center gap-2">
+        <label class="form-label mb-0 small" for="plan-day-start">From</label>
+        <input id="plan-day-start" type="number" name="plan_day_start"
+               min="0" max="23" style="width: 5rem;"
+               class="form-control form-control-sm"
+               value="{{ current_user.plan_day_start if current_user.plan_day_start is not none else 9 }}">
+        <label class="form-label mb-0 small" for="plan-day-end">to</label>
+        <input id="plan-day-end" type="number" name="plan_day_end"
+               min="1" max="24" style="width: 5rem;"
+               class="form-control form-control-sm"
+               value="{{ current_user.plan_day_end if current_user.plan_day_end is not none else 18 }}">
+        <span class="text-muted small">o’clock</span>
+      </div>
     </div>
   </div>
 

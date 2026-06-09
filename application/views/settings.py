@@ -146,6 +146,20 @@ def profile():
             flash("Unknown timezone.", "danger")
             return redirect(url_for("settings.profile"))
         user.timezone = tz
+        # Working-day window for the Today "Plan" timeline / auto-plan.
+        # Clamp to 0..24 and keep start < end (fall back to 9–18).
+        try:
+            pds = max(0, min(23, int(request.form.get("plan_day_start") or 9)))
+        except ValueError:
+            pds = 9
+        try:
+            pde = max(1, min(24, int(request.form.get("plan_day_end") or 18)))
+        except ValueError:
+            pde = 18
+        if pde <= pds:
+            pds, pde = 9, 18
+        user.plan_day_start = pds
+        user.plan_day_end = pde
         # Form posts the visible fields. Anything missing from that set
         # is added to the hidden blocklist.
         visible = set(request.form.getlist("task_row_visible"))
