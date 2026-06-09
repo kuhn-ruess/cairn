@@ -652,9 +652,48 @@
   }
 
   // ---- drag a task / backlog pill onto the track → set plan time ----
-  let dragId = null, dragEst = 30;
+  let dragId = null, dragEst = 30, dragEl = null;
+  const lane = track.querySelector(".plan-lane");
   const fmt = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" +
                      String(m % 60).padStart(2, "0");
+
+  function prioClass(el) {
+    for (const n of [1, 2, 3]) if (el.classList.contains("plan-prio-" + n)) return " plan-prio-" + n;
+    return "";
+  }
+  // Optimistically put the dragged task on the timeline (no reload): move an
+  // existing card, or convert a rail item into a fresh card. Returns the card.
+  function placeOnTimeline(el, minutes, est) {
+    let card = el;
+    if (!el.classList.contains("plan-card")) {
+      const link = el.querySelector(".plan-rail-link");
+      card = document.createElement("div");
+      card.className = "plan-card plan-card-task" + prioClass(el);
+      card.setAttribute("draggable", "true");
+      card.dataset.taskId = el.dataset.taskId;
+      card.dataset.est = String(est);
+      if (el.dataset.inspectorUrl) card.dataset.inspectorUrl = el.dataset.inspectorUrl;
+      if (el.dataset.inspectorTitle) card.dataset.inspectorTitle = el.dataset.inspectorTitle;
+      card.innerHTML =
+        '<span class="plan-ico plan-ico-task"><i class="bi bi-check2"></i></span>' +
+        '<div class="plan-card-body"><div class="plan-card-title"><a></a></div>' +
+        '<div class="plan-card-meta"></div></div>' +
+        '<span class="plan-card-resize" title="Drag to change duration"></span>';
+      const a = card.querySelector(".plan-card-title a");
+      a.setAttribute("href", link ? link.getAttribute("href") : "#");
+      a.textContent = link ? link.textContent.trim() : "";
+      lane.appendChild(card);
+      el.remove();
+    }
+    card.style.setProperty("--col", "0");
+    card.style.setProperty("--cols", "1");
+    card.style.setProperty("--dur", String(est));
+    card.style.setProperty("--top", String(minutes - RANGE0));
+    const meta = card.querySelector(".plan-card-meta");
+    if (meta) meta.innerHTML = fmt(minutes) + "–" + fmt(minutes + est) +
+      ' · <span class="plan-card-dur">' + est + "m</span>";
+    return card;
+  }
 
   // Ghost preview that snaps to where the task will land + shows the time.
   const ghost = document.createElement("div");
@@ -682,6 +721,7 @@
     const p = ev.target.closest && ev.target.closest(".plan-card-task[data-task-id]");
     if (!p) return;
     dragId = p.dataset.taskId;
+    dragEl = p;
     dragEst = parseInt(p.dataset.est || "30", 10) || 30;
     ev.dataTransfer.effectAllowed = "move";
     ev.dataTransfer.setData("text/plain", dragId);
@@ -707,21 +747,22 @@
       hideGhost();
     }
   });
-  track.addEventListener("drop", async (ev) => {
+  track.addEventListener("drop", (ev) => {
     if (!dragId) return;
     ev.preventDefault();
     track.classList.remove("is-drop-over");
     hideGhost();
     const minutes = snapAt(ev.clientY);
-    const id = dragId; dragId = null;
-    try {
-      const r = await postForm(`/tasks/${id}/schedule`, {
-        date: DATE, hour: String(Math.floor(minutes / 60)),
-        minute: String(minutes % 60),
-      });
-      if (!r.ok) { alert("Reschedule failed (" + r.status + ")"); return; }
-      window.location.reload();
-    } catch (e) { alert("Reschedule failed (network)."); }
+    const id = dragId, el = dragEl, est = dragEst;
+    dragId = null; dragEl = null;
+    // Move it now (fluid), persist in the background; only reload to resync
+    // if the server rejects it.
+    if (el) el.classList.remove("plan-card-dragging");
+    placeOnTimeline(el, minutes, est);
+    postForm(`/tasks/${id}/schedule`, {
+      date: DATE, hour: String(Math.floor(minutes / 60)), minute: String(minutes % 60),
+    }).then((r) => { if (!r.ok) throw new Error(r.status); })
+      .catch(() => window.location.reload());
   });
 
   // ---- resize handle → estimated_minutes ----

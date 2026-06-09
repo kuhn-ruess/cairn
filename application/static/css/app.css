@@ -2370,7 +2370,7 @@ body.ps-resizing * {
   border-radius: .65rem; padding: .3rem .45rem;
   font-size: .76rem; line-height: 1.25; z-index: 5;
   box-shadow: 0 1px 3px rgba(0, 0, 0, .16);
-  transition: box-shadow .14s ease, transform .14s ease, filter .14s ease;
+  transition: box-shadow .14s ease, transform .14s ease, filter .14s ease, top .16s ease;
 }
 .plan-ico {
   flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
