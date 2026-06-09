@@ -524,6 +524,39 @@ def _plan_classify(tasks, events, tz, day_date, now_utc):
     return {"timed": timed, "allday": allday, "backlog": backlog, "busy": busy}
 
 
+def _assign_columns(items):
+    """Lay overlapping timeline items side by side. Mutates each item dict
+    with ``col`` (0-based slot) and ``cols`` (slots in its overlap cluster),
+    so two tasks at the same time render next to each other instead of
+    stacking invisibly on top of one another."""
+    items = sorted(items, key=lambda x: (x["start"], x["end"]))
+    cluster, cluster_end = [], None
+
+    def _flush(group):
+        col_ends = []  # running end time of each column
+        for it in group:
+            for ci, ce in enumerate(col_ends):
+                if ce <= it["start"]:
+                    col_ends[ci] = it["end"]
+                    it["col"] = ci
+                    break
+            else:
+                it["col"] = len(col_ends)
+                col_ends.append(it["end"])
+        for it in group:
+            it["cols"] = len(col_ends)
+
+    for it in items:
+        if cluster and it["start"] >= cluster_end:
+            _flush(cluster)
+            cluster, cluster_end = [], None
+        cluster.append(it)
+        cluster_end = it["end"] if cluster_end is None else max(cluster_end, it["end"])
+    if cluster:
+        _flush(cluster)
+    return items
+
+
 @tasks_bp.route("/today")
 @login_required
 def today():
@@ -935,6 +968,10 @@ def today():
             _plan_day_tasks(user, start_date, _u_tz, is_today=plan_is_today),
             events, _u_tz, start_date, now,
         )
+        # Side-by-side columns per lane so same-time items don't hide each
+        # other (events and tasks live in separate lanes → layout apart).
+        timed_events = _assign_columns([it for it in cls["timed"] if it["kind"] == "event"])
+        timed_tasks = _assign_columns([it for it in cls["timed"] if it["kind"] == "task"])
         start_h = user.plan_day_start if user.plan_day_start is not None else 9
         end_h = user.plan_day_end if user.plan_day_end is not None else 18
         # Render range = working window, widened to any timed item outside it,
@@ -951,7 +988,8 @@ def today():
             n_local = now.astimezone(_u_tz)
             now_min = n_local.hour * 60 + n_local.minute
         plan_data = {
-            "timed": cls["timed"],
+            "timed_events": timed_events,
+            "timed_tasks": timed_tasks,
             "allday": cls["allday"],
             "backlog": cls["backlog"],
             "range_start_min": lo_min,

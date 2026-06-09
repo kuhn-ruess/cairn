@@ -53,7 +53,7 @@
 
   <span class="text-muted small ms-2">View:</span>
   <div class="btn-group btn-group-sm" role="group">
-    <a class="btn btn-sm {% if view_mode != 'calendar' %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}"
+    <a class="btn btn-sm {% if view_mode == 'list' %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}"
        href="?date={{ start_date.isoformat() }}&days={{ days }}&view=list"
        title="List view">
       <i class="bi bi-list-ul"></i> List

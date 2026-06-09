@@ -2336,7 +2336,9 @@ body.ps-resizing * {
 .plan-lane-events { left: 0; width: 42%; }
 .plan-lane-tasks  { right: 0; width: 56%; }
 .plan-pill {
-  position: absolute; left: 2%; right: 2%;
+  position: absolute;
+  left: calc(var(--col, 0) * (100% / var(--cols, 1)));
+  width: calc(100% / var(--cols, 1) - 3px);
   top: calc(var(--top) * var(--plan-ppm));
   height: calc(var(--dur) * var(--plan-ppm));
   min-height: 1.15rem; overflow: hidden;
@@ -2365,9 +2367,9 @@ body.ps-resizing * {
 .plan-prio-2 { border-left-color: var(--gv-orange) !important; }
 .plan-prio-3 { border-left-color: var(--gv-yellow) !important; }
 .plan-backlog-item {
-  position: static; display: flex; align-items: center; gap: .4rem;
-  height: auto; min-height: 0; margin-bottom: .3rem; cursor: grab;
-  border-left-width: 3px;
+  position: static; width: auto; left: auto; display: flex;
+  align-items: center; gap: .4rem; height: auto; min-height: 0;
+  margin-bottom: .3rem; cursor: grab; border-left-width: 3px;
 }
 .plan-toast {
   position: fixed; bottom: 1.2rem; left: 50%;

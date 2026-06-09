@@ -66,10 +66,11 @@
 
       {# events — left lane #}
       <div class="plan-lane plan-lane-events">
-        {% for it in plan_data.timed if it.kind == 'event' %}
+        {% for it in plan_data.timed_events %}
           {% set smin = it.start.hour * 60 + it.start.minute %}
           <div class="plan-pill plan-pill-event"
                style="--top: {{ smin - range0 }}; --dur: {{ it.duration_min }};
+                      --col: {{ it.col }}; --cols: {{ it.cols }};
                       --c: {{ it.obj.calendar_color }};">
             <span class="plan-pill-time">{{ '%02d:%02d'|format(it.start.hour, it.start.minute) }}</span>
             {% if it.obj.url %}
@@ -83,14 +84,15 @@
 
       {# tasks — right lane (draggable / resizable) #}
       <div class="plan-lane plan-lane-tasks">
-        {% for it in plan_data.timed if it.kind == 'task' %}
+        {% for it in plan_data.timed_tasks %}
           {% set smin = it.start.hour * 60 + it.start.minute %}
           <div class="plan-pill plan-pill-task{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
                draggable="true"
                data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
                data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
                data-inspector-title="{{ it.obj.title }}"
-               style="--top: {{ smin - range0 }}; --dur: {{ it.duration_min }};">
+               style="--top: {{ smin - range0 }}; --dur: {{ it.duration_min }};
+                      --col: {{ it.col }}; --cols: {{ it.cols }};">
             <span class="plan-pill-time">{{ '%02d:%02d'|format(it.start.hour, it.start.minute) }}</span>
             <a class="plan-pill-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
             <span class="plan-pill-dur" title="Estimated duration">{{ it.duration_min }}m</span>
