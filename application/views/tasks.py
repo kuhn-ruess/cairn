@@ -994,15 +994,18 @@ def today():
 
         start_h = user.plan_day_start if user.plan_day_start is not None else 9
         end_h = user.plan_day_end if user.plan_day_end is not None else 18
-        # Render range = working window, widened to any timed item or due
-        # marker outside it, snapped to whole hours.
+        # Render range = the working window. It only ever extends LATER (for
+        # any timed item or due marker that runs past the day end). The START
+        # stays at the working hour and is pulled earlier ONLY by a task the
+        # user actually planned before it — so an odd 02:00 calendar entry
+        # doesn't make the whole planner begin at 2am.
         lo_min, hi_min = start_h * 60, end_h * 60
         for it in cls["timed"]:
             s, e = it["start"], it["end"]
-            lo_min = min(lo_min, s.hour * 60 + s.minute)
+            if it["kind"] == "task":
+                lo_min = min(lo_min, s.hour * 60 + s.minute)
             hi_min = max(hi_min, e.hour * 60 + e.minute)
         for dm in due_raw:
-            lo_min = min(lo_min, dm)
             hi_min = max(hi_min, dm)
         lo_min = (lo_min // 60) * 60
         hi_min = min(24 * 60, ((hi_min + 59) // 60) * 60)
