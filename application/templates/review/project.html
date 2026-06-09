@@ -59,7 +59,7 @@
   {% endif %}
 </header>
 
-{% with tasks = tasks, target_status = "open", view_key = "review" %}
+{% with tasks = tasks, target_status = "open", view_key = "review", show_last_comment = true %}
   {% include "tasks/_list_body.html" %}
 {% endwith %}
 

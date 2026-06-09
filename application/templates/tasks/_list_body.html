@@ -178,6 +178,15 @@
           {% if task.note and current_user.show_field('note', view_key=_vk) %}
             <div class="task-note small text-muted mt-1">{{ task.note|markdown }}</div>
           {% endif %}
+          {% if show_last_comment and task.comments %}
+            {% set _lc = task.comments[-1] %}
+            <div class="task-last-comment small text-muted mt-1">
+              <i class="bi bi-chat-left-text"></i>
+              <span class="fw-semibold">{{ _lc.author_name }}:</span>
+              {{ _lc.body|striptags|truncate(160) }}
+              <span class="text-muted">· {{ _lc.created_at|localdt }}</span>
+            </div>
+          {% endif %}
         </div>
         <div class="d-flex align-items-center gap-1">
           <form method="post" action="{{ url_for('tasks.toggle_flag', task_id=task.pk) }}" class="d-inline m-0">
