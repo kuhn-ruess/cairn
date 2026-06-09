@@ -137,13 +137,14 @@ def delete_user_cascade(user) -> dict:
 def purge_completed_tasks(user, *, dry_run: bool = False) -> int:
     """Bulk-delete done/dropped tasks past the user's retention window.
 
-    Returns the number that would be (or were) removed. ``0`` retention
-    means "keep forever" — a no-op.
+    The window is the user's plan limit (free 60d / premium 180d), optionally
+    tightened by their own setting — see ``User.effective_retention_days``.
+    Returns the number that would be (or were) removed.
     """
     from datetime import datetime, timedelta, timezone
     from application.models.item import Item as Item
 
-    days = int(user.completed_task_retention_days or 0)
+    days = int(user.effective_retention_days())
     if days <= 0:
         return 0
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -160,13 +161,17 @@ def purge_completed_tasks(user, *, dry_run: bool = False) -> int:
     return qs.delete()
 
 def purge_completed_tasks_all(*, dry_run: bool = False) -> dict:
-    """Run ``purge_completed_tasks`` for every user with retention set."""
+    """Run ``purge_completed_tasks`` for every user. Retention now applies to
+    everyone (plan-based), so we iterate all users and record only those that
+    actually had tasks swept."""
     from application.models.user import User
     per_user = {}
-    for user in User.objects(completed_task_retention_days__gt=0).only(
-        "id", "username", "completed_task_retention_days"
+    for user in User.objects.only(
+        "id", "username", "level", "completed_task_retention_days"
     ):
-        per_user[user.username] = purge_completed_tasks(user, dry_run=dry_run)
+        n = purge_completed_tasks(user, dry_run=dry_run)
+        if n:
+            per_user[user.username] = n
     return per_user
 
 def delete_team_cascade(team) -> dict:

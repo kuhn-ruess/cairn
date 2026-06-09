@@ -92,16 +92,20 @@
   <div class="card mb-4" style="max-width: 720px;">
     <div class="card-body">
       <h2 class="h6 mb-2"><i class="bi bi-trash3"></i> Cleanup of completed tasks</h2>
+      {% set plan_keep = current_user.effective_retention_days() %}
       <p class="text-muted small mb-3">
-        Automatically delete tasks that are <strong>done</strong> or
-        <strong>dropped</strong> after this many days. Set to <code>0</code>
-        to keep them forever. The sweep runs nightly on the server.
+        <strong>Done</strong> / <strong>dropped</strong> tasks are deleted after
+        <strong>{{ current_user.FREE_RETENTION_DAYS if current_user.level == 'free' else current_user.PREMIUM_RETENTION_DAYS }} days</strong>
+        on your {{ 'Free' if current_user.level == 'free' else 'Premium' }} plan.
+        You can set a <em>shorter</em> window below (you can't keep them longer
+        than your plan allows). <code>0</code> = use the plan default. The sweep
+        runs nightly. <span class="text-body">Currently kept: {{ plan_keep }} days.</span>
       </p>
       <div class="d-flex gap-2 align-items-center">
         <input type="number" name="retention_days" min="0" max="3650"
                value="{{ current_user.completed_task_retention_days or 0 }}"
                class="form-control form-control-sm" style="max-width: 8rem;">
-        <span class="text-muted small">days (0 = never)</span>
+        <span class="text-muted small">days (0 = plan default)</span>
       </div>
 
       <hr>

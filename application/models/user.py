@@ -142,9 +142,9 @@ class User(UserMixin, Document):
     inspector_layout = ListField(StringField())
     inspector_hidden = ListField(StringField())
 
-    # Retention: delete done/dropped tasks N days after they closed.
-    # ``0`` keeps everything forever (default). Sweep is run by
-    # ``cairn cleanup-completed-tasks`` (cron-able).
+    # Optional user override to delete done/dropped tasks SOONER than their
+    # plan's limit (see ``effective_retention_days``). ``0`` = use the plan
+    # default (free 60d / premium 180d). Sweep: ``cairn cleanup-completed-tasks``.
     completed_task_retention_days = IntField(default=0, min_value=0)
 
     # Trash: items deleted by the user are soft-deleted (Item.trashed_at) and
@@ -252,6 +252,18 @@ class User(UserMixin, Document):
     def can_share_projects(self) -> bool:
         # Premium-and-up users plus anyone in a team can share within it.
         return self.team is not None or self.is_team_admin
+
+    # Tier-based retention for completed/dropped tasks: free keeps 60 days,
+    # premium (and up) 6 months. A user may opt into a SHORTER window via
+    # ``completed_task_retention_days`` but can't exceed their plan's limit.
+    FREE_RETENTION_DAYS = 60
+    PREMIUM_RETENTION_DAYS = 180
+
+    def effective_retention_days(self) -> int:
+        tier = self.FREE_RETENTION_DAYS if (self.level or "free") == "free" \
+            else self.PREMIUM_RETENTION_DAYS
+        user_set = int(self.completed_task_retention_days or 0)
+        return min(user_set, tier) if user_set > 0 else tier
 
     def ensure_tags(self, names) -> int:
         """Add any tag names from ``names`` that the user doesn't already
