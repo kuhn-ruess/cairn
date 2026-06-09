@@ -2229,8 +2229,15 @@ def bulk():
             else:
                 skipped += 1
     elif action == "set_project":
+        from application.services.permissions import resolve_visible_item
         project_id = (request.form.get("project_id") or "").strip()
-        project = Item.objects(pk=project_id).first() if project_id else None
+        # Only accept a target the user may actually see — otherwise a crafted
+        # project_id could reparent tasks into (and confirm the existence of)
+        # someone else's project.
+        project = resolve_visible_item(user, project_id) if project_id else None
+        if project_id and not project:
+            flash("That project isn't accessible.", "danger")
+            return redirect(request.referrer or url_for("dashboard.home"))
         for t in tasks:
             if t.can_be_edited_by(user):
                 t.project = project

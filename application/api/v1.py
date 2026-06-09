@@ -77,8 +77,8 @@ def list_tasks():
     # default for sync-heavy mobile clients; full records via /tasks/<id>.
     serialize = ser_task_compact if request.args.get("compact") == "true" else ser_task
 
-    limit = min(int(request.args.get("limit", 100)), 500)
-    offset = int(request.args.get("offset", 0))
+    limit = max(1, min(int(request.args.get("limit", 100) or 100), 500))
+    offset = max(0, min(int(request.args.get("offset", 0) or 0), 1_000_000))
     qs = qs.order_by("-updated_at").skip(offset).limit(limit)
 
     return jsonify({"items": [serialize(t) for t in qs], "limit": limit, "offset": offset})
