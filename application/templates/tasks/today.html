@@ -276,55 +276,6 @@
   </div>
 {% endif %}
 
-{# Projects-with-dates flow into the chosen grouping now (see
-   tasks.today: ``merged = filtered + projects_with_dates``). The
-   standalone section would render them a second time. Keep it only
-   for ``grouping == 'flat'`` if we ever add one. #}
-{% if false %}
-  <section class="mb-3">
-    <h2 class="h6 text-muted small text-uppercase mb-2">
-      <i class="bi bi-collection"></i> Projects ({{ projects_with_dates|length }})
-    </h2>
-    {% for sp in projects_with_dates %}
-      <div class="task-row sp-row" data-sp-id="{{ sp.pk }}">
-        <div class="d-flex align-items-center gap-1">
-          <span style="width: 1.25rem;"></span>
-          <span style="width: 1.25rem;"></span>
-          {{ item_icon(sp) }}
-        </div>
-        <div>
-          <a class="task-title text-decoration-none text-body"
-             href="{{ url_for('projects.detail', project_id=sp.pk) }}"
-             data-inspector-url="{{ url_for('projects.edit', project_id=sp.pk) }}"
-             data-inspector-title="{{ sp.name }}">
-            {{ sp.name }}
-          </a>
-          <div class="task-meta">
-            {% for tag_name in sp.tags %}
-              {% set t = current_user.tag_by_name(tag_name) %}
-              <span class="tag-chip" style="--tag-color: {{ t.color if t else '#6c757d' }};">
-                {% if t and t.is_context %}@{% endif %}{{ tag_name }}
-              </span>
-            {% endfor %}
-            {% if sp.due_date %}
-              <span class="{{ 'overdue' if sp.due_date < now_utc() else '' }}">
-                <i class="bi bi-calendar-event"></i> {{ sp.due_date|relativedate }}
-              </span>
-            {% endif %}
-            {% if sp.plan_date %}
-              {% set is_today_plan = sp.plan_date.date() == now_utc().date() %}
-              <span class="plan-chip {{ 'plan-today' if is_today_plan else '' }}">
-                <i class="bi bi-bookmark-star"></i>
-                {% if is_today_plan %}today's plan{% else %}plan {{ sp.plan_date|relativedate }}{% endif %}
-              </span>
-            {% endif %}
-          </div>
-        </div>
-        <div></div>
-      </div>
-    {% endfor %}
-  </section>
-{% endif %}
 
 {% if not groups and not projects_with_dates and view_mode != 'plan' %}
   <p class="text-muted">Nothing on your plate today. 🪨</p>
@@ -655,7 +606,7 @@
     fd.append("csrf_token", CSRF);
     for (const k in data) fd.append(k, data[k]);
     return fetch(url, { method: "POST", body: fd, credentials: "same-origin",
-                        headers: { "X-CSRFToken": CSRF } });
+                        headers: { "X-CSRFToken": CSRF, "X-Requested-With": "XMLHttpRequest" } });
   }
 
   // ---- drag a task / backlog pill onto the track → set plan time ----

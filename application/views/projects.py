@@ -617,11 +617,8 @@ def detail(project_id):
     # Build calendar buckets if needed (current month grid with tasks by day).
     calendar_data = None
     if view_mode == "calendar":
-        try:
-            from zoneinfo import ZoneInfo
-            cal_tz = ZoneInfo(user.timezone or current_app.config.get("DEFAULT_TZ") or "UTC")
-        except Exception:
-            cal_tz = timezone.utc
+        from application.services.tzutil import resolve_tz
+        cal_tz = resolve_tz(user)
         calendar_data = _build_calendar(all_tasks, request.args.get("month"), cal_tz)
 
     return render_template(

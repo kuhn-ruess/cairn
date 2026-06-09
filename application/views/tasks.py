@@ -804,11 +804,7 @@ def today():
         _list_tz = resolve_tz(user)
 
         def _to_user_list(dt):
-            if not dt:
-                return None
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(_list_tz)
+            return _as_tz(dt, _list_tz)
 
         from datetime import date as _date2
         # OrderedDict so the template iterates days in window order.
@@ -896,11 +892,7 @@ def today():
         user_tz = resolve_tz(user)
 
         def _to_user(dt):
-            if not dt:
-                return None
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(user_tz)
+            return _as_tz(dt, user_tz)
 
         timed_items: list = []
         allday_items: list = []
@@ -1491,6 +1483,9 @@ def complete(task_id):
     if not task or not task.can_be_edited_by(user):
         abort(404)
     task.complete(by_user=user)
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        from flask import jsonify
+        return jsonify({"ok": True, "id": str(task.pk)})
     flash("Item completed.", "success")
     return redirect(request.referrer or url_for("dashboard.home"))
 
@@ -1506,6 +1501,9 @@ def reopen(task_id):
     task.status = "next" if task.kind == "task" else "active"
     task.completed_at = None
     task.save()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        from flask import jsonify
+        return jsonify({"ok": True, "id": str(task.pk)})
     return redirect(request.referrer or url_for("tasks.detail", task_id=task_id))
 
 @tasks_bp.route("/<task_id>/flag", methods=["POST"])
