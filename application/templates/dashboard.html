@@ -81,6 +81,23 @@
       </div>
     </a>
   </div>
+  <div class="col-sm-6 col-md-4 col-xl-3">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('projects.index') }}">
+      <div class="card-body d-flex align-items-center gap-3">
+        <i class="bi bi-bullseye fs-3 {{ 'text-warning' if current_focus else 'text-secondary' }}"></i>
+        <div>
+          <div class="fw-semibold">Focus</div>
+          <div class="small text-muted">
+            {% if current_focus %}
+              Focused on <strong>{{ current_focus.title }}</strong> — clear it in the header
+            {% else %}
+              Narrow the whole app to one folder/project/section
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
 </div>
 
 {% if inbox_preview %}

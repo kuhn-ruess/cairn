@@ -33,7 +33,8 @@ def datenschutz():
     return render_template("legal/datenschutz.html")
 
 def _scope(user):
-    return Q(owner=user) | Q(assigned_to=user)
+    from application.services import focus
+    return focus.restrict(Q(owner=user) | Q(assigned_to=user), user)
 
 @dashboard_bp.route("/")
 @login_required

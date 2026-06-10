@@ -98,6 +98,13 @@
               data-inspector-url="{{ url_for('projects.edit', project_id=p.pk) }}"
               data-inspector-title="{{ p.name }}"
               title="Open inspector"><i class="bi bi-info-circle"></i></button>
+      {% if current_focus and (current_focus.pk|string) == (p.pk|string) %}
+        <button type="button" class="btn btn-sm btn-warning hover-action" data-focus-clear
+                title="Clear focus"><i class="bi bi-bullseye"></i></button>
+      {% else %}
+        <button type="button" class="btn btn-sm btn-outline-secondary hover-action" data-focus-set="{{ p.pk }}"
+                title="Focus — narrow the whole app to this {{ p.kind }}"><i class="bi bi-bullseye"></i></button>
+      {% endif %}
       <button type="button" class="btn btn-sm btn-outline-danger hover-action item-delete-btn"
               data-project-id="{{ p.pk }}"
               data-row-selector="tr[data-project-id='{{ p.pk }}']"

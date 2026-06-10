@@ -172,6 +172,10 @@ class User(UserMixin, Document):
     # OmniFocus-style availability: deferred projects (defer_date in the
     # future) are hidden from the project list + sidebar unless this is on.
     show_deferred_projects = BooleanField(default=False)
+    # OmniFocus-style "Focus": when set to an Item.pk (folder/project/section),
+    # the whole app only shows tasks beneath that item. "" = no focus.
+    # See application/services/focus.py.
+    focused_item_pk = StringField(default="")
     # Working-day window (hours) for the Today "Plan" timeline + auto-plan:
     # auto-scheduling only fills free slots between these two hours.
     plan_day_start = IntField(default=9, min_value=0, max_value=23)

@@ -9,7 +9,7 @@ from mongoengine import connect, disconnect
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Public app version — surfaced in the nav footer + the About page.
-APP_VERSION = "1.0.73"
+APP_VERSION = "1.0.74"
 
 # Pull settings out of a local ``.env`` file if one exists. Doesn't override
 # values that are already set in the real environment.
@@ -67,6 +67,7 @@ def create_app(config_object: str | None = None) -> Flask:
     from application.views.public_share import public_bp
     from application.views.trash import trash_bp
     from application.views.braindump import braindump_bp
+    from application.views.focus import focus_bp
     from application.api.v1 import api_v1_bp
 
     app.register_blueprint(auth_bp)
@@ -83,6 +84,7 @@ def create_app(config_object: str | None = None) -> Flask:
     app.register_blueprint(public_bp)
     app.register_blueprint(trash_bp)
     app.register_blueprint(braindump_bp)
+    app.register_blueprint(focus_bp)
     app.register_blueprint(api_v1_bp)
     csrf.exempt(api_v1_bp)
 

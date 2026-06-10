@@ -193,10 +193,19 @@ def register_filters(app):
                 owner=user, trashed_at__ne=None
             ).count()
 
+        # Active OmniFocus-style focus (folder/project/section) — drives the
+        # navbar chip and is available to every template. Validates + clears
+        # stale focus internally; cached on flask.g.
+        current_focus = None
+        if current_user.is_authenticated:
+            from application.services import focus as _focus
+            current_focus = _focus.current(current_user._get_current_object())
+
         from application import APP_VERSION
         return {
             "now_utc": lambda: datetime.now(timezone.utc),
             "user_projects": projects,
+            "current_focus": current_focus,
             "nav_counts": nav_counts,
             "sidebar_perspectives": sidebar_perspectives,
             "sidebar_custom_perspectives": sidebar_custom_perspectives,

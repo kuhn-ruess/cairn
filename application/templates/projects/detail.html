@@ -281,6 +281,17 @@
             title="Open inspector">
       <i class="bi bi-info-circle"></i>
     </button>
+    {% if current_focus and (current_focus.pk|string) == (project.pk|string) %}
+      <button type="button" class="btn btn-warning" data-focus-clear
+              title="Clear focus — show the whole library again">
+        <i class="bi bi-bullseye"></i> Focused
+      </button>
+    {% else %}
+      <button type="button" class="btn btn-outline-secondary" data-focus-set="{{ project.pk }}"
+              title="Focus — narrow the whole app to this project">
+        <i class="bi bi-bullseye"></i>
+      </button>
+    {% endif %}
     {% if project.owner == current_user %}
       <a class="btn btn-outline-secondary"
          href="{{ url_for('projects.import_csv', project_id=project.pk) }}"
@@ -470,6 +481,17 @@
                 data-inspector-title="{{ s.name }}" title="Open inspector">
           <i class="bi bi-info-circle"></i>
         </button>
+        {% if current_focus and (current_focus.pk|string) == (s.pk|string) %}
+          <button type="button" class="btn btn-sm btn-link text-warning" data-focus-clear
+                  title="Clear focus">
+            <i class="bi bi-bullseye"></i>
+          </button>
+        {% else %}
+          <button type="button" class="btn btn-sm btn-link text-muted" data-focus-set="{{ s.pk }}"
+                  title="Focus — narrow the whole app to this section">
+            <i class="bi bi-bullseye"></i>
+          </button>
+        {% endif %}
         <button type="button" class="btn btn-sm btn-link text-muted item-unwrap-btn"
                 data-unwrap-url="{{ url_for('projects.unwrap', project_id=s.pk) }}"
                 data-unwrap-name="{{ s.name }}"

@@ -121,7 +121,8 @@ def toggle_collapse(task_id):
     return jsonify({"ok": True, "collapsed": collapsed})
 
 def _scope(user):
-    return Q(owner=user) | Q(assigned_to=user)
+    from application.services import focus
+    return focus.restrict(Q(owner=user) | Q(assigned_to=user), user)
 
 _PASS_KEYS = frozenset(
     {"today", "next", "waiting", "someday", "scheduled", "flagged", "forecast"}
@@ -175,8 +176,10 @@ def sidebar_counts(user, now=None, keys=None) -> dict:
         c["inbox"] = Item.objects(_scope(user), kind="task", parent=None,
                                   status__nin=["done", "dropped"]).count()
     if "assigned" in want:
-        c["assigned"] = Item.objects(assigned_to=user, kind="task",
-                                     status__nin=["done", "dropped"]).count()
+        from application.services import focus
+        c["assigned"] = Item.objects(
+            focus.restrict(Q(assigned_to=user), user), kind="task",
+            status__nin=["done", "dropped"]).count()
     return c
 
 def _writeback_calendar(task, user) -> list[str]:
@@ -1257,8 +1260,10 @@ def someday():
 @login_required
 def assigned_to_me():
     user = current_user._get_current_object()
+    from application.services import focus
     tasks = _filter_by_project(
-        Item.objects(assigned_to=user, status__nin=["done", "dropped"]),
+        Item.objects(focus.restrict(Q(assigned_to=user), user),
+                     status__nin=["done", "dropped"]),
         user,
     ).order_by("+due_date")
     return render_template(

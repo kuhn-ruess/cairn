@@ -11,11 +11,23 @@ from flask import (
     Blueprint, abort, flash, redirect, render_template, request, session, url_for,
 )
 from flask_login import current_user, login_required
+from mongoengine import Q
 from application.models.item import Item
 
 review_bp = Blueprint("review", __name__, url_prefix="/review")
 
 _SKIP_KEY = "review_skipped"
+
+
+def _focus_q(user):
+    """Q matching items inside the active focus subtree by their **own** pk.
+
+    Review operates on projects (not their child tasks), so the focus filter
+    is on the project's identity, not its parent. Empty ``Q()`` (matches all)
+    when no focus is set."""
+    from application.services import focus
+    pks = focus.focus_pks(user)
+    return Q(pk__in=pks) if pks is not None else Q()
 
 
 def _skipped() -> set:
@@ -38,9 +50,11 @@ def _enclosing_project(item):
 def _due_task_pks(user, now):
     """Pks of tasks whose own (overridden) review interval has fallen due,
     plus a map project_pk -> True for the projects they pull into review."""
+    from application.services import focus
     due_pks, pulled = set(), set()
     for t in Item.objects(
-        owner=user, kind="task", status__nin=["done", "dropped"],
+        focus.restrict(Q(owner=user), user),
+        kind="task", status__nin=["done", "dropped"],
         review_interval_days__ne=None,
     ):
         if not t.is_review_due(now):
@@ -61,15 +75,16 @@ def _review_queue(user, now):
     # Due by the clock: next_review_at has passed. mark_reviewed keeps this
     # field accurate, so a just-reviewed project (next_review_at in the future,
     # or None when its interval is 0) is excluded here immediately.
+    fq = _focus_q(user)
     candidates = {
         p.pk: p
-        for p in Item.objects(owner=user, kind="project", status="active",
+        for p in Item.objects(fq, owner=user, kind="project", status="active",
                               next_review_at__lte=now)
     }
     # Never reviewed yet, but actually on a schedule (positive interval). The
     # last_reviewed_at=None guard is what stops a reviewed-but-interval-0
     # project (next_review_at=None, last_reviewed_at set) from reappearing.
-    for p in Item.objects(owner=user, kind="project", status="active",
+    for p in Item.objects(fq, owner=user, kind="project", status="active",
                           next_review_at=None, last_reviewed_at=None):
         if p.effective_review_interval():
             candidates.setdefault(p.pk, p)
@@ -90,9 +105,10 @@ def _review_queue(user, now):
 def review_due_count(user, now):
     """Cheap count of projects needing review — for the sidebar badge. Mirrors
     _review_queue minus the (rare) override-task pull and tree ordering."""
-    n = Item.objects(owner=user, kind="project", status="active",
+    fq = _focus_q(user)
+    n = Item.objects(fq, owner=user, kind="project", status="active",
                      next_review_at__lte=now).count()
-    for p in Item.objects(owner=user, kind="project", status="active",
+    for p in Item.objects(fq, owner=user, kind="project", status="active",
                           next_review_at=None, last_reviewed_at=None):
         if p.effective_review_interval():
             n += 1
@@ -176,8 +192,8 @@ def index():
             open_counts[t.parent.pk] = open_counts.get(t.parent.pk, 0) + 1
             if t.pk in due_task_pks:
                 due_counts[t.parent.pk] = due_counts.get(t.parent.pk, 0) + 1
-    upcoming = (Item.objects(owner=user, kind="project", status="active",
-                             next_review_at__gt=now)
+    upcoming = (Item.objects(_focus_q(user), owner=user, kind="project",
+                             status="active", next_review_at__gt=now)
                 .order_by("+next_review_at").limit(10))
     return render_template(
         "review/index.html",

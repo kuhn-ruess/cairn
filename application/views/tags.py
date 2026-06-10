@@ -1,6 +1,7 @@
 """Tag / GTD context views — tags now live embedded on ``User.tags``."""
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
+from mongoengine import Q
 
 from application.forms import TagForm
 from application.models.tag import Tag
@@ -72,8 +73,10 @@ def detail(tag_name):
     tag = user.tag_by_name(tag_name)
     if not tag:
         abort(404)
+    from application.services import focus
     tasks = Item.objects(
-        owner=user, tags=tag.name, status__nin=["done", "dropped"],
+        focus.restrict(Q(owner=user), user),
+        tags=tag.name, status__nin=["done", "dropped"],
     ).order_by("+due_date")
     return render_template("tags/detail.html", tag=tag, tasks=tasks)
 

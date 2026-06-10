@@ -80,6 +80,21 @@
              autocomplete="off" value="{{ request.args.get('q', '') }}">
     </form>
 
+    {# OmniFocus-style focus chip — only shown while a focus is active.
+       Clicking the × clears it (full reload; focus changes global chrome). #}
+    {% if current_focus %}
+    <div class="d-flex align-items-center me-3" id="navbarFocusChip">
+      <span class="badge rounded-pill text-bg-warning d-inline-flex align-items-center gap-1"
+            title="Focused on {{ current_focus.title }} — only items below it are shown everywhere">
+        <i class="bi bi-bullseye"></i>
+        <span class="text-truncate" style="max-width: 14rem;">{{ current_focus.title }}</span>
+        <button type="button" class="btn-close btn-close-sm ms-1"
+                data-focus-clear aria-label="Clear focus"
+                style="font-size: .6rem;"></button>
+      </span>
+    </div>
+    {% endif %}
+
     <div class="dropdown">
       <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
               data-bs-toggle="dropdown" aria-expanded="false">
@@ -555,6 +570,39 @@
       alert("Sync failed: " + err.message);
     } finally {
       btn.classList.remove("spinning");
+    }
+  });
+})();
+
+/* OmniFocus-style Focus — set/clear. Delegated on document so the controls
+   keep working after a partial <main> swap. Focus changes the sidebar tree +
+   badge counts (outside <main>), so we full-reload afterwards. */
+(function () {
+  const SET_TMPL = "{{ url_for('focus.set_focus', item_id='__ID__') }}";
+  const CLEAR_URL = "{{ url_for('focus.clear_focus') }}";
+  async function post(url) {
+    const fd = new FormData();
+    const csrf = document.querySelector('input[name="csrf_token"]');
+    if (csrf) fd.append("csrf_token", csrf.value);
+    const resp = await fetch(url, {
+      method: "POST",
+      body: fd,
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+    });
+    return resp.ok;
+  }
+  document.addEventListener("click", async (e) => {
+    const setEl = e.target.closest("[data-focus-set]");
+    if (setEl) {
+      e.preventDefault();
+      const id = setEl.getAttribute("data-focus-set");
+      if (await post(SET_TMPL.replace("__ID__", id))) window.location.reload();
+      return;
+    }
+    const clearEl = e.target.closest("[data-focus-clear]");
+    if (clearEl) {
+      e.preventDefault();
+      if (await post(CLEAR_URL)) window.location.reload();
     }
   });
 })();

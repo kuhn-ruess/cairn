@@ -29,6 +29,19 @@
 {% else %}
   {% set _visible = None %}
 {% endif %}
+<style>
+  /* Focus button on each project/folder row — revealed on hover. Inline so
+     it ships with the partial (no app.css cache-bust dance). */
+  .ps-list .ps-drop-target { position: relative; }
+  .ps-list .ps-focus-btn {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    opacity: 0; border: 0; background: transparent; line-height: 1;
+    color: var(--bs-secondary-color); padding: 2px 4px; cursor: pointer;
+  }
+  .ps-list .ps-drop-target:hover .ps-focus-btn { opacity: 1; }
+  .ps-list .ps-focus-btn:hover { color: var(--bs-warning); }
+  .ps-list .ps-focus-btn.is-focused { opacity: 1; color: var(--bs-warning); }
+</style>
 <aside class="app-project-sidebar" id="project-sidebar">
   <div class="ps-header">
     <button type="button" class="btn btn-sm btn-link text-muted ps-toggle p-0"
@@ -93,6 +106,12 @@
               {{ item_icon(p) }}
               <span class="ps-name">{{ p.name }}</span>
             </a>
+            <button type="button"
+                    class="ps-focus-btn {% if current_focus and (current_focus.pk|string) == (p.pk|string) %}is-focused{% endif %}"
+                    data-focus-set="{{ p.pk }}"
+                    title="Focus on {{ p.name }}">
+              <i class="bi bi-bullseye"></i>
+            </button>
           </li>
         {% endif %}
       {% endfor %}

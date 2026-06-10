@@ -19,7 +19,8 @@ from application.models.item import Item
 perspectives_bp = Blueprint("custom_perspectives", __name__, url_prefix="/perspectives")
 
 def _scope(user):
-    return Q(owner=user) | Q(assigned_to=user)
+    from application.services import focus
+    return focus.restrict(Q(owner=user) | Q(assigned_to=user), user)
 
 def _find(user, pid):
     for p in user.custom_perspectives or []:
