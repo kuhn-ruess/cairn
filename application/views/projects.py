@@ -170,8 +170,7 @@ def index():
     focus_pks = focus.focus_pks(user)
     fq = Q(pk__in=focus_pks) if focus_pks is not None else Q()
     qs = Item.objects(
-        fq,
-        (Q(owner=user) | Q(members=user)),
+        fq & (Q(owner=user) | Q(members=user)),
         kind__in=["project", "folder"],
     )
     # Folders have no real status; keep them visible. Projects default
@@ -272,8 +271,7 @@ def project_tree_for_sidebar(user):
     focus_pks = focus.focus_pks(user)
     fq = Q(pk__in=focus_pks) if focus_pks is not None else Q()
     proj_q = Item.objects(
-        fq,
-        (Q(owner=user) | Q(members=user)),
+        fq & (Q(owner=user) | Q(members=user)),
         kind__in=["project", "folder"],
         status="active",
     )
@@ -286,8 +284,7 @@ def project_tree_for_sidebar(user):
     # one query, then build a {section_pk: effective_parent_pk} map.
     sections = list(
         Item.objects(
-            fq,
-            (Q(owner=user) | Q(members=user)),
+            fq & (Q(owner=user) | Q(members=user)),
             kind="section",
         ).only("pk", "parent")
     )
