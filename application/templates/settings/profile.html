@@ -219,15 +219,23 @@
     {% endif %}
 
     <form method="post" action="{{ url_for('settings.api_token_new') }}"
-          class="d-flex gap-2 mb-3">
+          class="d-flex gap-2 align-items-center mb-1">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="text" name="name" maxlength="128"
              class="form-control form-control-sm"
              placeholder="Token name (e.g. iPhone, CLI, …)">
+      <div class="form-check m-0 text-nowrap" title="Only allows safe GET requests — no changes">
+        <input class="form-check-input" type="checkbox" name="read_only" value="1" id="tok-ro">
+        <label class="form-check-label small" for="tok-ro">Read-only</label>
+      </div>
       <button class="btn btn-sm btn-primary text-nowrap">
         <i class="bi bi-plus-lg"></i> New token
       </button>
     </form>
+    <p class="form-text small mb-3">
+      A <strong>read-only</strong> token can only read (GET) — it can't create,
+      edit or delete anything. Safe to hand out for inspection.
+    </p>
 
     {% if current_user.api_tokens %}
       <table class="table table-sm align-middle mb-0">
@@ -239,7 +247,14 @@
         <tbody>
           {% for t in current_user.api_tokens %}
             <tr>
-              <td>{{ t.name }}</td>
+              <td>
+                {{ t.name }}
+                {% if t.read_only %}
+                  <span class="badge text-bg-secondary ms-1" title="Read-only — GET requests only">
+                    <i class="bi bi-eye"></i> read-only
+                  </span>
+                {% endif %}
+              </td>
               <td class="small text-muted">{{ t.created_at|localdt if t.created_at else '—' }}</td>
               <td class="small text-muted">{{ t.last_used_at|localdt if t.last_used_at else 'never' }}</td>
               <td class="text-end">

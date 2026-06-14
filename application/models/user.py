@@ -45,6 +45,9 @@ class ApiToken(EmbeddedDocument):
     created_at = DateTimeField(default=_utcnow)
     last_used_at = DateTimeField()
     revoked = BooleanField(default=False)
+    # Read-only tokens may only drive safe (GET/HEAD/OPTIONS) API requests —
+    # enforced in token_required. Handy for sharing live read access.
+    read_only = BooleanField(default=False)
 
     def mark_used(self) -> None:
         self.last_used_at = _utcnow()
@@ -357,14 +360,16 @@ class User(UserMixin, Document):
         self.save()
         return True
 
-    def issue_api_token(self, name: str = "default") -> "tuple[ApiToken, str]":
+    def issue_api_token(self, name: str = "default",
+                        read_only: bool = False) -> "tuple[ApiToken, str]":
         """Mint and persist a new API token; return ``(token, raw)``.
 
         Only the SHA-256 hash is persisted on the user — the raw string
-        is the caller's only chance to see it.
+        is the caller's only chance to see it. ``read_only`` tokens are
+        restricted to safe HTTP methods (see token_required).
         """
         raw = secrets.token_urlsafe(32)
-        tok = ApiToken(name=name, token_hash=_hash_token(raw))
+        tok = ApiToken(name=name, token_hash=_hash_token(raw), read_only=read_only)
         self.api_tokens.append(tok)
         self.save()
         return tok, raw

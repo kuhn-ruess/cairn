@@ -150,12 +150,13 @@ def reset_password(username, hours):
 @cairn_cli.command("issue-token")
 @click.argument("username")
 @click.option("--name", default="default")
-def issue_token(username, name):
+@click.option("--read-only", is_flag=True, help="Token may only make GET requests.")
+def issue_token(username, name, read_only):
     """Issue an API token for a user."""
     user = User.objects(username=username).first()
     if not user:
         raise click.ClickException(f"user '{username}' not found")
-    _tok, raw = user.issue_api_token(name)
+    _tok, raw = user.issue_api_token(name, read_only=read_only)
     click.echo(raw)
 
 @cairn_cli.command("list-users")

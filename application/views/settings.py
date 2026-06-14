@@ -245,7 +245,8 @@ def api_token_new():
     from flask import session as flask_session
     user = current_user._get_current_object()
     name = (request.form.get("name") or "default").strip()[:128] or "default"
-    tok, raw = user.issue_api_token(name=name)
+    read_only = bool(request.form.get("read_only"))
+    tok, raw = user.issue_api_token(name=name, read_only=read_only)
     # Stash the plaintext so the profile page can reveal it once;
     # nothing else on the server retains it.
     flask_session["new_api_token"] = raw

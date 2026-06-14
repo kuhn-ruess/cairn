@@ -23,6 +23,10 @@ def token_required(func):
         if not hit:
             return jsonify({"error": "invalid token"}), 401
         user, token = hit
+        # Read-only tokens may only drive safe requests — block any mutating
+        # method outright, regardless of the endpoint.
+        if token.read_only and request.method not in ("GET", "HEAD", "OPTIONS"):
+            return jsonify({"error": "read-only token"}), 403
         token.mark_used()
         user.save()
         g.current_user = user
