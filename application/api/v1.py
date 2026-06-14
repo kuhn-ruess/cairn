@@ -83,6 +83,57 @@ def list_tasks():
 
     return jsonify({"items": [serialize(t) for t in qs], "limit": limit, "offset": offset})
 
+
+@api_v1_bp.get("/today")
+@token_required
+def today_debug():
+    """Debug mirror of the web Today perspective: the SAME focus-aware scope
+    and due/flag/plan/defer filter the UI uses, plus the active focus and a
+    per-task ``match_reason`` — so you can see exactly what Today shows and
+    why a task is in or out. Tasks only (the UI also folds in dated projects)."""
+    from application.services import focus as focus_service
+    from application.services.tzutil import resolve_tz
+
+    user = g.current_user
+    now = datetime.now(timezone.utc)
+    tz = resolve_tz(user)
+    today_date = now.astimezone(tz).date()
+    today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    scoped = focus_service.restrict(Q(owner=user) | Q(assigned_to=user), user)
+    qs = (Item.objects(scoped, kind="task",
+                       status__nin=["done", "dropped", "someday"])
+          .order_by("+due_date"))
+
+    def match_reason(t):
+        reasons = []
+        if t.due_date and t.due_date <= today_end:
+            reasons.append("overdue_or_due_today" if t.due_date < now else "due_today")
+        if t.flagged:
+            reasons.append("flagged")
+        if t.plan_date and t.plan_date.date() <= today_date:
+            reasons.append("planned")
+        if t.defer_date and t.defer_date <= now and t.status == "next":
+            reasons.append("next_available")
+        return reasons
+
+    matched = [(t, r) for t in qs for r in [match_reason(t)] if r]
+    focus_item = focus_service.current(user)
+    return jsonify({
+        "now": now.isoformat(),
+        "today_date": today_date.isoformat(),
+        "today_end": today_end.isoformat(),
+        "timezone": str(tz),
+        "focus": {
+            "active": focus_item is not None,
+            "pk": str(focus_item.pk) if focus_item else None,
+            "title": focus_item.title if focus_item else None,
+        },
+        "count": len(matched),
+        "tasks": [{**ser_task_compact(t), "match_reason": r} for t, r in matched],
+    })
+
+
 @api_v1_bp.post("/tasks")
 @token_required
 def create_task():
