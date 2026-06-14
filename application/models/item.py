@@ -501,6 +501,10 @@ class Item(Document):
             base = self.jira_url.rstrip("/")
             if base.startswith(("http://", "https://")):
                 return f"{base}/browse/{self.external_ref}"
+        if self.source == "todoist" and self.external_ref:
+            # Todoist is always todoist.com — no per-task config needed.
+            # external_ref holds the Todoist task id.
+            return f"https://app.todoist.com/app/task/{self.external_ref}"
         return None
 
     def effective_jira_url(self) -> str:
