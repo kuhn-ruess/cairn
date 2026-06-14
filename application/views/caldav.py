@@ -248,6 +248,14 @@ def _aware(dt):
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+def _same_user_day(a, b, user):
+    """True if aware datetimes ``a`` and ``b`` fall on the same calendar day
+    in the user's timezone."""
+    from application.services.tz import user_zone
+    z = user_zone(user)
+    return a.astimezone(z).date() == b.astimezone(z).date()
+
+
 def _to_dt(prop, user=None):
     from application.services.tz import attach_user_tz
     val = getattr(prop, "dt", None)
@@ -350,10 +358,16 @@ def _apply_ics(item, raw, user=None):
     except Exception:
         start = None
     item.due_date = due
-    # DTSTART only counts as a defer when it's a genuine start distinct from
-    # the due date. Apple Reminders mirrors DTSTART == DUE on dated reminders,
-    # which is NOT a defer — ignore that so we don't invent a defer date.
-    item.defer_date = None if (start is not None and start == due) else start
+    # DTSTART counts as a defer only when it's a genuinely earlier *day* than
+    # the due (in the user's tz). Apple Reminders mirrors DTSTART onto the due
+    # day — sometimes as a date-only value against a date-time DUE, so exact
+    # equality isn't enough — and that mirror is NOT a user-chosen defer.
+    if start is None:
+        item.defer_date = None
+    elif due is not None and _same_user_day(start, due, user):
+        item.defer_date = None
+    else:
+        item.defer_date = start
 
     try:
         pr = g("priority")
