@@ -27,6 +27,8 @@ ALL_PERSPECTIVES: tuple[Perspective, ...] = (
     Perspective("scheduled", "Scheduled",       "bi-hourglass-split",    "tasks.scheduled"),
     Perspective("flagged",   "Flagged",         "bi-flag",               "tasks.flagged"),
     Perspective("waiting",   "Waiting",         "bi-hourglass-split",    "tasks.waiting"),
+    Perspective("waiting_reply", "Waiting on reply", "bi-reply",          "tasks.waiting_reply"),
+    Perspective("agenda",    "To discuss",      "bi-chat-square-dots",   "tasks.agenda"),
     Perspective("assigned",  "Assigned to me",  "bi-person-check",       "tasks.assigned_to_me"),
     Perspective("someday",   "Someday",         "bi-cloud",              "tasks.someday"),
     Perspective("completed", "Completed",       "bi-check2-all",         "tasks.completed"),
@@ -38,7 +40,7 @@ ALL_PERSPECTIVES: tuple[Perspective, ...] = (
 # the comment above ALL_PERSPECTIVES).
 DEFAULT_SIDEBAR_KEYS: tuple[str, ...] = (
     "home", "inbox", "today", "next", "scheduled",
-    "flagged", "waiting", "assigned", "someday", "completed",
+    "flagged", "waiting", "waiting_reply", "agenda", "assigned", "someday", "completed",
 )
 
 KEYS = tuple(p.key for p in ALL_PERSPECTIVES)

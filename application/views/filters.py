@@ -241,6 +241,17 @@ def register_filters(app):
             return ""
         return value.strftime("%Y-%m-%d")
 
+    _STATUS_LABELS = {
+        "open": "Open", "next": "Next", "waiting": "Waiting",
+        "waiting_reply": "Waiting on reply", "agenda": "To discuss",
+        "scheduled": "Scheduled", "someday": "Someday", "done": "Done",
+        "dropped": "Dropped",
+    }
+
+    @app.template_filter("status_label")
+    def status_label(value):
+        return _STATUS_LABELS.get(value, (value or "").replace("_", " "))
+
     @app.template_filter("duration")
     def duration(value):
         """Minutes → human duration: ``2h 30m`` / ``45m`` / ``3h`` / ``0m``."""

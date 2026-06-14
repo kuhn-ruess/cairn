@@ -152,7 +152,7 @@
               {% endif %}
             {% endif %}
             {% if task.status not in ['open', 'next', 'done'] and current_user.show_field('status_badge', view_key=_vk) %}
-              <span class="badge text-bg-secondary">{{ task.status }}</span>
+              <span class="badge text-bg-secondary">{{ task.status|status_label }}</span>
             {% endif %}
             {% if task.comments and current_user.show_field('comments', view_key=_vk) %}
               <span class="task-comment-count" title="{{ task.comments|length }} comment(s)">

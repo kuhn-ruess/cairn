@@ -46,7 +46,8 @@ def _utcnow() -> datetime:
 
 
 ITEM_KINDS = ("task", "project", "section", "folder")
-TASK_STATUS = ("open", "next", "waiting", "scheduled", "someday", "done", "dropped")
+TASK_STATUS = ("open", "next", "waiting", "waiting_reply", "agenda",
+               "scheduled", "someday", "done", "dropped")
 PROJECT_TYPES = ("parallel", "sequential", "single_actions")
 PROJECT_STATUS = ("active", "on_hold", "completed", "dropped")
 PRIORITIES = (1, 2, 3, 4)
