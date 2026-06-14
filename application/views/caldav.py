@@ -469,6 +469,19 @@ def wellknown():
     return redirect("/caldav/", code=308)
 
 
+@caldav_bp.route("/", methods=["PROPFIND"])
+def site_root_discovery():
+    """RFC 6764 fallback: clients given just the hostname PROPFIND ``/`` for
+    ``current-user-principal``. Point them at our principal so discovery works
+    without entering the full ``/caldav/`` path (and without relying on the
+    nginx-served ``/.well-known/caldav``). GET ``/`` stays the dashboard."""
+    user = _require()
+    props = ('<D:resourcetype><D:collection/></D:resourcetype>' + _cup(user)
+             + f'<D:principal-URL><D:href>{escape(_principal_href(user))}</D:href>'
+             '</D:principal-URL>')
+    return _multistatus([_ok("/", props)])
+
+
 @caldav_bp.route("/caldav/", methods=["PROPFIND", "OPTIONS"])
 def root():
     if request.method == "OPTIONS":
