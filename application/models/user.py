@@ -182,8 +182,10 @@ class User(UserMixin, Document):
     # When on, login lands on a folder picker (focus.choose) so the user can
     # set the focus for this session before seeing anything else.
     focus_on_login = BooleanField(default=False)
-    # CalDAV calendar feed: whether a task's event is placed on its due date
-    # or its plan date. See application/views/caldav.py.
+    # CalDAV calendar feed: whether the read-only "Cairn (Kalender)" VEVENT
+    # collection is exposed at all, and whether a task's event is placed on its
+    # due date or its plan date. See application/views/caldav.py.
+    caldav_calendar_enabled = BooleanField(default=True)
     caldav_calendar_source = StringField(default="due", choices=("due", "plan"))
     # Working-day window (hours) for the Today "Plan" timeline + auto-plan:
     # auto-scheduling only fills free slots between these two hours.

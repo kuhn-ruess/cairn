@@ -430,6 +430,10 @@ def _apply_ics(item, raw, user=None):
 
 # ------------------------------------------- calendar feed (VEVENT) ----
 
+def _calendar_enabled(user):
+    return bool(getattr(user, "caldav_calendar_enabled", True))
+
+
 def _calendar_source(user):
     src = getattr(user, "caldav_calendar_source", None)
     return src if src in ("due", "plan") else "due"
@@ -616,12 +620,13 @@ def home(username):
                 _collection_href(user, colid),
                 _collection_props(user, label, color, by_col.get(colid, [])),
             ))
-        # The read-only VEVENT feed (tasks as calendar events).
-        source = _calendar_source(user)
-        responses.append(_ok(
-            _collection_href(user, _CALENDAR),
-            _calendar_collection_props(user, _calendar_tasks(user, source)),
-        ))
+        # The read-only VEVENT feed (tasks as calendar events) — opt-out.
+        if _calendar_enabled(user):
+            source = _calendar_source(user)
+            responses.append(_ok(
+                _collection_href(user, _CALENDAR),
+                _calendar_collection_props(user, _calendar_tasks(user, source)),
+            ))
     return _multistatus(responses)
 
 
@@ -633,6 +638,8 @@ def collection(username, colid):
     user = _require(username)
 
     if colid == _CALENDAR:
+        if not _calendar_enabled(user):
+            abort(404)
         if request.method == "PROPPATCH":
             return _multistatus([_ok(_collection_href(user, colid), "")])
         source = _calendar_source(user)
@@ -742,6 +749,8 @@ def resource(username, colid, name):
     user = _require(username)
 
     if colid == _CALENDAR:
+        if not _calendar_enabled(user):
+            abort(404)
         # Read-only feed: serve the VEVENT, refuse writes.
         if request.method in ("GET", "HEAD"):
             item = _find_event(user, name)

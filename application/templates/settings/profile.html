@@ -108,6 +108,14 @@
         and your Cairn username/email + password. Each project becomes a list;
         a read-only <em>Cairn (Kalender)</em> calendar shows tasks as events.
       </p>
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" id="caldav-cal-enabled"
+               name="caldav_calendar_enabled" value="1"
+               {{ 'checked' if current_user.caldav_calendar_enabled else '' }}>
+        <label class="form-check-label" for="caldav-cal-enabled">
+          Expose the read-only <em>Cairn (Kalender)</em> calendar (tasks as events)
+        </label>
+      </div>
       <label class="form-label small text-uppercase text-muted" for="caldav-src">
         Calendar events use
       </label>
