@@ -117,12 +117,36 @@ def _user_tasks(user):
     return list(Item.objects(owner=user, kind="task").order_by("-updated_at"))
 
 
+def _container_paths(user):
+    """``({container_pk: "Folder / Sub / Project"}, {pk: Item})`` for every
+    project/folder/section the user owns. Ancestor paths resolve in-memory
+    from one query so list names carry the full breadcrumb (gleichnamige
+    Projekte in verschiedenen Ordnern bleiben unterscheidbar)."""
+    containers = list(Item.objects(owner=user, kind__in=["project", "folder", "section"])
+                      .only("pk", "title", "kind", "parent", "color"))
+    by_id = {str(c.pk): c for c in containers}
+
+    def label(c):
+        parts, cur, seen = [], c, set()
+        while cur is not None and str(cur.pk) not in seen:
+            seen.add(str(cur.pk))
+            parts.append(cur.name)
+            par = cur.parent
+            cur = by_id.get(str(par.pk)) if par else None
+        return " / ".join(reversed(parts))
+
+    return {pk: label(c) for pk, c in by_id.items()}, by_id
+
+
 def _collections(user):
-    """[(colid, label, color)] — Inbox first, then every project A→Z."""
+    """[(colid, label, color)] — Inbox first, then every project, labelled
+    with its full folder path and sorted by it."""
+    paths, by_id = _container_paths(user)
     cols = [(_INBOX, "Inbox", "#8E8E93")]
-    for p in (Item.objects(owner=user, kind="project")
-              .order_by("+title").only("pk", "title", "color")):
-        cols.append((str(p.pk), p.name, p.color or "#1F6FEB"))
+    projects = [c for c in by_id.values() if c.kind == "project"]
+    projects.sort(key=lambda c: paths[str(c.pk)].lower())
+    for p in projects:
+        cols.append((str(p.pk), paths[str(p.pk)], (p.color or "#1F6FEB")))
     return cols
 
 
@@ -483,8 +507,12 @@ def collection(username, colid):
         return _multistatus(responses)
 
     proj = _resolve_collection(user, colid)  # validates / 404s
-    label = "Inbox" if proj is None else proj.name
-    color = "#8E8E93" if proj is None else (proj.color or "#1F6FEB")
+    if proj is None:
+        label, color = "Inbox", "#8E8E93"
+    else:
+        paths, _ = _container_paths(user)
+        label = paths.get(colid, proj.name)
+        color = proj.color or "#1F6FEB"
 
     if request.method == "PROPPATCH":
         return _multistatus([_ok(_collection_href(user, colid), "")])
