@@ -501,7 +501,6 @@ def detail(project_id):
     grouping_tag = (project.task_grouping_tag or "").strip()
     subproject_groups: dict = {}
     flat_tag_view = False
-    task_badges: dict = {}  # task.pk → {"item", "label"}: full container path (flatten views)
     sequential = project.project_type == "sequential" and not project.show_blocked_tasks
 
     if flatten:
@@ -559,7 +558,10 @@ def detail(project_id):
                         nearest = node
                 cur = node.parent
             crumbs.reverse()
-            task_badges[str(t.pk)] = {
+            # Attach to the task object (like _depth / _collapsed) so it rides
+            # through the task_groups macro's include — a render-context dict
+            # doesn't reliably reach a template included inside a macro.
+            t._badge = {
                 "item": nearest or project,
                 "label": " / ".join(crumbs) if crumbs else project.name,
             }
@@ -661,12 +663,6 @@ def detail(project_id):
         section_buckets=section_buckets,
         flat_tag_view=flat_tag_view,
         flatten=flatten,
-        # In the flattened views the containing sub-project is the key
-        # context, so force its badge on even if the user hid it for tasks,
-        # and show the full container path (task_badges) instead of the bare
-        # immediate parent.
-        force_project_badge=flatten,
-        task_badges=task_badges,
         grouping=grouping,
         show_completed=show_completed,
         include_descendants=include_descendants,

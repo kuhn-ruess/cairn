@@ -77,11 +77,11 @@
             </a>
           {% endif %}
           <div class="task-meta">
-            {% if task.project and (force_project_badge|default(false) or current_user.show_field('project', view_key=_vk)) %}
-              {# In flattened project views ``task_badges`` carries the full
+            {% set _badge = task._badge|default(none) %}
+            {% if task.project and (_badge or current_user.show_field('project', view_key=_vk)) %}
+              {# In flattened project views ``task._badge`` carries the full
                  container path ("Sub A / Sub B") + nearest container to link
                  to; elsewhere fall back to the immediate parent. #}
-              {% set _badge = (task_badges|default({})).get(task.pk|string) %}
               {% set _bc = _badge['item'] if _badge else task.project %}
               {% set _blabel = _badge['label'] if _badge else task.project.name %}
               {% set _proj_icon = item_icon(_bc) %}
