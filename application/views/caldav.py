@@ -281,12 +281,13 @@ def _todo_ics(item):
     todo.add("summary", item.title or "")
     if item.note:
         todo.add("description", item.note)
-    # CalDAV/Reminders has a single date (DUE). Use the due date, or fall back
-    # to the plan date when there's no due — so a "planned for today" task with
-    # no deadline still lands in Reminders' Today. A real due is never lost.
-    due_for_ics = item.due_date or item.plan_date
-    if due_for_ics:
-        todo.add("due", _aware(due_for_ics))
+    # CalDAV/Reminders has a single date (DUE). Use the EARLIEST of due/plan so
+    # a task hits Reminders' Today whenever it's due OR planned for today —
+    # matching Cairn's Today. The real due is preserved across round-trips by
+    # the _apply_ics guard below.
+    _dates = [d for d in (item.due_date, item.plan_date) if d]
+    if _dates:
+        todo.add("due", _aware(min(_dates)))
     if item.defer_date:
         todo.add("dtstart", _aware(item.defer_date))
     if item.location:
@@ -361,16 +362,16 @@ def _apply_ics(item, raw, user=None):
         start = _to_dt(g("dtstart"), user)
     except Exception:
         start = None
-    # If the incoming DUE is just the plan_date we mirrored out (the task has
-    # no real due), keep due_date empty so a plan-only task doesn't silently
-    # gain a deadline on round-trip. A genuinely different date becomes a due.
-    # Compare at second precision — iCalendar drops sub-second, so an exact
-    # ``==`` against the stored microsecond-precise plan_date would miss.
-    mirrors_plan = (
-        due is not None and item.due_date is None and item.plan_date is not None
-        and abs((due - item.plan_date).total_seconds()) < 1
-    )
-    if not mirrors_plan:
+    # The DUE we emit is the EARLIEST of the task's due/plan. If the client
+    # just echoes that unchanged, keep both fields intact — don't overwrite a
+    # real due with the (earlier) plan date, nor invent a due on a plan-only
+    # task. A genuinely different date the user set in the client becomes the
+    # due. Compare at second precision (iCalendar drops sub-second).
+    _stored = [d for d in (item.due_date, item.plan_date) if d]
+    _mirrored = min(_stored) if _stored else None
+    echoed = (due is not None and _mirrored is not None
+              and abs((due - _mirrored).total_seconds()) < 1)
+    if not echoed:
         item.due_date = due
     # DTSTART counts as a defer only when it's a genuinely earlier *day* than
     # the due (in the user's tz). Apple Reminders mirrors DTSTART onto the due
