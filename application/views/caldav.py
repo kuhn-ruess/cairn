@@ -138,15 +138,21 @@ def _container_paths(user):
     return {pk: label(c) for pk, c in by_id.items()}, by_id
 
 
-def _collections(user):
-    """[(colid, label, color)] — Inbox first, then every project, labelled
-    with its full folder path and sorted by it."""
+def _collections(user, with_tasks=None):
+    """[(colid, label, color)] — Inbox first, then every project plus any
+    folder that directly holds tasks, labelled with its full path. Folders
+    with no direct tasks (pure organisers of sub-projects) are omitted so
+    Reminders isn't cluttered with empty lists. ``with_tasks`` = the set of
+    colids that currently have tasks."""
     paths, by_id = _container_paths(user)
+    with_tasks = with_tasks or set()
     cols = [(_INBOX, "Inbox", "#8E8E93")]
-    projects = [c for c in by_id.values() if c.kind == "project"]
-    projects.sort(key=lambda c: paths[str(c.pk)].lower())
-    for p in projects:
-        cols.append((str(p.pk), paths[str(p.pk)], (p.color or "#1F6FEB")))
+    items = [c for c in by_id.values()
+             if c.kind == "project"
+             or (c.kind == "folder" and str(c.pk) in with_tasks)]
+    items.sort(key=lambda c: paths[str(c.pk)].lower())
+    for c in items:
+        cols.append((str(c.pk), paths[str(c.pk)], (c.color or "#1F6FEB")))
     return cols
 
 
@@ -172,7 +178,7 @@ def _colid_map(user):
             node = nodes.get(pk)
             if node is None:
                 break
-            if node.kind == "project":
+            if node.kind in ("project", "folder"):
                 colid = pk
                 break
             cur = node.parent
@@ -188,7 +194,7 @@ def _nearest_colid(item):
         if str(cur.pk) in seen:
             break
         seen.add(str(cur.pk))
-        if getattr(cur, "kind", None) == "project":
+        if getattr(cur, "kind", None) in ("project", "folder"):
             return str(cur.pk)
         cur = cur.parent
     return _INBOX
@@ -199,7 +205,8 @@ def _resolve_collection(user, colid):
     if colid == _INBOX:
         return None
     try:
-        proj = Item.objects(pk=colid, owner=user, kind="project").first()
+        proj = Item.objects(pk=colid, owner=user,
+                            kind__in=["project", "folder"]).first()
     except (ValidationError, Exception):
         proj = None
     if proj is None:
@@ -537,7 +544,7 @@ def home(username):
         by_col = {}
         for t in all_tasks:
             by_col.setdefault(mapping[str(t.pk)], []).append(t)
-        for colid, label, color in _collections(user):
+        for colid, label, color in _collections(user, with_tasks=set(by_col)):
             responses.append(_ok(
                 _collection_href(user, colid),
                 _collection_props(user, label, color, by_col.get(colid, [])),
