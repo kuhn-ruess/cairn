@@ -18,7 +18,8 @@ client's PUT-new / DELETE-old dance).
 
 Mapping (``Item`` ⇄ ``VTODO``):
   title↔SUMMARY, note↔DESCRIPTION, due_date↔DUE, defer_date↔DTSTART,
-  priority↔PRIORITY (Cairn 1–4 ⇄ iCal 1/3/5/7), tags↔CATEGORIES,
+  priority↔PRIORITY (Apple buckets: P1=High/1, P2=Medium/5, P3+P4=Low/9),
+  tags↔CATEGORIES,
   status: done→COMPLETED, dropped→CANCELLED, else NEEDS-ACTION.
 
 Standards-pragmatic and small; expect to iterate against a real device.
@@ -47,9 +48,23 @@ _NS = ('xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" '
 _INBOX = "inbox"
 # Reserved collection id for the read-only VEVENT feed (tasks-as-events).
 _CALENDAR = "calendar"
-# Cairn priority (1 highest … 4 lowest) ⇄ iCalendar PRIORITY (1 highest …
-# 9 lowest, 0 = undefined).
-_CAIRN_TO_ICAL_PRIO = {1: 1, 2: 3, 3: 5, 4: 7}
+# Cairn priority (1 highest … 4 lowest) ⇄ iCalendar PRIORITY using Apple's
+# buckets: 1 = High, 5 = Medium, 9 = Low (read side: 1–4 High, 5 Medium,
+# 6–9 Low, 0/none = none). Cairn has 4 levels vs Apple's 3, so P4 shares the
+# "Low" bucket with P3 — see _ical_priority_bucket for the round-trip guard.
+_CAIRN_TO_ICAL_PRIO = {1: 1, 2: 5, 3: 9, 4: 9}
+
+
+def _ical_priority_bucket(p):
+    """iCal PRIORITY int → 'high' | 'medium' | 'low' | None (Apple buckets)."""
+    if not p:
+        return None
+    return "high" if p <= 4 else "medium" if p == 5 else "low"
+
+
+def _cairn_priority_bucket(c):
+    """Cairn priority (1–4) → the same bucket vocabulary."""
+    return {1: "high", 2: "medium", 3: "low", 4: "low"}.get(c)
 
 
 def _utcnow():
@@ -332,8 +347,15 @@ def _apply_ics(item, raw):
         pr = None if pr is None else int(pr)
     except Exception:
         pr = None
-    item.priority = (None if not pr
-                     else 1 if pr <= 2 else 2 if pr <= 4 else 3 if pr == 5 else 4)
+    incoming = _ical_priority_bucket(pr)
+    if incoming is None:
+        item.priority = None
+    elif _cairn_priority_bucket(item.priority) == incoming:
+        # Same bucket as now — keep the exact Cairn level so a P4 task isn't
+        # silently downgraded to P3 just because Apple only has one "Low".
+        pass
+    else:
+        item.priority = {"high": 1, "medium": 2, "low": 3}[incoming]
 
     st = str(g("status") or "").upper()
     try:
