@@ -248,13 +248,20 @@ def _aware(dt):
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def _to_dt(prop):
+def _to_dt(prop, user=None):
+    from application.services.tz import attach_user_tz
     val = getattr(prop, "dt", None)
     if val is None:
         return None
     if isinstance(val, datetime):
-        return val if val.tzinfo else val.replace(tzinfo=timezone.utc)
-    return datetime(val.year, val.month, val.day, tzinfo=timezone.utc)
+        if val.tzinfo:
+            return val
+        # Floating time (no TZID) → interpret as the user's local wall-clock,
+        # exactly like Cairn's datetime-local form inputs. Treating it as UTC
+        # shifted timed reminders by the user's offset (e.g. +2h Berlin summer).
+        return attach_user_tz(val, user)
+    # all-day DATE → midnight in the user's tz
+    return attach_user_tz(datetime(val.year, val.month, val.day), user)
 
 
 def _todo_ics(item):
@@ -292,11 +299,12 @@ def _todo_ics(item):
     return cal.to_ical().decode("utf-8")
 
 
-def _apply_ics(item, raw):
+def _apply_ics(item, raw, user=None):
     """Apply an inbound VTODO to ``item`` (unsaved). Returns False if the body
     can't be parsed at all. Every individual field is read defensively so an
     exotic client payload (Apple location reminders, alarms, X- props, odd
-    dates) updates what it can instead of 500-ing the whole PUT."""
+    dates) updates what it can instead of 500-ing the whole PUT. ``user``
+    supplies the timezone for floating (naive) dates."""
     try:
         cal = Calendar.from_ical(raw)
         todo = next((c for c in cal.walk("VTODO")), None)
@@ -334,13 +342,18 @@ def _apply_ics(item, raw):
             pass
     item.location = location
     try:
-        item.due_date = _to_dt(g("due"))
+        due = _to_dt(g("due"), user)
     except Exception:
-        item.due_date = None
+        due = None
     try:
-        item.defer_date = _to_dt(g("dtstart"))
+        start = _to_dt(g("dtstart"), user)
     except Exception:
-        item.defer_date = None
+        start = None
+    item.due_date = due
+    # DTSTART only counts as a defer when it's a genuine start distinct from
+    # the due date. Apple Reminders mirrors DTSTART == DUE on dated reminders,
+    # which is NOT a defer — ignore that so we don't invent a defer date.
+    item.defer_date = None if (start is not None and start == due) else start
 
     try:
         pr = g("priority")
@@ -738,7 +751,7 @@ def resource(username, colid, name):
                 request.path, user.username,
                 raw.decode("utf-8", "replace")[:6000],
             )
-        if not _apply_ics(item, raw):
+        if not _apply_ics(item, raw, user):
             abort(400)
         item.save()
         resp = Response(status=201 if created else 204)
