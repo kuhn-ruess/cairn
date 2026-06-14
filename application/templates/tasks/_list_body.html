@@ -159,9 +159,13 @@
                 <i class="bi bi-chat-left-text"></i> {{ task.comments|length }}
               </span>
             {% endif %}
-            {% if task.related_count and current_user.show_field('related', view_key=_vk) %}
-              <span class="task-comment-count" title="{{ task.related_count }} related item(s)">
-                <i class="bi bi-link-45deg"></i> {{ task.related_count }}
+            {# Related links are load-bearing context — always show the marker
+               when a task has any, regardless of the display-field toggle, so
+               you can never miss that a task is linked to other item(s). #}
+            {% if task.related_count %}
+              <span class="task-related-count badge text-bg-light"
+                    title="{{ task.related_count }} related item(s)">
+                <i class="bi bi-diagram-2"></i> {{ task.related_count }} related
               </span>
             {% endif %}
             {% if task.source and current_user.show_field('source', view_key=_vk) %}

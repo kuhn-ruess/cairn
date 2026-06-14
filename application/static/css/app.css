@@ -835,6 +835,11 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
 }
 .task-meta .badge.text-bg-info { color: var(--gv-blue-br) !important; }
 .task-meta .badge.text-bg-warning { color: var(--gv-yellow) !important; }
+/* Related-items marker stands out (blue accent) so a linked task is obvious. */
+.task-meta .task-related-count {
+  color: var(--gv-blue-br) !important;
+  border-color: var(--gv-blue-br);
+}
 .task-note {
   white-space: pre-wrap;
   margin-top: .1rem;
