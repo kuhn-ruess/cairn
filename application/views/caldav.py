@@ -30,7 +30,7 @@ from urllib.parse import unquote, urlparse
 from xml.sax.saxutils import escape
 import xml.etree.ElementTree as ET
 
-from flask import Blueprint, Response, abort, redirect, request
+from flask import Blueprint, Response, abort, current_app, redirect, request
 from mongoengine import Q
 from mongoengine.errors import ValidationError
 
@@ -729,7 +729,16 @@ def resource(username, colid, name):
             # Genuine move to a different list. (Same-list edits keep the
             # parent so a task nested in a section isn't yanked to the root.)
             item.parent = proj
-        if not _apply_ics(item, request.get_data()):
+        raw = request.get_data()
+        # Opt-in wire dump (BKTODO_CALDAV_DEBUG=1) so we can see exactly what a
+        # client sends — invaluable for mapping Apple-specific fields.
+        if current_app.config.get("CALDAV_DEBUG"):
+            current_app.logger.info(
+                "CalDAV PUT %s by %s:\n%s",
+                request.path, user.username,
+                raw.decode("utf-8", "replace")[:6000],
+            )
+        if not _apply_ics(item, raw):
             abort(400)
         item.save()
         resp = Response(status=201 if created else 204)
