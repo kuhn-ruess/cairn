@@ -228,8 +228,10 @@ def _populate_form_choices(form: TaskForm, user: User) -> None:
     # task containers. Labels carry the full folder breadcrumb so a project
     # nested in folders is unambiguous (see services/containers.py).
     from application.services.containers import container_choices
+    # Folders can hold tasks too, so they're valid task containers — offer
+    # them alongside projects (full breadcrumb labels keep them distinct).
     form.project.choices = [("", "—")] + container_choices(
-        user, selectable_kinds=("project",),
+        user, selectable_kinds=("project", "folder"),
         include_shared=True, active_projects_only=True,
     )
     # Tag dropdown choices use the tag NAME both as value and label.

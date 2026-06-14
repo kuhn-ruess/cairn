@@ -171,11 +171,14 @@ def update_task(task_id):
 @api_v1_bp.delete("/tasks/<task_id>")
 @token_required
 def delete_task(task_id):
+    from application.services.trash import trash_item
     user = g.current_user
     task = Item.objects(pk=task_id).first()
     if not task or task.owner != user:
         return _bad_request("not found", 404)
-    task.delete()
+    # Soft-delete with subtree cascade (same as the web) so sub-tasks ride
+    # along and aren't orphaned by a raw delete.
+    trash_item(task)
     return "", 204
 
 @api_v1_bp.post("/tasks/<task_id>/complete")
@@ -239,9 +242,10 @@ def bulk_tasks():
     affected, skipped = [], 0
 
     if action == "delete":
+        from application.services.trash import trash_item
         for t in tasks:
             if t.owner == user:
-                t.delete()
+                trash_item(t)  # subtree cascade — no orphaned sub-tasks
                 affected.append(str(t.pk))
             else:
                 skipped += 1

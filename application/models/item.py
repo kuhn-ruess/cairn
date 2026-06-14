@@ -311,6 +311,7 @@ class Item(Document):
         # Stamp completed_at when a task transitions to done/dropped,
         # clear on reopen. Project lifecycle (active/on_hold/completed/
         # dropped) doesn't go through this path.
+        cascade_status = None
         if self.kind == "task":
             if self.status in ("done", "dropped"):
                 if not self.completed_at:
@@ -321,12 +322,77 @@ class Item(Document):
                 # only fills the gap for manual closes.
                 if not self.completed_via:
                     self.completed_via = "user"
+                # Closing a task closes its sub-tasks too — but only on the
+                # actual transition (status just changed), not on every later
+                # save of an already-closed task. New docs (no id yet) skip it;
+                # the cascade is a bulk update that needs the saved pk anyway.
+                if self.id is not None and "status" in self._get_changed_fields():
+                    cascade_status = self.status
             else:
                 # Reopened — clear the whole completion record (who/when/how).
                 self.completed_at = None
                 self.completed_by = None
                 self.completed_via = None
-        return super().save(*args, **kwargs)
+        result = super().save(*args, **kwargs)
+        if cascade_status:
+            self._cascade_close(cascade_status)
+        return result
+
+    def _descendant_task_pks(self) -> list:
+        """All sub-task pks beneath this task (any depth), excluding self.
+        BFS, one query per level — task trees are shallow."""
+        out, frontier = [], [self.pk]
+        while frontier:
+            kids = list(Item.objects(parent__in=frontier, kind="task").only("id"))
+            if not kids:
+                break
+            frontier = [k.pk for k in kids]
+            out.extend(frontier)
+        return out
+
+    def _cascade_close(self, status: str) -> None:
+        """Close every still-open sub-task to ``status`` (done/dropped) in one
+        bulk update — no per-child save(), so no recursion."""
+        pks = self._descendant_task_pks()
+        if not pks:
+            return
+        Item.objects(pk__in=pks, status__nin=["done", "dropped"]).update(
+            set__status=status,
+            set__completed_at=_utcnow(),
+            set__completed_by=self.completed_by,
+            set__completed_via="cascade",
+            set__updated_at=_utcnow(),
+        )
+
+    def _capture_subtasks(self) -> list:
+        """Snapshot the sub-task tree as plain data (for recurrence). Read
+        before closing so a fresh occurrence can be rebuilt with the same
+        structure, reset to open."""
+        snap = []
+        for st in self.child_tasks():
+            snap.append({
+                "title": st.title, "note": st.note, "color": st.color,
+                "tags": list(st.tags or []), "flagged": st.flagged,
+                "priority": st.priority, "estimated_minutes": st.estimated_minutes,
+                "is_internal": st.is_internal, "assigned_to": st.assigned_to,
+                "checklist": [ci.text for ci in (st.checklist or [])],
+                "children": st._capture_subtasks(),
+            })
+        return snap
+
+    def _rebuild_subtasks(self, parent: "Item", snap: list) -> None:
+        """Recreate captured sub-tasks under ``parent``, reset to open."""
+        for d in snap:
+            child = Item(
+                kind="task", owner=parent.owner, parent=parent,
+                title=d["title"], note=d["note"], color=d["color"],
+                tags=list(d["tags"]), status="open", flagged=d["flagged"],
+                priority=d["priority"], estimated_minutes=d["estimated_minutes"],
+                is_internal=d["is_internal"], assigned_to=d["assigned_to"],
+                checklist=[ChecklistItem(text=t, done=False) for t in d["checklist"]],
+            )
+            child.save()
+            self._rebuild_subtasks(child, d["children"])
 
     def mark_done(self, *, by=None, via="user", status="done"):
         """Close this task, recording who/when/how. Use this instead of
@@ -520,11 +586,18 @@ class Item(Document):
     def complete(self, by_user: User | None = None) -> "Item | None":
         from datetime import timedelta as _td
         from dateutil.relativedelta import relativedelta
+        # Snapshot the sub-task tree BEFORE closing — the save() below cascades
+        # them to done, so a recurring task needs the structure captured first
+        # to recreate it fresh on the next occurrence.
+        recurring = self.kind == "task" and bool(
+            self.repeat_every_days or self.repeat_weekdays
+        )
+        captured_subtasks = self._capture_subtasks() if recurring else None
         self.status = "done"
         self.completed_at = _utcnow()
         self.completed_by = by_user
         self.completed_via = "user"
-        self.save()
+        self.save()  # cascades: closes this task's sub-tasks too
         # Recurrence only makes sense for actual tasks. A project/folder/
         # section never spawns a clone (defensive — ensure_container already
         # strips recurrence on the flip).
@@ -628,6 +701,9 @@ class Item(Document):
             checklist=[ChecklistItem(text=ci.text, done=False) for ci in (self.checklist or [])],
         )
         clone.save()
+        # Recreate the sub-tasks on the fresh occurrence (reset to open).
+        if captured_subtasks:
+            self._rebuild_subtasks(clone, captured_subtasks)
         # A live clone keeps the project non-empty, so this is a no-op here —
         # called for consistency in case the clone landed elsewhere.
         self._autocomplete_enclosing_project(by_user)
