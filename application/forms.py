@@ -167,6 +167,9 @@ class ProjectForm(FlaskForm):
         "Complete project when its last task is done"
     )
     members = SelectMultipleField("Members (collaboration)", choices=[])
+    jira_url = StringField(
+        "Jira base URL", validators=[Optional(), Length(max=300)]
+    )
     submit = SubmitField("Save project")
 
 

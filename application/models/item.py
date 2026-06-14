@@ -417,6 +417,22 @@ class Item(Document):
             return f"{self.jira_url.rstrip('/')}/browse/{self.external_ref}"
         return None
 
+    def effective_jira_url(self) -> str:
+        """The Jira base URL set on this item or its nearest ancestor.
+
+        A project inherits the URL configured on the folder that contains it
+        (and that folder from its parent folder), so the user can set it once
+        per folder instead of on every project. Walks ``parent`` refs — cheap
+        and called once per import, not per row.
+        """
+        cur, seen = self, set()
+        while cur is not None and cur.pk not in seen:
+            if getattr(cur, "jira_url", None):
+                return cur.jira_url
+            seen.add(cur.pk)
+            cur = cur.parent
+        return ""
+
     # ----- aliases for code/templates from the pre-unified era -----
     # ``task.project`` used to mean "the container this task is in".
     # That's now just ``parent``. ``project.parent`` already worked.

@@ -55,6 +55,13 @@
       For Jira CSV exports. Stored on this project and remembered for next
       time. When set, each imported issue key (e.g. <code>CHMK-417</code>)
       becomes a link that opens the ticket in a new tab — just like Zammad.
+      {% if inherited_jira_url and not project.jira_url %}
+        <br>Leave empty to inherit <code>{{ inherited_jira_url }}</code> from
+        the parent folder.
+      {% else %}
+        <br>You can also set this once on the parent <strong>folder</strong> to
+        cover every project inside it.
+      {% endif %}
     </div>
   </div>
 

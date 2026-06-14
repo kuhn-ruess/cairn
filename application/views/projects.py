@@ -91,6 +91,9 @@ def _apply(form: ProjectForm, project: Item) -> None:
     project.defer_date = attach_user_tz(form.defer_date.data, user)
     project.due_date = attach_user_tz(form.due_date.data, user)
     project.plan_date = attach_user_tz(form.plan_date.data, user)
+    # Jira base URL for CSV ticket linking. Valid on a project (its own) or a
+    # folder (inherited by every project inside — see effective_jira_url).
+    project.jira_url = (form.jira_url.data or "").strip().rstrip("/")
     kind = form.kind.data or "project"
     project.kind = kind
     # Parent and members are user-supplied pks — validate against the
@@ -1409,7 +1412,10 @@ def import_csv(project_id):
         abort(404)
 
     if request.method == "GET":
-        return render_template("projects/import_csv.html", project=project)
+        return render_template(
+            "projects/import_csv.html", project=project,
+            inherited_jira_url=project.effective_jira_url(),
+        )
 
     fileobj = request.files.get("file")
     if not fileobj or not fileobj.filename:
@@ -1424,8 +1430,11 @@ def import_csv(project_id):
     # time, and so Jira ticket numbers stay clickable across re-imports.
     project.csv_import_mode = mode
     project.csv_archive_missing = archive_missing
-    project.jira_url = jira_url
+    project.jira_url = jira_url  # "" = inherit from the parent folder
     project.save()
+    # The URL actually used for links: the project's own override, else the
+    # nearest ancestor folder's (set once per folder, inherited here).
+    effective_jira_url = project.effective_jira_url()
 
     # Auto-detect the delimiter — Jira CSVs in EU locales use ``;``
     # instead of ``,``. Sniffer picks one based on the first 4 KB.
@@ -1582,9 +1591,9 @@ def import_csv(project_id):
         target.title = title[:500]
         target.source = source_tag
         if is_jira:
-            # Denormalise the base URL so external_url() can build the
-            # /browse/<KEY> deep link without a per-row project lookup.
-            target.jira_url = jira_url
+            # Denormalise the (possibly inherited) base URL so external_url()
+            # can build the /browse/<KEY> deep link without a per-row lookup.
+            target.jira_url = effective_jira_url
 
         note_val = _row_get(values, "note", "description", "beschreibung")
         if note_val:
