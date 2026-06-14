@@ -46,7 +46,9 @@ services:
       BKTODO_MONGO_DB: bktodo
       BKTODO_SECRET_KEY: change-me-in-production
       BKTODO_REDIS_URL: redis://redis:6379/0
-    command: ["gunicorn", "--bind", "0.0.0.0:8004", "--workers", "3", "--timeout", "600", "wsgi:app"]
+    command: ["gunicorn", "--bind", "0.0.0.0:8004", "--workers", "3", "--timeout", "600",
+              "--access-logfile", "-", "--error-logfile", "-", "--log-level", "info",
+              "--capture-output", "wsgi:app"]
     depends_on:
       - mongo
       - redis

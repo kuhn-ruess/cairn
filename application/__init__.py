@@ -9,7 +9,7 @@ from mongoengine import connect, disconnect
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Public app version — surfaced in the nav footer + the About page.
-APP_VERSION = "1.0.93"
+APP_VERSION = "1.0.94"
 
 # Pull settings out of a local ``.env`` file if one exists. Doesn't override
 # values that are already set in the real environment.
@@ -98,6 +98,15 @@ def create_app(config_object: str | None = None) -> Flask:
     from application.views.filters import register_filters
 
     register_filters(app)
+
+    # Under gunicorn, route Flask's logger through gunicorn's error handler so
+    # app logs AND unhandled-exception tracebacks (app.log_exception) actually
+    # reach the container's stderr — otherwise they vanish in production.
+    import logging
+    gunicorn_logger = logging.getLogger("gunicorn.error")
+    if gunicorn_logger.handlers:
+        app.logger.handlers = gunicorn_logger.handlers
+        app.logger.setLevel(gunicorn_logger.level)
 
     return app
 
