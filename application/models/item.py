@@ -413,8 +413,12 @@ class Item(Document):
             return f"{base}/#ticket/zoom/{zid}"
         if self.source == "jira" and self.jira_url and self.external_ref:
             # external_ref holds the issue key (e.g. CHMK-417); jira_url is
-            # denormalised onto the task at import (see import_csv).
-            return f"{self.jira_url.rstrip('/')}/browse/{self.external_ref}"
+            # denormalised onto the task at import (see import_csv). Only emit
+            # http(s) — a "javascript:"/"data:" base would otherwise render as
+            # an executable href (stored XSS, esp. on shared tasks).
+            base = self.jira_url.rstrip("/")
+            if base.startswith(("http://", "https://")):
+                return f"{base}/browse/{self.external_ref}"
         return None
 
     def effective_jira_url(self) -> str:

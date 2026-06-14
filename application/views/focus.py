@@ -29,9 +29,11 @@ def _wants_json() -> bool:
 
 def _back():
     # Honour a local ?next= (used by the post-login folder picker so the
-    # choice lands on the dashboard, not back on the picker).
+    # choice lands on the dashboard, not back on the picker). Only a
+    # site-relative single-slash path — reject "//host" / "/\host" which the
+    # browser treats as protocol-relative (open-redirect primitive).
     nxt = request.form.get("next") or ""
-    if nxt.startswith("/"):
+    if nxt.startswith("/") and not nxt.startswith(("//", "/\\")):
         return redirect(nxt)
     return redirect(request.referrer or url_for("dashboard.home"))
 

@@ -526,29 +526,36 @@ def detail(project_id):
         else:  # "none"
             flat_bucket["open_groups"] = None
 
-        # Full container path per task so a flattened row shows WHERE the task
-        # lives — the whole "Sub A / Sub B" chain, not just the immediate
-        # parent. Resolved in-memory from one container query (``.pk`` on a
-        # reference reads the DBRef, so the walk needs no per-row deref).
+        # Full ABSOLUTE container path per task so a flattened row shows
+        # exactly where the task lives — the whole "Folder / Project / Sub A /
+        # Sub B" chain, not just the immediate parent. Resolved in-memory: one
+        # query for the descendants plus the project's own ancestors, so the
+        # walk reaches the library root.
         containers = Item.objects(
             pk__in=project_ids, kind__in=["project", "section", "folder"]
         ).only("pk", "title", "kind", "parent")
         node_by_pk = {str(c.pk): c for c in containers}
+        anc, ga = project.parent, 0
+        while anc is not None and ga < 50:   # project's ancestors (folders)
+            ga += 1
+            node_by_pk.setdefault(str(anc.pk), anc)
+            anc = anc.parent
         # Tasks too, so a sub-task's chain resolves through its parent task
         # up to the nearest container.
         for t in all_tasks:
             node_by_pk.setdefault(str(t.pk), t)
-        proj_pk = str(project.pk)
         for t in all_tasks:
             crumbs: list = []
             nearest = None
             cur = t.parent
+            seen_path: set = set()
             guard = 0
-            while cur is not None and guard < 30:
+            while cur is not None and guard < 50:
                 guard += 1
                 cur_pk = str(cur.pk)
-                if cur_pk == proj_pk:
+                if cur_pk in seen_path:
                     break
+                seen_path.add(cur_pk)
                 node = node_by_pk.get(cur_pk)
                 if node is None:
                     break
