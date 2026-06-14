@@ -266,6 +266,7 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     task.due_date = attach_user_tz(form.due_date.data, user)
     task.plan_date = attach_user_tz(form.plan_date.data, user)
     task.estimated_minutes = form.estimated_minutes.data
+    task.location = (form.location.data or "").strip()
     task.repeat_every_days = form.repeat_every_days.data
     task.repeat_unit = form.repeat_unit.data or "day"
     task.repeat_from_completion = form.repeat_from_completion.data

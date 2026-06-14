@@ -81,6 +81,7 @@ class TaskForm(FlaskForm):
     due_date = DateTimeLocalField("Due date", format="%Y-%m-%dT%H:%M", validators=[Optional()])
     plan_date = DateTimeLocalField("Plan date", format="%Y-%m-%dT%H:%M", validators=[Optional()])
     estimated_minutes = IntegerField("Estimate (minutes)", validators=[Optional()])
+    location = StringField("Location", validators=[Optional(), Length(max=300)])
     repeat_every_days = IntegerField("Repeat every", validators=[Optional()])
     repeat_unit = SelectField(
         "Unit",

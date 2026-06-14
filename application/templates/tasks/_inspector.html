@@ -107,6 +107,11 @@
       {{ form.estimated_minutes(class="form-control form-control-sm", placeholder="min") }}
     </div>
   </div>
+  <div class="inspector-section" data-section="location">
+    {{ form.location.label(class="form-label small text-uppercase text-muted") }}
+    {{ form.location(class="form-control form-control-sm",
+                     placeholder="e.g. REWE, Hauptstraße 1") }}
+  </div>
 {%- endmacro -%}
 
 {%- macro sec_repeat() -%}
