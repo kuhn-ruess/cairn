@@ -293,7 +293,24 @@ def _apply_ics(item, raw):
     desc = g("description")
     item.note = str(desc) if desc is not None else ""
     loc = g("location")
-    item.location = str(loc) if loc is not None else ""
+    location = str(loc) if loc is not None else ""
+    if not location:
+        # Apple geofenced reminders ("hier erinnern") don't set a top-level
+        # LOCATION — the place lives in a VALARM's X-APPLE-STRUCTURED-LOCATION
+        # (readable name in the X-TITLE param, coords in the geo: URI value).
+        try:
+            for sub in todo.subcomponents:
+                sl = sub.get("X-APPLE-STRUCTURED-LOCATION")
+                if sl is None:
+                    continue
+                params = getattr(sl, "params", {}) or {}
+                title = params.get("X-TITLE") or params.get("X-APPLE-TITLE")
+                if title:
+                    location = str(title)
+                    break
+        except Exception:
+            pass
+    item.location = location
     try:
         item.due_date = _to_dt(g("due"))
     except Exception:
