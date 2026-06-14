@@ -409,6 +409,11 @@ class Item(Document):
             base = base.rstrip("/")
             if base.endswith("/api/v1"):
                 base = base[: -len("/api/v1")].rstrip("/")
+            # Only emit http(s) — a "javascript:"/"data:" zammad_url would
+            # otherwise render as an executable href (stored XSS, esp. on
+            # shared tasks).
+            if not base.startswith(("http://", "https://")):
+                return None
             zid = self.external_id.split(":", 1)[1]
             return f"{base}/#ticket/zoom/{zid}"
         if self.source == "jira" and self.jira_url and self.external_ref:
