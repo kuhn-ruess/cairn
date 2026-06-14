@@ -1,27 +1,31 @@
 """A minimal CalDAV server exposing each user's tasks as VTODO items.
 
 Lets a standard CalDAV client — Apple Reminders, Things, Tasks.org … — use
-Cairn as a read/write task backend. Scope of this first version:
+Cairn as a read/write task backend.
 
-* One calendar collection per user ("Cairn") holding all their tasks, flat.
-  (Per-project collections are a later iteration; iCalendar VTODO has no good
-  cross-client notion of folders/sections, so the hierarchy flattens here.)
-* HTTP Basic auth (username **or** email + password) — clients send it over
-  HTTPS. The blueprint is CSRF-exempt (no browser form posts).
-* Apple-style change detection via ``CS:getctag`` + ``calendar-query`` /
-  ``calendar-multiget`` REPORTs (no ``sync-token`` yet — Reminders is happy
-  with ctag polling).
+Structure: **one calendar collection per Cairn project** (= one list in
+Reminders), plus an **Inbox** collection for tasks with no project. A task
+belongs to the collection of its nearest ancestor project; tasks under a
+section fold into that section's project (Reminders can't show nested lists
+via CalDAV, so sections/folders flatten into the project list). Moving a
+reminder between lists re-parents the task (handled via MOVE and via the
+client's PUT-new / DELETE-old dance).
+
+* HTTP Basic auth (username **or** email + password) over HTTPS.
+* CSRF-exempt (no browser form posts).
+* Apple-style change detection via per-collection ``CS:getctag`` +
+  ``calendar-query`` / ``calendar-multiget`` REPORTs (no ``sync-token`` yet).
 
 Mapping (``Item`` ⇄ ``VTODO``):
   title↔SUMMARY, note↔DESCRIPTION, due_date↔DUE, defer_date↔DTSTART,
   priority↔PRIORITY (Cairn 1–4 ⇄ iCal 1/3/5/7), tags↔CATEGORIES,
   status: done→COMPLETED, dropped→CANCELLED, else NEEDS-ACTION.
 
-This is deliberately small and standards-pragmatic; some clients are picky,
-so expect to iterate against a real device.
+Standards-pragmatic and small; expect to iterate against a real device.
 """
 import base64
 from datetime import datetime, timezone
+from urllib.parse import unquote, urlparse
 from xml.sax.saxutils import escape
 import xml.etree.ElementTree as ET
 
@@ -40,6 +44,7 @@ _NS = ('xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" '
        'xmlns:CS="http://calendarserver.org/ns/" '
        'xmlns:ICAL="http://apple.com/ns/ical/"')
 
+_INBOX = "inbox"
 # Cairn priority (1 highest … 4 lowest) ⇄ iCalendar PRIORITY (1 highest …
 # 9 lowest, 0 = undefined).
 _CAIRN_TO_ICAL_PRIO = {1: 1, 2: 3, 3: 5, 4: 7}
@@ -52,7 +57,6 @@ def _utcnow():
 # ---------------------------------------------------------------- auth ----
 
 def _authenticate():
-    """Return the User for the request's Basic credentials, or None."""
     hdr = request.headers.get("Authorization", "")
     if not hdr.startswith("Basic "):
         return None
@@ -70,7 +74,6 @@ def _authenticate():
 
 
 def _require(username=None):
-    """Authenticate; 401 if missing/bad, 403 if the URL targets another user."""
     user = _authenticate()
     if not user:
         resp = Response("Authentication required", 401)
@@ -81,7 +84,7 @@ def _require(username=None):
     return user
 
 
-# -------------------------------------------------------------- hrefs ----
+# --------------------------------------------------- collections / map ----
 
 def _principal_href(u):
     return f"/caldav/principals/{u.username}/"
@@ -91,12 +94,12 @@ def _home_href(u):
     return f"/caldav/calendars/{u.username}/"
 
 
-def _collection_href(u):
-    return f"/caldav/calendars/{u.username}/tasks/"
+def _collection_href(u, colid):
+    return f"/caldav/calendars/{u.username}/{colid}/"
 
 
-def _resource_href(u, uid):
-    return f"/caldav/calendars/{u.username}/tasks/{uid}.ics"
+def _resource_href(u, colid, uid):
+    return f"/caldav/calendars/{u.username}/{colid}/{uid}.ics"
 
 
 def _uid(item):
@@ -112,18 +115,73 @@ def _user_tasks(user):
     return list(Item.objects(owner=user, kind="task").order_by("-updated_at"))
 
 
-def _ctag(user):
-    """A collection tag that changes on any add / edit / delete."""
-    latest, count = 0, 0
-    for t in Item.objects(owner=user, kind="task").only("updated_at", "created_at"):
-        count += 1
-        ts = int((t.updated_at or t.created_at or _utcnow()).timestamp())
-        latest = max(latest, ts)
-    return f'"{count}-{latest}"'
+def _collections(user):
+    """[(colid, label, color)] — Inbox first, then every project A→Z."""
+    cols = [(_INBOX, "Inbox", "#8E8E93")]
+    for p in (Item.objects(owner=user, kind="project")
+              .order_by("+title").only("pk", "title", "color")):
+        cols.append((str(p.pk), p.name, p.color or "#1F6FEB"))
+    return cols
+
+
+def _colid_map(user):
+    """Return ``({task_pk: colid}, [tasks])`` — colid is the nearest ancestor
+    project's pk, or "inbox". Walks parent chains in-memory."""
+    nodes = {}
+    for c in (Item.objects(owner=user, kind__in=["project", "section", "folder"])
+              .only("pk", "kind", "parent")):
+        nodes[str(c.pk)] = c
+    tasks = _user_tasks(user)
+    for t in tasks:
+        nodes.setdefault(str(t.pk), t)
+    out = {}
+    for t in tasks:
+        cur, colid, seen, guard = t.parent, _INBOX, set(), 0
+        while cur is not None and guard < 50:
+            guard += 1
+            pk = str(cur.pk)
+            if pk in seen:
+                break
+            seen.add(pk)
+            node = nodes.get(pk)
+            if node is None:
+                break
+            if node.kind == "project":
+                colid = pk
+                break
+            cur = node.parent
+        out[str(t.pk)] = colid
+    return out, tasks
+
+
+def _nearest_colid(item):
+    """The collection a single Item currently lives in (project pk / inbox)."""
+    cur, seen, guard = item.parent, set(), 0
+    while cur is not None and guard < 50:
+        guard += 1
+        if str(cur.pk) in seen:
+            break
+        seen.add(str(cur.pk))
+        if getattr(cur, "kind", None) == "project":
+            return str(cur.pk)
+        cur = cur.parent
+    return _INBOX
+
+
+def _resolve_collection(user, colid):
+    """The project Item for ``colid``; None for inbox; 404 if unknown."""
+    if colid == _INBOX:
+        return None
+    try:
+        proj = Item.objects(pk=colid, owner=user, kind="project").first()
+    except (ValidationError, Exception):
+        proj = None
+    if proj is None:
+        abort(404)
+    return proj
 
 
 def _find(user, uid):
-    """Resolve a resource UID back to the user's Item, or None."""
     if uid.endswith(".ics"):
         uid = uid[:-4]
     if uid.startswith("cairn-"):
@@ -148,12 +206,10 @@ def _to_dt(prop):
         return None
     if isinstance(val, datetime):
         return val if val.tzinfo else val.replace(tzinfo=timezone.utc)
-    # all-day DATE → midnight UTC
     return datetime(val.year, val.month, val.day, tzinfo=timezone.utc)
 
 
 def _todo_ics(item):
-    """Serialise one Item to a VCALENDAR/VTODO string."""
     cal = Calendar()
     cal.add("prodid", "-//Cairn//CalDAV//EN")
     cal.add("version", "2.0")
@@ -187,7 +243,6 @@ def _todo_ics(item):
 
 
 def _apply_ics(item, raw):
-    """Apply an inbound VTODO to ``item`` (unsaved). Returns False if no VTODO."""
     cal = Calendar.from_ical(raw)
     todo = next((c for c in cal.walk("VTODO")), None)
     if todo is None:
@@ -208,8 +263,7 @@ def _apply_ics(item, raw):
 
     st = str(todo.get("status") or "").upper()
     pc = todo.get("percent-complete")
-    done_by_pct = pc is not None and int(pc) >= 100
-    if st == "COMPLETED" or done_by_pct:
+    if st == "COMPLETED" or (pc is not None and int(pc) >= 100):
         item.status = "done"
         item.completed_via = "caldav"
     elif st == "CANCELLED":
@@ -248,20 +302,29 @@ def _cup(user):
             f'</D:href></D:current-user-principal>')
 
 
-def _collection_props(user):
+def _ctag(tasks):
+    latest, n = 0, 0
+    for t in tasks:
+        n += 1
+        ts = int((t.updated_at or t.created_at or _utcnow()).timestamp())
+        latest = max(latest, ts)
+    return f'"{n}-{latest}"'
+
+
+def _collection_props(user, label, color, tasks):
     return ('<D:resourcetype><D:collection/><C:calendar/></D:resourcetype>'
-            '<D:displayname>Cairn</D:displayname>'
+            f'<D:displayname>{escape(label)}</D:displayname>'
             '<C:supported-calendar-component-set><C:comp name="VTODO"/>'
             '</C:supported-calendar-component-set>'
-            f'<CS:getctag>{escape(_ctag(user))}</CS:getctag>'
-            '<ICAL:calendar-color>#1F6FEB</ICAL:calendar-color>'
+            f'<CS:getctag>{escape(_ctag(tasks))}</CS:getctag>'
+            f'<ICAL:calendar-color>{escape(color)}</ICAL:calendar-color>'
             + _cup(user))
 
 
 def _options():
     resp = Response(status=200)
     resp.headers["DAV"] = "1, 2, 3, calendar-access"
-    resp.headers["Allow"] = ("OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, "
+    resp.headers["Allow"] = ("OPTIONS, GET, HEAD, PUT, DELETE, MOVE, PROPFIND, "
                              "PROPPATCH, REPORT, MKCALENDAR")
     return resp
 
@@ -278,8 +341,7 @@ def root():
     if request.method == "OPTIONS":
         return _options()
     user = _require()
-    props = ('<D:resourcetype><D:collection/></D:resourcetype>'
-             + _cup(user)
+    props = ('<D:resourcetype><D:collection/></D:resourcetype>' + _cup(user)
              + f'<D:principal-URL><D:href>{escape(_principal_href(user))}</D:href>'
              '</D:principal-URL>')
     return _multistatus([_ok("/caldav/", props)])
@@ -290,8 +352,7 @@ def principal(username):
     if request.method == "OPTIONS":
         return _options()
     user = _require(username)
-    props = ('<D:resourcetype><D:principal/></D:resourcetype>'
-             + _cup(user)
+    props = ('<D:resourcetype><D:principal/></D:resourcetype>' + _cup(user)
              + f'<C:calendar-home-set><D:href>{escape(_home_href(user))}</D:href>'
              '</C:calendar-home-set>'
              f'<D:displayname>{escape(str(user))}</D:displayname>')
@@ -307,30 +368,47 @@ def home(username):
                   '<D:displayname>Cairn</D:displayname>' + _cup(user))
     responses = [_ok(_home_href(user), home_props)]
     if request.headers.get("Depth", "0") != "0":
-        responses.append(_ok(_collection_href(user), _collection_props(user)))
+        # One pass over the tree groups tasks per collection so we can stamp
+        # each collection's ctag without re-walking per list.
+        mapping, all_tasks = _colid_map(user)
+        by_col = {}
+        for t in all_tasks:
+            by_col.setdefault(mapping[str(t.pk)], []).append(t)
+        for colid, label, color in _collections(user):
+            responses.append(_ok(
+                _collection_href(user, colid),
+                _collection_props(user, label, color, by_col.get(colid, [])),
+            ))
     return _multistatus(responses)
 
 
-@caldav_bp.route("/caldav/calendars/<username>/tasks/", strict_slashes=False,
+@caldav_bp.route("/caldav/calendars/<username>/<colid>/", strict_slashes=False,
                  methods=["PROPFIND", "REPORT", "PROPPATCH", "OPTIONS"])
-def collection(username):
+def collection(username, colid):
     if request.method == "OPTIONS":
         return _options()
     user = _require(username)
+    proj = _resolve_collection(user, colid)  # validates / 404s
+    label = "Inbox" if proj is None else proj.name
+    color = "#8E8E93" if proj is None else (proj.color or "#1F6FEB")
+
     if request.method == "PROPPATCH":
-        # Pretend any property set (displayname / color) succeeded so the
-        # client doesn't treat the collection as read-broken.
-        return _multistatus([_ok(_collection_href(user), "")])
+        return _multistatus([_ok(_collection_href(user, colid), "")])
+
+    mapping, all_tasks = _colid_map(user)
+    tasks = [t for t in all_tasks if mapping[str(t.pk)] == colid]
+
     if request.method == "REPORT":
-        return _report(user)
-    # PROPFIND
-    responses = [_ok(_collection_href(user), _collection_props(user))]
+        return _report(user, colid, tasks)
+
+    responses = [_ok(_collection_href(user, colid),
+                     _collection_props(user, label, color, tasks))]
     if request.headers.get("Depth", "0") != "0":
-        for t in _user_tasks(user):
+        for t in tasks:
             rprops = (f'<D:getetag>{escape(_etag(t))}</D:getetag>'
                       '<D:getcontenttype>text/calendar; component=vtodo'
                       '</D:getcontenttype><D:resourcetype/>')
-            responses.append(_ok(_resource_href(user, _uid(t)), rprops))
+            responses.append(_ok(_resource_href(user, colid, _uid(t)), rprops))
     return _multistatus(responses)
 
 
@@ -340,13 +418,12 @@ def _data_response(href, item):
     return _ok(href, props)
 
 
-def _report(user):
+def _report(user, colid, tasks):
     try:
         root_el = ET.fromstring(request.get_data() or b"")
     except ET.ParseError:
         root_el = None
-    tag = root_el.tag if root_el is not None else ""
-    if tag.endswith("calendar-multiget"):
+    if root_el is not None and root_el.tag.endswith("calendar-multiget"):
         responses = []
         for href_el in root_el.iter("{DAV:}href"):
             href = (href_el.text or "").strip()
@@ -354,14 +431,23 @@ def _report(user):
             if item is not None:
                 responses.append(_data_response(href, item))
         return _multistatus(responses)
-    # calendar-query (or anything else) → return the whole collection
-    return _multistatus([_data_response(_resource_href(user, _uid(t)), t)
-                         for t in _user_tasks(user)])
+    # calendar-query (or anything else) → the whole collection
+    return _multistatus([_data_response(_resource_href(user, colid, _uid(t)), t)
+                         for t in tasks])
 
 
-@caldav_bp.route("/caldav/calendars/<username>/tasks/<name>",
-                 methods=["GET", "HEAD", "PUT", "DELETE", "OPTIONS"])
-def resource(username, name):
+def _colid_from_path(path):
+    """Pull the collection id out of a CalDAV resource path/URL."""
+    parts = [p for p in urlparse(path).path.split("/") if p]
+    # …/caldav/calendars/<user>/<colid>/<name.ics>
+    if len(parts) >= 2 and parts[-1].lower().endswith(".ics"):
+        return unquote(parts[-2])
+    return None
+
+
+@caldav_bp.route("/caldav/calendars/<username>/<colid>/<name>",
+                 methods=["GET", "HEAD", "PUT", "DELETE", "MOVE", "OPTIONS"])
+def resource(username, colid, name):
     if request.method == "OPTIONS":
         return _options()
     user = _require(username)
@@ -375,15 +461,18 @@ def resource(username, name):
         return resp
 
     if request.method == "PUT":
+        proj = _resolve_collection(user, colid)  # validates target list
         uid = name[:-4] if name.endswith(".ics") else name
         item = _find(user, uid)
         created = item is None
         if created:
-            item = Item(owner=user, kind="task", status="open")
-            # Client-chosen UID → remember it so future ops map back. A
-            # cairn-<pk> UID is derived, never stored.
+            item = Item(owner=user, kind="task", status="open", parent=proj)
             if not uid.startswith("cairn-"):
                 item.caldav_uid = uid
+        elif _nearest_colid(item) != colid:
+            # Genuine move to a different list. (Same-list edits keep the
+            # parent so a task nested in a section isn't yanked to the root.)
+            item.parent = proj
         if not _apply_ics(item, request.get_data()):
             abort(400)
         item.save()
@@ -391,10 +480,25 @@ def resource(username, name):
         resp.headers["ETag"] = _etag(item)
         return resp
 
+    if request.method == "MOVE":
+        item = _find(user, name)
+        if item is None:
+            abort(404)
+        dest_colid = _colid_from_path(request.headers.get("Destination", ""))
+        if dest_colid is None:
+            abort(400)
+        item.parent = _resolve_collection(user, dest_colid)
+        item.save()
+        return Response(status=201)
+
     if request.method == "DELETE":
         item = _find(user, name)
         if item is None:
             abort(404)
+        # If it already moved to another list, the resource is "gone" from
+        # here — don't trash it (handles client move = PUT-new + DELETE-old).
+        if _nearest_colid(item) != colid:
+            return Response(status=204)
         item.trashed_at = _utcnow()
         item.save()
         return Response(status=204)
