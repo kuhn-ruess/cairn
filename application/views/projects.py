@@ -1419,6 +1419,13 @@ def import_csv(project_id):
     raw = fileobj.read().decode("utf-8-sig", errors="replace")
     mode = (request.form.get("mode") or "sync").strip()
     archive_missing = bool(request.form.get("archive_missing"))
+    jira_url = (request.form.get("jira_url") or "").strip().rstrip("/")
+    # Remember the choices on the project so the form pre-fills them next
+    # time, and so Jira ticket numbers stay clickable across re-imports.
+    project.csv_import_mode = mode
+    project.csv_archive_missing = archive_missing
+    project.jira_url = jira_url
+    project.save()
 
     # Auto-detect the delimiter — Jira CSVs in EU locales use ``;``
     # instead of ``,``. Sniffer picks one based on the first 4 KB.
@@ -1574,6 +1581,10 @@ def import_csv(project_id):
             updated += 1
         target.title = title[:500]
         target.source = source_tag
+        if is_jira:
+            # Denormalise the base URL so external_url() can build the
+            # /browse/<KEY> deep link without a per-row project lookup.
+            target.jira_url = jira_url
 
         note_val = _row_get(values, "note", "description", "beschreibung")
         if note_val:

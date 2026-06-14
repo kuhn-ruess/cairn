@@ -18,18 +18,19 @@
     </div>
   </div>
 
+  {% set saved_mode = project.csv_import_mode or 'sync' %}
   <fieldset class="mb-3">
     <legend class="form-label small text-uppercase text-muted">Mode</legend>
     <div class="form-check">
       <input class="form-check-input" type="radio" name="mode" id="mode-sync"
-             value="sync" checked>
+             value="sync" {{ 'checked' if saved_mode == 'sync' else '' }}>
       <label class="form-check-label" for="mode-sync">
         Sync — match existing tasks by <code>csv_id</code> and update them
       </label>
     </div>
     <div class="form-check">
       <input class="form-check-input" type="radio" name="mode" id="mode-import"
-             value="import">
+             value="import" {{ 'checked' if saved_mode == 'import' else '' }}>
       <label class="form-check-label" for="mode-import">
         Import — always create a new task per row
       </label>
@@ -38,10 +39,23 @@
 
   <div class="form-check mb-3">
     <input class="form-check-input" type="checkbox" name="archive_missing"
-           value="1" id="archive-missing">
+           value="1" id="archive-missing"
+           {{ 'checked' if project.csv_archive_missing else '' }}>
     <label class="form-check-label" for="archive-missing">
       In sync mode, complete (set to done) tasks that don't appear in the CSV
     </label>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label" for="jira-url">Jira base URL</label>
+    <input type="url" name="jira_url" id="jira-url" class="form-control"
+           placeholder="https://jira.example.com"
+           value="{{ project.jira_url or '' }}">
+    <div class="form-text small">
+      For Jira CSV exports. Stored on this project and remembered for next
+      time. When set, each imported issue key (e.g. <code>CHMK-417</code>)
+      becomes a link that opens the ticket in a new tab — just like Zammad.
+    </div>
   </div>
 
   <button type="submit" class="btn btn-primary">

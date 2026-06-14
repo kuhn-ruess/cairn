@@ -260,6 +260,17 @@ class Item(Document):
     # project auto-marks the project ``completed`` (see complete()).
     auto_complete_when_done = BooleanField(default=False)
 
+    # ----- CSV-import settings (persisted per project) + Jira deep-link -----
+    # On a *project* these remember the last choices made on the import form
+    # so the user doesn't re-pick them every time. ``jira_url`` is the base
+    # URL of the Jira instance the project's CSV exports come from.
+    # On a *task* ``jira_url`` is denormalised from the project at import time
+    # so external_url() can build a ``/browse/<KEY>`` deep link without an
+    # N+1 project lookup per row when rendering lists.
+    csv_import_mode = StringField(default="sync")
+    csv_archive_missing = BooleanField(default=False)
+    jira_url = StringField()
+
     # public share
     share_enabled = BooleanField(default=False)
     share_token = StringField(unique=True, sparse=True)
@@ -400,6 +411,10 @@ class Item(Document):
                 base = base[: -len("/api/v1")].rstrip("/")
             zid = self.external_id.split(":", 1)[1]
             return f"{base}/#ticket/zoom/{zid}"
+        if self.source == "jira" and self.jira_url and self.external_ref:
+            # external_ref holds the issue key (e.g. CHMK-417); jira_url is
+            # denormalised onto the task at import (see import_csv).
+            return f"{self.jira_url.rstrip('/')}/browse/{self.external_ref}"
         return None
 
     # ----- aliases for code/templates from the pre-unified era -----
