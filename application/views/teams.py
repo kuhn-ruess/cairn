@@ -55,7 +55,11 @@ def index():
     team = _select_team(user)
     if not team:
         return render_template("teams/none.html")
-    members = User.objects(team=team).order_by("+username")
+    # Use the canonical team-membership helper so the team owner is always
+    # counted/listed even when their own ``user.team`` points elsewhere — the
+    # plain ``User.objects(team=team)`` query missed the admin (wrong count).
+    from application.services.permissions import team_members
+    members = sorted(team_members(team), key=lambda u: (u.username or "").lower())
     invites = sorted(
         (i for i in (team.invites or []) if not i.used_at),
         key=lambda i: i.email,
