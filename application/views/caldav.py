@@ -431,7 +431,7 @@ def _apply_ics(item, raw, user=None):
 # ------------------------------------------- calendar feed (VEVENT) ----
 
 def _calendar_enabled(user):
-    return bool(getattr(user, "caldav_calendar_enabled", True))
+    return bool(getattr(user, "caldav_calendar_enabled", False))
 
 
 def _calendar_source(user):
