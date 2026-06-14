@@ -10,10 +10,13 @@ task. The caller is responsible for saving the item afterwards.
 """
 from __future__ import annotations
 
+# Single source of truth — derive valid rule targets from the model so a new
+# status (e.g. "waiting_reply", "agenda") is automatically accepted. A
+# hardcoded copy here once silently rejected new statuses, leaving tickets on
+# their importer default ("next") instead of what the rule asked for.
+from application.models.item import TASK_STATUS
 
-TASK_STATUSES = {
-    "open", "next", "waiting", "scheduled", "someday", "done", "dropped",
-}
+TASK_STATUSES = set(TASK_STATUS)
 
 
 def apply_label_rules(item, user, only_tags=None) -> bool:
