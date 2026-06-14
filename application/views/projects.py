@@ -501,6 +501,7 @@ def detail(project_id):
     grouping_tag = (project.task_grouping_tag or "").strip()
     subproject_groups: dict = {}
     flat_tag_view = False
+    task_badges: dict = {}  # task.pk → {"item", "label"}: full container path (flatten views)
     sequential = project.project_type == "sequential" and not project.show_blocked_tasks
 
     if flatten:
@@ -525,6 +526,43 @@ def detail(project_id):
             flat_bucket["open_groups"] = _group_tasks(flat_bucket["open"], grouping)
         else:  # "none"
             flat_bucket["open_groups"] = None
+
+        # Full container path per task so a flattened row shows WHERE the task
+        # lives — the whole "Sub A / Sub B" chain, not just the immediate
+        # parent. Resolved in-memory from one container query (``.pk`` on a
+        # reference reads the DBRef, so the walk needs no per-row deref).
+        containers = Item.objects(
+            pk__in=project_ids, kind__in=["project", "section", "folder"]
+        ).only("pk", "title", "kind", "parent")
+        node_by_pk = {str(c.pk): c for c in containers}
+        # Tasks too, so a sub-task's chain resolves through its parent task
+        # up to the nearest container.
+        for t in all_tasks:
+            node_by_pk.setdefault(str(t.pk), t)
+        proj_pk = str(project.pk)
+        for t in all_tasks:
+            crumbs: list = []
+            nearest = None
+            cur = t.parent
+            guard = 0
+            while cur is not None and guard < 30:
+                guard += 1
+                cur_pk = str(cur.pk)
+                if cur_pk == proj_pk:
+                    break
+                node = node_by_pk.get(cur_pk)
+                if node is None:
+                    break
+                if node.kind in ("project", "section", "folder"):
+                    crumbs.append(node.name)
+                    if nearest is None:
+                        nearest = node
+                cur = node.parent
+            crumbs.reverse()
+            task_badges[str(t.pk)] = {
+                "item": nearest or project,
+                "label": " / ".join(crumbs) if crumbs else project.name,
+            }
         section_buckets = {None: flat_bucket}
         # The structural data the nested view needs is irrelevant here.
         sections = []
@@ -624,8 +662,11 @@ def detail(project_id):
         flat_tag_view=flat_tag_view,
         flatten=flatten,
         # In the flattened views the containing sub-project is the key
-        # context, so force its badge on even if the user hid it for tasks.
+        # context, so force its badge on even if the user hid it for tasks,
+        # and show the full container path (task_badges) instead of the bare
+        # immediate parent.
         force_project_badge=flatten,
+        task_badges=task_badges,
         grouping=grouping,
         show_completed=show_completed,
         include_descendants=include_descendants,

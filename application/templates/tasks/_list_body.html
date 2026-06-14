@@ -78,16 +78,22 @@
           {% endif %}
           <div class="task-meta">
             {% if task.project and (force_project_badge|default(false) or current_user.show_field('project', view_key=_vk)) %}
-              {% set _proj_icon = item_icon(task.project) %}
-              {% if can_view_container(task.project) %}
-                <a class="badge text-bg-light text-decoration-none" href="{{ url_for('projects.detail', project_id=task.project.pk) }}">
-                  {{ _proj_icon }}{{ task.project.name }}
+              {# In flattened project views ``task_badges`` carries the full
+                 container path ("Sub A / Sub B") + nearest container to link
+                 to; elsewhere fall back to the immediate parent. #}
+              {% set _badge = (task_badges|default({})).get(task.pk|string) %}
+              {% set _bc = _badge['item'] if _badge else task.project %}
+              {% set _blabel = _badge['label'] if _badge else task.project.name %}
+              {% set _proj_icon = item_icon(_bc) %}
+              {% if can_view_container(_bc) %}
+                <a class="badge text-bg-light text-decoration-none" href="{{ url_for('projects.detail', project_id=_bc.pk) }}">
+                  {{ _proj_icon }}{{ _blabel }}
                 </a>
               {% else %}
                 {# Assigned task in a project the user can't open — show the
                    name as inert context so the badge never 404s. #}
                 <span class="badge text-bg-light text-muted" title="You don't have access to this project">
-                  {{ _proj_icon }}{{ task.project.name }}
+                  {{ _proj_icon }}{{ _blabel }}
                 </span>
               {% endif %}
             {% endif %}
