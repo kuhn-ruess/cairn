@@ -1,0 +1,38 @@
+{% extends "layout/base.html" %}
+{% block title %}Choose focus · Cairn{% endblock %}
+{% block content %}
+{% set dash = url_for('dashboard.home') %}
+<div style="max-width: 560px;">
+  <h1 class="h4 mb-1"><i class="bi bi-crosshair"></i> Choose your focus</h1>
+  <p class="text-muted mb-4">
+    Pick a folder to work within for this session — only items beneath it
+    will be shown. You can change or clear the focus any time from the navbar.
+  </p>
+
+  {% if folders %}
+  <div class="list-group mb-3">
+    {% for f in folders %}
+    <form method="post" action="{{ url_for('focus.set_focus', item_id=f.pk) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ dash }}">
+      <button type="submit"
+              class="list-group-item list-group-item-action d-flex align-items-center gap-2 w-100 text-start">
+        <i class="bi bi-folder2"></i>
+        <span>{{ f.title }}</span>
+      </button>
+    </form>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-muted">You don't have any folders yet.</p>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('focus.clear_focus') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ dash }}">
+    <button type="submit" class="btn btn-outline-secondary">
+      <i class="bi bi-x-circle"></i> Show everything (no focus)
+    </button>
+  </form>
+</div>
+{% endblock %}

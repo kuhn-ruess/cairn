@@ -176,6 +176,9 @@ class User(UserMixin, Document):
     # the whole app only shows tasks beneath that item. "" = no focus.
     # See application/services/focus.py.
     focused_item_pk = StringField(default="")
+    # When on, login lands on a folder picker (focus.choose) so the user can
+    # set the focus for this session before seeing anything else.
+    focus_on_login = BooleanField(default=False)
     # Working-day window (hours) for the Today "Plan" timeline + auto-plan:
     # auto-scheduling only fills free slots between these two hours.
     plan_day_start = IntField(default=9, min_value=0, max_value=23)

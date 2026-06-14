@@ -8,7 +8,11 @@ so the front-end does a full reload rather than the usual partial main-swap.
 Both routes answer JSON for the ``fetch`` caller and fall back to a redirect for
 a plain form submit.
 """
-from flask import Blueprint, jsonify, redirect, request, url_for
+from mongoengine import Q
+
+from flask import (
+    Blueprint, jsonify, redirect, render_template, request, url_for,
+)
 from flask_login import current_user, login_required
 
 from application.models.item import Item
@@ -24,6 +28,11 @@ def _wants_json() -> bool:
 
 
 def _back():
+    # Honour a local ?next= (used by the post-login folder picker so the
+    # choice lands on the dashboard, not back on the picker).
+    nxt = request.form.get("next") or ""
+    if nxt.startswith("/"):
+        return redirect(nxt)
     return redirect(request.referrer or url_for("dashboard.home"))
 
 
@@ -54,3 +63,21 @@ def clear_focus():
     if _wants_json():
         return jsonify({"ok": True})
     return _back()
+
+
+@focus_bp.route("/choose")
+@login_required
+def choose():
+    """Post-login folder picker (see ``User.focus_on_login``).
+
+    Lists the user's folders so they can set the session focus before seeing
+    anything else. Picking a folder POSTs to ``set_focus`` with a ``next`` of
+    the dashboard; "show everything" clears focus the same way.
+    """
+    user = current_user._get_current_object()
+    folders = list(
+        Item.objects(Q(owner=user) | Q(members=user), kind="folder")
+        .only("pk", "title", "parent")
+        .order_by("+title")
+    )
+    return render_template("focus/choose.html", folders=folders)
