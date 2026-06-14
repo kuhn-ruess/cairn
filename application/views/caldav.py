@@ -24,7 +24,7 @@ Mapping (``Item`` ⇄ ``VTODO``):
 Standards-pragmatic and small; expect to iterate against a real device.
 """
 import base64
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import unquote, urlparse
 from xml.sax.saxutils import escape
 import xml.etree.ElementTree as ET
@@ -33,7 +33,7 @@ from flask import Blueprint, Response, abort, redirect, request
 from mongoengine import Q
 from mongoengine.errors import ValidationError
 
-from icalendar import Calendar, Todo
+from icalendar import Calendar, Event, Todo
 
 from application.models.item import Item
 from application.models.user import User
@@ -45,6 +45,8 @@ _NS = ('xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" '
        'xmlns:ICAL="http://apple.com/ns/ical/"')
 
 _INBOX = "inbox"
+# Reserved collection id for the read-only VEVENT feed (tasks-as-events).
+_CALENDAR = "calendar"
 # Cairn priority (1 highest … 4 lowest) ⇄ iCalendar PRIORITY (1 highest …
 # 9 lowest, 0 = undefined).
 _CAIRN_TO_ICAL_PRIO = {1: 1, 2: 3, 3: 5, 4: 7}
@@ -283,6 +285,58 @@ def _apply_ics(item, raw):
     return True
 
 
+# ------------------------------------------- calendar feed (VEVENT) ----
+
+def _calendar_source(user):
+    src = getattr(user, "caldav_calendar_source", None)
+    return src if src in ("due", "plan") else "due"
+
+
+def _event_date(item, source):
+    return item.plan_date if source == "plan" else item.due_date
+
+
+def _calendar_tasks(user, source):
+    """Open tasks that carry the chosen date — they become calendar events."""
+    field = "plan_date" if source == "plan" else "due_date"
+    return list(Item.objects(owner=user, kind="task",
+                             status__nin=["done", "dropped"],
+                             **{f"{field}__ne": None}).order_by(f"+{field}"))
+
+
+def _event_uid(item):
+    # Distinct from the VTODO uid so todo + event can coexist for one task.
+    return f"cairn-cal-{item.pk}"
+
+
+def _find_event(user, name):
+    uid = name[:-4] if name.endswith(".ics") else name
+    if not uid.startswith("cairn-cal-"):
+        return None
+    try:
+        return Item.objects(pk=uid[len("cairn-cal-"):], owner=user, kind="task").first()
+    except (ValidationError, Exception):
+        return None
+
+
+def _event_ics(item, source):
+    cal = Calendar()
+    cal.add("prodid", "-//Cairn//CalDAV//EN")
+    cal.add("version", "2.0")
+    ev = Event()
+    ev.add("uid", _event_uid(item))
+    ev.add("summary", item.title or "")
+    if item.note:
+        ev.add("description", item.note)
+    start = _aware(_event_date(item, source))
+    ev.add("dtstart", start)
+    ev.add("dtend", start + timedelta(minutes=30))
+    ev.add("dtstamp", _aware(item.updated_at or _utcnow()))
+    ev.add("last-modified", _aware(item.updated_at or _utcnow()))
+    cal.add_component(ev)
+    return cal.to_ical().decode("utf-8")
+
+
 # ----------------------------------------------------------- XML build ----
 
 def _multistatus(responses):
@@ -318,6 +372,16 @@ def _collection_props(user, label, color, tasks):
             '</C:supported-calendar-component-set>'
             f'<CS:getctag>{escape(_ctag(tasks))}</CS:getctag>'
             f'<ICAL:calendar-color>{escape(color)}</ICAL:calendar-color>'
+            + _cup(user))
+
+
+def _calendar_collection_props(user, tasks):
+    return ('<D:resourcetype><D:collection/><C:calendar/></D:resourcetype>'
+            '<D:displayname>Cairn (Kalender)</D:displayname>'
+            '<C:supported-calendar-component-set><C:comp name="VEVENT"/>'
+            '</C:supported-calendar-component-set>'
+            f'<CS:getctag>{escape(_ctag(tasks))}</CS:getctag>'
+            '<ICAL:calendar-color>#34C759</ICAL:calendar-color>'
             + _cup(user))
 
 
@@ -385,6 +449,12 @@ def home(username):
                 _collection_href(user, colid),
                 _collection_props(user, label, color, by_col.get(colid, [])),
             ))
+        # The read-only VEVENT feed (tasks as calendar events).
+        source = _calendar_source(user)
+        responses.append(_ok(
+            _collection_href(user, _CALENDAR),
+            _calendar_collection_props(user, _calendar_tasks(user, source)),
+        ))
     return _multistatus(responses)
 
 
@@ -394,6 +464,24 @@ def collection(username, colid):
     if request.method == "OPTIONS":
         return _options()
     user = _require(username)
+
+    if colid == _CALENDAR:
+        if request.method == "PROPPATCH":
+            return _multistatus([_ok(_collection_href(user, colid), "")])
+        source = _calendar_source(user)
+        tasks = _calendar_tasks(user, source)
+        if request.method == "REPORT":
+            return _report_calendar(user, tasks, source)
+        responses = [_ok(_collection_href(user, colid),
+                         _calendar_collection_props(user, tasks))]
+        if request.headers.get("Depth", "0") != "0":
+            for t in tasks:
+                rprops = (f'<D:getetag>{escape(_etag(t))}</D:getetag>'
+                          '<D:getcontenttype>text/calendar; component=vevent'
+                          '</D:getcontenttype><D:resourcetype/>')
+                responses.append(_ok(_resource_href(user, colid, _event_uid(t)), rprops))
+        return _multistatus(responses)
+
     proj = _resolve_collection(user, colid)  # validates / 404s
     label = "Inbox" if proj is None else proj.name
     color = "#8E8E93" if proj is None else (proj.color or "#1F6FEB")
@@ -442,6 +530,30 @@ def _report(user, colid, tasks):
                          for t in tasks])
 
 
+def _event_data_response(href, item, source):
+    props = (f'<D:getetag>{escape(_etag(item))}</D:getetag>'
+             f'<C:calendar-data>{escape(_event_ics(item, source))}</C:calendar-data>')
+    return _ok(href, props)
+
+
+def _report_calendar(user, tasks, source):
+    try:
+        root_el = ET.fromstring(request.get_data() or b"")
+    except ET.ParseError:
+        root_el = None
+    if root_el is not None and root_el.tag.endswith("calendar-multiget"):
+        responses = []
+        for href_el in root_el.iter("{DAV:}href"):
+            href = (href_el.text or "").strip()
+            item = _find_event(user, href.rstrip("/").split("/")[-1])
+            if item is not None:
+                responses.append(_event_data_response(href, item, source))
+        return _multistatus(responses)
+    return _multistatus([
+        _event_data_response(_resource_href(user, _CALENDAR, _event_uid(t)), t, source)
+        for t in tasks])
+
+
 def _colid_from_path(path):
     """Pull the collection id out of a CalDAV resource path/URL."""
     parts = [p for p in urlparse(path).path.split("/") if p]
@@ -457,6 +569,18 @@ def resource(username, colid, name):
     if request.method == "OPTIONS":
         return _options()
     user = _require(username)
+
+    if colid == _CALENDAR:
+        # Read-only feed: serve the VEVENT, refuse writes.
+        if request.method in ("GET", "HEAD"):
+            item = _find_event(user, name)
+            if item is None:
+                abort(404)
+            resp = Response(_event_ics(item, _calendar_source(user)),
+                            mimetype="text/calendar; charset=utf-8")
+            resp.headers["ETag"] = _etag(item)
+            return resp
+        abort(403)
 
     if request.method in ("GET", "HEAD"):
         item = _find(user, name)
