@@ -15,8 +15,11 @@
       pad(d.getHours()) + ":" + pad(d.getMinutes());
   }
 
-  function compute(kind, base) {
-    const d = base ? new Date(base) : new Date();
+  function compute(kind) {
+    // Always relative to *now* — the shortcuts mean "today", "tomorrow",
+    // "+1 week" from today, etc. Basing off the input's existing value made
+    // "Today" only change the time and leave the old day in place.
+    const d = new Date();
     switch (kind) {
       case "today":
         d.setHours(17, 0, 0, 0);
@@ -51,7 +54,7 @@
     const input = document.getElementById(inputId);
     if (!input) return;
     const kind = btn.dataset.set || "today";
-    input.value = compute(kind, input.value);
+    input.value = compute(kind);
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
