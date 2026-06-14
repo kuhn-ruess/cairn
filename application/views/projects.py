@@ -41,38 +41,14 @@ def _populate_choices(form: ProjectForm, user: User, current: Item | None = None
     # Tag pool — same as tasks (embedded on user), DFS-ordered.
     from application.views.tasks import _tag_choices_tree
     form.tags.choices = _tag_choices_tree(user.tags or [])
-    # "Inside" picker holds containers only — projects (active) and
-    # folders. Sections live inline in a project and shouldn't host
-    # sub-projects; tasks are obviously not containers. We fetch sections
-    # too (one query) only so the *path* of a candidate can resolve past
-    # a section ancestor — they're not offered as choices themselves.
-    containers = list(
-        Item.objects(owner=user, kind__in=["project", "folder", "section"])
-        # ``name`` is a property alias for the ``title`` field — project the
-        # real field, or mongoengine raises LookUpError on .only().
-        .only("pk", "title", "kind", "parent")
+    # "Inside" picker holds containers only — projects and folders. Sections
+    # live inline in a project and shouldn't host sub-projects; tasks aren't
+    # containers. Labels carry the full breadcrumb (see services/containers.py).
+    from application.services.containers import container_choices
+    form.parent.choices = [("", "— top level —")] + container_choices(
+        user, selectable_kinds=("project", "folder"),
+        exclude_pk=current.pk if current else None,
     )
-    by_id = {str(c.pk): c for c in containers}
-
-    def _path_label(c: Item) -> str:
-        # Walk parent refs through the in-memory map (no extra queries —
-        # ``.pk`` on a reference reads the DBRef, not the document).
-        parts, cur, seen = [], c, set()
-        while cur is not None and str(cur.pk) not in seen:
-            seen.add(str(cur.pk))
-            parts.append(cur.name)
-            par = cur.parent
-            cur = by_id.get(str(par.pk)) if par else None
-        parts.reverse()
-        icon = "🗂️" if c.is_folder else ("🔖" if c.is_section else "📁")
-        return f"{icon}  " + " / ".join(parts)
-
-    selectable = [c for c in containers if c.kind in ("project", "folder")]
-    selectable = [c for c in selectable if not current or c.pk != current.pk]
-    selectable.sort(key=lambda c: _path_label(c).lower())
-    form.parent.choices = [("", "— top level —")] + [
-        (str(c.pk), _path_label(c)) for c in selectable
-    ]
     # Sharing is restricted to team members. Free / solo users see no
     # candidates (the form still renders, but the dropdown is empty so
     # they can't share). Premium and team_admin show their teammates.

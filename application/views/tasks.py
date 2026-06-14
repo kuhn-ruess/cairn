@@ -225,12 +225,13 @@ def _tag_choices_tree(tags) -> list:
 def _populate_form_choices(form: TaskForm, user: User) -> None:
     # Project picker only lists real projects (kind="project"). Folders
     # are organisational; sections live inline in a project and aren't
-    # task containers.
-    projects = Item.objects(
-        Q(owner=user) | Q(members=user),
-        kind="project", status="active",
-    ).order_by("+name")
-    form.project.choices = [("", "—")] + [(str(p.pk), p.name) for p in projects]
+    # task containers. Labels carry the full folder breadcrumb so a project
+    # nested in folders is unambiguous (see services/containers.py).
+    from application.services.containers import container_choices
+    form.project.choices = [("", "—")] + container_choices(
+        user, selectable_kinds=("project",),
+        include_shared=True, active_projects_only=True,
+    )
     # Tag dropdown choices use the tag NAME both as value and label.
     # Render in tree order with indentation so nested tags are obvious.
     form.tags.choices = _tag_choices_tree(user.tags or [])
