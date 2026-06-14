@@ -389,6 +389,17 @@ def _ctag(tasks):
     return f'"{n}-{latest}"'
 
 
+def _privset(read_only=False):
+    """``current-user-privilege-set`` so Apple knows whether it may write."""
+    privs = "<D:privilege><D:read/></D:privilege>"
+    if not read_only:
+        privs += ("<D:privilege><D:write/></D:privilege>"
+                  "<D:privilege><D:write-content/></D:privilege>"
+                  "<D:privilege><D:bind/></D:privilege>"
+                  "<D:privilege><D:unbind/></D:privilege>")
+    return f"<D:current-user-privilege-set>{privs}</D:current-user-privilege-set>"
+
+
 def _collection_props(user, label, color, tasks):
     return ('<D:resourcetype><D:collection/><C:calendar/></D:resourcetype>'
             f'<D:displayname>{escape(label)}</D:displayname>'
@@ -396,7 +407,7 @@ def _collection_props(user, label, color, tasks):
             '</C:supported-calendar-component-set>'
             f'<CS:getctag>{escape(_ctag(tasks))}</CS:getctag>'
             f'<ICAL:calendar-color>{escape(color)}</ICAL:calendar-color>'
-            + _cup(user))
+            + _privset(read_only=False) + _cup(user))
 
 
 def _calendar_collection_props(user, tasks):
@@ -406,7 +417,7 @@ def _calendar_collection_props(user, tasks):
             '</C:supported-calendar-component-set>'
             f'<CS:getctag>{escape(_ctag(tasks))}</CS:getctag>'
             '<ICAL:calendar-color>#34C759</ICAL:calendar-color>'
-            + _cup(user))
+            + _privset(read_only=True) + _cup(user))
 
 
 def _options():
