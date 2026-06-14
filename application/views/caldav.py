@@ -248,6 +248,8 @@ def _todo_ics(item):
         todo.add("due", _aware(item.due_date))
     if item.defer_date:
         todo.add("dtstart", _aware(item.defer_date))
+    if item.location:
+        todo.add("location", item.location)
     todo.add("dtstamp", _aware(item.updated_at or _utcnow()))
     todo.add("created", _aware(item.created_at or _utcnow()))
     todo.add("last-modified", _aware(item.updated_at or _utcnow()))
@@ -269,27 +271,53 @@ def _todo_ics(item):
 
 
 def _apply_ics(item, raw):
-    cal = Calendar.from_ical(raw)
-    todo = next((c for c in cal.walk("VTODO")), None)
+    """Apply an inbound VTODO to ``item`` (unsaved). Returns False if the body
+    can't be parsed at all. Every individual field is read defensively so an
+    exotic client payload (Apple location reminders, alarms, X- props, odd
+    dates) updates what it can instead of 500-ing the whole PUT."""
+    try:
+        cal = Calendar.from_ical(raw)
+        todo = next((c for c in cal.walk("VTODO")), None)
+    except Exception:
+        return False
     if todo is None:
         return False
-    item.title = (str(todo.get("summary") or "") or item.title or "Untitled")[:500]
-    desc = todo.get("description")
+
+    def g(name):
+        try:
+            return todo.get(name)
+        except Exception:
+            return None
+
+    item.title = (str(g("summary") or "") or item.title or "Untitled")[:500]
+    desc = g("description")
     item.note = str(desc) if desc is not None else ""
-    item.due_date = _to_dt(todo.get("due"))
-    item.defer_date = _to_dt(todo.get("dtstart"))
+    loc = g("location")
+    item.location = str(loc) if loc is not None else ""
+    try:
+        item.due_date = _to_dt(g("due"))
+    except Exception:
+        item.due_date = None
+    try:
+        item.defer_date = _to_dt(g("dtstart"))
+    except Exception:
+        item.defer_date = None
 
-    pr = todo.get("priority")
-    if pr is None:
-        item.priority = None
-    else:
-        pr = int(pr)
-        item.priority = (None if pr == 0
-                         else 1 if pr <= 2 else 2 if pr <= 4 else 3 if pr == 5 else 4)
+    try:
+        pr = g("priority")
+        pr = None if pr is None else int(pr)
+    except Exception:
+        pr = None
+    item.priority = (None if not pr
+                     else 1 if pr <= 2 else 2 if pr <= 4 else 3 if pr == 5 else 4)
 
-    st = str(todo.get("status") or "").upper()
-    pc = todo.get("percent-complete")
-    if st == "COMPLETED" or (pc is not None and int(pc) >= 100):
+    st = str(g("status") or "").upper()
+    try:
+        pc = g("percent-complete")
+        pc = None if pc is None else int(pc)
+    except Exception:
+        pc = None
+    if st == "COMPLETED" or (pc is not None and pc >= 100):
         item.status = "done"
         item.completed_via = "caldav"
     elif st == "CANCELLED":
@@ -298,7 +326,7 @@ def _apply_ics(item, raw):
     else:
         item.status = "open"
 
-    cats = todo.get("categories")
+    cats = g("categories")
     if cats is None:
         item.tags = []
     else:

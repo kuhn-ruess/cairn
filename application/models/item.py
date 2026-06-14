@@ -210,6 +210,11 @@ class Item(Document):
     due_date = DateTimeField()
     plan_date = DateTimeField()
     estimated_minutes = IntField()
+    # Free-text location (e.g. "REWE, Hauptstraße 1"). Round-trips with the
+    # iCalendar LOCATION property so a CalDAV client's location reminder
+    # survives. The geofence (radius/coords) from Apple's structured location
+    # is not preserved — only the human-readable place.
+    location = StringField()
     # Recurrence — back-compat layout:
     #   ``repeat_every_days`` was the only knob in the old schema. It
     #   stays the "how many" counter. ``repeat_unit`` says what one
