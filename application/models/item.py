@@ -271,6 +271,12 @@ class Item(Document):
     csv_archive_missing = BooleanField(default=False)
     jira_url = StringField()
 
+    # iCalendar UID for tasks created by a CalDAV client (Apple Reminders &
+    # co). Cairn-origin tasks use a derived ``cairn-<pk>`` UID and leave this
+    # blank; client-origin tasks store the client's UID here so PUT/GET/DELETE
+    # on ``<uid>.ics`` map back to the right Item. See application/views/caldav.py.
+    caldav_uid = StringField()
+
     # public share
     share_enabled = BooleanField(default=False)
     share_token = StringField(unique=True, sparse=True)
