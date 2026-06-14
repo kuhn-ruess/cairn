@@ -331,9 +331,15 @@ def _options():
 
 # -------------------------------------------------------------- routes ----
 
-@caldav_bp.route("/.well-known/caldav")
+@caldav_bp.route("/.well-known/caldav",
+                 methods=["GET", "PROPFIND", "OPTIONS", "REPORT"])
 def wellknown():
-    return redirect("/caldav/", code=301)
+    # Clients (Apple especially) probe well-known with OPTIONS/PROPFIND, not
+    # GET. Answer OPTIONS directly; redirect everything else to the real
+    # context path with 308 so the original method (PROPFIND) is preserved.
+    if request.method == "OPTIONS":
+        return _options()
+    return redirect("/caldav/", code=308)
 
 
 @caldav_bp.route("/caldav/", methods=["PROPFIND", "OPTIONS"])
