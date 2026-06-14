@@ -94,11 +94,19 @@ def today_debug():
     from application.services import focus as focus_service
     from application.services.tzutil import resolve_tz
 
+    from datetime import datetime as _dt, timedelta
+
     user = g.current_user
     now = datetime.now(timezone.utc)
     tz = resolve_tz(user)
     today_date = now.astimezone(tz).date()
     today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    # Mirror the UI's window length so this faithfully reflects what the web
+    # Today shows (single-day vs multi-day behave differently).
+    days = max(1, min(int(user.today_days or 1), 31))
+    is_today_now = days == 1
+    start_dt = _dt.combine(today_date, _dt.min.time()).replace(tzinfo=tz)
+    end_dt = start_dt + timedelta(days=days)
 
     scoped = focus_service.restrict(Q(owner=user) | Q(assigned_to=user), user)
     qs = (Item.objects(scoped, kind="task",
@@ -107,14 +115,23 @@ def today_debug():
 
     def match_reason(t):
         reasons = []
-        if t.due_date and t.due_date <= today_end:
-            reasons.append("overdue_or_due_today" if t.due_date < now else "due_today")
-        if t.flagged:
-            reasons.append("flagged")
-        if t.plan_date and t.plan_date.date() <= today_date:
-            reasons.append("planned")
-        if t.defer_date and t.defer_date <= now and t.status == "next":
-            reasons.append("next_available")
+        if is_today_now:
+            if t.due_date and t.due_date <= today_end:
+                reasons.append("overdue" if t.due_date < now else "due_today")
+            if t.flagged:
+                reasons.append("flagged")
+            if t.plan_date and t.plan_date.date() <= today_date:
+                reasons.append("planned")
+            if t.defer_date and t.defer_date <= now and t.status == "next":
+                reasons.append("next_available")
+        else:
+            # window starts today → no lower bound (overdue stays visible)
+            if t.due_date and t.due_date < end_dt:
+                reasons.append("overdue" if t.due_date < now else "due_in_window")
+            if t.flagged:
+                reasons.append("flagged")
+            if t.plan_date and t.plan_date < end_dt:
+                reasons.append("planned")
         return reasons
 
     matched = [(t, r) for t in qs for r in [match_reason(t)] if r]
@@ -122,7 +139,8 @@ def today_debug():
     return jsonify({
         "now": now.isoformat(),
         "today_date": today_date.isoformat(),
-        "today_end": today_end.isoformat(),
+        "today_days": days,
+        "window_end": end_dt.isoformat(),
         "timezone": str(tz),
         "focus": {
             "active": focus_item is not None,

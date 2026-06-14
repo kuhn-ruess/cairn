@@ -697,15 +697,25 @@ def today():
             or (p.plan_date and p.plan_date.date() <= today_date)
         ]
     else:
+        # Multi-day window [start_dt, end_dt). When the window starts TODAY,
+        # drop the lower bound so overdue / past-planned actionable items (and
+        # flagged) stay visible instead of silently vanishing the moment the
+        # window widens past one day. A window paged to another week keeps both
+        # bounds. (daily_buckets below folds overdue into the first day.)
+        lower = None if start_date == today_date else start_dt
+
+        def _hit(d):
+            return (d is not None and (lower is None or d >= lower)
+                    and d < end_dt)
+
         filtered = [
             t for t in qs
-            if (t.due_date and start_dt <= t.due_date < end_dt)
-            or (t.plan_date and start_dt <= t.plan_date < end_dt)
+            if _hit(t.due_date) or _hit(t.plan_date)
+            or (lower is None and t.flagged)
         ]
         projects_with_dates = [
             p for p in proj_qs
-            if (p.due_date and start_dt <= p.due_date < end_dt)
-            or (p.plan_date and start_dt <= p.plan_date < end_dt)
+            if _hit(p.due_date) or _hit(p.plan_date)
         ]
 
     # Batch-resolve parent/assignee refs once so the row template doesn't
@@ -832,6 +842,10 @@ def today():
         for t in filtered:
             anchor = _to_user_list(t.plan_date or t.due_date)
             day_key = anchor.date() if anchor else start_date
+            # Overdue / past-dated → fold into the first day (today) so it's
+            # never dropped silently. Only days inside the window have buckets.
+            if day_key < start_date:
+                day_key = start_date
             if day_key not in daily_buckets:
                 continue
             sort_dt = anchor or datetime.combine(day_key, datetime.min.time(), tzinfo=_list_tz)
@@ -843,6 +857,8 @@ def today():
         for p in projects_with_dates:
             anchor = _to_user_list(p.plan_date or p.due_date)
             day_key = anchor.date() if anchor else start_date
+            if day_key < start_date:
+                day_key = start_date
             if day_key not in daily_buckets:
                 continue
             sort_dt = anchor or datetime.combine(day_key, datetime.min.time(), tzinfo=_list_tz)
