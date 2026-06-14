@@ -807,6 +807,13 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
   background: transparent;
   vertical-align: middle;
 }
+/* Middle grid column of a task row. min-width:0 lets the 1fr column shrink
+   below its content's intrinsic width so a long title / chip (e.g. a location)
+   wraps instead of pushing the right-hand actions (flag / delete) out of the
+   row. Without it, grid 1fr columns default to min-width:auto and overflow. */
+.task-main { min-width: 0; }
+.task-title { overflow-wrap: anywhere; }
+
 .task-meta {
   font-size: .75rem;
   color: var(--gv-fg4);

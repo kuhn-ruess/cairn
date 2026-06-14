@@ -49,7 +49,7 @@
             </button>
           </form>
         </div>
-        <div>
+        <div class="task-main">
           <a class="task-title text-decoration-none text-body"
              href="{{ url_for('tasks.detail', task_id=task.pk) }}">
             {% if task.flagged and current_user.show_field('flag', view_key=_vk) %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
