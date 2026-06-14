@@ -48,7 +48,9 @@
     {% for m in members %}
       <li class="list-group-item d-flex align-items-center">
         <div class="me-auto">
-          <strong>{{ m.username }}</strong>
+          <strong><a class="text-decoration-none"
+             href="{{ url_for('teams.member', user_id=m.pk) }}"
+             title="View {{ m.username }}'s tasks + shared projects">{{ m.username }}</a></strong>
           {% if m == team.admin %}<span class="badge text-bg-warning ms-1">admin</span>{% endif %}
           <div class="small text-muted">{{ m.email }} · {{ m.level }}</div>
         </div>

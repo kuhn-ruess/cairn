@@ -4,6 +4,7 @@ from flask import (
 )
 from flask_login import current_user, login_required
 
+from application.models.item import Item
 from application.models.team import Team
 from application.models.user import User
 from application.services.permissions import team_admin_required
@@ -70,6 +71,32 @@ def index():
         team=team, members=members, invites=invites,
         can_manage=can_manage,
         all_teams=_user_teams(user),
+    )
+
+
+@teams_bp.route("/members/<user_id>")
+@login_required
+def member(user_id):
+    """A teammate's open tasks assigned to them + the projects shared with
+    them — scoped to what the *viewer* may see, so a member's private items
+    never leak. Reachable by anyone who shares a team with the member."""
+    from application.services.permissions import can_share_with
+    from application.services.prefetch import prepare_list
+    user = current_user._get_current_object()
+    m = User.objects(pk=user_id).first()
+    if not m or not can_share_with(user, m):
+        abort(404)
+    cand = (Item.objects(assigned_to=m, kind="task",
+                         status__nin=["done", "dropped"])
+            .order_by("+due_date", "+sort_order"))
+    tasks = prepare_list([t for t in cand if t.can_be_viewed_by(user)])
+    projects = [
+        p for p in Item.objects(members=m, kind__in=["project", "folder"])
+        .order_by("+title")
+        if p.can_be_viewed_by(user)
+    ]
+    return render_template(
+        "teams/member.html", member=m, tasks=tasks, projects=projects,
     )
 
 

@@ -1,0 +1,49 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ member.display_name or member.username }} · Team{% endblock %}
+{% block content %}
+<a href="{{ url_for('teams.index') }}" class="btn btn-sm btn-link px-0 mb-1">
+  <i class="bi bi-arrow-left"></i> Team
+</a>
+<h1 class="h4 mb-1">
+  <i class="bi bi-person-circle"></i> {{ member.display_name or member.username }}
+</h1>
+<div class="text-muted small mb-3">{{ member.email }} · {{ member.level }}</div>
+
+<div style="max-width: 840px;">
+  <h2 class="h6 mt-3 mb-2">
+    <i class="bi bi-check2-square"></i> Assigned tasks
+    <span class="text-muted">({{ tasks|length }})</span>
+  </h2>
+  {% if tasks %}
+    {% with target_status = "open", view_key = 'member:' ~ member.pk|string %}
+      {% include "tasks/_list_body.html" %}
+    {% endwith %}
+  {% else %}
+    <p class="text-muted small">No open tasks assigned (that you can see).</p>
+  {% endif %}
+
+  <h2 class="h6 mt-4 mb-2">
+    <i class="bi bi-folder2-open"></i> Shared projects
+    <span class="text-muted">({{ projects|length }})</span>
+  </h2>
+  {% if projects %}
+    <ul class="list-group">
+      {% for p in projects %}
+        <li class="list-group-item d-flex align-items-center">
+          <a class="text-decoration-none text-body me-auto"
+             href="{{ url_for('projects.detail', project_id=p.pk) }}">
+            {{ item_icon(p) }} {{ p.name }}
+          </a>
+          {% if p.owner == current_user %}
+            <span class="badge text-bg-light">owner: you</span>
+          {% else %}
+            <span class="badge text-bg-light">owner: {{ p.owner }}</span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-muted small">No projects shared with this member (that you can see).</p>
+  {% endif %}
+</div>
+{% endblock %}
