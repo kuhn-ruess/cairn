@@ -402,11 +402,21 @@ def detail(project_id):
     if project.kind == "task":
         return redirect(url_for("tasks.detail", task_id=project_id))
 
-    grouping = (request.args.get("group") or project.task_grouping or "section").strip()
+    grouping = (request.args.get("group") or project.task_grouping or "project").strip()
+    if grouping in ("section", "subproject"):
+        # Legacy stored prefs → the nested "Project" view.
+        grouping = "project"
     show_completed = request.args.get("completed") == "1"
     view_mode = (request.args.get("view") or project.view_mode or "list").strip()
     if view_mode not in ("list", "kanban", "calendar"):
         view_mode = "list"
+    # "Project" is the only grouping that keeps the nested section /
+    # sub-project structure. Every other list grouping flattens ALL
+    # descendant tasks into one place (grouped by the chosen criterion) so
+    # nothing stays hidden inside a sub-project — the sub-project becomes
+    # just a badge on the task row. Kanban / calendar keep their own
+    # collection regardless of the grouping preference.
+    flatten = grouping != "project" and view_mode == "list"
 
     sections = list(
         Item.objects(parent=project, kind="section").order_by("+name")
@@ -459,7 +469,7 @@ def detail(project_id):
     # their own pages and are listed as a tree at the top of this view.
     # ``?descendants=1`` opts into the rolled-up view.
     include_descendants = request.args.get("descendants") == "1"
-    if include_descendants:
+    if flatten or include_descendants:
         project_ids = _descendant_ids(project)
     else:
         project_ids = [project.pk] + [s.pk for s in sections]
@@ -488,133 +498,112 @@ def detail(project_id):
             all_tasks.append(t)
             next_frontier.append(t.pk)
         frontier = next_frontier
-    # Build child map for DFS in the renderer.
-    project_pks_set = {p for p in project_ids}
-    children_by_task: dict = {}
-    for t in all_tasks:
-        if t.parent and t.parent.pk not in project_pks_set:
-            children_by_task.setdefault(t.parent.pk, []).append(t)
-    # DFS: replace the flat ``all_tasks`` with parents-first order so a
-    # task appears immediately before its sub-tasks. Each task gets a
-    # ``_depth`` attribute the template uses for indentation. Only
-    # top-level tasks (direct children of project/section) survive in
-    # the bucket lists; descendants get attached during DFS render.
-    top_level = [t for t in all_tasks
-                  if t.parent and t.parent.pk in project_pks_set]
-    collapsed_pks = set(user.collapsed_items or [])
-    flat_ordered: list = []
-    task_section_pk: dict = {}  # task.pk → section/project pk for bucketing
-    def _dfs(task, depth, section_pk):
-        task._depth = depth
-        task._has_children = bool(children_by_task.get(task.pk))
-        task._collapsed = str(task.pk) in collapsed_pks
-        task_section_pk[task.pk] = section_pk
-        flat_ordered.append(task)
-        # Stop descent at collapsed nodes — they still render with a
-        # chevron the user can flip back open.
-        if task._collapsed:
-            return
-        for c in children_by_task.get(task.pk, []):
-            _dfs(c, depth + 1, section_pk)
-    for t in top_level:
-        _dfs(t, 0, t.parent.pk)
-    all_tasks = flat_ordered
-
-    # ----- grouping ---------------------------------------------------
-    # Sections are ALWAYS the outer grouping — that's the project's own
-    # structure. The user-chosen ``grouping`` is applied INSIDE each
-    # section's open bucket (None = flat list of tasks).
-
-    sequential = project.project_type == "sequential" and not project.show_blocked_tasks
-
-    section_buckets = _bucket_by_section(all_tasks, sections, task_section_pk)
-    sections_by_pk = {str(s.pk): s for s in sections}
-
-    # Stitch sub-projects into each container's bucket so they share the
-    # sort space with tasks. Each bucket gets ``items`` = [(kind, obj),
-    # ...] sorted by sort_order — that's what the template renders when
-    # the user hasn't picked a secondary grouping. ``open`` stays
-    # task-only so grouping helpers and the existing slicing still work.
-    for key, bucket in section_buckets.items():
-        subs = subprojects_by_section.get(key) or []
-        merged = (
-            [("p", sp, sp.sort_order or 0) for sp in subs] +
-            [("t", t, t.sort_order or 0) for t in bucket["open"]]
-        )
-        merged.sort(key=lambda x: x[2])
-        bucket["items"] = [(kind, obj) for kind, obj, _ in merged]
-        bucket["subprojects"] = subs  # used when grouping is on
-
-    # Per-container sequential collapse: each section decides
-    # independently. show_blocked_tasks turns it off so blocked tasks
-    # render greyed out (template handles the .blocked class).
-    for key, bucket in section_buckets.items():
-        container = project if key is None else sections_by_pk.get(key)
-        if not container:
-            continue
-        if (container.project_type == "sequential"
-                and not container.show_blocked_tasks):
-            # Sequential mode: only the first item (task OR sub-project)
-            # in sort order remains visible. Done/dropped sub-projects
-            # don't block, so consider only "live" ones.
-            def _live(item):
-                kind, obj = item
-                if kind == "t":
-                    return True
-                return obj.status not in ("completed", "dropped")
-            live_items = [it for it in bucket["items"] if _live(it)]
-            keep = live_items[:1]
-            keep_task_pks = {obj.pk for kind, obj in keep if kind == "t"}
-            keep_sp_pks = {obj.pk for kind, obj in keep if kind == "p"}
-            bucket["open"] = [t for t in bucket["open"] if t.pk in keep_task_pks]
-            bucket["subprojects"] = [sp for sp in bucket["subprojects"]
-                                      if sp.pk in keep_sp_pks]
-            bucket["items"] = keep
-
-    # Apply secondary grouping inside each section's open bucket and,
-    # in parallel, inside each sub-project's kid list — so a priority
-    # view on the parent page also splits the sub-project's tasks into
-    # P1/P2/… groups instead of one flat list.
-    # "section" and "subproject" are outer-grouping modes — sections /
-    # sub-project rows already provide the structure, so no inner
-    # grouping is applied (would otherwise produce a spurious
-    # "All tasks" header from the _group_tasks fallback).
     grouping_tag = (project.task_grouping_tag or "").strip()
     subproject_groups: dict = {}
     flat_tag_view = False
-    if grouping == "tag" and grouping_tag:
-        # Focused tag flattens sections — otherwise each section gets
-        # its own "@waiting" / "Without" sub-headers and the user
-        # sees the same tag label repeated for every section. Merge
-        # all open tasks into the root bucket, group once, suppress
-        # per-section rendering downstream.
-        flat_tag_view = True
-        merged_open: list = []
-        for bucket in section_buckets.values():
-            merged_open.extend(bucket["open"])
-            bucket["open"] = []
-            bucket["open_groups"] = None
-            bucket["items"] = []
-            bucket["subprojects"] = []
-        section_buckets[None]["open"] = merged_open
-        section_buckets[None]["open_groups"] = _group_by_tag_specific(
-            merged_open, user, grouping_tag,
-        )
-        section_buckets[None]["items"] = []
-        # Sub-projects rendered as task-list rows still need their own
-        # focused groups so kids show under each row consistently.
-        for sp_pk, kids in subproject_children.items():
-            subproject_groups[sp_pk] = _group_by_tag_specific(
-                kids, user, grouping_tag,
+    sequential = project.project_type == "sequential" and not project.show_blocked_tasks
+
+    if flatten:
+        # Flat / criterion grouping. Every descendant task is a single
+        # depth-0 row, gathered into one bucket and split only by the
+        # chosen criterion (or a flat list for "none"). No section headers,
+        # no sub-project rows — the sub-project a task lives in shows only
+        # as the badge on its row, so nothing hides inside a sub-project.
+        # Sub-task nesting is dropped too: flat is really flat.
+        for t in all_tasks:
+            t._depth = 0
+            t._has_children = False
+            t._collapsed = False
+        flat_bucket = _bucket_by_section(all_tasks, [])[None]
+        flat_bucket["items"] = []
+        flat_bucket["subprojects"] = []
+        if grouping == "tag" and grouping_tag:
+            flat_bucket["open_groups"] = _group_by_tag_specific(
+                flat_bucket["open"], user, grouping_tag,
             )
-    elif grouping in ("priority", "status", "tag", "due"):
-        for bucket in section_buckets.values():
-            bucket["open_groups"] = _group_tasks(bucket["open"], grouping)
-        for sp_pk, kids in subproject_children.items():
-            subproject_groups[sp_pk] = _group_tasks(kids, grouping)
+        elif grouping in ("priority", "status", "tag", "due"):
+            flat_bucket["open_groups"] = _group_tasks(flat_bucket["open"], grouping)
+        else:  # "none"
+            flat_bucket["open_groups"] = None
+        section_buckets = {None: flat_bucket}
+        # The structural data the nested view needs is irrelevant here.
+        sections = []
+        sub_projects = []
+        subprojects_by_section = {None: []}
+        subproject_children = {}
     else:
-        for bucket in section_buckets.values():
+        # "Project" grouping — the ONLY nested view: sections as the outer
+        # buckets, sub-projects as rows with their tasks beneath, sub-tasks
+        # indented. This is the one place the project tree is shown.
+        project_pks_set = {p for p in project_ids}
+        children_by_task: dict = {}
+        for t in all_tasks:
+            if t.parent and t.parent.pk not in project_pks_set:
+                children_by_task.setdefault(t.parent.pk, []).append(t)
+        # DFS: parents-first order so a task appears immediately before its
+        # sub-tasks, each with a ``_depth`` for indentation. Only top-level
+        # tasks survive in the bucket lists; descendants attach during DFS.
+        top_level = [t for t in all_tasks
+                      if t.parent and t.parent.pk in project_pks_set]
+        collapsed_pks = set(user.collapsed_items or [])
+        flat_ordered: list = []
+        task_section_pk: dict = {}  # task.pk → section/project pk
+        def _dfs(task, depth, section_pk):
+            task._depth = depth
+            task._has_children = bool(children_by_task.get(task.pk))
+            task._collapsed = str(task.pk) in collapsed_pks
+            task_section_pk[task.pk] = section_pk
+            flat_ordered.append(task)
+            if task._collapsed:
+                return
+            for c in children_by_task.get(task.pk, []):
+                _dfs(c, depth + 1, section_pk)
+        for t in top_level:
+            _dfs(t, 0, t.parent.pk)
+        all_tasks = flat_ordered
+
+        section_buckets = _bucket_by_section(all_tasks, sections, task_section_pk)
+        sections_by_pk = {str(s.pk): s for s in sections}
+
+        # Stitch sub-projects into each container's bucket so they share the
+        # sort space with tasks. ``open`` stays task-only; sub-project rows
+        # render flat (no secondary grouping — Project view shows structure,
+        # not criterion sub-groups).
+        for key, bucket in section_buckets.items():
+            subs = subprojects_by_section.get(key) or []
+            merged = (
+                [("p", sp, sp.sort_order or 0) for sp in subs] +
+                [("t", t, t.sort_order or 0) for t in bucket["open"]]
+            )
+            merged.sort(key=lambda x: x[2])
+            bucket["items"] = [(kind, obj) for kind, obj, _ in merged]
+            bucket["subprojects"] = subs
             bucket["open_groups"] = None
+
+        # Per-container sequential collapse: each section decides
+        # independently. show_blocked_tasks turns it off so blocked tasks
+        # render greyed out (template handles the .blocked class).
+        for key, bucket in section_buckets.items():
+            container = project if key is None else sections_by_pk.get(key)
+            if not container:
+                continue
+            if (container.project_type == "sequential"
+                    and not container.show_blocked_tasks):
+                # Only the first live item (task OR sub-project) in sort
+                # order stays visible. Done/dropped sub-projects don't block.
+                def _live(item):
+                    kind, obj = item
+                    if kind == "t":
+                        return True
+                    return obj.status not in ("completed", "dropped")
+                live_items = [it for it in bucket["items"] if _live(it)]
+                keep = live_items[:1]
+                keep_task_pks = {obj.pk for kind, obj in keep if kind == "t"}
+                keep_sp_pks = {obj.pk for kind, obj in keep if kind == "p"}
+                bucket["open"] = [t for t in bucket["open"] if t.pk in keep_task_pks]
+                bucket["subprojects"] = [sp for sp in bucket["subprojects"]
+                                          if sp.pk in keep_sp_pks]
+                bucket["items"] = keep
 
     # Build calendar buckets if needed (current month grid with tasks by day).
     calendar_data = None
@@ -633,6 +622,10 @@ def detail(project_id):
         subproject_groups=subproject_groups,
         section_buckets=section_buckets,
         flat_tag_view=flat_tag_view,
+        flatten=flatten,
+        # In the flattened views the containing sub-project is the key
+        # context, so force its badge on even if the user hid it for tasks.
+        force_project_badge=flatten,
         grouping=grouping,
         show_completed=show_completed,
         include_descendants=include_descendants,
@@ -1129,7 +1122,7 @@ def move(project_id):
 @projects_bp.route("/<project_id>/grouping", methods=["POST"])
 @login_required
 def set_grouping(project_id):
-    TASK_GROUPINGS = ("section", "subproject", "priority", "status", "tag", "due", "none")
+    TASK_GROUPINGS = ("project", "priority", "status", "tag", "due", "none")
 
     user = current_user._get_current_object()
     project = Item.objects(pk=project_id).first()

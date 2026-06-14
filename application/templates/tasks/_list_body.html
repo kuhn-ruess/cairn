@@ -77,7 +77,7 @@
             </a>
           {% endif %}
           <div class="task-meta">
-            {% if task.project and current_user.show_field('project', view_key=_vk) %}
+            {% if task.project and (force_project_badge|default(false) or current_user.show_field('project', view_key=_vk)) %}
               {% set _proj_icon = item_icon(task.project) %}
               {% if can_view_container(task.project) %}
                 <a class="badge text-bg-light text-decoration-none" href="{{ url_for('projects.detail', project_id=task.project.pk) }}">

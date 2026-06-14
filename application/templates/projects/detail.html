@@ -167,9 +167,11 @@
   {% endfor %}
 {% endmacro %}
 
-{# Sections are always the outer container — these options control the
-   secondary grouping applied INSIDE each section. #}
+{# "Project" keeps the nested section / sub-project structure (the only
+   place it's shown). Every other grouping flattens ALL tasks beneath the
+   project into one place so nothing hides inside a sub-project. #}
 {% set grouping_options = [
+  ('project',  'Project',  'bi-diagram-3'),
   ('none',     'Flat',     'bi-list-ul'),
   ('priority', 'Priority', 'bi-flag'),
   ('status',   'Status',   'bi-tag-fill'),
@@ -403,13 +405,13 @@
       </button>
     </form>
   {% endif %}
-  {% if grouping != 'section' %}
-    <a class="btn btn-sm btn-link {% if project.project_type != 'sequential' %}ms-auto{% endif %}"
-       href="?group={{ grouping }}&completed={% if show_completed %}0{% else %}1{% endif %}">
-      {% if show_completed %}Hide{% else %}Show{% endif %} completed
-    </a>
-  {% endif %}
-  {% if sub_projects and grouping != 'subproject' %}
+  <a class="btn btn-sm btn-link {% if project.project_type != 'sequential' %}ms-auto{% endif %}"
+     href="?group={{ grouping }}&completed={% if show_completed %}0{% else %}1{% endif %}">
+    {% if show_completed %}Hide{% else %}Show{% endif %} completed
+  </a>
+  {# Sub-project roll-up is a Project-view-only opt-in; the flatten groupings
+     always include every descendant task. #}
+  {% if not flatten and sub_projects %}
     <a class="btn btn-sm btn-link"
        href="?group={{ grouping }}&completed={% if show_completed %}1{% endif %}&descendants={% if include_descendants %}0{% else %}1{% endif %}"
        title="Roll up tasks from sub-projects into this view">
@@ -439,6 +441,18 @@
   {% include "projects/_kanban.html" %}
 {% elif view_mode == 'calendar' %}
   {% include "projects/_calendar.html" %}
+{% elif flatten %}
+  {# Flattened: every task beneath the project in one place, grouped by the
+     chosen criterion. The sub-project a task lives in is shown as a badge on
+     its row (see _list_body.html), not as nesting — so nothing hides. #}
+  {% set fb = section_buckets[None] %}
+  {% if fb['open'] or fb['someday'] or fb['done'] or fb['dropped'] %}
+    <div class="section-block">
+      {{ task_groups(fb, target_project_id=project.pk|string, view_key=view_key) }}
+    </div>
+  {% else %}
+    <p class="text-muted">No tasks in this project yet.</p>
+  {% endif %}
 {% else %}
   {% set root_bucket = section_buckets[None] %}
   {% set root_subprojects = subprojects_by_section.get(None) or [] %}
