@@ -28,6 +28,11 @@
       {% for p in visible %}
         <li class="list-group-item d-flex align-items-center gap-2"
             data-key="{{ p.key }}">
+          {# Order rides in these inputs (rendered in current order, moved with
+             the <li> by SortableJS) so the form never submits an empty list —
+             even if the reorder JS didn't load (e.g. after a main-swap), which
+             used to wipe the saved order back to default. #}
+          <input type="hidden" name="visible[]" value="{{ p.key }}">
           <i class="bi bi-grip-vertical text-muted handle"></i>
           <i class="bi {{ p.icon }}"></i>
           <span class="me-auto">{{ p.label }}</span>
@@ -49,7 +54,6 @@
   <button type="submit" class="btn btn-primary mb-3">
     <i class="bi bi-save"></i> Save order
   </button>
-  <div id="visibleInputs"></div>
 </form>
 
 {% if hidden %}
@@ -87,33 +91,4 @@
   </form>
 {% endfor %}
 
-<script>
-(function () {
-  const visibleList = document.getElementById("visibleList");
-  const form = document.getElementById("perspectivesForm");
-  const inputs = document.getElementById("visibleInputs");
-
-  function init() {
-    if (typeof Sortable === "undefined") return;
-    new Sortable(visibleList, {
-      handle: ".handle",
-      animation: 150,
-      ghostClass: "perspective-ghost",
-    });
-  }
-  if (typeof Sortable !== "undefined") init();
-  else document.addEventListener("DOMContentLoaded", init);
-
-  form.addEventListener("submit", () => {
-    inputs.innerHTML = "";
-    visibleList.querySelectorAll("li[data-key]").forEach((li) => {
-      const input = document.createElement("input");
-      input.type = "hidden";
-      input.name = "visible[]";
-      input.value = li.dataset.key;
-      inputs.appendChild(input);
-    });
-  });
-})();
-</script>
 {% endblock %}
