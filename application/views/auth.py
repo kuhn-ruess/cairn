@@ -43,9 +43,10 @@ def login():
             login_user(user, remember=form.remember.data)
             user.last_login_at = datetime.now(timezone.utc)
             user.save()
-            # Focus-on-login: send the user to the folder picker first, unless
-            # an explicit ?next= deep-link takes precedence.
-            if user.focus_on_login and not request.args.get("next"):
+            # Focus-on-login: send the user to the folder picker first when
+            # either the saved preference or the per-login checkbox asks for
+            # it, unless an explicit ?next= deep-link takes precedence.
+            if (user.focus_on_login or form.focus.data) and not request.args.get("next"):
                 return redirect(url_for("focus.choose"))
             return redirect(_safe_next_url())
         flash("Invalid credentials.", "danger")

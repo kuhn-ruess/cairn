@@ -19,9 +19,13 @@
             {{ form.password.label(class="form-label") }}
             {{ form.password(class="form-control") }}
           </div>
-          <div class="form-check mb-3">
+          <div class="form-check mb-2">
             {{ form.remember(class="form-check-input") }}
             {{ form.remember.label(class="form-check-label") }}
+          </div>
+          <div class="form-check mb-3">
+            {{ form.focus(class="form-check-input") }}
+            {{ form.focus.label(class="form-check-label") }}
           </div>
           {{ form.submit(class="btn btn-primary w-100") }}
           <p class="text-end small mt-2 mb-0">
