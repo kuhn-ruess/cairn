@@ -21,6 +21,7 @@ INSPECTOR_SECTIONS = (
     ("repeat", "Repeat"),
     ("review", "Review interval"),
     ("assigned_to", "Assignee"),
+    ("followup", "Follow-up / Nachhaken"),
     ("flags", "Flags"),
     ("checklist", "Checklist"),
     ("time", "Time tracking"),

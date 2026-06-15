@@ -561,7 +561,8 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
 .kbd-cursor .task-inspector-btn { opacity: .65; }
 
 .deferred-chip,
-.plan-chip {
+.plan-chip,
+.followup-chip {
   display: inline-flex;
   align-items: center;
   gap: .2rem;
@@ -570,9 +571,12 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
   color: var(--gv-fg4);
 }
 .deferred-chip i,
-.plan-chip i { font-size: .85em; }
+.plan-chip i,
+.followup-chip i { font-size: .85em; }
 .plan-chip { color: var(--gv-aqua); }
 .plan-chip.plan-today { color: var(--gv-aqua-br); font-weight: 600; }
+.followup-chip { color: var(--gv-blue); }
+.followup-chip.overdue { color: var(--gv-red-br); font-weight: 600; }
 
 /* ============= External calendar events (Today) ============= */
 .calendar-events { display: flex; flex-direction: column; gap: .3rem; }

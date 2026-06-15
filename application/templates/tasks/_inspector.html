@@ -159,6 +159,38 @@
   </div>
 {%- endmacro -%}
 
+{%- macro sec_followup() -%}
+  <div class="inspector-section" data-section="followup">
+    <label class="form-label small text-uppercase text-muted">Nachhaken / Follow-up</label>
+    {{ form.waiting_on(class="form-control form-control-sm mb-2",
+                       placeholder="Auf wen wartest du? (z. B. Lieferant Meyer)") }}
+    <div class="grid-2">
+      <div>
+        {{ form.followup_at.label(class="form-label small text-uppercase text-muted") }}
+        {{ form.followup_at(class="form-control form-control-sm", id="followup_at") }}
+        <div class="quick-date-row btn-group btn-group-sm mt-1">
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="followup_at" data-set="tomorrow">Tomorrow</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="followup_at" data-set="in-week">+1w</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="followup_at" data-set="clear">×</button>
+        </div>
+      </div>
+      <div>
+        {{ form.followup_every_days.label(class="form-label small text-uppercase text-muted") }}
+        {{ form.followup_every_days(class="form-control form-control-sm", placeholder="z. B. 7") }}
+        <div class="form-text small">Takt: rollt beim Nachhaken um N Tage weiter.</div>
+      </div>
+    </div>
+    {% if task and task.followup_last_at %}
+      <div class="form-text small mt-1">
+        <i class="bi bi-clock-history"></i> Zuletzt nachgehakt: {{ task.followup_last_at|localdt }}
+      </div>
+    {% endif %}
+  </div>
+{%- endmacro -%}
+
 {%- macro sec_flags() -%}
   <div class="inspector-section" data-section="flags">
     <div class="form-check">
@@ -280,7 +312,7 @@
   "note": sec_note, "status_project": sec_status_project, "tags": sec_tags,
   "dates": sec_dates, "plan": sec_plan, "priority_estimate": sec_priority_estimate,
   "repeat": sec_repeat, "review": sec_review,
-  "assigned_to": sec_assigned_to, "flags": sec_flags,
+  "assigned_to": sec_assigned_to, "followup": sec_followup, "flags": sec_flags,
   "checklist": sec_checklist, "time": sec_time,
   "related": sec_related, "subtasks": sec_subtasks, "comments": sec_comments,
 } -%}

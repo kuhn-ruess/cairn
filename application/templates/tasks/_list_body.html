@@ -152,6 +152,13 @@
                 {% if is_today_plan %}today's plan{% else %}plan {{ task.plan_date|relativedate }}{% endif %}
               </span>
             {% endif %}
+            {% if task.followup_at %}
+              {% set _fu_over = task.followup_at <= now_utc() %}
+              <span class="followup-chip {{ 'overdue' if _fu_over else '' }}"
+                    title="Nächste Wiedervorlage {{ task.followup_at|localdt }}{% if task.waiting_on %} — wartet auf {{ task.waiting_on }}{% endif %}{% if task.followup_last_at %} · zuletzt nachgehakt {{ task.followup_last_at|relativedate }}{% endif %}">
+                <i class="bi bi-bell"></i> nachhaken {{ task.followup_at|relativedate }}{% if task.waiting_on %} · {{ task.waiting_on }}{% endif %}
+              </span>
+            {% endif %}
             {% if current_user.show_field('assignee', view_key=_vk) or _delegated_foreign %}
               {% if task.assigned_to and task.assigned_to != current_user %}
                 <span class="badge text-bg-info"><i class="bi bi-person"></i> {{ task.assigned_to }}</span>
@@ -218,6 +225,16 @@
           {% endif %}
         </div>
         <div class="d-flex align-items-center gap-1">
+          {% if task.followup_at %}
+            <form method="post" action="{{ url_for('tasks.followed_up', task_id=task.pk) }}"
+                  class="d-inline m-0" data-task-followup-form>
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-sm btn-link p-0" type="submit"
+                      title="Nachgehakt — nächste Wiedervorlage setzen{% if task.followup_every_days %} (+{{ task.followup_every_days }}d){% endif %}">
+                <i class="bi {{ 'bi-bell-fill text-warning' if task.followup_at <= now_utc() else 'bi-bell text-primary' }}"></i>
+              </button>
+            </form>
+          {% endif %}
           <form method="post" action="{{ url_for('tasks.toggle_flag', task_id=task.pk) }}" class="d-inline m-0">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="btn btn-sm btn-link p-0" title="Toggle flag">

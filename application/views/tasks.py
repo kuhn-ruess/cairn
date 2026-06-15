@@ -126,7 +126,7 @@ def _scope(user):
 
 _PASS_KEYS = frozenset(
     {"today", "next", "waiting", "waiting_reply", "agenda", "someday",
-     "scheduled", "flagged", "forecast"}
+     "scheduled", "flagged", "forecast", "nachhaken"}
 )
 
 def sidebar_counts(user, now=None, keys=None) -> dict:
@@ -150,9 +150,15 @@ def sidebar_counts(user, now=None, keys=None) -> dict:
         horizon = now + timedelta(days=14)
         c = {k: 0 for k in _PASS_KEYS}
         qs = (Item.objects(_scope(user), kind="task", status__nin=["done", "dropped"])
-              .only("status", "flagged", "due_date", "plan_date", "defer_date"))
+              .only("status", "flagged", "due_date", "plan_date", "defer_date",
+                    "followup_at"))
         for t in qs:
             st = t.status
+            # Badge = follow-ups that need attention now (due/overdue). The
+            # Nachhaken view itself lists future ones too, but the badge is a
+            # "do something today" counter, like the other date perspectives.
+            if t.followup_at and t.followup_at <= today_end:
+                c["nachhaken"] += 1
             if st == "next":
                 c["next"] += 1
             elif st == "waiting":
@@ -273,6 +279,9 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     task.defer_date = attach_user_tz(form.defer_date.data, user)
     task.due_date = attach_user_tz(form.due_date.data, user)
     task.plan_date = attach_user_tz(form.plan_date.data, user)
+    task.waiting_on = (form.waiting_on.data or "").strip()
+    task.followup_at = attach_user_tz(form.followup_at.data, user)
+    task.followup_every_days = form.followup_every_days.data
     task.estimated_minutes = form.estimated_minutes.data
     task.location = (form.location.data or "").strip()
     task.repeat_every_days = form.repeat_every_days.data
@@ -1278,6 +1287,23 @@ def waiting():
         "tasks/list.html", title="Waiting", perspective="waiting", tasks=prepare_list(tasks)
     )
 
+@tasks_bp.route("/nachhaken")
+@login_required
+def nachhaken():
+    """Follow-ups / Wiedervorlage — anything with a follow-up date set, soonest
+    (most overdue) first. Driven by ``followup_at`` rather than a status, so a
+    task can be e.g. ``waiting`` AND carry a follow-up cadence at the same time."""
+    user = current_user._get_current_object()
+    tasks = _filter_by_project(
+        Item.objects(_scope(user), kind="task", followup_at__ne=None,
+                     status__nin=["done", "dropped"]),
+        user,
+    ).order_by("+followup_at")
+    return render_template(
+        "tasks/list.html", title="Nachhaken", perspective="nachhaken",
+        tasks=prepare_list(tasks),
+    )
+
 @tasks_bp.route("/waiting-reply")
 @login_required
 def waiting_reply():
@@ -1611,6 +1637,25 @@ def complete(task_id):
         return jsonify({"ok": True, "id": str(task.pk)})
     flash("Item completed.", "success")
     return redirect(request.referrer or url_for("dashboard.home"))
+
+@tasks_bp.route("/<task_id>/followed-up", methods=["POST"])
+@login_required
+def followed_up(task_id):
+    """Record a follow-up nudge: stamp the time, log a comment, and roll the
+    next reminder forward by the item's cadence (see Item.mark_followed_up)."""
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_edited_by(user):
+        abort(404)
+    task.mark_followed_up(user, (request.form.get("note") or "").strip())
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        from flask import jsonify
+        return jsonify({
+            "ok": True, "id": str(task.pk),
+            "followup_at": task.followup_at.isoformat() if task.followup_at else None,
+        })
+    flash("Nachgehakt — nächste Wiedervorlage gesetzt.", "success")
+    return redirect(request.referrer or url_for("tasks.nachhaken"))
 
 @tasks_bp.route("/<task_id>/reopen", methods=["POST"])
 @login_required
