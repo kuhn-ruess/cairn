@@ -596,15 +596,24 @@ def detail(project_id):
         # buckets, sub-projects as rows with their tasks beneath, sub-tasks
         # indented. This is the one place the project tree is shown.
         project_pks_set = {p for p in project_ids}
+        # Group by the task's EFFECTIVE container for this viewer: a dual-home
+        # task filed here (assignee_parent) must bucket under that container,
+        # not under the owner's canonical parent (which isn't in this view) —
+        # otherwise it'd be dropped as an orphan. ``home_for`` == ``parent``
+        # for everyone but the assignee, so normal tasks are unaffected.
+        def _eff_parent_pk(t):
+            h = t.home_for(user)
+            return h.pk if h is not None else None
         children_by_task: dict = {}
         for t in all_tasks:
-            if t.parent and t.parent.pk not in project_pks_set:
-                children_by_task.setdefault(t.parent.pk, []).append(t)
+            ep = _eff_parent_pk(t)
+            if ep is not None and ep not in project_pks_set:
+                children_by_task.setdefault(ep, []).append(t)
         # DFS: parents-first order so a task appears immediately before its
         # sub-tasks, each with a ``_depth`` for indentation. Only top-level
         # tasks survive in the bucket lists; descendants attach during DFS.
         top_level = [t for t in all_tasks
-                      if t.parent and t.parent.pk in project_pks_set]
+                      if _eff_parent_pk(t) in project_pks_set]
         collapsed_pks = set(user.collapsed_items or [])
         flat_ordered: list = []
         task_section_pk: dict = {}  # task.pk → section/project pk
@@ -619,7 +628,7 @@ def detail(project_id):
             for c in children_by_task.get(task.pk, []):
                 _dfs(c, depth + 1, section_pk)
         for t in top_level:
-            _dfs(t, 0, t.parent.pk)
+            _dfs(t, 0, _eff_parent_pk(t))
         all_tasks = flat_ordered
 
         section_buckets = _bucket_by_section(all_tasks, sections, task_section_pk)
