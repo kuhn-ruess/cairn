@@ -45,6 +45,10 @@ def list_tasks():
         if status not in TASK_STATUS:
             return _bad_request(f"invalid status: {status}")
         qs = qs.filter(status=status)
+    elif request.args.get("open") == "true":
+        # "Offene" Aufgaben: alles außer abgeschlossen/verworfen. An den
+        # konkreten ``status`` gekoppelt — ein expliziter Status gewinnt.
+        qs = qs.filter(status__nin=["done", "dropped"])
     kind = request.args.get("kind")
     if kind:
         # The query is not kind-filtered by default, so it returns

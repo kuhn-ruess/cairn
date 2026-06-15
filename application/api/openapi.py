@@ -289,6 +289,8 @@ def build_openapi_spec() -> dict:
                     "tags": ["tasks"],
                     "parameters": [
                         {"name": "status", "in": "query", "schema": {"type": "string"}},
+                        {"name": "open", "in": "query", "schema": {"type": "boolean"},
+                         "description": "true → only open tasks (status not done/dropped). Ignored when 'status' is given."},
                         {"name": "project_id", "in": "query", "schema": {"type": "string"}},
                         {"name": "tag_id", "in": "query", "schema": {"type": "string"},
                          "description": "Tag NAME (the field is a list of strings)."},
