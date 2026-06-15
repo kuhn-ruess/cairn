@@ -238,13 +238,13 @@ class Item(Document):
     repeat_weekdays = ListField(IntField(min_value=0, max_value=6))
     is_internal = BooleanField(default=False)
 
-    # ----- follow-up / Wiedervorlage -----
+    # ----- follow-up -----
     # For items you have to chase repeatedly (typically waiting on someone).
-    # ``followup_at`` is the next reminder to nudge — it drives the Nachhaken
+    # ``followup_at`` is the next reminder to nudge — it drives the Follow-up
     # perspective and is kept *separate* from ``due_date`` on purpose: the
     # deadline of the task and the cadence on which you poke about it are two
     # different things. ``followup_last_at`` records the last nudge.
-    # ``followup_every_days`` is the cadence the "Nachgehakt" button rolls the
+    # ``followup_every_days`` is the cadence the "Mark followed up" button rolls the
     # next reminder forward by. ``waiting_on`` is a free-text contact for the
     # common case of chasing someone *without* a Cairn account (complements
     # ``assigned_to``, which only points at in-app users).
@@ -800,15 +800,15 @@ class Item(Document):
     def mark_followed_up(self, by_user: User, note: str = "") -> None:
         """Log a follow-up and roll the next reminder forward.
 
-        One click does the three things the Nachhaken workflow needs:
+        One click does the three things the follow-up workflow needs:
         stamp ``followup_last_at`` (answers "when did I last chase"), append a
         timestamped comment to the item's log, and advance ``followup_at`` by
         ``followup_every_days``. With no cadence set it's a one-shot follow-up,
-        so the reminder is cleared and the item drops out of the Nachhaken view.
+        so the reminder is cleared and the item drops out of the Follow-up view.
         """
         now = _utcnow()
         self.followup_last_at = now
-        body = "🔔 Nachgehakt" + (f" — {note}" if note else "")
+        body = "🔔 Followed up" + (f" — {note}" if note else "")
         self.comments.append(Comment(author=by_user, body=body))
         if self.followup_every_days:
             self.followup_at = now + timedelta(days=self.followup_every_days)

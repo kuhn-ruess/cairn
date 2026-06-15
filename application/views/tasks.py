@@ -126,7 +126,7 @@ def _scope(user):
 
 _PASS_KEYS = frozenset(
     {"today", "next", "waiting", "waiting_reply", "agenda", "someday",
-     "scheduled", "flagged", "forecast", "nachhaken"}
+     "scheduled", "flagged", "forecast", "followup"}
 )
 
 def sidebar_counts(user, now=None, keys=None) -> dict:
@@ -155,10 +155,10 @@ def sidebar_counts(user, now=None, keys=None) -> dict:
         for t in qs:
             st = t.status
             # Badge = follow-ups that need attention now (due/overdue). The
-            # Nachhaken view itself lists future ones too, but the badge is a
+            # Follow-up view itself lists future ones too, but the badge is a
             # "do something today" counter, like the other date perspectives.
             if t.followup_at and t.followup_at <= today_end:
-                c["nachhaken"] += 1
+                c["followup"] += 1
             if st == "next":
                 c["next"] += 1
             elif st == "waiting":
@@ -177,7 +177,8 @@ def sidebar_counts(user, now=None, keys=None) -> dict:
                 if ((t.due_date and t.due_date <= today_end)
                         or t.flagged
                         or (t.plan_date and t.plan_date.date() <= today_date)
-                        or (t.defer_date and t.defer_date <= now and st == "next")):
+                        or (t.defer_date and t.defer_date <= now and st == "next")
+                        or (t.followup_at and t.followup_at <= today_end)):
                     c["today"] += 1
                 if t.due_date and t.due_date <= horizon:
                     c["forecast"] += 1
@@ -724,6 +725,7 @@ def today():
             or t.flagged
             or (t.plan_date and t.plan_date.date() <= today_date)
             or (t.defer_date and t.defer_date <= now and t.status == "next")
+            or (t.followup_at and t.followup_at <= today_end)
         ]
         projects_with_dates = [
             p for p in proj_qs
@@ -1287,12 +1289,12 @@ def waiting():
         "tasks/list.html", title="Waiting", perspective="waiting", tasks=prepare_list(tasks)
     )
 
-@tasks_bp.route("/nachhaken")
+@tasks_bp.route("/follow-up")
 @login_required
-def nachhaken():
-    """Follow-ups / Wiedervorlage — anything with a follow-up date set, soonest
-    (most overdue) first. Driven by ``followup_at`` rather than a status, so a
-    task can be e.g. ``waiting`` AND carry a follow-up cadence at the same time."""
+def followup():
+    """Follow-ups — anything with a follow-up date set, soonest (most overdue)
+    first. Driven by ``followup_at`` rather than a status, so a task can be e.g.
+    ``waiting`` AND carry a follow-up cadence at the same time."""
     user = current_user._get_current_object()
     tasks = _filter_by_project(
         Item.objects(_scope(user), kind="task", followup_at__ne=None,
@@ -1300,7 +1302,7 @@ def nachhaken():
         user,
     ).order_by("+followup_at")
     return render_template(
-        "tasks/list.html", title="Nachhaken", perspective="nachhaken",
+        "tasks/list.html", title="Follow-up", perspective="followup",
         tasks=prepare_list(tasks),
     )
 
@@ -1654,8 +1656,8 @@ def followed_up(task_id):
             "ok": True, "id": str(task.pk),
             "followup_at": task.followup_at.isoformat() if task.followup_at else None,
         })
-    flash("Nachgehakt — nächste Wiedervorlage gesetzt.", "success")
-    return redirect(request.referrer or url_for("tasks.nachhaken"))
+    flash("Followed up — next reminder set.", "success")
+    return redirect(request.referrer or url_for("tasks.followup"))
 
 @tasks_bp.route("/<task_id>/reopen", methods=["POST"])
 @login_required

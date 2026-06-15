@@ -147,7 +147,7 @@
     {{ form.review_interval_days(class="form-control form-control-sm",
                                   placeholder="inherit from project") }}
     <div class="form-text small">
-      Leer = vom Projekt erben{% if _inh is not none %} (aktuell {{ _inh }}d){% endif %} · 0 = nie reviewen.
+      Empty = inherit from project{% if _inh is not none %} (currently {{ _inh }}d){% endif %} · 0 = never review.
     </div>
   </div>
 {%- endmacro -%}
@@ -161,9 +161,9 @@
 
 {%- macro sec_followup() -%}
   <div class="inspector-section" data-section="followup">
-    <label class="form-label small text-uppercase text-muted">Nachhaken / Follow-up</label>
+    <label class="form-label small text-uppercase text-muted">Follow-up</label>
     {{ form.waiting_on(class="form-control form-control-sm mb-2",
-                       placeholder="Auf wen wartest du? (z. B. Lieferant Meyer)") }}
+                       placeholder="Who are you waiting on? (e.g. supplier Meyer)") }}
     <div class="grid-2">
       <div>
         {{ form.followup_at.label(class="form-label small text-uppercase text-muted") }}
@@ -179,13 +179,13 @@
       </div>
       <div>
         {{ form.followup_every_days.label(class="form-label small text-uppercase text-muted") }}
-        {{ form.followup_every_days(class="form-control form-control-sm", placeholder="z. B. 7") }}
-        <div class="form-text small">Takt: rollt beim Nachhaken um N Tage weiter.</div>
+        {{ form.followup_every_days(class="form-control form-control-sm", placeholder="e.g. 7") }}
+        <div class="form-text small">Cadence: rolls forward N days each time you follow up.</div>
       </div>
     </div>
     {% if task and task.followup_last_at %}
       <div class="form-text small mt-1">
-        <i class="bi bi-clock-history"></i> Zuletzt nachgehakt: {{ task.followup_last_at|localdt }}
+        <i class="bi bi-clock-history"></i> Last followed up: {{ task.followup_last_at|localdt }}
       </div>
     {% endif %}
   </div>

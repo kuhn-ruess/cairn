@@ -424,9 +424,9 @@
     }).catch(() => flashError("Toggle failed (network)"));
   });
 
-  // "Nachgehakt" — log a follow-up and roll the next reminder forward, then
-  // refresh <main> so the chip, ordering and sidebar badge reflect the new
-  // followup date without a full reload.
+  // "Mark followed up" — log a follow-up and roll the next reminder forward,
+  // then refresh <main> so the chip, ordering and sidebar badge reflect the
+  // new followup date without a full reload.
   document.addEventListener("submit", (ev) => {
     const form = ev.target.closest("form[data-task-followup-form]");
     if (!form) return;
@@ -438,9 +438,9 @@
       credentials: "same-origin",
       headers: { "X-Requested-With": "XMLHttpRequest" },
     }).then((resp) => {
-      if (!resp || !resp.ok) { flashError("Nachhaken fehlgeschlagen"); return; }
+      if (!resp || !resp.ok) { flashError("Follow-up failed"); return; }
       document.dispatchEvent(new CustomEvent("bktodo:refresh-needed"));
-    }).catch(() => flashError("Nachhaken fehlgeschlagen (network)"));
+    }).catch(() => flashError("Follow-up failed (network)"));
   });
 
   async function saveMergedName(input) {

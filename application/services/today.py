@@ -37,7 +37,8 @@ def _today_task_query(user, now):
     cond = (Q(due_date__ne=None, due_date__lte=today_end)
             | Q(flagged=True)
             | Q(plan_date__ne=None, plan_date__lt=next_day)
-            | Q(defer_date__ne=None, defer_date__lte=now, status="next"))
+            | Q(defer_date__ne=None, defer_date__lte=now, status="next")
+            | Q(followup_at__ne=None, followup_at__lte=today_end))
     return qs.filter(cond), today_end, next_day
 
 

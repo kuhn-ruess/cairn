@@ -117,9 +117,9 @@ class TaskForm(FlaskForm):
         "Review interval (days)", validators=[Optional(), NumberRange(min=0)]
     )
     is_internal = BooleanField("Internal — hide from public share dashboard")
-    # Follow-up / Wiedervorlage: who you're chasing (free text, for external
-    # contacts), when to nudge next, and the cadence the "Nachgehakt" button
-    # rolls that reminder forward by.
+    # Follow-up: who you're chasing (free text, for external contacts), when
+    # to nudge next, and the cadence the "Mark followed up" button rolls that
+    # reminder forward by.
     waiting_on = StringField("Waiting on", validators=[Optional(), Length(max=300)])
     followup_at = DateTimeLocalField(
         "Follow up on", format="%Y-%m-%dT%H:%M", validators=[Optional()]
