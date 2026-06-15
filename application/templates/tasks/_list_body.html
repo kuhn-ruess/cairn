@@ -78,7 +78,13 @@
           {% endif %}
           <div class="task-meta">
             {% set _badge = task._badge|default(none) %}
-            {% if task.project and (_badge or current_user.show_field('project', view_key=_vk)) %}
+            {# Delegated to me out of a project I can't open: keep the read-only
+               project label + assigner ALWAYS visible (ungated by view fields)
+               so the task carries context instead of floating as a "ghost". #}
+            {% set _delegated_foreign = task.assigned_to == current_user
+                                        and task.assigned_by and task.assigned_by != current_user
+                                        and task.project and not can_view_container(task.project) %}
+            {% if task.project and (_badge or current_user.show_field('project', view_key=_vk) or _delegated_foreign) %}
               {# In flattened project views ``task._badge`` carries the full
                  container path ("Sub A / Sub B") + nearest container to link
                  to; elsewhere fall back to the immediate parent. #}
@@ -91,8 +97,10 @@
                 </a>
               {% else %}
                 {# Assigned task in a project the user can't open — show the
-                   name as inert context so the badge never 404s. #}
-                <span class="badge text-bg-light text-muted" title="You don't have access to this project">
+                   name as inert context so the badge never 404s. Delegated
+                   work, read-only: no link, no drill-down into the project. #}
+                <span class="badge text-bg-light text-muted"
+                      title="Delegated to you — you don't have access to this project">
                   {{ _proj_icon }}{{ _blabel }}
                 </span>
               {% endif %}
@@ -144,7 +152,7 @@
                 {% if is_today_plan %}today's plan{% else %}plan {{ task.plan_date|relativedate }}{% endif %}
               </span>
             {% endif %}
-            {% if current_user.show_field('assignee', view_key=_vk) %}
+            {% if current_user.show_field('assignee', view_key=_vk) or _delegated_foreign %}
               {% if task.assigned_to and task.assigned_to != current_user %}
                 <span class="badge text-bg-info"><i class="bi bi-person"></i> {{ task.assigned_to }}</span>
               {% elif task.assigned_to == current_user and task.assigned_by and task.assigned_by != current_user %}
