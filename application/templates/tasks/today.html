@@ -324,10 +324,11 @@
 {% if daily_buckets and view_mode not in ('calendar', 'plan') %}
   <div class="daily-buckets">
   {% for day, items in daily_buckets.items() %}
-    <section class="daily-bucket mb-3">
-      <div class="daily-bucket-header d-flex align-items-center gap-2 mb-1">
-        <i class="bi bi-calendar-day text-muted"></i>
+    <section class="daily-bucket{% if day.isoformat() == today_iso %} is-today{% endif %}">
+      <div class="daily-bucket-header d-flex align-items-center gap-2">
+        <i class="bi bi-calendar-day"></i>
         <h3 class="h6 mb-0">{{ day.strftime('%A · %-d %b') }}</h3>
+        {% if day.isoformat() == today_iso %}<span class="daily-bucket-today-chip">today</span>{% endif %}
         <span class="text-muted small">({{ items|length }})</span>
       </div>
       {% if not items %}

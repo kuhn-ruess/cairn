@@ -843,6 +843,39 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
   color: var(--gv-blue-br) !important;
   border-color: var(--gv-blue-br);
 }
+
+/* Multi-day Today: give each day its own clearly separated card so the days
+   don't visually run together when several are shown at once. */
+.daily-buckets { display: flex; flex-direction: column; gap: 1.1rem; }
+.daily-bucket {
+  background: var(--gv-bg0-soft);
+  border: 1px solid var(--gv-bg2);
+  border-radius: 10px;
+  padding: .55rem .75rem .7rem;
+}
+.daily-bucket-header {
+  border-bottom: 1px solid var(--gv-bg2);
+  padding-bottom: .4rem;
+  margin-bottom: .55rem;
+}
+.daily-bucket-header h3 { font-weight: 600; letter-spacing: .01em; color: var(--gv-fg1); }
+.daily-bucket-header .bi { color: var(--gv-fg4); }
+/* The actual current day stands out with the accent colour. */
+.daily-bucket.is-today { border-color: var(--gv-blue-br); }
+.daily-bucket.is-today .daily-bucket-header { border-bottom-color: var(--gv-blue-br); }
+.daily-bucket.is-today .daily-bucket-header h3,
+.daily-bucket.is-today .daily-bucket-header .bi { color: var(--gv-blue-br); }
+.daily-bucket-today-chip {
+  font-size: .65rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  font-weight: 600;
+  color: var(--gv-bg0-hard);
+  background: var(--gv-blue-br);
+  border-radius: 999px;
+  padding: .05rem .45rem;
+}
+
 .task-note {
   white-space: pre-wrap;
   margin-top: .1rem;
