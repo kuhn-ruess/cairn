@@ -876,6 +876,11 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
   padding: .05rem .45rem;
 }
 
+/* Inspector header title → clickable link to the full detail page. */
+.inspector-title-link { color: inherit; text-decoration: none; }
+.inspector-title-link:hover,
+.inspector-title-link:focus { color: var(--gv-blue-br); text-decoration: underline; }
+
 .task-note {
   white-space: pre-wrap;
   margin-top: .1rem;

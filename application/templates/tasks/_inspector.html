@@ -286,6 +286,7 @@
 } -%}
 
 <form method="post" action="{{ form_action }}" data-inspector-form
+      {% if task and task.pk %}data-detail-url="{{ url_for('tasks.detail', task_id=task.pk) }}"{% endif %}
       class="inspector-form" novalidate>
   {{ form.hidden_tag() }}
 

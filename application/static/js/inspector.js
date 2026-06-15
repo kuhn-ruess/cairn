@@ -119,6 +119,18 @@
 
   function wireForm() {
     const form = body.querySelector("form[data-inspector-form]");
+    // Make the offcanvas header title a link to the full detail page.
+    const detailUrl = form && form.getAttribute("data-detail-url");
+    if (detailUrl && titleEl) {
+      const text = titleEl.textContent;
+      titleEl.textContent = "";
+      const a = document.createElement("a");
+      a.href = detailUrl;
+      a.className = "inspector-title-link";
+      a.textContent = text;
+      a.title = "Open the full detail page";
+      titleEl.appendChild(a);
+    }
     if (form) {
       form.addEventListener("submit", onFormSubmit);
       // Enter saves: Cmd/Ctrl+Enter from anywhere (incl. textareas), and plain

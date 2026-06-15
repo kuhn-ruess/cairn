@@ -3,6 +3,7 @@
   <div class="inspector-saved-banner"><i class="bi bi-check2-circle"></i> Saved</div>
 {% endif %}
 <form method="post" action="{{ form_action }}" data-inspector-form
+      {% if project and project.pk %}data-detail-url="{{ url_for('projects.detail', project_id=project.pk) }}"{% endif %}
       class="inspector-form" novalidate>
   {{ form.hidden_tag() }}
 
