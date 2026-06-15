@@ -523,9 +523,11 @@ def _plan_day_tasks(user, day_date, tz, *, is_today):
     next_day = day_start + timedelta(days=1)
     day_end = datetime.combine(day_date, _time(23, 59, 59)).replace(tzinfo=tz)
     # Push the date filter into Mongo instead of scanning every open task:
-    # planned on this day OR due by end of it (overdue counts) OR flagged.
+    # planned on this day OR due by end of it (overdue counts) OR a follow-up
+    # due by end of it (overdue counts) OR flagged.
     cond = (Q(plan_date__gte=day_start, plan_date__lt=next_day)
-            | Q(due_date__ne=None, due_date__lte=day_end))
+            | Q(due_date__ne=None, due_date__lte=day_end)
+            | Q(followup_at__ne=None, followup_at__lte=day_end))
     if is_today:
         cond = cond | Q(flagged=True)
     # The Plan view is a personal day-planner: hide tasks delegated to someone
