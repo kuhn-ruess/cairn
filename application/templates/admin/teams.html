@@ -42,17 +42,41 @@
 {% if teams %}
   <table class="table align-middle">
     <thead>
-      <tr><th>Name</th><th>Admin</th><th>Members</th><th></th></tr>
+      <tr><th>Name</th><th>Admin</th><th>Billing</th><th class="text-end">Actions</th></tr>
     </thead>
     <tbody>
       {% for t in teams %}
         <tr>
-          <td>{{ t.name }}</td>
+          <td>
+            {{ t.name }}
+            {% if t.family %}<span class="badge text-bg-info ms-1">family · €2</span>{% endif %}
+            {% if t.admin and t.admin.comp_plan == 'team' %}<span class="badge text-bg-success ms-1">free</span>{% endif %}
+          </td>
           <td>{{ t.admin if t.admin else '—' }}</td>
-          <td class="small text-muted">
-            {{ (t.members|length if t.members else 0) }}
+          <td class="small">
+            {% if t.admin and t.admin.comp_plan == 'team' %}
+              Complimentary
+            {% elif t.admin and t.admin.has_active_subscription and t.admin.subscription_plan == 'team' %}
+              Paid ({{ 'family €2' if t.family else '€5' }})
+            {% else %}
+              <span class="text-muted">no active plan</span>
+            {% endif %}
           </td>
           <td class="text-end">
+            <form method="post" action="{{ url_for('admin.team_family', team_id=t.pk) }}" class="d-inline m-0">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-outline-info"
+                      title="Toggle family / non-commercial €2 pricing">
+                {{ 'Unmark family' if t.family else 'Mark family (€2)' }}
+              </button>
+            </form>
+            <form method="post" action="{{ url_for('admin.team_comp', team_id=t.pk) }}" class="d-inline m-0">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-outline-success"
+                      title="Toggle free of charge">
+                {{ 'Charge again' if (t.admin and t.admin.comp_plan == 'team') else 'Mark free' }}
+              </button>
+            </form>
             <form method="post"
                   action="{{ url_for('admin.teams_delete', team_id=t.pk) }}"
                   class="d-inline m-0"

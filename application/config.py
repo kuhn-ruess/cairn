@@ -51,12 +51,14 @@ class BaseConfig:
     STRIPE_SECRET_KEY = ""
     STRIPE_PUBLISHABLE_KEY = ""
     STRIPE_WEBHOOK_SECRET = ""
-    STRIPE_PRICE_PREMIUM = ""   # recurring €2/mo price id
-    STRIPE_PRICE_TEAM = ""      # recurring €5/mo price id
+    STRIPE_PRICE_PREMIUM = ""       # recurring €2/mo price id
+    STRIPE_PRICE_TEAM = ""          # recurring €5/mo price id (commercial)
+    STRIPE_PRICE_TEAM_FAMILY = ""   # recurring €2/mo price id (family / non-profit)
     TRIAL_DAYS = 30
     # Human-readable labels shown on the billing page (display only).
     PRICE_PREMIUM_LABEL = "€2 / month"
     PRICE_TEAM_LABEL = "€5 / month"
+    PRICE_TEAM_FAMILY_LABEL = "€2 / month"
 
 
 class DevConfig(BaseConfig):

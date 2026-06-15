@@ -24,12 +24,16 @@ billing_bp = Blueprint("billing", __name__, url_prefix="/billing")
 @login_required
 def index():
     user = current_user._get_current_object()
+    team_is_family = billing._user_team_is_family(user)
+    team_label = current_app.config.get(
+        "PRICE_TEAM_FAMILY_LABEL" if team_is_family else "PRICE_TEAM_LABEL", "")
     return render_template(
         "billing/index.html",
         user=user,
         billing_enabled=billing.billing_enabled(),
         premium_label=current_app.config.get("PRICE_PREMIUM_LABEL", ""),
-        team_label=current_app.config.get("PRICE_TEAM_LABEL", ""),
+        team_label=team_label,
+        team_is_family=team_is_family,
     )
 
 

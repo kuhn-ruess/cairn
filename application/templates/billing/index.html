@@ -93,12 +93,15 @@
   <div class="col-md-6">
     <div class="card h-100 {% if user.subscription_plan == 'team' and user.has_active_subscription %}border-primary{% endif %}">
       <div class="card-body d-flex flex-column">
-        <h3 class="h6 mb-1">Team</h3>
+        <h3 class="h6 mb-1">Team
+          {% if team_is_family %}<span class="badge text-bg-info ms-1">family</span>{% endif %}
+        </h3>
         <div class="fw-semibold mb-2">{{ team_label }}</div>
         <ul class="small mb-3 ps-3">
           <li>Everything in Premium</li>
           <li>Own a team — invite members &amp; share projects</li>
           <li>Every member gets Premium, free</li>
+          {% if not team_is_family %}<li class="text-muted">Family / non-profit? Ask us about €2 team pricing.</li>{% endif %}
         </ul>
         <div class="mt-auto">
           {% if user.has_active_subscription and user.subscription_plan == 'team' %}

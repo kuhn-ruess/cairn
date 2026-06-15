@@ -121,6 +121,10 @@ def set_level(user_id):
         flash("Invalid level.", "danger")
         return redirect(url_for("admin.users"))
 
+    # Setting a level from the admin UI grants an operator *comp* plan (free
+    # of charge) so it survives the nightly billing reconcile — this is how a
+    # global admin marks someone (or a team admin) as free. ``free`` clears it.
+    target.comp_plan = {"premium": "premium", "team_admin": "team"}.get(level, "")
     target.level = level
     # Promoting someone to team_admin auto-creates a team if they don't
     # have one. Demoting from team_admin leaves the team untouched so
@@ -130,8 +134,51 @@ def set_level(user_id):
                     admin=target).save()
         target.team = team
     target.save()
-    flash(f"{target.username} is now {level}.", "success")
+    flash(f"{target.username} is now {level}"
+          + (" (free / comp)." if target.comp_plan else "."), "success")
     return redirect(url_for("admin.users"))
+
+
+@admin_bp.route("/teams/<team_id>/family", methods=["POST"])
+@login_required
+@global_admin_required
+def team_family(team_id):
+    """Toggle a team's non-commercial / family discount (€2 instead of €5).
+
+    Only affects the price the admin pays at their NEXT checkout / plan change
+    — it doesn't retro-bill an existing subscription (switch that in the
+    Stripe portal)."""
+    team = Team.objects(pk=team_id).first()
+    if not team:
+        abort(404)
+    team.family = not team.family
+    team.save()
+    flash(f"'{team.name}' is now {'a family / non-commercial' if team.family else 'a commercial'} team.",
+          "info")
+    return redirect(url_for("admin.teams"))
+
+
+@admin_bp.route("/teams/<team_id>/comp", methods=["POST"])
+@login_required
+@global_admin_required
+def team_comp(team_id):
+    """Toggle a team as free of charge — grants/revokes the admin's comp team
+    plan so the team needs no paid subscription and survives the reconcile."""
+    from application.services.billing import recompute_level
+    team = Team.objects(pk=team_id).first()
+    if not team or not team.admin:
+        abort(404)
+    admin_user = team.admin
+    if admin_user.comp_plan == "team":
+        admin_user.comp_plan = ""
+        msg = f"'{team.name}' is no longer free — admin reverts to paid/free billing."
+    else:
+        admin_user.comp_plan = "team"
+        msg = f"'{team.name}' is now free of charge."
+    recompute_level(admin_user, save=False)
+    admin_user.save()
+    flash(msg, "info")
+    return redirect(url_for("admin.teams"))
 
 
 @admin_bp.route("/teams")

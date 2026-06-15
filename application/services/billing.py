@@ -62,15 +62,30 @@ def _stripe():
 
 def _plan_for_price(price_id: str) -> str:
     """Map a Stripe price id back to our plan key (``premium`` / ``team``)."""
-    if price_id and price_id == _cfg("STRIPE_PRICE_TEAM"):
+    if not price_id:
+        return ""
+    if price_id in (_cfg("STRIPE_PRICE_TEAM"), _cfg("STRIPE_PRICE_TEAM_FAMILY")):
         return "team"
-    if price_id and price_id == _cfg("STRIPE_PRICE_PREMIUM"):
+    if price_id == _cfg("STRIPE_PRICE_PREMIUM"):
         return "premium"
     return ""
 
 
-def _price_for_plan(plan: str) -> str:
-    return _cfg("STRIPE_PRICE_TEAM") if plan == "team" else _cfg("STRIPE_PRICE_PREMIUM")
+def _price_for_plan(plan: str, *, family: bool = False) -> str:
+    if plan == "team":
+        if family and _cfg("STRIPE_PRICE_TEAM_FAMILY"):
+            return _cfg("STRIPE_PRICE_TEAM_FAMILY")
+        return _cfg("STRIPE_PRICE_TEAM")
+    return _cfg("STRIPE_PRICE_PREMIUM")
+
+
+def _user_team_is_family(user) -> bool:
+    """A team-plan subscriber gets the family price when they already own a
+    team a global admin has flagged ``family``. (Family status is granted
+    before checkout, so it can't be self-claimed at the till.)"""
+    from application.models.team import Team
+    team = Team.objects(admin=user).first()
+    return bool(team and team.family)
 
 
 def _utcnow() -> datetime:
@@ -220,7 +235,8 @@ def create_checkout_session(user, plan: str) -> str:
     if plan not in ("premium", "team"):
         raise BillingError(f"unknown plan {plan!r}")
     stripe = _stripe()
-    price = _price_for_plan(plan)
+    family = plan == "team" and _user_team_is_family(user)
+    price = _price_for_plan(plan, family=family)
     if not price:
         raise BillingError(f"no Stripe price configured for the {plan} plan.")
     customer = _ensure_customer(user)

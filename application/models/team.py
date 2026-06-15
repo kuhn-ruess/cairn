@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
 from mongoengine import (
+    BooleanField,
     DateTimeField,
     Document,
     EmbeddedDocument,
@@ -63,6 +64,10 @@ class Team(Document):
     admin = ReferenceField(User, required=True)
     created_at = DateTimeField(default=_utcnow)
     invites = EmbeddedDocumentListField(TeamInvite)
+    # Non-commercial / family team → discounted team plan (€2 instead of €5).
+    # Operator-granted (a global admin sets it) so it can't be self-claimed.
+    # See application.services.billing._price_for_plan.
+    family = BooleanField(default=False)
 
     def members_query(self):
         from application.models.user import User as _User
