@@ -178,7 +178,8 @@ def sidebar_counts(user, now=None, keys=None) -> dict:
 
     # Reference-based perspectives — count() avoids dereferencing per task.
     if "inbox" in want:
-        c["inbox"] = Item.objects(_scope(user), kind="task", parent=None,
+        from application.services.permissions import inbox_q
+        c["inbox"] = Item.objects(_scope(user), inbox_q(user), kind="task",
                                   status__nin=["done", "dropped"]).count()
     if "assigned" in want:
         from application.services import focus
@@ -286,7 +287,14 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     # inaccessible pks fall back to "no project" — same lenient
     # behaviour the form had before, but without the access leak.
     from application.services.permissions import resolve_visible_item
-    task.project = resolve_visible_item(user, form.project.data) if form.project.data else None
+    _dest = resolve_visible_item(user, form.project.data) if form.project.data else None
+    # Role-aware: an assignee triaging a delegated task files it under THEIR
+    # own project (assignee_parent), never the owner's canonical parent.
+    try:
+        task.set_home_for(user, _dest)
+    except ValueError:
+        # Tampered POST picking a project the assignee doesn't own → Inbox.
+        task.set_home_for(user, None)
     # Tags are stored as a list of names; the multi-select submits names.
     submitted = list(form.tags.data or [])
     # Snapshot the tags already on the task so the label rule below only
@@ -340,9 +348,11 @@ def process_inbox(task_id):
     """
     user = current_user._get_current_object()
 
+    from application.services.permissions import inbox_q
+
     def queue():
         return list(
-            Item.objects(_scope(user), kind="task", parent=None,
+            Item.objects(_scope(user), inbox_q(user), kind="task",
                          status__nin=["done", "dropped"])
             .order_by("-created_at")
         )
@@ -400,8 +410,9 @@ def process_inbox_save(task_id):
     # Recompute the queue *after* save — if the user picked a project,
     # the task has left the inbox, so the next ID we land on is what's
     # left first.
+    from application.services.permissions import inbox_q
     remaining = list(
-        Item.objects(_scope(user), kind="task", parent=None,
+        Item.objects(_scope(user), inbox_q(user), kind="task",
                      status__nin=["done", "dropped"])
         .order_by("-created_at")
     )
@@ -446,7 +457,8 @@ def _filter_by_project(qs, user, *, mode="tasks"):
     if pids is None:
         return qs
     if pids == ["inbox"]:
-        return qs.filter(parent=None)
+        from application.services.permissions import inbox_q
+        return qs.filter(inbox_q(user))
     if not pids:
         return qs.none()
     return qs.filter(parent__in=pids)
@@ -457,9 +469,9 @@ def _filter_by_project(qs, user, *, mode="tasks"):
 def inbox():
     """Virtual default project — every task without an explicit project."""
     user = current_user._get_current_object()
-    tasks = (Item.objects(_scope(user),
+    from application.services.permissions import inbox_q
+    tasks = (Item.objects(_scope(user), inbox_q(user),
                           kind="task",
-                          parent=None,
                           status__nin=["done", "dropped"])
              .order_by("-created_at"))
     return render_template(
@@ -1488,7 +1500,7 @@ def detail(task_id):
     return render_template(
         "tasks/detail.html",
         task=task,
-        ancestors=_ancestor_chain(task),
+        ancestors=_ancestor_chain(task, viewer=user),
         comment_form=CommentForm(),
         form=_build_task_form(task, user),
         form_action=url_for("tasks.edit", task_id=str(task.pk)),
@@ -2254,27 +2266,21 @@ def move(task_id):
     #    and never touches the owner's canonical ``parent`` — so it can't
     #    vanish from the owner's project. The owner (and own tasks) move the
     #    canonical ``parent`` as before.
-    as_assignee = task.assigned_to == user and task.owner != user
     touched = False
     if "project_id" in data:
         pid = (data.get("project_id") or "").strip()
+        proj = None
         if pid:
             from application.services.permissions import resolve_visible_item
             proj = resolve_visible_item(user, pid)
             if not proj:
                 return jsonify({"error": "destination project not accessible"}), 403
-            if as_assignee:
-                # Personal filing must land in a container the assignee owns.
-                if proj.owner != user:
-                    return jsonify({"error": "file delegated tasks under your own projects"}), 403
-                task.assignee_parent = proj
-            else:
-                task.project = proj
-        else:
-            if as_assignee:
-                task.assignee_parent = None
-            else:
-                task.project = None
+        try:
+            # Role-aware: an assignee files into THEIR own project
+            # (assignee_parent); the owner moves the canonical parent.
+            task.set_home_for(user, proj)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 403
         touched = True
 
     # 2) Apply status from a status-tagged drop target. The pseudo-value

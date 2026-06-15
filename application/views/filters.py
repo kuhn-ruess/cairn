@@ -138,33 +138,10 @@ def register_filters(app):
             if not item or not current_user.is_authenticated:
                 return False
             pk_str = str(item.pk) if hasattr(item, "pk") else str(item)
-            from flask import g
-            cache = getattr(g, "_viewable_container_pks", None)
-            if cache is None:
-                user = current_user._get_current_object()
-                # Containers the user owns or is a direct member of.
-                pks = {
-                    str(pk) for pk in Item.objects(
-                        (Q(owner=user) | Q(members=user)),
-                        kind__in=["project", "folder", "section"],
-                    ).values_list("pk")
-                }
-                # Plus children of folders the user is a member of (parent
-                # membership grants child visibility — mirror of
-                # Item.can_be_viewed_by).
-                member_folders = Item.objects(
-                    members=user, kind__in=["folder", "project"],
-                ).values_list("pk")
-                member_folders = list(member_folders)
-                if member_folders:
-                    pks |= {
-                        str(pk) for pk in Item.objects(
-                            parent__in=member_folders,
-                            kind__in=["project", "folder", "section"],
-                        ).values_list("pk")
-                    }
-                cache = g._viewable_container_pks = pks
-            return pk_str in cache
+            from application.services.permissions import viewable_container_pks
+            return pk_str in viewable_container_pks(
+                current_user._get_current_object()
+            )
 
         # Inspector section order (per-user). Available to every template
         # that renders the inspector partial without threading it through

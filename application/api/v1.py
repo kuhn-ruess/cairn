@@ -313,7 +313,13 @@ def bulk_tasks():
             return _bad_request("destination project not accessible", 403)
         for t in tasks:
             if t.can_be_edited_by(user):
-                t.project = project
+                # Role-aware: an assignee files into their own project
+                # (assignee_parent), never the owner's canonical parent.
+                try:
+                    t.set_home_for(user, project)
+                except ValueError:
+                    skipped += 1
+                    continue
                 t.save()
                 affected.append(str(t.pk))
             else:
@@ -418,13 +424,14 @@ def _apply_task_payload(task: Item, data: dict, user) -> None:
     if "project_id" in data:
         from application.services.permissions import resolve_visible_item
         pid = data["project_id"]
+        dest = None
         if pid:
-            proj = resolve_visible_item(user, pid)
-            if not proj:
+            dest = resolve_visible_item(user, pid)
+            if not dest:
                 raise ValueError("project_id not accessible")
-            task.project = proj
-        else:
-            task.project = None
+        # Role-aware (matches the web): an assignee files into their own
+        # project (assignee_parent); the owner moves the canonical parent.
+        task.set_home_for(user, dest)
     if "tags" in data:
         task.tags = [str(n) for n in (data["tags"] or []) if n]
     elif "tag_names" in data:

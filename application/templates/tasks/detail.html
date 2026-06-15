@@ -9,10 +9,17 @@
       </a>
       {% for a in ancestors %}
         <span class="crumb-sep">/</span>
-        <a href="{{ url_for('tasks.detail', task_id=a.pk) if a.kind == 'task' else url_for('projects.detail', project_id=a.pk) }}" class="crumb">
-          {% if a.kind == 'task' %}<i class="bi bi-check2-square text-muted"></i>{% else %}{{ item_icon(a) }}{% endif %}
-          {{ a.name }}
-        </a>
+        {% if a.kind == 'task' or can_view_container(a) %}
+          <a href="{{ url_for('tasks.detail', task_id=a.pk) if a.kind == 'task' else url_for('projects.detail', project_id=a.pk) }}" class="crumb">
+            {% if a.kind == 'task' %}<i class="bi bi-check2-square text-muted"></i>{% else %}{{ item_icon(a) }}{% endif %}
+            {{ a.name }}
+          </a>
+        {% else %}
+          {# Container the viewer can't open — inert, so it never 404s. #}
+          <span class="crumb text-muted" title="You don't have access to this project">
+            {{ item_icon(a) }} {{ a.name }}
+          </span>
+        {% endif %}
       {% endfor %}
     </nav>
   {% endif %}
@@ -35,15 +42,18 @@
       </h1>
       <div class="task-detail-meta small text-muted d-flex flex-wrap gap-2 align-items-center">
         <span class="badge text-bg-secondary text-uppercase">{{ task.status }}</span>
-        {% if task.project %}
-          {% if can_view_container(task.project) %}
+        {# Show the viewer's own home: an assignee sees THEIR project (or
+           Inbox), not the owner's invisible one. #}
+        {% set _home = task.home_for(current_user) %}
+        {% if _home %}
+          {% if can_view_container(_home) %}
             <span><i class="bi bi-collection"></i>
               <a class="text-decoration-none"
-                 href="{{ url_for('projects.detail', project_id=task.project.pk) }}">{{ task.project.name }}</a>
+                 href="{{ url_for('projects.detail', project_id=_home.pk) }}">{{ _home.name }}</a>
             </span>
           {% else %}
             <span class="text-muted" title="You don't have access to this project">
-              <i class="bi bi-collection"></i> {{ task.project.name }}
+              <i class="bi bi-collection"></i> {{ _home.name }}
             </span>
           {% endif %}
         {% else %}

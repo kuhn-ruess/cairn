@@ -110,6 +110,62 @@ def resolve_visible_item(actor, item_id):
     return item
 
 
+def viewable_container_pks(user) -> set:
+    """Set of str pks for every project/folder/section ``user`` may open —
+    owned, directly a member of, or a child of a folder/project they're a
+    member of (mirrors ``Item.can_be_viewed_by`` container inheritance).
+
+    Cached on ``flask.g`` per request so the Inbox query and the
+    ``can_view_container`` template helper share ONE computation."""
+    from mongoengine import Q
+    from application.models.item import Item
+    try:
+        from flask import g, has_request_context
+        in_request = has_request_context()
+    except Exception:
+        g, in_request = None, False
+    if in_request:
+        cached = getattr(g, "_viewable_container_pks", None)
+        if cached is not None:
+            return cached
+    pks = {
+        str(pk) for pk in Item.objects(
+            (Q(owner=user) | Q(members=user)),
+            kind__in=["project", "folder", "section"],
+        ).values_list("pk")
+    }
+    member_folders = list(Item.objects(
+        members=user, kind__in=["folder", "project"],
+    ).values_list("pk"))
+    if member_folders:
+        pks |= {
+            str(pk) for pk in Item.objects(
+                parent__in=member_folders,
+                kind__in=["project", "folder", "section"],
+            ).values_list("pk")
+        }
+    if in_request:
+        g._viewable_container_pks = pks
+    return pks
+
+
+def inbox_q(user):
+    """Mongo filter (a ``Q``) for the user's Inbox.
+
+    Inbox = truly unfiled tasks (``parent=None``) PLUS tasks delegated to the
+    user that they have NOT filed (``assignee_parent=None``) and whose project
+    they cannot see — so an untriaged delegated task lands in the assignee's
+    Inbox by default instead of hiding under the owner's invisible project.
+    Pair with the usual ``_scope(user)`` + ``kind='task'`` + status filters."""
+    from bson import ObjectId
+    from mongoengine import Q
+    vis = [ObjectId(p) for p in viewable_container_pks(user)]
+    delegated = (Q(assigned_to=user) & Q(owner__ne=user)
+                 & Q(assignee_parent=None) & Q(parent__ne=None)
+                 & Q(parent__nin=vis))
+    return Q(parent=None) | delegated
+
+
 def assignable_users(actor) -> list:
     """Users the actor may assign tasks to: themselves plus the members of
     every team they participate in (deduped, actor first). Powers the

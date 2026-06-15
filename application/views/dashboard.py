@@ -42,8 +42,9 @@ def home():
     user = current_user._get_current_object()
     now = datetime.now(timezone.utc)
 
+    from application.services.permissions import inbox_q
     inbox_count = Item.objects(
-        _scope(user), kind="task", parent=None,
+        _scope(user), inbox_q(user), kind="task",
         status__nin=["done", "dropped"]
     ).count()
     # Use the shared Today selection so this count matches the Today page
@@ -66,7 +67,7 @@ def home():
         .limit(10)
     )
     inbox_preview = list(
-        Item.objects(_scope(user), kind="task", parent=None,
+        Item.objects(_scope(user), inbox_q(user), kind="task",
                      status__nin=["done", "dropped"])
         .order_by("-created_at")
         .limit(10)

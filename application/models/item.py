@@ -808,15 +808,36 @@ class Item(Document):
         """Total minutes logged across all time entries on this task."""
         return sum(e.minutes or 0 for e in (self.time_entries or []))
 
-    def home_for(self, user) -> "Item":
-        """The container this item appears under FOR ``user``. An assignee who
-        filed a delegated task into one of their own projects sees it there
-        (``assignee_parent``); the owner (and everyone else) always sees the
-        canonical ``parent``."""
-        if (self.assignee_parent is not None
-                and self.assigned_to == user and self.owner != user):
-            return self.assignee_parent
+    def home_for(self, user):
+        """The container this item appears under FOR ``user`` (``None`` = Inbox).
+
+        For a task delegated TO ``user`` (assigned, not owned): their own
+        filing wins (``assignee_parent``); else the canonical ``parent`` only
+        if they can actually see it; else ``None`` so an untriaged delegated
+        task defaults to the assignee's Inbox instead of hiding under the
+        owner's invisible project. The owner (and everyone else) always sees
+        the canonical ``parent``."""
+        if self.assigned_to == user and self.owner != user:
+            if self.assignee_parent is not None:
+                return self.assignee_parent
+            if self.parent is not None and self.parent.can_be_viewed_by(user):
+                return self.parent
+            return None
         return self.parent
+
+    def set_home_for(self, user, container) -> None:
+        """Place this item into ``container`` (``None`` = Inbox) from ``user``'s
+        perspective. For a task delegated TO ``user`` (assigned, not owned) this
+        writes their personal ``assignee_parent`` (which must be a container
+        they own) and NEVER the owner's canonical ``parent`` — so it can't
+        vanish from the owner's project. Otherwise it moves the canonical
+        ``parent`` as usual. Raises ``ValueError`` on an invalid target."""
+        if self.assigned_to == user and self.owner != user:
+            if container is not None and container.owner != user:
+                raise ValueError("file delegated tasks under your own projects")
+            self.assignee_parent = container
+        else:
+            self.parent = container
 
     def assign_to(self, new_assignee, *, by_user=None):
         if new_assignee is None:

@@ -754,15 +754,18 @@ def _build_calendar(tasks, month_param, tz=timezone.utc):
         "next": f"{next_m.year}-{next_m.month:02d}",
     }
 
-def _ancestor_chain(project: Item) -> list[Item]:
-    """Return the project's ancestors from root → direct parent.
+def _ancestor_chain(project: Item, viewer=None) -> list[Item]:
+    """Return the item's ancestors from root → direct container.
 
-    The detail page renders this above the title as a clickable
-    breadcrumb. Cycles are stopped at 10 hops just in case.
+    The detail page renders this above the title as a clickable breadcrumb.
+    When ``viewer`` is given, the chain starts at the item's home FOR that
+    viewer (``home_for``) — so an assignee who filed a delegated task sees
+    THEIR own project path (or Inbox), never the owner's invisible chain that
+    would 404 on click. Cycles are stopped at 10 hops just in case.
     """
     chain: list[Item] = []
     seen: set = set()
-    cur = project.parent
+    cur = project.home_for(viewer) if viewer is not None else project.parent
     while cur and cur.pk not in seen and len(chain) < 10:
         chain.append(cur)
         seen.add(cur.pk)
