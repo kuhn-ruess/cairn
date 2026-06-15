@@ -424,13 +424,16 @@
     }).catch(() => flashError("Toggle failed (network)"));
   });
 
-  // "Mark followed up" — log a follow-up and roll the next reminder forward,
-  // then refresh <main> so the chip, ordering and sidebar badge reflect the
-  // new followup date without a full reload.
+  // "Mark followed up" — log the nudge + roll the next reminder forward, then
+  // drop the row in place (same pattern as the complete toggle). After a
+  // follow-up the next reminder moves into the future, so the row no longer
+  // belongs in the current Today/Follow-up plate; the next navigation reloads
+  // fresh data (with the new followup date + updated counts).
   document.addEventListener("submit", (ev) => {
     const form = ev.target.closest("form[data-task-followup-form]");
     if (!form) return;
     ev.preventDefault();
+    const row = form.closest(".task-row");
     const fd = new FormData(form);
     fetch(form.action, {
       method: "POST",
@@ -438,8 +441,18 @@
       credentials: "same-origin",
       headers: { "X-Requested-With": "XMLHttpRequest" },
     }).then((resp) => {
-      if (!resp || !resp.ok) { flashError("Follow-up failed"); return; }
-      document.dispatchEvent(new CustomEvent("bktodo:refresh-needed"));
+      if (!resp || (resp.type !== "opaqueredirect" && !resp.ok)) {
+        flashError("Follow-up failed");
+        return;
+      }
+      if (!row) {
+        // No row to drop (e.g. inspector / non-list context) — fall back to a
+        // background refresh so the change still shows without a manual reload.
+        document.dispatchEvent(new CustomEvent("bktodo:refresh-needed"));
+        return;
+      }
+      row.classList.add("task-row-leaving");
+      setTimeout(() => { row.remove(); }, 220);
     }).catch(() => flashError("Follow-up failed (network)"));
   });
 
