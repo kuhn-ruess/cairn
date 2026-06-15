@@ -71,21 +71,22 @@ def _plan_for_price(price_id: str) -> str:
     return ""
 
 
-def _price_for_plan(plan: str, *, family: bool = False) -> str:
+# Checkout plan keys → the internal subscription_plan ("premium" | "team").
+# "team_family" and "team" both land on the "team" plan (→ team_admin); they
+# only differ in price, and Team.family is derived from which price was paid.
+_CHECKOUT_PLANS = ("premium", "team", "team_family")
+
+
+def _price_for_plan(plan: str) -> str:
+    if plan == "team_family":
+        return _cfg("STRIPE_PRICE_TEAM_FAMILY") or _cfg("STRIPE_PRICE_TEAM")
     if plan == "team":
-        if family and _cfg("STRIPE_PRICE_TEAM_FAMILY"):
-            return _cfg("STRIPE_PRICE_TEAM_FAMILY")
         return _cfg("STRIPE_PRICE_TEAM")
     return _cfg("STRIPE_PRICE_PREMIUM")
 
 
-def _user_team_is_family(user) -> bool:
-    """A team-plan subscriber gets the family price when they already own a
-    team a global admin has flagged ``family``. (Family status is granted
-    before checkout, so it can't be self-claimed at the till.)"""
-    from application.models.team import Team
-    team = Team.objects(admin=user).first()
-    return bool(team and team.family)
+def _is_family_price(price_id: str) -> bool:
+    return bool(price_id) and price_id == _cfg("STRIPE_PRICE_TEAM_FAMILY")
 
 
 def _utcnow() -> datetime:
@@ -231,14 +232,20 @@ def _ensure_customer(user) -> str:
 
 
 def create_checkout_session(user, plan: str) -> str:
-    """Create a Stripe Checkout session for ``plan`` and return its URL."""
-    if plan not in ("premium", "team"):
+    """Create a Stripe Checkout session for ``plan`` and return its URL.
+
+    ``plan`` is a checkout key: ``premium``, ``team`` (organisation) or
+    ``team_family``. The two team keys both yield the ``team`` subscription
+    plan — the family/organisation choice rides on the price, and
+    :func:`_apply_subscription` derives ``Team.family`` from it.
+    """
+    if plan not in _CHECKOUT_PLANS:
         raise BillingError(f"unknown plan {plan!r}")
     stripe = _stripe()
-    family = plan == "team" and _user_team_is_family(user)
-    price = _price_for_plan(plan, family=family)
+    price = _price_for_plan(plan)
     if not price:
         raise BillingError(f"no Stripe price configured for the {plan} plan.")
+    stored_plan = "team" if plan in ("team", "team_family") else plan
     customer = _ensure_customer(user)
     session = stripe.checkout.Session.create(
         mode="subscription",
@@ -248,8 +255,8 @@ def create_checkout_session(user, plan: str) -> str:
         success_url=url_for("billing.success", _external=True)
         + "?session_id={CHECKOUT_SESSION_ID}",
         cancel_url=url_for("billing.index", _external=True),
-        metadata={"user_id": str(user.pk), "plan": plan},
-        subscription_data={"metadata": {"user_id": str(user.pk), "plan": plan}},
+        metadata={"user_id": str(user.pk), "plan": stored_plan},
+        subscription_data={"metadata": {"user_id": str(user.pk), "plan": stored_plan}},
     )
     return session["url"]
 
@@ -332,6 +339,18 @@ def _apply_subscription(sub, *, deleted: bool) -> None:
         _dissolve_owned_teams_if_unpaid(user)
 
     recompute_level(user)
+
+    # Keep Team.family in sync with the price actually being paid — this is the
+    # self-service family/organisation choice made at checkout, made durable on
+    # the team the subscriber now owns. Only adjust for recognised team prices.
+    if (user.has_active_subscription and user.subscription_plan == "team"
+            and _plan_for_price(price_id) == "team"):
+        from application.models.team import Team
+        team = Team.objects(admin=user).first()
+        fam = _is_family_price(price_id)
+        if team and team.family != fam:
+            team.family = fam
+            team.save()
 
 
 def _apply_checkout_completed(session) -> None:

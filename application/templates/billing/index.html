@@ -63,10 +63,30 @@
 
 {# ---- Plans ---- #}
 {% if not user.is_global_admin %}
-<div class="row g-3" style="max-width: 720px;">
+{% set active = user.has_active_subscription %}
+{% set premium_current = active and user.subscription_plan == 'premium' %}
+{% set teamfam_current = active and user.subscription_plan == 'team' and current_team_family %}
+{% set teamorg_current = active and user.subscription_plan == 'team' and not current_team_family %}
+
+{% macro plan_action(is_current, plan_key, label) %}
+  <div class="mt-auto">
+    {% if is_current %}
+      <span class="badge text-bg-success">Current plan</span>
+    {% elif active %}
+      <span class="small text-muted">Use <strong>Manage</strong> above to switch.</span>
+    {% elif billing_enabled %}
+      <form method="post" action="{{ url_for('billing.checkout', plan=plan_key) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-primary btn-sm w-100" type="submit">{{ label }}</button>
+      </form>
+    {% endif %}
+  </div>
+{% endmacro %}
+
+<div class="row g-3" style="max-width: 1000px;">
   {# Premium #}
-  <div class="col-md-6">
-    <div class="card h-100 {% if user.subscription_plan == 'premium' and user.has_active_subscription %}border-primary{% endif %}">
+  <div class="col-md-4">
+    <div class="card h-100 {% if premium_current %}border-primary{% endif %}">
       <div class="card-body d-flex flex-column">
         <h3 class="h6 mb-1">Premium</h3>
         <div class="fw-semibold mb-2">{{ premium_label }}</div>
@@ -75,48 +95,48 @@
           <li>Calendar write-back</li>
           <li>Can be invited into a team</li>
         </ul>
-        <div class="mt-auto">
-          {% if user.has_active_subscription and user.subscription_plan == 'premium' %}
-            <span class="badge text-bg-success">Current plan</span>
-          {% elif billing_enabled %}
-            <form method="post" action="{{ url_for('billing.checkout', plan='premium') }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="btn btn-primary btn-sm w-100" type="submit">Choose Premium</button>
-            </form>
-          {% endif %}
-        </div>
+        {{ plan_action(premium_current, 'premium', 'Choose Premium') }}
       </div>
     </div>
   </div>
 
-  {# Team #}
-  <div class="col-md-6">
-    <div class="card h-100 {% if user.subscription_plan == 'team' and user.has_active_subscription %}border-primary{% endif %}">
+  {# Team · Family #}
+  <div class="col-md-4">
+    <div class="card h-100 {% if teamfam_current %}border-primary{% endif %}">
       <div class="card-body d-flex flex-column">
-        <h3 class="h6 mb-1">Team
-          {% if team_is_family %}<span class="badge text-bg-info ms-1">family</span>{% endif %}
+        <h3 class="h6 mb-1">Team · Family
+          <span class="badge text-bg-info ms-1">non-profit</span>
         </h3>
+        <div class="fw-semibold mb-2">{{ team_family_label }}</div>
+        <ul class="small mb-3 ps-3">
+          <li>Own a team — invite &amp; share</li>
+          <li>Every member gets Premium, free</li>
+          <li>For families &amp; non-commercial groups</li>
+        </ul>
+        {{ plan_action(teamfam_current, 'team_family', 'Start a Family team') }}
+      </div>
+    </div>
+  </div>
+
+  {# Team · Organisation #}
+  <div class="col-md-4">
+    <div class="card h-100 {% if teamorg_current %}border-primary{% endif %}">
+      <div class="card-body d-flex flex-column">
+        <h3 class="h6 mb-1">Team · Organisation</h3>
         <div class="fw-semibold mb-2">{{ team_label }}</div>
         <ul class="small mb-3 ps-3">
-          <li>Everything in Premium</li>
-          <li>Own a team — invite members &amp; share projects</li>
+          <li>Own a team — invite &amp; share</li>
           <li>Every member gets Premium, free</li>
-          {% if not team_is_family %}<li class="text-muted">Family / non-profit? Ask us about €2 team pricing.</li>{% endif %}
+          <li>For companies &amp; commercial use</li>
         </ul>
-        <div class="mt-auto">
-          {% if user.has_active_subscription and user.subscription_plan == 'team' %}
-            <span class="badge text-bg-success">Current plan</span>
-          {% elif billing_enabled %}
-            <form method="post" action="{{ url_for('billing.checkout', plan='team') }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="btn btn-primary btn-sm w-100" type="submit">Choose Team</button>
-            </form>
-          {% endif %}
-        </div>
+        {{ plan_action(teamorg_current, 'team', 'Start an Organisation team') }}
       </div>
     </div>
   </div>
 </div>
-<p class="text-muted small mt-3">Prices include VAT where applicable. Billed monthly, cancel anytime.</p>
+<p class="text-muted small mt-3">
+  Creating a team starts a team subscription — you become its admin and can
+  invite members. Prices include VAT where applicable. Billed monthly, cancel anytime.
+</p>
 {% endif %}
 {% endblock %}

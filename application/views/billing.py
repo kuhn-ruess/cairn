@@ -23,17 +23,18 @@ billing_bp = Blueprint("billing", __name__, url_prefix="/billing")
 @billing_bp.route("/")
 @login_required
 def index():
+    from application.models.team import Team
     user = current_user._get_current_object()
-    team_is_family = billing._user_team_is_family(user)
-    team_label = current_app.config.get(
-        "PRICE_TEAM_FAMILY_LABEL" if team_is_family else "PRICE_TEAM_LABEL", "")
+    owned = Team.objects(admin=user).first()
     return render_template(
         "billing/index.html",
         user=user,
         billing_enabled=billing.billing_enabled(),
         premium_label=current_app.config.get("PRICE_PREMIUM_LABEL", ""),
-        team_label=team_label,
-        team_is_family=team_is_family,
+        team_label=current_app.config.get("PRICE_TEAM_LABEL", ""),
+        team_family_label=current_app.config.get("PRICE_TEAM_FAMILY_LABEL", ""),
+        # which team variant the user currently owns (for "current plan" badges)
+        current_team_family=bool(owned and owned.family),
     )
 
 
@@ -41,6 +42,12 @@ def index():
 @login_required
 def checkout(plan):
     user = current_user._get_current_object()
+    # Avoid creating a second, parallel subscription — a user already paying
+    # switches plans through the Stripe portal, not a fresh checkout.
+    if user.has_active_subscription:
+        flash("You already have an active plan — use Manage to switch or cancel.",
+              "info")
+        return redirect(url_for("billing.index"))
     try:
         url = billing.create_checkout_session(user, plan)
     except billing.BillingError as exc:
