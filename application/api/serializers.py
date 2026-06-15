@@ -123,6 +123,7 @@ def task_compact(t) -> dict[str, Any]:
         "due_date": iso(t.due_date),
         "plan_date": iso(t.plan_date),
         "project_id": str(t.project.pk) if t.project else None,
+        "assignee_parent_id": str(t.assignee_parent.pk) if t.assignee_parent else None,
         "sort_order": t.sort_order,
         "estimated_minutes": t.estimated_minutes,
         "repeat_every_days": t.repeat_every_days,
@@ -155,6 +156,7 @@ def task(t) -> dict[str, Any]:
         "repeat_from_completion": t.repeat_from_completion,
         "is_internal": bool(t.is_internal),
         "project_id": str(t.project.pk) if t.project else None,
+        "assignee_parent_id": str(t.assignee_parent.pk) if t.assignee_parent else None,
         "tags": list(t.tags or []),
         # ``tag_names`` retained as an alias so existing clients keep
         # working — drop after the next major bump.

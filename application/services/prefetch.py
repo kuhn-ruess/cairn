@@ -24,9 +24,10 @@ def prefetch_refs(items):
 
     item_ids, user_ids = set(), set()
     for t in items:
-        praw = t._data.get("parent")
-        if praw is not None and not isinstance(praw, Item):
-            item_ids.add(_rawid(praw))
+        for f in ("parent", "assignee_parent"):
+            praw = t._data.get(f)
+            if praw is not None and not isinstance(praw, Item):
+                item_ids.add(_rawid(praw))
         for f in ("assigned_to", "assigned_by"):
             uraw = t._data.get(f)
             if uraw is not None and not isinstance(uraw, User):
@@ -36,9 +37,10 @@ def prefetch_refs(items):
     items_by_id = {p.pk: p for p in Item.all_objects(pk__in=list(item_ids))} if item_ids else {}
     users_by_id = {u.pk: u for u in User.objects(pk__in=list(user_ids))} if user_ids else {}
     for t in items:
-        praw = t._data.get("parent")
-        if praw is not None and not isinstance(praw, Item):
-            t._data["parent"] = items_by_id.get(_rawid(praw), praw)
+        for f in ("parent", "assignee_parent"):
+            praw = t._data.get(f)
+            if praw is not None and not isinstance(praw, Item):
+                t._data[f] = items_by_id.get(_rawid(praw), praw)
         for f in ("assigned_to", "assigned_by"):
             uraw = t._data.get(f)
             if uraw is not None and not isinstance(uraw, User):

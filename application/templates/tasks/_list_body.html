@@ -159,6 +159,14 @@
                 <span class="badge text-bg-warning"><i class="bi bi-person-arms-up"></i> from {{ task.assigned_by }}</span>
               {% endif %}
             {% endif %}
+            {# Owner hint: the assignee filed this delegated task under one of
+               their own projects. Inert text — the owner can't open it. #}
+            {% if task.assignee_parent and task.owner == current_user and task.assigned_to and task.assigned_to != current_user %}
+              <span class="badge text-bg-light text-muted"
+                    title="Filed by {{ task.assigned_to }} under their own project">
+                <i class="bi bi-folder-symlink"></i> {{ task.assigned_to }} › {{ task.assignee_parent.name }}
+              </span>
+            {% endif %}
             {% if task.status not in ['open', 'next', 'done'] and current_user.show_field('status_badge', view_key=_vk) %}
               <span class="badge text-bg-secondary">{{ task.status|status_label }}</span>
             {% endif %}

@@ -232,6 +232,8 @@ def assign_task(task_id):
         assignee = resolve_assignable_user(user, assignee_id)
         if not assignee:
             return _bad_request("user not assignable", 403)
+        if assignee != task.assigned_to:
+            task.assignee_parent = None  # new assignee → no inherited filing
         task.assigned_to = assignee
         task.assigned_by = user
         task.assigned_at = datetime.now(timezone.utc)
@@ -239,6 +241,7 @@ def assign_task(task_id):
         task.assigned_to = None
         task.assigned_by = None
         task.assigned_at = None
+        task.assignee_parent = None
     task.save()
     return jsonify(ser_task(task))
 
@@ -440,6 +443,8 @@ def _apply_task_payload(task: Item, data: dict, user) -> None:
             assignee = resolve_assignable_user(user, data["assigned_to_id"])
             if not assignee:
                 raise ValueError("assigned_to user not assignable")
+            if assignee != task.assigned_to:
+                task.assignee_parent = None  # new assignee → no inherited filing
             task.assigned_to = assignee
             task.assigned_by = user
             task.assigned_at = datetime.now(timezone.utc)
@@ -447,6 +452,22 @@ def _apply_task_payload(task: Item, data: dict, user) -> None:
             task.assigned_to = None
             task.assigned_by = None
             task.assigned_at = None
+            task.assignee_parent = None
+    # Personal filing of a DELEGATED task: the actor must be the assignee of
+    # someone else's task and own the destination. Never touches ``parent``.
+    # Handled after ``assigned_to_id`` so a combined payload assigns first.
+    if "assignee_parent_id" in data:
+        from application.services.permissions import resolve_visible_item
+        apid = data["assignee_parent_id"]
+        if apid:
+            if task.assigned_to != user or task.owner == user:
+                raise ValueError("assignee_parent only applies to tasks delegated to you")
+            cont = resolve_visible_item(user, apid)
+            if not cont or cont.owner != user:
+                raise ValueError("assignee_parent must be one of your own projects")
+            task.assignee_parent = cont
+        else:
+            task.assignee_parent = None
 
 # ---------------- projects ----------------
 

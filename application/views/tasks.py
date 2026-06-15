@@ -2248,6 +2248,13 @@ def move(task_id):
         siblings = data.getlist("siblings[]") or data.getlist("siblings")
 
     # 1) Change project on the moved task itself.
+    #
+    #    Dual-home: if the actor is the ASSIGNEE of someone else's task, the
+    #    move files it under one of THEIR OWN projects (``assignee_parent``)
+    #    and never touches the owner's canonical ``parent`` — so it can't
+    #    vanish from the owner's project. The owner (and own tasks) move the
+    #    canonical ``parent`` as before.
+    as_assignee = task.assigned_to == user and task.owner != user
     touched = False
     if "project_id" in data:
         pid = (data.get("project_id") or "").strip()
@@ -2256,9 +2263,18 @@ def move(task_id):
             proj = resolve_visible_item(user, pid)
             if not proj:
                 return jsonify({"error": "destination project not accessible"}), 403
-            task.project = proj
+            if as_assignee:
+                # Personal filing must land in a container the assignee owns.
+                if proj.owner != user:
+                    return jsonify({"error": "file delegated tasks under your own projects"}), 403
+                task.assignee_parent = proj
+            else:
+                task.project = proj
         else:
-            task.project = None
+            if as_assignee:
+                task.assignee_parent = None
+            else:
+                task.project = None
         touched = True
 
     # 2) Apply status from a status-tagged drop target. The pseudo-value
@@ -2302,6 +2318,7 @@ def move(task_id):
                 "ok": True,
                 "task_id": str(task.pk),
                 "project_id": str(task.project.pk) if task.project else None,
+                "assignee_parent_id": str(task.assignee_parent.pk) if task.assignee_parent else None,
             }
         )
     return redirect(request.referrer or url_for("dashboard.home"))

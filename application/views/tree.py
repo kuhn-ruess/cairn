@@ -34,7 +34,11 @@ def index():
     )
     tasks_by_project: dict = {None: []}
     for t in tasks:
-        key = str(t.project.pk) if t.project else None
+        # Group under the viewer's effective home: an assignee who filed a
+        # delegated task under their own project sees it there, not under the
+        # owner's (invisible) project.
+        home = t.home_for(user)
+        key = str(home.pk) if home else None
         tasks_by_project.setdefault(key, []).append(t)
 
     return render_template(

@@ -151,6 +151,13 @@ class Item(Document):
     # ownership & hierarchy
     owner = ReferenceField(User, required=True)
     parent = ReferenceField("Item")
+    # Per-assignee "second home": when a task is delegated to someone who
+    # can't see its ``parent`` project, they may file it under one of THEIR
+    # OWN projects/folders. This never touches ``parent`` (the owner's
+    # canonical placement), so the task stays put for the owner and only the
+    # assignee's views group it here. Always owned by ``assigned_to``; cleared
+    # on un-/re-assign. See ``home_for``.
+    assignee_parent = ReferenceField("Item")
     sort_order = IntField(default=0)
     # Loose, symmetric "see also" links between items. Purely a reference
     # surfaced in the inspector — deliberately NOT a hierarchy: no query
@@ -801,13 +808,28 @@ class Item(Document):
         """Total minutes logged across all time entries on this task."""
         return sum(e.minutes or 0 for e in (self.time_entries or []))
 
+    def home_for(self, user) -> "Item":
+        """The container this item appears under FOR ``user``. An assignee who
+        filed a delegated task into one of their own projects sees it there
+        (``assignee_parent``); the owner (and everyone else) always sees the
+        canonical ``parent``."""
+        if (self.assignee_parent is not None
+                and self.assigned_to == user and self.owner != user):
+            return self.assignee_parent
+        return self.parent
+
     def assign_to(self, new_assignee, *, by_user=None):
         if new_assignee is None:
             self.assigned_to = None
             self.assigned_by = None
             self.assigned_at = None
+            # No assignee → their personal filing is meaningless.
+            self.assignee_parent = None
             return
         old = self.assigned_to
+        # A different assignee inherits no personal filing from the previous one.
+        if new_assignee != old:
+            self.assignee_parent = None
         self.assigned_to = new_assignee
         self.assigned_by = by_user or self.owner
         self.assigned_at = _utcnow()
