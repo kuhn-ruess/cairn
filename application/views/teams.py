@@ -13,38 +13,37 @@ teams_bp = Blueprint("teams", __name__, url_prefix="/team")
 
 
 def _user_teams(user) -> list[Team]:
-    """All teams the user is admin of (sorted by name) — a user may
-    legitimately admin several teams since we added admin-side team
-    creation."""
-    return list(Team.objects(admin=user).order_by("+name"))
+    """Every team the user can manage (as paying admin or co-admin),
+    sorted by name."""
+    return list(Team.objects(admins=user).order_by("+name"))
 
 
 def _select_team(user) -> Team | None:
     """Pick which team to show on the page.
 
-    ``?team=<pk>`` lets the admin switch when they own more than one;
-    otherwise fall back to the first admin'd team, then to the team
-    the user belongs to as a member.
+    ``?team=<pk>`` lets a manager switch when they manage more than one;
+    otherwise fall back to the first managed team, then to the team the
+    user belongs to as a member.
     """
     raw = request.args.get("team")
     if raw:
         cand = Team.objects(pk=raw).first()
-        if cand and (cand.admin == user or user.team == cand):
+        if cand and (cand.is_managed_by(user) or user.team == cand):
             return cand
-    owned = _user_teams(user)
-    if owned:
-        return owned[0]
+    managed = _user_teams(user)
+    if managed:
+        return managed[0]
     return user.team
 
 
 def _team_from_form(user) -> Team | None:
-    """Look up a team via ``team_id`` form field and verify the
-    user can manage it. Returns None on auth failure."""
+    """Look up a team via ``team_id`` form field and verify the user may
+    manage it (paying admin or co-admin). Returns None on auth failure."""
     raw = (request.form.get("team_id") or "").strip()
     if not raw:
         return None
     team = Team.objects(pk=raw).first()
-    if not team or team.admin != user:
+    if not team or not team.is_managed_by(user):
         return None
     return team
 
@@ -60,16 +59,23 @@ def index():
     # counted/listed even when their own ``user.team`` points elsewhere — the
     # plain ``User.objects(team=team)`` query missed the admin (wrong count).
     from application.services.permissions import team_members
+    from application.services import billing
     members = sorted(team_members(team), key=lambda u: (u.username or "").lower())
     invites = sorted(
         (i for i in (team.invites or []) if not i.used_at),
         key=lambda i: i.email,
     )
-    can_manage = user.is_team_admin and team.admin == user
+    manager_ids = team.manager_ids()
     return render_template(
         "teams/index.html",
         team=team, members=members, invites=invites,
-        can_manage=can_manage,
+        can_manage=team.is_managed_by(user),
+        is_payer=bool(team.admin and team.admin.pk == user.pk),
+        payer=team.admin,
+        manager_ids=manager_ids,
+        billing_active=billing.team_billing_active(team),
+        billable=billing.billable_member_count(team),
+        cost_label=billing.team_cost_label(team),
         all_teams=_user_teams(user),
     )
 
@@ -154,11 +160,13 @@ def accept(token):
         return render_template("teams/invite_invalid.html"), 403
     if request.method == "POST":
         user.team = team
-        # Team membership grants premium for free — recompute reflects that.
-        from application.services.billing import recompute_level
-        recompute_level(user, save=False)
+        # Member's premium seat is paid by the team's payer — recompute, then
+        # push the new seat count to the payer's subscription.
+        from application.services import billing
+        billing.recompute_level(user, save=False)
         user.save()
         team.consume_invite(token, user)
+        billing.sync_team_seats(team)
         flash(f"You're now part of {team.name}.", "success")
         return redirect(url_for("teams.index"))
     return render_template("teams/invite_accept.html", invite=inv, team=team)
@@ -176,15 +184,86 @@ def remove_member(user_id):
     if not member:
         abort(404)
     if member == team.admin:
-        flash("Can't remove the team admin.", "danger")
+        flash("Can't remove the paying admin — hand billing to another admin first.",
+              "danger")
         return redirect(url_for("teams.index", team=str(team.pk)))
     member.team = None
-    # Losing team membership drops the free premium it conferred (unless the
-    # member pays their own way) — recompute their level.
-    from application.services.billing import recompute_level
-    recompute_level(member, save=False)
+    # Removing a member also drops any co-admin role they held.
+    team.admins = [a for a in (team.admins or []) if a and a.pk != member.pk]
+    team.save()
+    # Their premium seat goes away (unless they pay their own way) — recompute,
+    # then update the payer's seat count.
+    from application.services import billing
+    billing.recompute_level(member, save=False)
     member.save()
+    billing.sync_team_seats(team)
     flash(f"{member.username} removed from {team.name}.", "info")
+    return redirect(url_for("teams.index", team=str(team.pk)))
+
+
+@teams_bp.route("/admins/<user_id>/add", methods=["POST"])
+@login_required
+@team_admin_required
+def add_admin(user_id):
+    """Grant a team member co-admin (management) rights."""
+    user = current_user._get_current_object()
+    team = _team_from_form(user)
+    if not team:
+        abort(403)
+    member = User.objects(pk=user_id, team=team).first()
+    if not member:
+        abort(404)
+    if member.pk not in [a.pk for a in (team.admins or []) if a]:
+        team.admins = list(team.admins or []) + [member]
+        team.save()
+        flash(f"{member.username} is now a team admin.", "success")
+    return redirect(url_for("teams.index", team=str(team.pk)))
+
+
+@teams_bp.route("/admins/<user_id>/remove", methods=["POST"])
+@login_required
+@team_admin_required
+def remove_admin(user_id):
+    """Revoke a co-admin's management rights. The paying admin can't be
+    demoted this way — hand billing over first."""
+    user = current_user._get_current_object()
+    team = _team_from_form(user)
+    if not team:
+        abort(403)
+    if team.admin and str(team.admin.pk) == str(user_id):
+        flash("The paying admin stays an admin — hand billing over first.",
+              "danger")
+        return redirect(url_for("teams.index", team=str(team.pk)))
+    team.admins = [a for a in (team.admins or []) if a and str(a.pk) != str(user_id)]
+    team.save()
+    flash("Admin rights revoked.", "info")
+    return redirect(url_for("teams.index", team=str(team.pk)))
+
+
+@teams_bp.route("/payer/<user_id>", methods=["POST"])
+@login_required
+@team_admin_required
+def set_payer(user_id):
+    """Designate which admin pays for the team. Only the current payer may
+    hand this over."""
+    user = current_user._get_current_object()
+    team = _team_from_form(user)
+    if not team:
+        abort(403)
+    if not (team.admin and team.admin.pk == user.pk):
+        flash("Only the current paying admin can hand over billing.", "danger")
+        return redirect(url_for("teams.index", team=str(team.pk)))
+    new_payer = User.objects(pk=user_id).first()
+    if not new_payer:
+        abort(404)
+    from application.services import billing
+    try:
+        billing.set_team_payer(team, new_payer)
+    except billing.BillingError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("teams.index", team=str(team.pk)))
+    flash(f"{new_payer.username} is now the paying admin — they need to start a "
+          f"team subscription to keep billing active.", "info")
     return redirect(url_for("teams.index", team=str(team.pk)))
 
 

@@ -31,9 +31,11 @@ def index():
         user=user,
         billing_enabled=billing.billing_enabled(),
         premium_label=current_app.config.get("PRICE_PREMIUM_LABEL", ""),
-        team_label=current_app.config.get("PRICE_TEAM_LABEL", ""),
         team_family_label=current_app.config.get("PRICE_TEAM_FAMILY_LABEL", ""),
-        # which team variant the user currently owns (for "current plan" badges)
+        team_org_label=current_app.config.get("PRICE_TEAM_ORG_LABEL", ""),
+        family_seats=current_app.config.get("FAMILY_INCLUDED_SEATS", 5),
+        # which team variant the user currently pays for (for "current plan")
+        owns_team=owned is not None,
         current_team_family=bool(owned and owned.family),
     )
 

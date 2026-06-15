@@ -13,6 +13,7 @@ from mongoengine import (
     Document,
     EmbeddedDocument,
     EmbeddedDocumentListField,
+    ListField,
     ObjectIdField,
     ReferenceField,
     StringField,
@@ -61,17 +62,34 @@ class Team(Document):
     meta = {"collection": "teams", "indexes": ["admin", "invites.token"]}
 
     name = StringField(required=True, max_length=120)
+    # ``admin`` is the **paying** admin — the one whose subscription carries the
+    # team's seats. ``admins`` is every user with management rights (the payer
+    # plus co-admins). The payer is always one of ``admins``. Querying
+    # ``Team.objects(admin=user)`` therefore means "teams this user pays for".
     admin = ReferenceField(User, required=True)
+    admins = ListField(ReferenceField(User))
     created_at = DateTimeField(default=_utcnow)
     invites = EmbeddedDocumentListField(TeamInvite)
-    # Non-commercial / family team → discounted team plan (€2 instead of €5).
-    # Operator-granted (a global admin sets it) so it can't be self-claimed.
-    # See application.services.billing._price_for_plan.
+    # Family (non-commercial) team → flat base price covering FAMILY_INCLUDED_SEATS
+    # member seats, extra seats billed cheaper than organisation seats. When
+    # False the team is an organisation (every member seat billed). The choice
+    # is made by the payer at checkout; see application.services.billing.
     family = BooleanField(default=False)
 
     def members_query(self):
         from application.models.user import User as _User
         return _User.objects(team=self)
+
+    def manager_ids(self) -> set:
+        """Set of str pks for everyone allowed to manage this team — the
+        payer plus any co-admins."""
+        ids = {str(a.pk) for a in (self.admins or []) if a}
+        if self.admin:
+            ids.add(str(self.admin.pk))
+        return ids
+
+    def is_managed_by(self, user) -> bool:
+        return bool(user) and str(user.pk) in self.manager_ids()
 
     def find_invite(self, *, pk_str: str | None = None, token: str | None = None):
         for inv in self.invites or []:

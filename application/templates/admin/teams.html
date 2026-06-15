@@ -49,7 +49,7 @@
         <tr>
           <td>
             {{ t.name }}
-            {% if t.family %}<span class="badge text-bg-info ms-1">family · €2</span>{% endif %}
+            {% if t.family %}<span class="badge text-bg-info ms-1">family</span>{% endif %}
             {% if t.admin and t.admin.comp_plan == 'team' %}<span class="badge text-bg-success ms-1">free</span>{% endif %}
           </td>
           <td>{{ t.admin if t.admin else '—' }}</td>
@@ -57,7 +57,7 @@
             {% if t.admin and t.admin.comp_plan == 'team' %}
               Complimentary
             {% elif t.admin and t.admin.has_active_subscription and t.admin.subscription_plan == 'team' %}
-              Paid ({{ 'family €2' if t.family else '€5' }})
+              Paid ({{ 'family €5 + €2/seat' if t.family else '€5/seat' }})
             {% else %}
               <span class="text-muted">no active plan</span>
             {% endif %}
@@ -66,8 +66,8 @@
             <form method="post" action="{{ url_for('admin.team_family', team_id=t.pk) }}" class="d-inline m-0">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-sm btn-outline-info"
-                      title="Toggle family / non-commercial €2 pricing">
-                {{ 'Unmark family' if t.family else 'Mark family (€2)' }}
+                      title="Toggle family / non-commercial pricing">
+                {{ 'Unmark family' if t.family else 'Mark family' }}
               </button>
             </form>
             <form method="post" action="{{ url_for('admin.team_comp', team_id=t.pk) }}" class="d-inline m-0">

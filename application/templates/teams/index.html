@@ -22,6 +22,33 @@
 </div>
 
 {% if can_manage %}
+  <div class="card mb-4 {% if not billing_active %}border-warning{% endif %}" style="max-width: 720px;">
+    <div class="card-body">
+      <h2 class="h6 mb-2"><i class="bi bi-credit-card"></i> Team billing</h2>
+      <p class="mb-1">
+        <span class="badge text-bg-{{ 'info' if team.family else 'secondary' }}">
+          {{ 'Family' if team.family else 'Organisation' }}</span>
+        {% if billing_active %}
+          <span class="badge text-bg-success ms-1">active</span>
+        {% else %}
+          <span class="badge text-bg-warning ms-1">no active billing</span>
+        {% endif %}
+      </p>
+      <p class="small text-muted mb-1">
+        Paying admin: <strong>{{ payer.username if payer else '—' }}</strong>
+        · {{ billable }} paid seat{{ '' if billable == 1 else 's' }}
+        · approx. {{ cost_label }}
+      </p>
+      {% if not billing_active %}
+        <p class="small text-warning mb-1">
+          Billing isn't active — members will drop to free until the paying
+          admin starts a team subscription on the
+          <a href="{{ url_for('billing.index') }}">billing page</a>.
+        </p>
+      {% endif %}
+    </div>
+  </div>
+
   <div class="card mb-4" style="max-width: 600px;">
     <div class="card-body">
       <h2 class="h6 mb-2"><i class="bi bi-envelope-plus"></i> Invite a member</h2>
@@ -46,21 +73,51 @@
   </div>
   <ul class="list-group list-group-flush">
     {% for m in members %}
-      <li class="list-group-item d-flex align-items-center">
+      {% set is_member_payer = payer and m.pk == payer.pk %}
+      {% set is_member_admin = (m.pk|string) in manager_ids %}
+      <li class="list-group-item d-flex align-items-center gap-1 flex-wrap">
         <div class="me-auto">
           <strong><a class="text-decoration-none"
              href="{{ url_for('teams.member', user_id=m.pk) }}"
              title="View {{ m.username }}'s tasks + shared projects">{{ m.username }}</a></strong>
-          {% if m == team.admin %}<span class="badge text-bg-warning ms-1">admin</span>{% endif %}
+          {% if is_member_payer %}<span class="badge text-bg-warning ms-1">pays</span>
+          {% elif is_member_admin %}<span class="badge text-bg-secondary ms-1">admin</span>{% endif %}
           <div class="small text-muted">{{ m.email }} · {{ m.level }}</div>
         </div>
-        {% if can_manage and m != team.admin %}
-          <form method="post" action="{{ url_for('teams.remove_member', user_id=m.pk) }}"
-                onsubmit="return confirm('Remove {{ m.username }} from the team?');">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="team_id" value="{{ team.pk }}">
-            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-x"></i></button>
-          </form>
+        {% if can_manage %}
+          {# Promote/demote co-admin (never the payer) #}
+          {% if not is_member_payer %}
+            {% if is_member_admin %}
+              <form method="post" action="{{ url_for('teams.remove_admin', user_id=m.pk) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="team_id" value="{{ team.pk }}">
+                <button class="btn btn-sm btn-outline-secondary" title="Revoke admin rights">Unadmin</button>
+              </form>
+            {% else %}
+              <form method="post" action="{{ url_for('teams.add_admin', user_id=m.pk) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="team_id" value="{{ team.pk }}">
+                <button class="btn btn-sm btn-outline-secondary" title="Make team admin">Make admin</button>
+              </form>
+            {% endif %}
+          {% endif %}
+          {# Hand billing over — only the current payer can, only to a co-admin #}
+          {% if is_payer and is_member_admin and not is_member_payer %}
+            <form method="post" action="{{ url_for('teams.set_payer', user_id=m.pk) }}"
+                  onsubmit="return confirm('Hand billing over to {{ m.username }}? Your team subscription will be cancelled and they must start a new one.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="team_id" value="{{ team.pk }}">
+              <button class="btn btn-sm btn-outline-warning" title="Make paying admin">Make payer</button>
+            </form>
+          {% endif %}
+          {% if not is_member_payer %}
+            <form method="post" action="{{ url_for('teams.remove_member', user_id=m.pk) }}"
+                  onsubmit="return confirm('Remove {{ m.username }} from the team?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="team_id" value="{{ team.pk }}">
+              <button class="btn btn-sm btn-outline-danger" title="Remove from team"><i class="bi bi-x"></i></button>
+            </form>
+          {% endif %}
         {% endif %}
       </li>
     {% endfor %}

@@ -23,10 +23,18 @@ def global_admin_required(view):
     return wrapper
 
 def team_admin_required(view):
+    """Coarse gate: the user must manage at least one team — either as the
+    paying admin (``level == team_admin``) or as a co-admin (listed in some
+    ``Team.admins``). Per-team authorization is still enforced inside each
+    view via ``Team.is_managed_by``."""
     @wraps(view)
     def wrapper(*args, **kwargs):
-        if not current_user.is_authenticated or not current_user.is_team_admin:
+        if not current_user.is_authenticated:
             abort(403)
+        if not current_user.is_team_admin:
+            from application.models.team import Team
+            if not Team.objects(admins=current_user._get_current_object()).first():
+                abort(403)
         return view(*args, **kwargs)
     return wrapper
 

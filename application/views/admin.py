@@ -131,7 +131,7 @@ def set_level(user_id):
     # historical memberships aren't lost.
     if level == "team_admin" and not target.team:
         team = Team(name=f"{target.display_name or target.username}'s team",
-                    admin=target).save()
+                    admin=target, admins=[target]).save()
         target.team = team
     target.save()
     flash(f"{target.username} is now {level}"
@@ -207,7 +207,7 @@ def teams_create():
     if not admin_user:
         flash("Pick a valid team admin.", "danger")
         return redirect(url_for("admin.teams"))
-    team = Team(name=name, admin=admin_user).save()
+    team = Team(name=name, admin=admin_user, admins=[admin_user]).save()
     # Make sure the chosen admin actually has team_admin level and the
     # team pointer — otherwise they can't manage it from the team page.
     if admin_user.level not in ("team_admin", "global_admin"):

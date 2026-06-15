@@ -51,14 +51,23 @@ class BaseConfig:
     STRIPE_SECRET_KEY = ""
     STRIPE_PUBLISHABLE_KEY = ""
     STRIPE_WEBHOOK_SECRET = ""
-    STRIPE_PRICE_PREMIUM = ""       # recurring €2/mo price id
-    STRIPE_PRICE_TEAM = ""          # recurring €5/mo price id (commercial)
-    STRIPE_PRICE_TEAM_FAMILY = ""   # recurring €2/mo price id (family / non-profit)
+    # Seat-based team billing. The paying admin's subscription carries a seat
+    # quantity that tracks the team's billable member count (the paying admin's
+    # own seat is free). See application.services.billing.
+    #   premium     — €2/mo solo (licensed, qty 1)
+    #   seat_org    — €5/mo per member seat (organisation teams)
+    #   family_base — €5/mo flat, covers the first 5 family member seats
+    #   seat_family — €2/mo per extra family member seat (6th onward)
+    STRIPE_PRICE_PREMIUM = ""
+    STRIPE_PRICE_SEAT_ORG = ""
+    STRIPE_PRICE_FAMILY_BASE = ""
+    STRIPE_PRICE_SEAT_FAMILY = ""
+    FAMILY_INCLUDED_SEATS = 5
     TRIAL_DAYS = 30
     # Human-readable labels shown on the billing page (display only).
     PRICE_PREMIUM_LABEL = "€2 / month"
-    PRICE_TEAM_LABEL = "€5 / month"
-    PRICE_TEAM_FAMILY_LABEL = "€2 / month"
+    PRICE_TEAM_FAMILY_LABEL = "€5 / month — 5 seats included, then €2 / seat"
+    PRICE_TEAM_ORG_LABEL = "€5 / member / month"
 
 
 class DevConfig(BaseConfig):
