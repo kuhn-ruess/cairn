@@ -757,7 +757,10 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
   margin-top: .2rem;
   font-size: .9rem;
   color: var(--gv-fg1);
-  white-space: pre-wrap;
+  /* Body is rendered Markdown (HTML with <br>/<p>), NOT plain text — so it
+     must NOT be pre-wrap. With pre-wrap the literal "\n" that nl2br leaves
+     after each "<br />" rendered as a SECOND line break, doubling the spacing
+     on every comment (API + Zammad/Jira imports alike). */
   line-height: 1.45;
   word-break: break-word;
 }
