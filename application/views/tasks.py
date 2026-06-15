@@ -286,15 +286,23 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     # reparent into a project the user doesn't own/share. Invalid /
     # inaccessible pks fall back to "no project" — same lenient
     # behaviour the form had before, but without the access leak.
-    from application.services.permissions import resolve_visible_item
-    _dest = resolve_visible_item(user, form.project.data) if form.project.data else None
-    # Role-aware: an assignee triaging a delegated task files it under THEIR
-    # own project (assignee_parent), never the owner's canonical parent.
-    try:
-        task.set_home_for(user, _dest)
-    except ValueError:
-        # Tampered POST picking a project the assignee doesn't own → Inbox.
-        task.set_home_for(user, None)
+    #
+    # A SUBTASK's container is its parent TASK, which the project <select>
+    # can't represent — so saving the form must NOT touch a subtask's parent
+    # (an empty select would orphan it out of its parent). Moving a subtask
+    # out to a project happens via drag/move, not this form.
+    parent_is_task = (task.parent is not None
+                      and getattr(task.parent, "kind", None) == "task")
+    if not parent_is_task:
+        from application.services.permissions import resolve_visible_item
+        _dest = resolve_visible_item(user, form.project.data) if form.project.data else None
+        # Role-aware: an assignee triaging a delegated task files it under
+        # THEIR own project (assignee_parent), never the owner's parent.
+        try:
+            task.set_home_for(user, _dest)
+        except ValueError:
+            # Tampered POST picking a project the assignee doesn't own → Inbox.
+            task.set_home_for(user, None)
     # Tags are stored as a list of names; the multi-select submits names.
     submitted = list(form.tags.data or [])
     # Snapshot the tags already on the task so the label rule below only
