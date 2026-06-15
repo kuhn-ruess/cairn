@@ -15,13 +15,17 @@
   // ---- Pin: keep the inspector open across clicks / Esc / page loads ----
   const PIN_KEY = "cairn:inspector-pinned";
   const pinBtn = document.getElementById("inspector-pin");
+  // The task-detail page renders its OWN inline inspector (#inline-inspector).
+  // Don't ALSO open the pinned offcanvas there — it'd sit empty beside the
+  // inline one. The pin state still persists for list pages.
+  const hasInline = !!document.getElementById("inline-inspector");
   function isPinned() {
     try { return localStorage.getItem(PIN_KEY) === "1"; }
     catch (e) { return false; }
   }
   function reflectPin() {
     const on = isPinned();
-    document.body.classList.toggle("inspector-pinned", on);
+    document.body.classList.toggle("inspector-pinned", on && !hasInline);
     if (pinBtn) {
       pinBtn.setAttribute("aria-pressed", on ? "true" : "false");
       pinBtn.classList.toggle("is-pinned", on);
@@ -41,12 +45,13 @@
       const next = !isPinned();
       try { localStorage.setItem(PIN_KEY, next ? "1" : "0"); } catch (e) {}
       reflectPin();
-      if (next) { bsOffcanvas.show(); showPinnedPlaceholder(); }
+      if (next && !hasInline) { bsOffcanvas.show(); showPinnedPlaceholder(); }
     });
   }
   reflectPin();
-  // Pinned → open the column on load so it's a permanent fixture.
-  if (isPinned()) { bsOffcanvas.show(); showPinnedPlaceholder(); }
+  // Pinned → open the column on load so it's a permanent fixture (but not on
+  // the detail page, which already has its own inline inspector).
+  if (isPinned() && !hasInline) { bsOffcanvas.show(); showPinnedPlaceholder(); }
 
   // When the user closes the inspector after at least one successful save,
   // refresh the list behind it so the change is visible. We *don't* reload
