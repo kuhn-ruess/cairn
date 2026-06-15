@@ -748,7 +748,7 @@ def today():
 
         filtered = [
             t for t in qs
-            if _hit(t.due_date) or _hit(t.plan_date)
+            if _hit(t.due_date) or _hit(t.plan_date) or _hit(t.followup_at)
             or (lower is None and t.flagged)
         ]
         projects_with_dates = [
@@ -878,7 +878,7 @@ def today():
         # falling back to due_date.date(). Items with no date land in
         # the first bucket (today) so they're never dropped silently.
         for t in filtered:
-            anchor = _to_user_list(t.plan_date or t.due_date)
+            anchor = _to_user_list(t.plan_date or t.due_date or t.followup_at)
             day_key = anchor.date() if anchor else start_date
             # Overdue / past-dated → fold into the first day (today) so it's
             # never dropped silently. Only days inside the window have buckets.

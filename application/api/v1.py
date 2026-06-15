@@ -128,6 +128,8 @@ def today_debug():
                 reasons.append("planned")
             if t.defer_date and t.defer_date <= now and t.status == "next":
                 reasons.append("next_available")
+            if t.followup_at and t.followup_at <= today_end:
+                reasons.append("followup_overdue" if t.followup_at < now else "followup_due")
         else:
             # window starts today → no lower bound (overdue stays visible)
             if t.due_date and t.due_date < end_dt:
@@ -136,6 +138,8 @@ def today_debug():
                 reasons.append("flagged")
             if t.plan_date and t.plan_date < end_dt:
                 reasons.append("planned")
+            if t.followup_at and t.followup_at < end_dt:
+                reasons.append("followup")
         return reasons
 
     matched = [(t, r) for t in qs for r in [match_reason(t)] if r]
