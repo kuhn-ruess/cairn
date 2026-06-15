@@ -179,7 +179,7 @@ def sidebar_counts(user, now=None, keys=None) -> dict:
     # Reference-based perspectives — count() avoids dereferencing per task.
     if "inbox" in want:
         from application.services.permissions import inbox_q
-        c["inbox"] = Item.objects(_scope(user), inbox_q(user), kind="task",
+        c["inbox"] = Item.objects((_scope(user) & inbox_q(user)), kind="task",
                                   status__nin=["done", "dropped"]).count()
     if "assigned" in want:
         from application.services import focus
@@ -352,7 +352,7 @@ def process_inbox(task_id):
 
     def queue():
         return list(
-            Item.objects(_scope(user), inbox_q(user), kind="task",
+            Item.objects((_scope(user) & inbox_q(user)), kind="task",
                          status__nin=["done", "dropped"])
             .order_by("-created_at")
         )
@@ -412,7 +412,7 @@ def process_inbox_save(task_id):
     # left first.
     from application.services.permissions import inbox_q
     remaining = list(
-        Item.objects(_scope(user), inbox_q(user), kind="task",
+        Item.objects((_scope(user) & inbox_q(user)), kind="task",
                      status__nin=["done", "dropped"])
         .order_by("-created_at")
     )
@@ -470,7 +470,7 @@ def inbox():
     """Virtual default project — every task without an explicit project."""
     user = current_user._get_current_object()
     from application.services.permissions import inbox_q
-    tasks = (Item.objects(_scope(user), inbox_q(user),
+    tasks = (Item.objects((_scope(user) & inbox_q(user)),
                           kind="task",
                           status__nin=["done", "dropped"])
              .order_by("-created_at"))
