@@ -19,7 +19,17 @@
         </button>
         <a class="subtask-title text-decoration-none {{ 'text-muted' if sd else 'text-body' }}"
            href="{{ url_for('tasks.detail', task_id=s.pk) }}">{{ s.title }}</a>
-        {% if s.priority %}<span class="priority-p{{ s.priority }} small ms-auto">P{{ s.priority }}</span>{% endif %}
+        <span class="ms-auto d-flex align-items-center gap-2">
+          {% if s.priority %}<span class="priority-p{{ s.priority }} small">P{{ s.priority }}</span>{% endif %}
+          {% if s.assigned_to and s.assigned_to != current_user %}
+            <span class="badge text-bg-info" title="Assigned to {{ s.assigned_to }}"><i class="bi bi-person"></i> {{ s.assigned_to }}</span>
+          {% endif %}
+          <a class="task-inspector-btn" href="{{ url_for('tasks.edit', task_id=s.pk) }}"
+             data-inspector-url="{{ url_for('tasks.edit', task_id=s.pk) }}"
+             data-inspector-title="{{ s.title }}" title="Open inspector">
+            <i class="bi bi-info-circle"></i>
+          </a>
+        </span>
       </li>
     {% else %}
       <li class="text-muted small">No subtasks yet.</li>
