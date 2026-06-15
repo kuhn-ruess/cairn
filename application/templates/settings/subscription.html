@@ -9,10 +9,13 @@
     <p class="mb-2">
       <span class="badge text-bg-primary text-uppercase">{{ current_level|replace('_', ' ') }}</span>
     </p>
-    <p class="text-muted small mb-0">
-      To change tiers, ask a global admin to run
-      <code>./cairn set-level &lt;you&gt; &lt;tier&gt;</code> or open a request.
+    <p class="text-muted small mb-2">
+      Premium is €2/month, Team €5/month — monthly, cancel anytime. New
+      accounts start with a 30-day premium trial.
     </p>
+    <a class="btn btn-primary btn-sm" href="{{ url_for('billing.index') }}">
+      <i class="bi bi-credit-card"></i> Manage subscription &amp; billing
+    </a>
   </div>
 </div>
 

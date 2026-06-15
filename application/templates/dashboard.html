@@ -82,6 +82,21 @@
     </a>
   </div>
   <div class="col-sm-6 col-md-4 col-xl-3">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('billing.index') }}">
+      <div class="card-body d-flex align-items-center gap-3">
+        <i class="bi bi-credit-card fs-3 text-primary"></i>
+        <div>
+          <div class="fw-semibold">Subscription
+            {% if current_user.is_trial_active and not current_user.has_active_subscription %}
+              <span class="badge text-bg-info ms-1">{{ current_user.trial_days_left }}d trial</span>
+            {% endif %}
+          </div>
+          <div class="small text-muted">Manage your plan &amp; billing</div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-sm-6 col-md-4 col-xl-3">
     <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('projects.index') }}">
       <div class="card-body d-flex align-items-center gap-3">
         <i class="bi bi-bullseye fs-3 {{ 'text-warning' if current_focus else 'text-secondary' }}"></i>

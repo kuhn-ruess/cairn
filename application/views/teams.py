@@ -154,8 +154,9 @@ def accept(token):
         return render_template("teams/invite_invalid.html"), 403
     if request.method == "POST":
         user.team = team
-        if user.level == "free":
-            user.level = "premium"
+        # Team membership grants premium for free — recompute reflects that.
+        from application.services.billing import recompute_level
+        recompute_level(user, save=False)
         user.save()
         team.consume_invite(token, user)
         flash(f"You're now part of {team.name}.", "success")
@@ -178,6 +179,10 @@ def remove_member(user_id):
         flash("Can't remove the team admin.", "danger")
         return redirect(url_for("teams.index", team=str(team.pk)))
     member.team = None
+    # Losing team membership drops the free premium it conferred (unless the
+    # member pays their own way) — recompute their level.
+    from application.services.billing import recompute_level
+    recompute_level(member, save=False)
     member.save()
     flash(f"{member.username} removed from {team.name}.", "info")
     return redirect(url_for("teams.index", team=str(team.pk)))

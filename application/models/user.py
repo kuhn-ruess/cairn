@@ -1,7 +1,7 @@
 """User and API token models."""
 import hashlib
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
 from flask_login import UserMixin
@@ -82,8 +82,33 @@ class User(UserMixin, Document):
         default="free",
     )
     # The team this user belongs to (set by accepting an invite). For
-    # ``team_admin`` this is also the team they own.
+    # ``team_admin`` this is also the team they own. Being in a team always
+    # grants premium for free — it's bundled in the admin's team subscription.
     team = ReferenceField("Team")
+
+    # ---- Subscription / billing (Stripe) ----
+    # ``level`` above stays the single source of truth for every gate in the
+    # app; the billing layer (webhooks + the nightly ``reconcile-subscriptions``
+    # sweep, see application.services.billing) is what WRITES it based on the
+    # state below. ``global_admin`` is never touched automatically.
+    #
+    #   trial_ends_at        — app-managed 30-day premium trial set at signup
+    #                          (no card, no Stripe customer yet). Expired + no
+    #                          active sub + not in a team → falls back to free.
+    #   subscription_plan    — "" | "premium" (€2) | "team" (€5)
+    #   subscription_status  — Stripe status: "" | trialing | active | past_due
+    #                          | canceled. Only active/trialing entitle.
+    stripe_customer_id = StringField(default="")
+    subscription_id = StringField(default="")
+    subscription_plan = StringField(default="")
+    subscription_status = StringField(default="")
+    current_period_end = DateTimeField()
+    cancel_at_period_end = BooleanField(default=False)
+    trial_ends_at = DateTimeField()
+    # Operator-granted comp plan ("" | premium | team). Set by ``set-level``,
+    # it entitles like a paid subscription so manually-promoted accounts
+    # (friends, grandfathered users) survive the nightly reconcile sweep.
+    comp_plan = StringField(default="")
 
     # Saved per-user secrets (encrypted at rest via services.crypto).
     # The corresponding OAuth client / API client lives in app config so
@@ -270,6 +295,35 @@ class User(UserMixin, Document):
     def can_share_projects(self) -> bool:
         # Premium-and-up users plus anyone in a team can share within it.
         return self.team is not None or self.is_team_admin
+
+    # ---------- billing helpers ----------
+
+    def start_trial(self, days: int) -> None:
+        """Begin the one-time signup premium trial. No-op if a trial was
+        already granted or the user is a global admin (operators don't
+        trial)."""
+        if self.level == "global_admin":
+            return
+        if self.trial_ends_at is None:
+            self.trial_ends_at = _utcnow() + timedelta(days=int(days))
+
+    @property
+    def is_trial_active(self) -> bool:
+        return bool(self.trial_ends_at and self.trial_ends_at > _utcnow())
+
+    @property
+    def has_active_subscription(self) -> bool:
+        """True only while Stripe considers the subscription paid. ``past_due``
+        and ``canceled`` deliberately don't entitle (no grace period)."""
+        return self.subscription_status in ("active", "trialing")
+
+    @property
+    def trial_days_left(self) -> int:
+        if not self.is_trial_active:
+            return 0
+        delta = self.trial_ends_at - _utcnow()
+        # Round up so the last partial day still reads as "1 day left".
+        return max(0, -(-delta.days) if delta.seconds == 0 else delta.days + 1)
 
     # Tier-based retention for completed/dropped tasks: free keeps 60 days,
     # premium (and up) 6 months. A user may opt into a SHORTER window via

@@ -42,6 +42,22 @@ class BaseConfig:
     SMTP_FROM = ""
     SMTP_TLS = "1"
 
+    # ---- Stripe subscription billing ----
+    # New users get TRIAL_DAYS of premium for free; afterwards they either
+    # subscribe (premium €2/mo, team €5/mo) or fall back to free.
+    # Leave STRIPE_SECRET_KEY empty to disable billing entirely (the /billing
+    # page then explains it isn't configured). All keys come from env as
+    # BKTODO_STRIPE_* — the two price ids are created in the Stripe dashboard.
+    STRIPE_SECRET_KEY = ""
+    STRIPE_PUBLISHABLE_KEY = ""
+    STRIPE_WEBHOOK_SECRET = ""
+    STRIPE_PRICE_PREMIUM = ""   # recurring €2/mo price id
+    STRIPE_PRICE_TEAM = ""      # recurring €5/mo price id
+    TRIAL_DAYS = 30
+    # Human-readable labels shown on the billing page (display only).
+    PRICE_PREMIUM_LABEL = "€2 / month"
+    PRICE_TEAM_LABEL = "€5 / month"
+
 
 class DevConfig(BaseConfig):
     DEBUG = True

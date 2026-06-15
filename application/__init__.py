@@ -9,7 +9,7 @@ from mongoengine import connect, disconnect
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Public app version — surfaced in the nav footer + the About page.
-APP_VERSION = "1.4.25"
+APP_VERSION = "1.4.26"
 
 # Pull settings out of a local ``.env`` file if one exists. Doesn't override
 # values that are already set in the real environment.
@@ -69,6 +69,7 @@ def create_app(config_object: str | None = None) -> Flask:
     from application.views.braindump import braindump_bp
     from application.views.focus import focus_bp
     from application.views.caldav import caldav_bp
+    from application.views.billing import billing_bp, webhook as billing_webhook
     from application.api.v1 import api_v1_bp
 
     app.register_blueprint(auth_bp)
@@ -88,6 +89,10 @@ def create_app(config_object: str | None = None) -> Flask:
     app.register_blueprint(focus_bp)
     app.register_blueprint(caldav_bp)
     csrf.exempt(caldav_bp)
+    app.register_blueprint(billing_bp)
+    # The Stripe webhook authenticates via its signature header, not a session
+    # cookie — exempt only that one route (checkout/portal forms keep CSRF).
+    csrf.exempt(billing_webhook)
     app.register_blueprint(api_v1_bp)
     csrf.exempt(api_v1_bp)
 

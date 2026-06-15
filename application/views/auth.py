@@ -96,6 +96,10 @@ def register():
                 display_name=display_name,
             )
             user.set_password(form.password.data)
+            # New users get a free premium trial; level reflects it immediately.
+            user.start_trial(current_app.config.get("TRIAL_DAYS", 30))
+            from application.services.billing import recompute_level
+            recompute_level(user, save=False)
             user.save()
             login_user(user)
             # If they got here via an invite link, auto-redirect into the

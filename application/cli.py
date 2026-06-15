@@ -107,13 +107,22 @@ def cleanup_trash(dry_run, username):
 @click.argument("email_or_username")
 @click.argument("level", type=click.Choice(["free", "premium", "team_admin", "global_admin"]))
 def set_level(email_or_username, level):
-    """Promote / demote a user. Auto-creates a team when needed."""
+    """Promote / demote a user. Auto-creates a team when needed.
+
+    This grants an operator *comp* plan (no Stripe charge) so the level
+    survives the nightly ``reconcile-subscriptions`` sweep — use it for
+    friends / grandfathered / complimentary accounts. To put someone back on
+    paid-only billing, set them to ``free`` (clears the comp) and let them
+    subscribe via /billing.
+    """
     user = (
         User.objects(email=email_or_username).first()
         or User.objects(username=email_or_username).first()
     )
     if not user:
         raise click.ClickException(f"no user '{email_or_username}'")
+    # Mirror the level onto a comp plan so billing treats it as entitled.
+    user.comp_plan = {"premium": "premium", "team_admin": "team"}.get(level, "")
     user.level = level
     if level == "team_admin" and not user.team:
         from application.models.team import Team
@@ -122,7 +131,25 @@ def set_level(email_or_username, level):
         user.team = team
         click.echo(f"created team {team.name} ({team.pk})")
     user.save()
-    click.echo(f"{user.username} is now {level}")
+    click.echo(f"{user.username} is now {level}"
+               + (f" (comp: {user.comp_plan})" if user.comp_plan else ""))
+
+@cairn_cli.command("reconcile-subscriptions")
+def reconcile_subscriptions():
+    """Expire trials, downgrade lapsed subs, dissolve admin-less teams.
+
+    Cron-friendly backstop for missed/late Stripe webhooks — run nightly.
+    Idempotent: in steady state webhooks keep everything in sync and this
+    reports zero changes.
+    """
+    from application.services.billing import reconcile_all
+    counters = reconcile_all()
+    click.echo(
+        f"reconciled {counters['users']} user(s): "
+        f"{counters['downgraded']} level change(s), "
+        f"{counters['teams_dissolved']} team(s) dissolved"
+    )
+
 
 @cairn_cli.command("reset-password")
 @click.argument("username")
