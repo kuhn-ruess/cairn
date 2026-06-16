@@ -874,6 +874,10 @@ class Item(Document):
             self.parent = container
 
     def assign_to(self, new_assignee, *, by_user=None):
+        # Assigning a task back to its own owner is the same as unassigning it:
+        # the owner already owns it, so there is no delegation to record.
+        if new_assignee is not None and new_assignee == self.owner:
+            new_assignee = None
         if new_assignee is None:
             self.assigned_to = None
             self.assigned_by = None
