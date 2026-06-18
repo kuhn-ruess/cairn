@@ -85,7 +85,12 @@ def list_tasks():
     offset = max(0, min(int(request.args.get("offset", 0) or 0), 1_000_000))
     qs = qs.order_by("-updated_at").skip(offset).limit(limit)
 
-    return jsonify({"items": [serialize(t) for t in qs], "limit": limit, "offset": offset})
+    # Batch-dereference the page's references (owner/assigned_to/assigned_by/
+    # project/comment authors) in a handful of $in queries instead of one
+    # lazy fetch per field per row — otherwise serializing N rows costs
+    # ~5N round-trips (the API's main latency source on a remote DB).
+    items = [serialize(t) for t in qs.select_related(max_depth=1)]
+    return jsonify({"items": items, "limit": limit, "offset": offset})
 
 
 @api_v1_bp.get("/today")
@@ -487,7 +492,7 @@ def _apply_task_payload(task: Item, data: dict, user) -> None:
 def list_projects():
     user = g.current_user
     qs = Item.objects(Q(owner=user) | Q(members=user)).order_by("+name")
-    return jsonify({"items": [ser_project(p) for p in qs]})
+    return jsonify({"items": [ser_project(p) for p in qs.select_related(max_depth=1)]})
 
 @api_v1_bp.post("/projects")
 @token_required

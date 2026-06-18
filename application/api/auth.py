@@ -1,4 +1,5 @@
 """Token-based authentication helpers for the REST API."""
+from datetime import datetime, timezone
 from functools import wraps
 
 from flask import g, jsonify, request
@@ -27,8 +28,15 @@ def token_required(func):
         # method outright, regardless of the endpoint.
         if token.read_only and request.method not in ("GET", "HEAD", "OPTIONS"):
             return jsonify({"error": "read-only token"}), 403
-        token.mark_used()
-        user.save()
+        # Stamp last_used_at without rewriting the whole user document on
+        # every API call: a targeted atomic update of just the matched token,
+        # throttled to ~once a minute (the value is only used for display).
+        now = datetime.now(timezone.utc)
+        last = token.last_used_at
+        if last is None or (now - last).total_seconds() > 60:
+            User.objects(pk=user.pk, api_tokens__pk_ref=token.pk_ref).update_one(
+                set__api_tokens__S__last_used_at=now)
+            token.last_used_at = now
         g.current_user = user
         g.api_token = token
         return func(*args, **kwargs)
