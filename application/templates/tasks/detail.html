@@ -204,8 +204,12 @@
       </section>
     {% endif %}
 
-    <section class="task-detail-section">
+    <section class="task-detail-section" id="comments">
       <h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center">
+        <button type="button" class="btn btn-sm btn-link text-muted p-0 me-1 comments-collapse-toggle"
+                title="Hide comments" aria-expanded="true">
+          <i class="bi bi-chevron-down"></i>
+        </button>
         Comments
         <span class="text-muted ms-1">({{ task.comments|length }})</span>
         {% if task.comments %}
@@ -215,6 +219,7 @@
         </button>
         {% endif %}
       </h2>
+      <div class="comments-body">
       <div class="task-detail-comments newest-first">
       {% for c in task.comments %}
         <div class="task-detail-comment {% if c.is_public %}is-public{% endif %}"
@@ -256,6 +261,7 @@
           {{ comment_form.submit(class="btn btn-sm btn-primary") }}
         </div>
       </form>
+      </div>{# /.comments-body #}
     </section>
   </div>
 
@@ -340,6 +346,34 @@
     } catch (err) {
       form.submit();
     }
+  });
+})();
+
+/* Comments — collapse / expand, remembering the choice across tasks. */
+(function () {
+  const section = document.getElementById("comments");
+  if (!section) return;
+  const body = section.querySelector(".comments-body");
+  const btn = section.querySelector(".comments-collapse-toggle");
+  if (!body || !btn) return;
+  const icon = btn.querySelector("i");
+  const KEY = "cairn-comments-collapsed";
+
+  const apply = (collapsed) => {
+    body.classList.toggle("d-none", collapsed);
+    if (icon) icon.className = collapsed ? "bi bi-chevron-right" : "bi bi-chevron-down";
+    btn.title = collapsed ? "Show comments" : "Hide comments";
+    btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  };
+
+  let collapsed = false;
+  try { collapsed = localStorage.getItem(KEY) === "1"; } catch (e) {}
+  apply(collapsed);
+
+  btn.addEventListener("click", () => {
+    collapsed = !collapsed;
+    try { localStorage.setItem(KEY, collapsed ? "1" : "0"); } catch (e) {}
+    apply(collapsed);
   });
 })();
 
