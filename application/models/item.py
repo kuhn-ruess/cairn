@@ -582,40 +582,19 @@ class Item(Document):
     def is_available(self, now: datetime | None = None) -> bool:
         return not self.is_blocked(now)
 
-    def is_blocked(self, now: datetime | None = None) -> bool:
-        """Blocked = displayed but not actionable yet.
-
-        Triggers:
-          * ``status == "waiting_reply"`` — you're waiting on someone's reply,
-            so there's nothing to act on; it still shows in the Waiting-on-reply
-            view, which keys off the status directly rather than ``is_blocked``
-          * ``defer_date`` is in the future
-          * ``followup_at`` is in the future — nothing to do until it's time
-            to chase again; the task still shows in the Follow-up view, which
-            keys off ``followup_at`` directly rather than ``is_blocked``
-          * an ancestor (parent task / section / project) is deferred into
-            the future — read-time defer inheritance, nothing is stored on
-            the children, so deferring a parent holds its whole subtree back
-            and a subtask keeps its own defer date
-          * lives in a sequential parent and an earlier incomplete
-            sibling exists
+    def _own_block(self, now: datetime) -> bool:
+        """This item's OWN blocked state, ignoring ancestors:
+          * ``status == "waiting_reply"`` — waiting on someone's reply
+          * ``defer_date`` in the future
+          * ``followup_at`` in the future
+          * sits in a sequential parent behind an earlier incomplete sibling
         """
-        now = now or _utcnow()
         if self.status == "waiting_reply":
             return True
         if self.defer_date and self.defer_date > now:
             return True
         if self.followup_at and self.followup_at > now:
             return True
-        # Walk the parent chain (tasks → section → project → folder); trees
-        # are shallow and mongoengine caches each deref, so the parent read
-        # below reuses the same query. Depth-capped as a cycle guard.
-        node, depth = self.parent, 0
-        while node is not None and depth < 20:
-            if node.defer_date and node.defer_date > now:
-                return True
-            node = node.parent
-            depth += 1
         if self.parent and self.parent.project_type == "sequential":
             earlier = (
                 Item.objects(parent=self.parent,
@@ -626,6 +605,29 @@ class Item(Document):
             )
             if earlier and earlier.pk != self.pk:
                 return True
+        return False
+
+    def is_blocked(self, now: datetime | None = None) -> bool:
+        """Blocked = displayed but not actionable yet.
+
+        A subtask of a blocked task is blocked too: we walk from this item up
+        the parent chain (tasks → section → project → folder) and report
+        blocked if THIS item or ANY ancestor is blocked for any reason
+        (waiting_reply / future defer / future follow-up / sequential). So
+        deferring, waiting-on or sequentially-gating a parent holds its whole
+        subtree back — read-time, nothing stored on the children. The
+        waiting-reply / follow-up views key off status / followup_at directly,
+        so blocked items still appear there. Depth-capped as a cycle guard;
+        mongoengine caches each parent deref, and the per-node sequential query
+        only fires where a node's parent is actually sequential.
+        """
+        now = now or _utcnow()
+        node, depth = self, 0
+        while isinstance(node, Item) and depth < 50:
+            if node._own_block(now):
+                return True
+            node = node.parent
+            depth += 1
         return False
 
     def complete(self, by_user: User | None = None) -> "Item | None":
