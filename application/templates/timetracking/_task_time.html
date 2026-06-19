@@ -1,0 +1,49 @@
+{# Task time tracking — re-rendered server-side and swapped in via
+   time-entries.js after every log / cancel. Only shown when the task's subtree
+   is linked to a billing project (tt is truthy). No nested <form>: the
+   inspector wraps everything in one form, so each action is a button carrying
+   its endpoint in data-action. #}
+{% if tt %}
+<h2 class="h6 text-muted small text-uppercase mb-2">
+  Time tracking
+  <span class="text-muted">({{ tt.total_minutes|duration }})</span>
+  <span class="badge text-bg-light text-muted ms-1" title="Billing project">
+    <i class="bi bi-receipt"></i> {{ tt.project.name }}</span>
+</h2>
+
+<ul class="time-list list-unstyled mb-2">
+  {% for e in tt.entries %}
+    <li class="d-flex align-items-center gap-2 py-1">
+      <span class="badge text-bg-light text-muted">{{ e.spent_on|date }}</span>
+      <strong>{{ e.minutes|duration }}</strong>
+      {% if not e.billable %}<span class="badge text-bg-secondary" title="Non-billable">n/b</span>{% endif %}
+      {% if e.note %}<span class="text-muted text-truncate" title="{{ e.note }}">{{ e.note }}</span>{% endif %}
+      {% if e.user_name %}<span class="small text-muted">· {{ e.user_name }}</span>{% endif %}
+      {% if e.locked %}
+        <span class="ms-auto text-muted small" title="Billed — locked"><i class="bi bi-lock"></i></span>
+      {% else %}
+        <button type="button" class="btn btn-link btn-sm p-0 text-muted ms-auto time-delete"
+                data-action="{{ url_for('timetracking.entry_cancel', bucket_id=e.bucket_id, entry_id=e.entry_id) }}"
+                title="Cancel entry"><i class="bi bi-x-lg"></i></button>
+      {% endif %}
+    </li>
+  {% else %}
+    <li class="text-muted small">No time logged yet.</li>
+  {% endfor %}
+</ul>
+
+<div class="time-add d-flex gap-2 flex-wrap align-items-center"
+     data-action="{{ url_for('timetracking.log', task_id=task.pk) }}">
+  <input type="text" class="form-control form-control-sm time-add-duration"
+         style="max-width: 6.5rem;" placeholder="e.g. 1h30m" autocomplete="off"
+         title="90 · 1:30 · 1h30m · 1.5h">
+  <input type="date" class="form-control form-control-sm time-add-date"
+         style="max-width: 9.5rem;">
+  <input type="text" class="form-control form-control-sm time-add-note"
+         placeholder="Note (optional)" autocomplete="off" maxlength="200">
+  <label class="form-check form-check-inline m-0 small" title="Billable">
+    <input type="checkbox" class="form-check-input time-add-billable" checked> billable
+  </label>
+  <button type="button" class="btn btn-sm btn-outline-primary time-add-btn">Log</button>
+</div>
+{% endif %}

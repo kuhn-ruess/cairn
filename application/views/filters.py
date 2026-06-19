@@ -240,6 +240,21 @@ def register_filters(app):
             return f"{h}h"
         return f"{m}m"
 
+    def tt_task_time(task):
+        """Inspector helper: billing project + this task's entries, or None.
+
+        A Jinja global (not a context processor) so it's reachable inside the
+        inspector macros. Returns None for non-team users or tasks whose subtree
+        isn't linked to a billing project — the time section then renders nothing.
+        """
+        from flask_login import current_user
+        from application.services.timetracking import task_time_context
+        if not current_user.is_authenticated:
+            return None
+        return task_time_context(current_user._get_current_object(), task)
+
+    app.jinja_env.globals["tt_task_time"] = tt_task_time
+
     @app.template_filter("eur")
     def eur(cents):
         """Integer cents → ``1.234,50 €`` (German formatting). ``None`` → ``—``."""

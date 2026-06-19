@@ -220,9 +220,12 @@
 
 {%- macro sec_time() -%}
   {% if task %}
-    <div class="inspector-section time-block" data-section="time" id="time">
-      {% include "tasks/_time.html" %}
-    </div>
+    {% set tt = tt_task_time(task) %}
+    {% if tt %}
+      <div class="inspector-section time-block" data-section="time" id="time">
+        {% include "timetracking/_task_time.html" %}
+      </div>
+    {% endif %}
   {% endif %}
 {%- endmacro -%}
 

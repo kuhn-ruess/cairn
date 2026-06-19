@@ -35,8 +35,10 @@
     fd.append("duration", dur.value.trim());
     const date = add.querySelector(".time-add-date");
     const note = add.querySelector(".time-add-note");
+    const billable = add.querySelector(".time-add-billable");
     if (date && date.value) fd.append("spent_on", date.value);
     if (note && note.value) fd.append("note", note.value.trim());
+    if (billable) fd.append("billable", billable.checked ? "1" : "0");
     const resp = await fetch(add.dataset.action, {
       method: "POST", headers: { "X-Partial": "1" }, body: fd,
     });

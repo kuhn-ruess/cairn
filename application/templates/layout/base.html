@@ -159,9 +159,8 @@
         <li><a class="nav-link py-1" href="{{ url_for('tree.index') }}"><i class="bi bi-diagram-3"></i> Tree</a></li>
         <li><a class="nav-link py-1" href="{{ url_for('tags.index') }}"><i class="bi bi-tag"></i> Tags / Contexts</a></li>
         <li><a class="nav-link py-1" href="{{ url_for('custom_perspectives.index') }}"><i class="bi bi-funnel"></i> Perspectives</a></li>
-        <li><a class="nav-link py-1" href="{{ url_for('tasks.time_report') }}"><i class="bi bi-stopwatch"></i> Time report</a></li>
         {% if current_user.team or current_user.is_team_admin %}
-        <li><a class="nav-link py-1" href="{{ url_for('timetracking.index') }}"><i class="bi bi-receipt"></i> Time tracking</a></li>
+        <li><a class="nav-link py-1" href="{{ url_for('timetracking.index') }}"><i class="bi bi-stopwatch"></i> Time tracking</a></li>
         {% endif %}
         <li><a class="nav-link py-1 d-flex align-items-center" href="{{ url_for('review.index') }}">
           <i class="bi bi-arrow-clockwise"></i> <span class="ms-1">Review</span>

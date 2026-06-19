@@ -59,17 +59,19 @@
       </div>
     </a>
   </div>
+  {% if current_user.team or current_user.is_team_admin %}
   <div class="col-sm-6 col-md-4 col-xl-3">
-    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('tasks.time_report') }}">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('timetracking.index') }}">
       <div class="card-body d-flex align-items-center gap-3">
         <i class="bi bi-stopwatch fs-3 text-success"></i>
         <div>
-          <div class="fw-semibold">Time report</div>
-          <div class="small text-muted">Logged time by month → project → task</div>
+          <div class="fw-semibold">Time tracking</div>
+          <div class="small text-muted">Customers, billing projects &amp; reports</div>
         </div>
       </div>
     </a>
   </div>
+  {% endif %}
   <div class="col-sm-6 col-md-4 col-xl-3">
     <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.export_data') }}">
       <div class="card-body d-flex align-items-center gap-3">

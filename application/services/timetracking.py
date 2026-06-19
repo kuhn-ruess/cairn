@@ -134,6 +134,68 @@ def add_entry(*, project: TimeTrackingProject, user, minutes: int,
     return entry
 
 
+def parse_duration(raw: str):
+    """Parse a logged duration into whole minutes, or ``None`` if unparseable.
+
+    Accepts ``90`` (minutes), ``1:30`` (h:mm), ``1h30m`` / ``1h`` / ``30m``,
+    ``1.5h`` / ``1,5h`` (decimal hours). Lenient on spaces."""
+    import re
+    s = (raw or "").strip().lower().replace(" ", "")
+    if not s:
+        return None
+    m = re.fullmatch(r"(\d+):([0-5]?\d)", s)
+    if m:
+        return int(m.group(1)) * 60 + int(m.group(2))
+    m = re.fullmatch(r"(\d+(?:[.,]\d+)?)h", s)
+    if m:
+        return round(float(m.group(1).replace(",", ".")) * 60)
+    m = re.fullmatch(r"(?:(\d+)h)?(?:(\d+)m?)?", s)
+    if m and (m.group(1) or m.group(2)):
+        return int(m.group(1) or 0) * 60 + int(m.group(2) or 0)
+    if s.isdigit():
+        return int(s)
+    return None
+
+
+def task_time_context(user, item):
+    """Everything the inspector time section needs for one task, or ``None``.
+
+    ``None`` when the user has no team or the task's subtree isn't linked to a
+    billing project — in which case the section renders nothing. Otherwise:
+    ``{project, total_minutes, entries}`` where each entry is a flat dict (so the
+    template never dereferences across documents)."""
+    if not has_team(user):
+        return None
+    project = resolve_time_project(item)
+    if project is None:
+        return None
+    team = project.team
+    customer = project.customer
+    src_id = str(item.pk)
+    buckets = TimeBucket.objects(team=team, customer=customer,
+                                 entries__source_item_id=src_id)
+    rows = []
+    total = 0
+    for b in buckets:
+        for e in b.entries:
+            if e.source_item_id != src_id or e.status != "active":
+                continue
+            total += e.minutes or 0
+            rows.append({
+                "entry_id": e.entry_id,
+                "bucket_id": str(b.id),
+                "minutes": e.minutes,
+                "spent_on": e.spent_on,
+                "note": e.note,
+                "locked": e.locked,
+                "billable": e.billable,
+                "user_name": e.user_name,
+                "amount_cents": e.amount_cents,
+            })
+    rows.sort(key=lambda r: r["spent_on"] or _utcnow(), reverse=True)
+    return {"project": project, "total_minutes": total, "entries": rows}
+
+
 def cancel_entry(*, bucket: TimeBucket, entry_id: str, user) -> bool:
     """Soft-cancel an entry: never removed, just flipped to ``cancelled``.
 

@@ -9,10 +9,19 @@ from flask import (
 )
 from flask_login import current_user, login_required
 
+from datetime import datetime, timezone
+
 from application.models.item import Item
-from application.models.timetracking import Customer, TimeTrackingProject
+from application.models.timetracking import Customer, TimeBucket, TimeTrackingProject
 from application.services.permissions import team_required
-from application.services.timetracking import primary_team
+from application.services.timetracking import (
+    add_entry,
+    cancel_entry,
+    parse_duration,
+    primary_team,
+    resolve_time_project,
+    task_time_context,
+)
 
 timetracking_bp = Blueprint("timetracking", __name__, url_prefix="/time")
 
@@ -87,6 +96,75 @@ def index():
         links_by_project=links_by_project,
         linkable=linkable,
     )
+
+
+# ---------------------------------------------------------------------------
+# Logging time on a task (inspector section) → monthly bucket
+# ---------------------------------------------------------------------------
+
+def _task_time_response(task):
+    """Re-render the inspector time partial (AJAX swap) or redirect to detail."""
+    tt = task_time_context(current_user._get_current_object(), task) if task else None
+    if request.headers.get("X-Partial") == "1":
+        return render_template("timetracking/_task_time.html", task=task, tt=tt)
+    if task:
+        return redirect(url_for("tasks.detail", task_id=str(task.pk)) + "#time")
+    return redirect(url_for("timetracking.index"))
+
+
+@timetracking_bp.route("/log/<task_id>", methods=["POST"])
+@login_required
+@team_required
+def log(task_id):
+    """Log a chunk of time on a task into its billing project's monthly bucket.
+
+    The billing project is inherited from the task's subtree; if nothing is
+    linked the section isn't shown, so this just no-ops back."""
+    from application.services.tz import attach_user_tz, user_zone
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_viewed_by(user):
+        abort(404)
+    project = resolve_time_project(task)
+    if project and project.team == primary_team(user):
+        minutes = parse_duration(request.form.get("duration") or "")
+        if minutes:
+            raw_date = (request.form.get("spent_on") or "").strip()
+            try:
+                when = attach_user_tz(datetime.strptime(raw_date, "%Y-%m-%d"), user)
+            except (ValueError, TypeError):
+                when = datetime.now(user_zone(user))
+            add_entry(
+                project=project, user=user, minutes=minutes, spent_on=when,
+                note=request.form.get("note") or "", source_item=task,
+                billable=request.form.get("billable") != "0",
+            )
+    return _task_time_response(task)
+
+
+@timetracking_bp.route("/entry/<bucket_id>/<entry_id>/cancel", methods=["POST"])
+@login_required
+@team_required
+def entry_cancel(bucket_id, entry_id):
+    """Soft-cancel a time entry. Allowed for the person who logged it or a team
+    manager/biller. Refused on locked (billed) entries (handled in the service)."""
+    team = _team()
+    bucket = TimeBucket.objects(pk=bucket_id, team=team).first()
+    if not bucket:
+        abort(404)
+    user = current_user._get_current_object()
+    entry = next((e for e in bucket.entries if e.entry_id == entry_id), None)
+    if entry is None:
+        abort(404)
+    is_owner = entry.user and entry.user.id == user.id
+    is_manager = team.is_managed_by(user) or user in (team.billers or [])
+    if not (is_owner or is_manager):
+        abort(403)
+    cancel_entry(bucket=bucket, entry_id=entry_id, user=user)
+    task = None
+    if entry.source_item_id:
+        task = Item.objects(pk=entry.source_item_id).first()
+    return _task_time_response(task)
 
 
 @timetracking_bp.route("/report")
