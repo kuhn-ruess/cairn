@@ -389,6 +389,48 @@ def create():
         return render_template("projects/_inspector.html", **ctx)
     return render_template("projects/form.html", **ctx)
 
+def _nest_subtasks(roots, collapsed_pks, show_completed):
+    """Return ``roots`` plus their sub-task descendants in DFS (parent-before-
+    children) order, each annotated with ``_depth`` / ``_has_children`` /
+    ``_collapsed`` / ``_list_hidden`` — same collapse semantics as the main
+    project list (sub-tasks collapsed by default; a pk in collapsed_items
+    marks an EXPANDED parent). Lets tasks shown inside a sub-project's inline
+    child list reveal their sub-tasks via the chevron too."""
+    roots = list(roots)
+    if not roots:
+        return []
+    # BFS down the task→task parent chain to gather every descendant sub-task.
+    children_by_task: dict = {}
+    frontier = [r.pk for r in roots]
+    seen = set(frontier)
+    status_filter = None if show_completed else ["done", "dropped"]
+    while frontier:
+        q = Item.objects(parent__in=frontier, kind="task")
+        if status_filter:
+            q = q.filter(status__nin=status_filter)
+        nxt = []
+        for t in q.order_by("+sort_order", "+created_at"):
+            if t.pk in seen:
+                continue
+            seen.add(t.pk)
+            children_by_task.setdefault(t.parent.pk, []).append(t)
+            nxt.append(t.pk)
+        frontier = nxt
+    out: list = []
+
+    def _dfs(task, depth, hidden):
+        task._depth = depth
+        has_kids = bool(children_by_task.get(task.pk))
+        task._has_children = has_kids
+        task._collapsed = has_kids and (str(task.pk) not in collapsed_pks)
+        task._list_hidden = hidden
+        out.append(task)
+        for c in children_by_task.get(task.pk, []):
+            _dfs(c, depth + 1, hidden or task._collapsed)
+    for r in roots:
+        _dfs(r, 0, False)
+    return out
+
 @projects_bp.route("/<project_id>")
 @login_required
 def detail(project_id):
@@ -453,16 +495,22 @@ def detail(project_id):
         # Mark each sub-project's collapse state for the toggle button.
         for sp in sub_projects_all:
             sp._collapsed = str(sp.pk) in collapsed_pks
+        direct_by_sp: dict = {}
         kids_q = Item.objects(parent__in=sp_pks, kind="task")
         if not show_completed:
             kids_q = kids_q.filter(status__nin=["done", "dropped"])
         for kid in kids_q.order_by("+sort_order", "+created_at"):
-            subproject_children.setdefault(kid.parent.pk, []).append(kid)
-        # _has_children comes from the dict (kid.parent dereferences to a
-        # fresh instance, so writing on it would miss the sp in the loop
-        # above — match by pk instead).
+            direct_by_sp.setdefault(kid.parent.pk, []).append(kid)
+        # Each sub-project's direct tasks PLUS their sub-task trees nested
+        # beneath, so a task inside a sub-project shows the expand chevron and
+        # its (default-collapsed) sub-tasks — they were invisible before.
         for sp in sub_projects_all:
-            sp._has_children = bool(subproject_children.get(sp.pk))
+            roots = direct_by_sp.get(sp.pk) or []
+            subproject_children[sp.pk] = _nest_subtasks(
+                roots, collapsed_pks, show_completed)
+            # _has_children = has direct kids (kid.parent dereferences to a
+            # fresh instance, so writing in the loop above would miss the sp).
+            sp._has_children = bool(roots)
 
     # Default: show only this project's own tasks (incl. sections —
     # sections are inline parts of the project). Sub-projects live on
