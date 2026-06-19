@@ -146,6 +146,64 @@
       {% include "tasks/_subtasks.html" %}
     </section>
 
+    {# Related tasks — full content shown inline so you can read + quick-edit
+       (complete / flag) them without leaving this task. Read-only content;
+       the inline actions post and return here (they redirect to the referrer).
+       Only kind=task related items appear (projects/folders stay as links in
+       the inspector). #}
+    {% set related_tasks = task.related_items()|selectattr('kind', 'equalto', 'task')|list %}
+    {% if related_tasks %}
+      <section class="task-detail-section" id="related-tasks">
+        <h2 class="h6 text-muted small text-uppercase mb-2">
+          Related tasks <span class="text-muted">({{ related_tasks|length }})</span>
+        </h2>
+        {% for r in related_tasks %}
+          <div class="card mb-2">
+            <div class="card-body py-2">
+              <div class="d-flex align-items-start gap-2">
+                <form method="post" class="m-0 mt-1"
+                      action="{{ url_for('tasks.reopen', task_id=r.pk) if r.status == 'done' else url_for('tasks.complete', task_id=r.pk) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-link p-0" type="submit"
+                          title="{{ 'Mark not done' if r.status == 'done' else 'Complete' }}">
+                    <i class="bi {% if r.status == 'done' %}bi-check-circle-fill text-success{% else %}bi-circle{% endif %} fs-5"></i>
+                  </button>
+                </form>
+                <div class="me-auto">
+                  <a class="fw-semibold text-decoration-none"
+                     href="{{ url_for('tasks.detail', task_id=r.pk) }}">
+                    {% if r.priority %}<span class="priority-p{{ r.priority }} me-1">P{{ r.priority }}</span>{% endif %}
+                    {{ r.title }}</a>
+                  {% if r.external_ref %}<code class="small text-muted ms-1">{{ r.external_ref }}</code>{% endif %}
+                  <div class="small text-muted d-flex flex-wrap gap-2 align-items-center mt-1">
+                    <span class="badge text-bg-secondary text-uppercase">{{ r.status }}</span>
+                    {% if r.due_date %}
+                      <span class="{{ 'text-danger' if r.due_date < now_utc() else '' }}">
+                        <i class="bi bi-calendar-event"></i> {{ r.due_date|relativedate }}</span>
+                    {% endif %}
+                    {% if r.assigned_to %}<span><i class="bi bi-person-check"></i> {{ r.assigned_to }}</span>{% endif %}
+                  </div>
+                </div>
+                <form method="post" action="{{ url_for('tasks.toggle_flag', task_id=r.pk) }}" class="m-0">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-link p-0 {{ 'text-warning' if r.flagged else 'text-muted' }}"
+                          type="submit" title="Toggle flag">
+                    <i class="bi {% if r.flagged %}bi-flag-fill{% else %}bi-flag{% endif %}"></i>
+                  </button>
+                </form>
+                <a class="btn btn-sm btn-outline-secondary"
+                   href="{{ url_for('tasks.detail', task_id=r.pk) }}" title="Open task">
+                  <i class="bi bi-box-arrow-up-right"></i></a>
+              </div>
+              {% if r.note %}
+                <div class="md-body small mt-2 ps-4">{% with task = r %}{% include "tasks/_note_body.html" %}{% endwith %}</div>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </section>
+    {% endif %}
+
     <section class="task-detail-section">
       <h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center">
         Comments
