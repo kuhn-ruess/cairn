@@ -15,6 +15,9 @@
     {% endif %}
   {% else %}
     {% for task in tasks %}
+      {# Sub-tasks under a collapsed parent are hidden from the project list
+         only (the flag is set there); every other view leaves it false. #}
+      {% if not task._list_hidden|default(false) %}
       {% set _depth = task._depth|default(0) %}
       {# Tasks close as 'done', project-kind items as 'completed' — treat both
          as the row's "done" state so completed projects (e.g. in the Completed
@@ -248,6 +251,7 @@
           </button>
         </div>
       </div>
+      {% endif %}
     {% endfor %}
   {% endif %}
 </div>

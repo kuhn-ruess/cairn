@@ -617,18 +617,26 @@ def detail(project_id):
         collapsed_pks = set(user.collapsed_items or [])
         flat_ordered: list = []
         task_section_pk: dict = {}  # task.pk → section/project pk
-        def _dfs(task, depth, section_pk):
+        def _dfs(task, depth, section_pk, hidden):
             task._depth = depth
-            task._has_children = bool(children_by_task.get(task.pk))
-            task._collapsed = str(task.pk) in collapsed_pks
+            has_kids = bool(children_by_task.get(task.pk))
+            task._has_children = has_kids
+            # Sub-tasks default to collapsed in the project LIST — they only
+            # show once you expand the parent. A pk in collapsed_items marks
+            # an EXPANDED parent here (inverted from sub-project rows, which
+            # default to open). No children → no chevron, nothing to collapse.
+            task._collapsed = has_kids and (str(task.pk) not in collapsed_pks)
+            # ``_list_hidden`` rides down from a collapsed ancestor: the list
+            # skips these rows (see _list_body.html), but they stay in the
+            # buckets so kanban / calendar / Today still render them — a
+            # sub-task you can schedule never vanishes from a planning view.
+            task._list_hidden = hidden
             task_section_pk[task.pk] = section_pk
             flat_ordered.append(task)
-            if task._collapsed:
-                return
             for c in children_by_task.get(task.pk, []):
-                _dfs(c, depth + 1, section_pk)
+                _dfs(c, depth + 1, section_pk, hidden or task._collapsed)
         for t in top_level:
-            _dfs(t, 0, _eff_parent_pk(t))
+            _dfs(t, 0, _eff_parent_pk(t), False)
         all_tasks = flat_ordered
 
         section_buckets = _bucket_by_section(all_tasks, sections, task_section_pk)
