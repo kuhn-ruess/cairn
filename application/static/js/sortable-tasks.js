@@ -77,12 +77,10 @@
         clearMergeTarget();
         cancelDwell();
       },
-      // Merge mode only activates while the user holds ALT during the
-      // drag — otherwise the row the cursor passes over would dwell
-      // into a merge target between two reorder positions, making
-      // normal reordering impossible. With this gate, plain drag =
-      // reorder, ALT+drag onto a row = "drop into this task, make it
-      // a project".
+      // Merge is dwell-based: lingering over a task row for DWELL_MS arms
+      // it as a merge target (drop = nest the dragged task under it as a
+      // sub-task). A quick pass-through just reorders, so plain drag =
+      // reorder and a deliberate hover-then-drop = nest, no modifier key.
       //
       // We also use this hook to mark the current drop-target
       // (project sidebar entry, sp-row, …) — Sortable fires onMove on
@@ -96,22 +94,23 @@
         if (to && (to.matches(".ps-drop-target") || to.matches(".sp-row[data-sp-id]"))) {
           to.classList.add("is-drag-over");
         }
-        // ---- ALT-merge gate ----
-        const altHeld = !!(original && original.altKey);
-        if (!altHeld) {
+        // ---- Dwell-to-merge ----
+        // Linger over another task row for DWELL_MS and it becomes a merge
+        // target: dropping then nests the dragged task as its sub-task. A
+        // quick pass-through just reorders, so both gestures coexist without
+        // needing an ALT modifier.
+        const related = ev.related;
+        const overTask = related && related.dataset
+          && related.dataset.taskId
+          && !(dragSource && related === dragSource);
+        if (!overTask) {
           cancelDwell();
           clearMergeTarget();
           return true;
         }
-        const related = ev.related;
-        if (!related || !related.dataset || !related.dataset.taskId) {
-          cancelDwell();
-          return true;
-        }
-        if (dragSource && related === dragSource) {
-          cancelDwell();
-          return true;
-        }
+        // Moved onto a different row than the armed one → disarm + re-dwell,
+        // so a drop only merges while actually hovering the dwelled row.
+        if (mergeTarget && mergeTarget !== related) clearMergeTarget();
         startDwell(related);
         return true;
       },
@@ -121,15 +120,14 @@
           .forEach((el) => el.classList.remove("is-drag-over"));
         const target = mergeTarget;
         const source = dragSource;
-        const altHeld = !!(ev.originalEvent && ev.originalEvent.altKey);
         clearMergeTarget();
         cancelDwell();
         dragSource = null;
-        if (altHeld && target && source && target !== source
+        if (target && source && target !== source
             && target.dataset.taskId && source.dataset.taskId
             && target.dataset.taskId !== source.dataset.taskId) {
-          // Drag-merge: source becomes a child of target, which gets
-          // promoted to a project.
+          // Dwelled onto a task row → nest source as its sub-task (the
+          // target stays a task; it is not turned into a project).
           mergeTasks(source, target);
           return;
         }
