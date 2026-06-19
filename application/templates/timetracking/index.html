@@ -68,6 +68,22 @@
                 <input type="text" name="name" value="{{ p.name }}" class="form-control form-control-sm">
                 <input type="text" name="hourly_rate" value="{{ '%.2f'|format(p.hourly_rate_cents/100) if p.hourly_rate_cents else '' }}"
                        placeholder="Hourly rate (€)" class="form-control form-control-sm">
+                {% set b_money = p.budget_type and p.budget_type.startswith('cents') %}
+                {% set b_recur = p.budget_type and p.budget_type.endswith('_per_month') %}
+                <div class="d-flex gap-1 align-items-center">
+                  <input type="text" name="budget_value"
+                         value="{{ ('%.2f'|format(p.budget_value/100) if b_money else '%g'|format(p.budget_value/60)) if p.budget_value else '' }}"
+                         placeholder="Budget" class="form-control form-control-sm" style="max-width:90px;">
+                  <select name="budget_unit" class="form-select form-select-sm" style="max-width:90px;">
+                    <option value="" {% if not p.budget_type %}selected{% endif %}>none</option>
+                    <option value="hours" {% if p.budget_type and not b_money %}selected{% endif %}>hours</option>
+                    <option value="money" {% if b_money %}selected{% endif %}>€</option>
+                  </select>
+                  <label class="form-check small m-0">
+                    <input type="checkbox" name="budget_recurring" value="1" class="form-check-input"
+                           {% if b_recur %}checked{% endif %}> /month
+                  </label>
+                </div>
                 <input type="text" name="note" value="{{ p.note }}" placeholder="Note"
                        class="form-control form-control-sm">
                 <label class="form-check small">
@@ -102,6 +118,23 @@
               </div>
             </details>
           </div>
+
+          {% set bs = budgets.get(p.id|string) %}
+          {% if bs %}
+            <div class="mt-1">
+              <div class="d-flex justify-content-between small text-muted">
+                <span>
+                  Budget{% if bs.recurring %} <span class="text-muted">(this month)</span>{% endif %}:
+                  {% if bs.is_money %}{{ bs.used|eur }} / {{ bs.limit|eur }}{% else %}{{ bs.used|duration }} / {{ bs.limit|duration }}{% endif %}
+                </span>
+                <span class="{% if bs.over %}text-danger fw-semibold{% endif %}">{{ bs.raw_pct }}%</span>
+              </div>
+              <div class="progress" style="height:5px;">
+                <div class="progress-bar {% if bs.over %}bg-danger{% elif bs.raw_pct >= 80 %}bg-warning{% else %}bg-success{% endif %}"
+                     style="width: {{ bs.pct }}%;"></div>
+              </div>
+            </div>
+          {% endif %}
 
           {# Linked Cairn folders/projects (tasks below them inherit this billing project) #}
           <div class="mt-2 ps-2 border-start">

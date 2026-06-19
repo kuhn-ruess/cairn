@@ -76,6 +76,15 @@ class TimeTrackingProject(Document):
     # Hourly rate in cents. Frozen onto each entry at capture time, so changing
     # it here only affects future entries. ``None`` = no rate (hours only).
     hourly_rate_cents = IntField(min_value=0)
+
+    # Optional budget (mite-shaped). ``budget_type`` encodes both the unit and
+    # the recurrence: ``minutes`` / ``cents`` are a total cap; the ``*_per_month``
+    # variants are recurring retainers that reset each calendar month. ``None``
+    # type = no budget. ``budget_value`` is in minutes or cents per the type.
+    budget_value = IntField(min_value=0)
+    budget_type = StringField(choices=("minutes", "cents",
+                                       "minutes_per_month", "cents_per_month"))
+
     archived = BooleanField(default=False)
 
     # Customer share link (read-only, hours only).

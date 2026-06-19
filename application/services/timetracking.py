@@ -348,6 +348,55 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
     return rows
 
 
+def team_consumption(team, current_period: str) -> dict:
+    """One deref-free pass over the team's buckets → per-project totals.
+
+    Returns ``{project_id: {minutes, amount_cents, month_minutes,
+    month_amount_cents}}`` (month_* limited to ``current_period``). Used to draw
+    budget bars without a query per project."""
+    out = {}
+    for b in TimeBucket.objects(team=team):
+        is_cur = b.period == current_period
+        for e in b.entries:
+            if e.status != "active":
+                continue
+            d = out.setdefault(e.project_id, {
+                "minutes": 0, "amount_cents": 0,
+                "month_minutes": 0, "month_amount_cents": 0})
+            d["minutes"] += e.minutes or 0
+            d["amount_cents"] += e.amount_cents or 0
+            if is_cur:
+                d["month_minutes"] += e.minutes or 0
+                d["month_amount_cents"] += e.amount_cents or 0
+    return out
+
+
+def budget_status(project, consumption: dict | None):
+    """Budget vs. actual for one project, or ``None`` if no budget set.
+
+    ``consumption`` is this project's entry from :func:`team_consumption`.
+    For a recurring (``*_per_month``) budget the used value is the current
+    month's; otherwise it's the all-time total. Money budgets compare cents,
+    time budgets compare minutes."""
+    if not project.budget_type or not project.budget_value:
+        return None
+    recurring = project.budget_type.endswith("_per_month")
+    is_money = project.budget_type.startswith("cents")
+    c = consumption or {}
+    if is_money:
+        used = c.get("month_amount_cents" if recurring else "amount_cents", 0)
+    else:
+        used = c.get("month_minutes" if recurring else "minutes", 0)
+    limit = project.budget_value
+    pct = min(100, round(used * 100 / limit)) if limit else 0
+    return {
+        "is_money": is_money, "recurring": recurring,
+        "limit": limit, "used": used,
+        "pct": pct, "raw_pct": round(used * 100 / limit) if limit else 0,
+        "over": used > limit,
+    }
+
+
 def public_project_report(project):
     """Read-only hours for the customer share link — months → entries, hours
     only (never rates or amounts). Deref-free over the buckets."""

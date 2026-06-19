@@ -48,6 +48,28 @@ def _project_or_404(pid, team):
     return p
 
 
+def _parse_budget(form):
+    """Form (budget_unit ∈ ''/hours/money, budget_value, budget_recurring) →
+    ``(budget_value, budget_type)``. Hours are stored as minutes, money as
+    cents. Blank/zero/invalid → ``(None, None)`` (no budget)."""
+    unit = (form.get("budget_unit") or "").strip()
+    raw = (form.get("budget_value") or "").strip().replace(",", ".")
+    if not unit or not raw:
+        return None, None
+    try:
+        val = float(raw)
+    except ValueError:
+        return None, None
+    if val <= 0:
+        return None, None
+    recurring = form.get("budget_recurring") == "1"
+    if unit == "money":
+        value, base = round(val * 100), "cents"
+    else:  # hours
+        value, base = round(val * 60), "minutes"
+    return value, base + ("_per_month" if recurring else "")
+
+
 def _parse_rate_cents(raw: str):
     """Parse a euro amount ('85', '85.50', '85,50') into integer cents.
     Empty/invalid → None (no rate = hours only)."""
@@ -88,6 +110,15 @@ def index():
     linkable = list(Item.objects(owner=user, kind__in=["project", "folder"])
                     .only("id", "title", "kind").order_by("+title"))
 
+    # Budget vs. actual — one bucket pass for the whole team, then a status per
+    # project (None when no budget set).
+    from application.services.tz import user_zone
+    from application.services.timetracking import budget_status, team_consumption
+    today = datetime.now(user_zone(user)).date()
+    consumption = team_consumption(team, f"{today.year:04d}-{today.month:02d}")
+    budgets = {str(p.id): budget_status(p, consumption.get(str(p.id)))
+               for p in projects}
+
     return render_template(
         "timetracking/index.html",
         team=team,
@@ -95,6 +126,7 @@ def index():
         by_customer=by_customer,
         links_by_project=links_by_project,
         linkable=linkable,
+        budgets=budgets,
     )
 
 
@@ -368,10 +400,12 @@ def project_create():
     if not name:
         flash("Project name is required.", "warning")
         return redirect(url_for("timetracking.index"))
+    budget_value, budget_type = _parse_budget(request.form)
     TimeTrackingProject(
         team=team, customer=customer, name=name[:200],
         note=(request.form.get("note") or "").strip(),
         hourly_rate_cents=_parse_rate_cents(request.form.get("hourly_rate")),
+        budget_value=budget_value, budget_type=budget_type,
     ).save()
     flash(f"Project “{name}” created.", "success")
     return redirect(url_for("timetracking.index"))
@@ -388,6 +422,7 @@ def project_edit(pid):
         p.name = name[:200]
     p.note = (request.form.get("note") or "").strip()
     p.hourly_rate_cents = _parse_rate_cents(request.form.get("hourly_rate"))
+    p.budget_value, p.budget_type = _parse_budget(request.form)
     p.archived = request.form.get("archived") == "1"
     p.save()
     flash("Project updated.", "success")
