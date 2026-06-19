@@ -361,6 +361,15 @@
   </div>
 </div>
 
+{% if project.note %}
+  <div class="card mb-3 project-note-card">
+    <div class="card-body py-2">
+      <div class="text-muted small text-uppercase mb-1"><i class="bi bi-journal-text"></i> Note</div>
+      <div class="md-body">{{ project.note|markdown }}</div>
+    </div>
+  </div>
+{% endif %}
+
 <div class="d-flex align-items-center mb-3 flex-wrap gap-2">
   <span class="text-muted small">Group by:</span>
   <div class="btn-group btn-group-sm" role="group">
@@ -424,15 +433,6 @@
     {% endwith %}
   </div>
 </div>
-
-{% if project.note %}
-  <div class="card mb-3 project-note-card">
-    <div class="card-body py-2">
-      <div class="text-muted small text-uppercase mb-1"><i class="bi bi-journal-text"></i> Note</div>
-      <div class="md-body">{{ project.note|markdown }}</div>
-    </div>
-  </div>
-{% endif %}
 
 {# Sub-projects render inline as task-like rows inside each section
    bucket below — they are draggable into sections via SortableJS. #}
