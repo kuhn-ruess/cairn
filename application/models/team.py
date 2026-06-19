@@ -130,6 +130,17 @@ class Team(Document):
         self.save()
         return inv
 
+    def prune_invites(self) -> int:
+        """Drop consumed or expired invites so the pending list stays clean.
+        Returns how many were removed. ``is_valid`` is false for both used and
+        past-expiry invites, so it's the only test needed."""
+        before = list(self.invites or [])
+        kept = [i for i in before if i.is_valid]
+        if len(kept) != len(before):
+            self.invites = kept
+            self.save()
+        return len(before) - len(kept)
+
     def remove_invite(self, pk_str: str) -> bool:
         keep = [i for i in (self.invites or []) if str(i.pk_ref) != str(pk_str)]
         if len(keep) == len(self.invites or []):

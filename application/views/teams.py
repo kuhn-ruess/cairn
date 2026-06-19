@@ -64,9 +64,13 @@ def index():
     # plain ``User.objects(team=team)`` query missed the admin (wrong count).
     from application.services.permissions import team_members
     from application.services import billing
+    # Clear out consumed/expired invites whenever a manager opens the page, so
+    # stale invitations don't pile up in the pending list.
+    if team.is_managed_by(user):
+        team.prune_invites()
     members = sorted(team_members(team), key=lambda u: (u.username or "").lower())
     invites = sorted(
-        (i for i in (team.invites or []) if not i.used_at),
+        (i for i in (team.invites or []) if i.is_valid),
         key=lambda i: i.email,
     )
     manager_ids = team.manager_ids()

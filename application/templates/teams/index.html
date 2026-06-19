@@ -70,6 +70,13 @@
 <div class="card mb-4" style="max-width: 720px;">
   <div class="card-header py-2">
     <h2 class="h6 mb-0"><i class="bi bi-person-check"></i> Members ({{ members|length }})</h2>
+    {% if can_manage %}
+      <div class="small text-muted mt-1">
+        <strong>Biller</strong> = may mark logged time as <em>billed</em> (lock entries) in
+        <a href="{{ url_for('timetracking.index') }}">Time tracking</a>, for the projects they can access.
+        Admins can already bill everything.
+      </div>
+    {% endif %}
   </div>
   <ul class="list-group list-group-flush">
     {% for m in members %}
@@ -82,7 +89,7 @@
              title="View {{ m.username }}'s tasks + shared projects">{{ m.username }}</a></strong>
           {% if is_member_payer %}<span class="badge text-bg-warning ms-1">pays</span>
           {% elif is_member_admin %}<span class="badge text-bg-secondary ms-1">admin</span>{% endif %}
-          {% if (m.pk|string) in biller_ids %}<span class="badge text-bg-info ms-1" title="Can bill time"><i class="bi bi-receipt"></i> biller</span>{% endif %}
+          {% if (m.pk|string) in biller_ids %}<span class="badge text-bg-info ms-1" title="May mark logged time as billed in Time tracking"><i class="bi bi-receipt"></i> biller</span>{% endif %}
           <div class="small text-muted">{{ m.email }} · {{ m.level }}</div>
         </div>
         {% if can_manage %}
@@ -109,13 +116,15 @@
               <form method="post" action="{{ url_for('teams.remove_biller', user_id=m.pk) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="team_id" value="{{ team.pk }}">
-                <button class="btn btn-sm btn-outline-info" title="Revoke billing rights">Unbiller</button>
+                <button class="btn btn-sm btn-outline-info"
+                        title="Revoke this member's time-billing rights">Remove biller</button>
               </form>
             {% else %}
               <form method="post" action="{{ url_for('teams.add_biller', user_id=m.pk) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="team_id" value="{{ team.pk }}">
-                <button class="btn btn-sm btn-outline-info" title="Allow billing time entries">Make biller</button>
+                <button class="btn btn-sm btn-outline-info"
+                        title="Let this member mark logged time as billed in Time tracking">Make time biller</button>
               </form>
             {% endif %}
           {% endif %}
