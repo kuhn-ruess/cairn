@@ -145,6 +145,7 @@ def index():
         "timetracking/index.html",
         team=team,
         all_teams=_user_teams(user),
+        can_manage=team.is_managed_by(user),
         customers=customers,
         by_customer=by_customer,
         links_by_project=links_by_project,
@@ -413,6 +414,26 @@ def customer_edit(cid):
     c.archived = request.form.get("archived") == "1"
     c.save()
     flash("Customer updated.", "success")
+    return redirect(url_for("timetracking.index", team=team.pk))
+
+
+@timetracking_bp.route("/customers/<cid>/delete", methods=["POST"])
+@login_required
+@team_required
+def customer_delete(cid):
+    """Hard-delete a customer with all its projects + logged time. Destructive,
+    irreversible — restricted to team managers."""
+    from application.services.timetracking import delete_customer
+    team = _team()
+    user = current_user._get_current_object()
+    if not team.is_managed_by(user):
+        abort(403)
+    c = _customer_or_404(cid, team)
+    name = c.name
+    stats = delete_customer(c)
+    flash(f"Deleted “{name}” — {stats['projects']} project(s), "
+          f"{stats['entries']} time entr{'y' if stats['entries'] == 1 else 'ies'}.",
+          "success")
     return redirect(url_for("timetracking.index", team=team.pk))
 
 

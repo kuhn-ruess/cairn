@@ -421,6 +421,28 @@ def budget_status(project, consumption: dict | None):
     }
 
 
+def delete_customer(customer) -> dict:
+    """Hard-delete a customer and **all** its history: every billing project,
+    every monthly bucket (with all logged entries), and the GTD links pointing
+    at those projects. Irreversible — there is no trash for billing data. Returns
+    a count summary. Uses ``Item.all_objects`` so links on trashed items clear too."""
+    team = customer.team
+    projects = list(TimeTrackingProject.objects(team=team, customer=customer))
+    pids = [p.id for p in projects]
+    unlinked = 0
+    if pids:
+        unlinked = Item.all_objects(time_project__in=pids).update(
+            unset__time_project=True)
+    buckets = TimeBucket.objects(team=team, customer=customer)
+    n_buckets = buckets.count()
+    n_entries = sum(len(b.entries or []) for b in buckets)
+    buckets.delete()
+    TimeTrackingProject.objects(team=team, customer=customer).delete()
+    customer.delete()
+    return {"projects": len(pids), "buckets": n_buckets,
+            "entries": n_entries, "unlinked": unlinked}
+
+
 def public_project_report(project):
     """Read-only hours for the customer share link — months → entries, hours
     only (never rates or amounts). Deref-free over the buckets."""

@@ -64,6 +64,16 @@
           </label>
           <button class="btn btn-sm btn-outline-secondary align-self-start">Save</button>
         </form>
+        {% if can_manage %}
+          <hr class="my-2">
+          <form method="post" action="{{ url_for('timetracking.customer_delete', cid=c.id) }}"
+                onsubmit="return confirm('Delete “{{ c.name }}” and ALL its projects and logged time? This cannot be undone.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="team" value="{{ team.pk }}">
+            <button class="btn btn-sm btn-outline-danger">
+              <i class="bi bi-trash"></i> Delete customer + history</button>
+          </form>
+        {% endif %}
       </details>
     </div>
 
