@@ -583,12 +583,25 @@ class Item(Document):
 
         Triggers:
           * ``defer_date`` is in the future
+          * an ancestor (parent task / section / project) is deferred into
+            the future — read-time defer inheritance, nothing is stored on
+            the children, so deferring a parent holds its whole subtree back
+            and a subtask keeps its own defer date
           * lives in a sequential parent and an earlier incomplete
             sibling exists
         """
         now = now or _utcnow()
         if self.defer_date and self.defer_date > now:
             return True
+        # Walk the parent chain (tasks → section → project → folder); trees
+        # are shallow and mongoengine caches each deref, so the parent read
+        # below reuses the same query. Depth-capped as a cycle guard.
+        node, depth = self.parent, 0
+        while node is not None and depth < 20:
+            if node.defer_date and node.defer_date > now:
+                return True
+            node = node.parent
+            depth += 1
         if self.parent and self.parent.project_type == "sequential":
             earlier = (
                 Item.objects(parent=self.parent,

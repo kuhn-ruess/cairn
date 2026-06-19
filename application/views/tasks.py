@@ -2744,6 +2744,34 @@ def related_remove(task_id, rel_id):
     return _related_response(task)
 
 
+@tasks_bp.route("/<task_id>/related/<rel_id>/to-subtask", methods=["POST"])
+@login_required
+def related_to_subtask(task_id, rel_id):
+    """Promote a related task into a sub-task of this task: reparent it
+    under the current task and drop the now-redundant related link. The
+    parent stays a task (no project conversion — a task may hold child
+    tasks). Plain POST reloads to the subtasks section."""
+    task = _editable_task_or_404(task_id)
+    user = current_user._get_current_object()
+    other = Item.objects(pk=rel_id, kind="task").first()
+    if other and other.pk != task.pk and other.can_be_edited_by(user):
+        # Reject cycles: the related task must not be an ancestor of this one.
+        cur, depth = task.parent, 0
+        is_ancestor = False
+        while cur is not None and depth < 20:
+            if cur.pk == other.pk:
+                is_ancestor = True
+                break
+            cur, depth = cur.parent, depth + 1
+        if not is_ancestor:
+            other.parent = task
+            other.save()
+            task.unrelate_from(other)
+    if request.headers.get("X-Partial") != "1":
+        return redirect(url_for("tasks.detail", task_id=str(task.pk)) + "#subtasks")
+    return _related_response(task)
+
+
 @tasks_bp.route("/<task_id>/subtasks", methods=["GET", "POST"])
 @login_required
 def subtasks(task_id):

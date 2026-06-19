@@ -190,6 +190,14 @@
                     {% if r.assigned_to %}<span><i class="bi bi-person-check"></i> {{ r.assigned_to }}</span>{% endif %}
                   </div>
                 </div>
+                <form method="post" class="m-0"
+                      action="{{ url_for('tasks.related_to_subtask', task_id=task.pk, rel_id=r.pk) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-link p-0 text-muted" type="submit"
+                          title="Make this a subtask of the current task">
+                    <i class="bi bi-list-nested"></i>
+                  </button>
+                </form>
                 <form method="post" action="{{ url_for('tasks.toggle_flag', task_id=r.pk) }}" class="m-0">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="btn btn-link p-0 {{ 'text-warning' if r.flagged else 'text-muted' }}"
