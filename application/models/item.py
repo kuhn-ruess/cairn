@@ -583,6 +583,9 @@ class Item(Document):
 
         Triggers:
           * ``defer_date`` is in the future
+          * ``followup_at`` is in the future — nothing to do until it's time
+            to chase again; the task still shows in the Follow-up view, which
+            keys off ``followup_at`` directly rather than ``is_blocked``
           * an ancestor (parent task / section / project) is deferred into
             the future — read-time defer inheritance, nothing is stored on
             the children, so deferring a parent holds its whole subtree back
@@ -592,6 +595,8 @@ class Item(Document):
         """
         now = now or _utcnow()
         if self.defer_date and self.defer_date > now:
+            return True
+        if self.followup_at and self.followup_at > now:
             return True
         # Walk the parent chain (tasks → section → project → folder); trees
         # are shallow and mongoengine caches each deref, so the parent read
