@@ -43,6 +43,26 @@ def has_team(user) -> bool:
     return primary_team(user) is not None
 
 
+def user_teams(user) -> list:
+    """Every team the user may act in for time tracking: their member team
+    (``user.team``) plus any team they admin (payer OR co-admin) or are a
+    biller of. Broader than ``permissions.teams_of`` on purpose — a co-admin or
+    biller who isn't the payer still belongs here."""
+    from mongoengine import Q
+    from application.models.team import Team
+    actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
+    if actor is None:
+        return []
+    teams = list(Team.objects(Q(admins=actor) | Q(admin=actor) | Q(billers=actor)))
+    if actor.team and not any(t.pk == actor.team.pk for t in teams):
+        teams.append(actor.team)
+    return teams
+
+
+def user_team_ids(user) -> set:
+    return {str(t.pk) for t in user_teams(user)}
+
+
 # ---------------------------------------------------------------------------
 # Inheritance: resolve the billing project for a Cairn item
 # ---------------------------------------------------------------------------
@@ -172,6 +192,10 @@ def task_time_context(user, item):
     if project is None:
         return None
     team = project.team
+    # The billing project may live in any team the user belongs to; only show
+    # the section if they're actually a member of that team.
+    if str(team.id) not in user_team_ids(user):
+        return None
     customer = project.customer
     src_id = str(item.pk)
     buckets = TimeBucket.objects(team=team, customer=customer,

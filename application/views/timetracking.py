@@ -18,7 +18,6 @@ from application.services.timetracking import (
     add_entry,
     cancel_entry,
     parse_duration,
-    primary_team,
     resolve_time_project,
     task_time_context,
 )
@@ -26,12 +25,35 @@ from application.services.timetracking import (
 timetracking_bp = Blueprint("timetracking", __name__, url_prefix="/time")
 
 
+def _user_teams(user):
+    """Every team the user participates in (member, admin, or biller), by name.
+    The module is scoped to one of these at a time."""
+    from application.services.timetracking import user_teams
+    return sorted(user_teams(user), key=lambda t: (t.name or "").lower())
+
+
+def _team_ids(user) -> set:
+    from application.services.timetracking import user_team_ids
+    return user_team_ids(user)
+
+
 def _team():
-    """The acting user's team, or 403 (team_required already guarantees one)."""
-    team = primary_team(current_user)
-    if not team:
+    """The team the module currently operates on.
+
+    Honours ``team=<id>`` (query string OR form body, so it survives POSTs)
+    when the user belongs to it; otherwise falls back to their first team.
+    404s if they ask for a team they're not in, 403 if they have none."""
+    user = current_user._get_current_object()
+    teams = _user_teams(user)
+    if not teams:
         abort(403)
-    return team
+    raw = request.values.get("team")
+    if raw:
+        for t in teams:
+            if str(t.pk) == raw:
+                return t
+        abort(404)
+    return teams[0]
 
 
 def _customer_or_404(cid, team):
@@ -122,6 +144,7 @@ def index():
     return render_template(
         "timetracking/index.html",
         team=team,
+        all_teams=_user_teams(user),
         customers=customers,
         by_customer=by_customer,
         links_by_project=links_by_project,
@@ -158,7 +181,9 @@ def log(task_id):
     if not task or not task.can_be_viewed_by(user):
         abort(404)
     project = resolve_time_project(task)
-    if project and project.team == primary_team(user):
+    # Team-agnostic: a task's billing project may live in any team the user
+    # belongs to — log into that project's team, not a single "primary" one.
+    if project and str(project.team.id) in _team_ids(user):
         minutes = parse_duration(request.form.get("duration") or "")
         if minutes:
             raw_date = (request.form.get("spent_on") or "").strip()
@@ -180,11 +205,15 @@ def log(task_id):
 def entry_cancel(bucket_id, entry_id):
     """Soft-cancel a time entry. Allowed for the person who logged it or a team
     manager/biller. Refused on locked (billed) entries (handled in the service)."""
-    team = _team()
-    bucket = TimeBucket.objects(pk=bucket_id, team=team).first()
+    user = current_user._get_current_object()
+    # Derive the team from the bucket (the cancel button carries no team) and
+    # verify the user belongs to it — works regardless of which team is "current".
+    bucket = TimeBucket.objects(pk=bucket_id).first()
     if not bucket:
         abort(404)
-    user = current_user._get_current_object()
+    team = bucket.team
+    if str(team.id) not in _team_ids(user):
+        abort(403)
     entry = next((e for e in bucket.entries if e.entry_id == entry_id), None)
     if entry is None:
         abort(404)
@@ -290,7 +319,8 @@ def report():
     f = _report_filters()
     data = _grouped_report(team, f)
     return render_template(
-        "timetracking/report.html", team=team, f=f, presets=PERIOD_PRESETS,
+        "timetracking/report.html", team=team, all_teams=_user_teams(user),
+        f=f, presets=PERIOD_PRESETS,
         can_bill=can_bill(user, team), can_unlock=team.is_managed_by(user),
         **data)
 
@@ -316,10 +346,10 @@ def report_bill():
               f"marked {'billed' if lock else 'open'}.", "success")
     else:
         flash("Nothing changed.", "info")
-    # Preserve the report filters from the hidden query string.
+    # Preserve the report filters (incl. the selected team) from the hidden form.
     args = {k: v for k, v in request.form.items()
-            if k in ("period", "from", "to", "customer", "project", "user",
-                     "billable", "locked")}
+            if k in ("team", "period", "from", "to", "customer", "project",
+                     "user", "billable", "locked")}
     return redirect(url_for("timetracking.report", **args))
 
 
@@ -363,11 +393,11 @@ def customer_create():
     name = (request.form.get("name") or "").strip()
     if not name:
         flash("Customer name is required.", "warning")
-        return redirect(url_for("timetracking.index"))
+        return redirect(url_for("timetracking.index", team=team.pk))
     Customer(team=team, name=name[:200],
              note=(request.form.get("note") or "").strip()).save()
     flash(f"Customer “{name}” created.", "success")
-    return redirect(url_for("timetracking.index"))
+    return redirect(url_for("timetracking.index", team=team.pk))
 
 
 @timetracking_bp.route("/customers/<cid>/edit", methods=["POST"])
@@ -383,7 +413,7 @@ def customer_edit(cid):
     c.archived = request.form.get("archived") == "1"
     c.save()
     flash("Customer updated.", "success")
-    return redirect(url_for("timetracking.index"))
+    return redirect(url_for("timetracking.index", team=team.pk))
 
 
 # ---------------------------------------------------------------------------
@@ -399,7 +429,7 @@ def project_create():
     customer = _customer_or_404(request.form.get("customer_id"), team)
     if not name:
         flash("Project name is required.", "warning")
-        return redirect(url_for("timetracking.index"))
+        return redirect(url_for("timetracking.index", team=team.pk))
     budget_value, budget_type = _parse_budget(request.form)
     TimeTrackingProject(
         team=team, customer=customer, name=name[:200],
@@ -408,7 +438,7 @@ def project_create():
         budget_value=budget_value, budget_type=budget_type,
     ).save()
     flash(f"Project “{name}” created.", "success")
-    return redirect(url_for("timetracking.index"))
+    return redirect(url_for("timetracking.index", team=team.pk))
 
 
 @timetracking_bp.route("/projects/<pid>/edit", methods=["POST"])
@@ -426,7 +456,7 @@ def project_edit(pid):
     p.archived = request.form.get("archived") == "1"
     p.save()
     flash("Project updated.", "success")
-    return redirect(url_for("timetracking.index"))
+    return redirect(url_for("timetracking.index", team=team.pk))
 
 
 @timetracking_bp.route("/projects/<pid>/share", methods=["POST"])
@@ -448,7 +478,7 @@ def project_share(pid):
         p.share_enabled = True
         flash("Customer link is live.", "success")
     p.save()
-    return redirect(url_for("timetracking.index"))
+    return redirect(url_for("timetracking.index", team=team.pk))
 
 
 # ---------------------------------------------------------------------------
@@ -477,4 +507,4 @@ def link_item():
         item.time_project = None
         flash(f"“{item.title}” unlinked.", "success")
     item.save()
-    return redirect(url_for("timetracking.index"))
+    return redirect(url_for("timetracking.index", team=team.pk))

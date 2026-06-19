@@ -3,7 +3,23 @@
 {% block content %}
 <div class="d-flex align-items-center gap-2 mb-3">
   <h1 class="h4 mb-0 me-auto"><i class="bi bi-table"></i> Time report</h1>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('timetracking.index') }}">
+  {% if all_teams and all_teams|length > 1 %}
+    <div class="dropdown">
+      <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+              data-bs-toggle="dropdown" title="Switch team">
+        <i class="bi bi-people"></i> {{ team.name }}
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        {% for t in all_teams %}
+          <li><a class="dropdown-item {% if t == team %}active{% endif %}"
+                 href="{{ url_for('timetracking.report', team=t.pk|string) }}">{{ t.name }}</a></li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% else %}
+    <span class="badge text-bg-light text-muted"><i class="bi bi-people"></i> {{ team.name }}</span>
+  {% endif %}
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('timetracking.index', team=team.pk) }}">
     <i class="bi bi-gear"></i> Manage</a>
   <a class="btn btn-sm btn-outline-secondary"
      href="{{ url_for('timetracking.report_csv', **request.args) }}">
@@ -12,6 +28,7 @@
 
 {# ---- Filters (mite-style) ---- #}
 <form method="get" class="card card-body mb-3">
+  <input type="hidden" name="team" value="{{ team.pk }}">
   <div class="row g-2 align-items-end">
     <div class="col-auto">
       <label class="form-label small mb-0">Period</label>
@@ -96,6 +113,7 @@
 <form method="post" action="{{ url_for('timetracking.report_bill') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {# carry the current filters so the redirect keeps the same view #}
+  <input type="hidden" name="team" value="{{ team.pk }}">
   <input type="hidden" name="period" value="{{ f.preset }}">
   <input type="hidden" name="from" value="{{ f.date_from.isoformat() }}">
   <input type="hidden" name="to" value="{{ f.date_to.isoformat() }}">
