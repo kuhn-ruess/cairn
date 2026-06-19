@@ -407,6 +407,10 @@
       body: fd,
       credentials: "same-origin",
       redirect: "manual",
+      // Mark as AJAX so the server returns JSON instead of flashing
+      // "Item completed." + redirecting — otherwise every completed task
+      // stacks a flash in the session that dumps on the next full page load.
+      headers: { "X-Requested-With": "XMLHttpRequest" },
     }).then((resp) => {
       // 'manual' returns an opaqueredirect on 3xx but the request was
       // actually executed — patch the DOM regardless.
