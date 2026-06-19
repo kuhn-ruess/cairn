@@ -2229,6 +2229,12 @@ body.ps-resizing * {
   border-left: 2px solid var(--gv-bg2);
   padding-left: .75rem;
 }
+/* When the note is collapsed only the heading is left, so the left accent would
+   shrink to a stray stub next to the chevron — drop it while collapsed. */
+.task-detail-note:has(> .section-collapsible.d-none) {
+  border-left: none;
+  padding-left: 0;
+}
 .task-detail-note .md-body {
   color: var(--gv-fg2);
   font-size: .95rem;
