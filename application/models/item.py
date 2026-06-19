@@ -586,6 +586,9 @@ class Item(Document):
         """Blocked = displayed but not actionable yet.
 
         Triggers:
+          * ``status == "waiting_reply"`` — you're waiting on someone's reply,
+            so there's nothing to act on; it still shows in the Waiting-on-reply
+            view, which keys off the status directly rather than ``is_blocked``
           * ``defer_date`` is in the future
           * ``followup_at`` is in the future — nothing to do until it's time
             to chase again; the task still shows in the Follow-up view, which
@@ -598,6 +601,8 @@ class Item(Document):
             sibling exists
         """
         now = now or _utcnow()
+        if self.status == "waiting_reply":
+            return True
         if self.defer_date and self.defer_date > now:
             return True
         if self.followup_at and self.followup_at > now:
