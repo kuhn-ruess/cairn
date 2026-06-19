@@ -240,6 +240,15 @@ def register_filters(app):
             return f"{h}h"
         return f"{m}m"
 
+    @app.template_filter("eur")
+    def eur(cents):
+        """Integer cents → ``1.234,50 €`` (German formatting). ``None`` → ``—``."""
+        if cents is None:
+            return "—"
+        whole, frac = divmod(int(cents), 100)
+        s = f"{whole:,}".replace(",", ".")
+        return f"{s},{frac:02d} €"
+
     @app.template_filter("markdown")
     def markdown_filter(value):
         """Render Markdown to safe HTML for note bodies + comments.

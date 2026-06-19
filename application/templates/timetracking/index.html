@@ -1,0 +1,129 @@
+{% extends "layout/base.html" %}
+{% block title %}Time tracking{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center gap-2 mb-3">
+  <h1 class="h4 mb-0 me-auto"><i class="bi bi-stopwatch"></i> Time tracking</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('timetracking.report') }}">
+    <i class="bi bi-table"></i> Report</a>
+</div>
+
+{# ---- New customer ---- #}
+<div class="card mb-4" style="max-width: 720px;">
+  <div class="card-body">
+    <h2 class="h6 mb-2"><i class="bi bi-person-vcard"></i> New customer</h2>
+    <form method="post" action="{{ url_for('timetracking.customer_create') }}"
+          class="d-flex gap-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="text" name="name" required placeholder="Customer name"
+             class="form-control form-control-sm">
+      <button class="btn btn-sm btn-primary">Add</button>
+    </form>
+  </div>
+</div>
+
+{% if not customers %}
+  <p class="text-muted">No customers yet. Create one above, then add billing projects under it.</p>
+{% endif %}
+
+{% for c in customers %}
+  <div class="card mb-4 {% if c.archived %}opacity-75{% endif %}" style="max-width: 720px;">
+    <div class="card-header py-2 d-flex align-items-center gap-2">
+      <h2 class="h6 mb-0 me-auto">
+        <i class="bi bi-person-vcard"></i> {{ c.name }}
+        {% if c.archived %}<span class="badge text-bg-secondary ms-1">archived</span>{% endif %}
+      </h2>
+      <details>
+        <summary class="small text-muted" style="cursor:pointer;">edit</summary>
+        <form method="post" action="{{ url_for('timetracking.customer_edit', cid=c.id) }}"
+              class="d-flex flex-column gap-1 mt-2" style="min-width:260px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="text" name="name" value="{{ c.name }}" class="form-control form-control-sm">
+          <input type="text" name="note" value="{{ c.note }}" placeholder="Note"
+                 class="form-control form-control-sm">
+          <label class="form-check small">
+            <input type="checkbox" name="archived" value="1" class="form-check-input"
+                   {% if c.archived %}checked{% endif %}> archived
+          </label>
+          <button class="btn btn-sm btn-outline-secondary align-self-start">Save</button>
+        </form>
+      </details>
+    </div>
+
+    <ul class="list-group list-group-flush">
+      {% for p in by_customer.get(c.id|string, []) %}
+        <li class="list-group-item">
+          <div class="d-flex align-items-center gap-2">
+            <span class="me-auto">
+              <strong>{{ p.name }}</strong>
+              {% if p.archived %}<span class="badge text-bg-secondary ms-1">archived</span>{% endif %}
+              <span class="small text-muted ms-1">
+                {{ p.hourly_rate_cents|eur }}{% if p.hourly_rate_cents %} / h{% endif %}
+              </span>
+            </span>
+            <details>
+              <summary class="small text-muted" style="cursor:pointer;">edit</summary>
+              <form method="post" action="{{ url_for('timetracking.project_edit', pid=p.id) }}"
+                    class="d-flex flex-column gap-1 mt-2" style="min-width:260px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="text" name="name" value="{{ p.name }}" class="form-control form-control-sm">
+                <input type="text" name="hourly_rate" value="{{ '%.2f'|format(p.hourly_rate_cents/100) if p.hourly_rate_cents else '' }}"
+                       placeholder="Hourly rate (€)" class="form-control form-control-sm">
+                <input type="text" name="note" value="{{ p.note }}" placeholder="Note"
+                       class="form-control form-control-sm">
+                <label class="form-check small">
+                  <input type="checkbox" name="archived" value="1" class="form-check-input"
+                         {% if p.archived %}checked{% endif %}> archived
+                </label>
+                <button class="btn btn-sm btn-outline-secondary align-self-start">Save</button>
+              </form>
+            </details>
+          </div>
+
+          {# Linked Cairn folders/projects (tasks below them inherit this billing project) #}
+          <div class="mt-2 ps-2 border-start">
+            {% for it in links_by_project.get(p.id|string, []) %}
+              <div class="d-flex align-items-center gap-2 small">
+                <span class="me-auto">
+                  <i class="bi bi-{{ 'folder' if it.kind == 'folder' else 'collection' }}"></i>
+                  {{ it.title }}
+                </span>
+                <form method="post" action="{{ url_for('timetracking.link_item') }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="item_id" value="{{ it.id }}">
+                  <button class="btn btn-sm btn-link text-danger p-0" title="Unlink">unlink</button>
+                </form>
+              </div>
+            {% endfor %}
+            <form method="post" action="{{ url_for('timetracking.link_item') }}"
+                  class="d-flex gap-1 mt-1">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="project_id" value="{{ p.id }}">
+              <select name="item_id" class="form-select form-select-sm" style="max-width:320px;">
+                <option value="">Link a folder / project…</option>
+                {% for it in linkable %}
+                  <option value="{{ it.id }}">{{ '📁 ' if it.kind == 'folder' else '📋 ' }}{{ it.title }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-sm btn-outline-primary">Link</button>
+            </form>
+          </div>
+        </li>
+      {% endfor %}
+
+      {# New project under this customer #}
+      <li class="list-group-item bg-body-tertiary">
+        <form method="post" action="{{ url_for('timetracking.project_create') }}"
+              class="d-flex gap-1 flex-wrap align-items-center">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="customer_id" value="{{ c.id }}">
+          <input type="text" name="name" required placeholder="New project name"
+                 class="form-control form-control-sm" style="max-width:240px;">
+          <input type="text" name="hourly_rate" placeholder="€/h"
+                 class="form-control form-control-sm" style="max-width:90px;">
+          <button class="btn btn-sm btn-primary">Add project</button>
+        </form>
+      </li>
+    </ul>
+  </div>
+{% endfor %}
+{% endblock %}
