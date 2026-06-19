@@ -361,14 +361,44 @@
   </div>
 </div>
 
-{% if project.note %}
-  <div class="card mb-3 project-note-card">
-    <div class="card-body py-2">
-      <div class="text-muted small text-uppercase mb-1"><i class="bi bi-journal-text"></i> Note</div>
-      <div class="md-body">{{ project.note|markdown }}</div>
+<style>
+  /* Inline note edit — no inspector needed. Inline so it ships with the
+     partial (no app.css cache-bust dance). */
+  #project-note .pn-edit-btn { opacity: 0; transition: opacity .12s; }
+  #project-note .pn-view:hover .pn-edit-btn,
+  #project-note .pn-edit-btn:focus { opacity: 1; }
+  #project-note .pn-editor, #project-note .pn-editor-actions { display: none; }
+  #project-note.pn-editing .pn-view, #project-note.pn-editing .pn-add { display: none; }
+  #project-note.pn-editing .pn-editor { display: block; }
+  #project-note.pn-editing .pn-editor-actions { display: flex; }
+</style>
+<div id="project-note" class="mb-3"
+     data-note-url="{{ url_for('projects.update_note', project_id=project.pk) }}">
+  {% if project.note %}
+    <div class="card project-note-card pn-view">
+      <div class="card-body py-2">
+        <div class="d-flex align-items-center mb-1">
+          <span class="text-muted small text-uppercase me-auto"><i class="bi bi-journal-text"></i> Note</span>
+          <button type="button" class="btn btn-sm btn-link p-0 pn-edit-btn" title="Edit note">
+            <i class="bi bi-pencil"></i>
+          </button>
+        </div>
+        <div class="md-body">{{ project.note|markdown }}</div>
+      </div>
     </div>
+  {% else %}
+    <button type="button" class="btn btn-sm btn-link text-muted px-0 pn-add pn-edit-btn">
+      <i class="bi bi-journal-plus"></i> Add note
+    </button>
+  {% endif %}
+  <textarea class="form-control pn-editor" rows="4"
+            placeholder="Note — Markdown supported, Ctrl/⌘+Enter to save">{{ project.note }}</textarea>
+  <div class="pn-editor-actions align-items-center gap-2 mt-1">
+    <button type="button" class="btn btn-sm btn-primary pn-save">Save</button>
+    <button type="button" class="btn btn-sm btn-link pn-cancel">Cancel</button>
+    <span class="text-muted small">Markdown · Ctrl/⌘+Enter to save</span>
   </div>
-{% endif %}
+</div>
 
 <div class="d-flex align-items-center mb-3 flex-wrap gap-2">
   <span class="text-muted small">Group by:</span>

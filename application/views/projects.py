@@ -1136,6 +1136,22 @@ def rename(project_id):
     project.save()
     return jsonify({"ok": True, "name": name})
 
+@projects_bp.route("/<project_id>/note", methods=["POST"])
+@login_required
+def update_note(project_id):
+    """Inline create/edit of a project's note — no inspector round-trip.
+    Returns the rendered markdown so the caller can repaint the note card."""
+    from flask import jsonify, current_app
+    user = current_user._get_current_object()
+    project = Item.objects(pk=project_id, owner=user).first()
+    if not project:
+        return jsonify({"error": "not found"}), 404
+    note = (request.form.get("note") or "").strip()
+    project.note = note
+    project.save()
+    html = current_app.jinja_env.filters["markdown"](note) if note else ""
+    return jsonify({"ok": True, "note": note, "html": html})
+
 @projects_bp.route("/<project_id>/move", methods=["POST"])
 @login_required
 def move(project_id):
