@@ -34,7 +34,12 @@ def _a_attr_ok(tag, name, value):
         return False
     if not _SCHEME_RE.match(value):
         return True  # relative/internal link
-    return value.startswith(("http://", "https://", "mailto:"))
+    # ``message:`` lets an Apple Mail message dragged into a note stay a
+    # clickable link that reopens the mail (no script risk — it just hands
+    # off to the Mail app). ``tel:`` is the same harmless hand-off shape.
+    return value.startswith(
+        ("http://", "https://", "mailto:", "message:", "tel:")
+    )
 
 
 def register_filters(app):
@@ -299,7 +304,7 @@ def register_filters(app):
             # only for raster types — ``_img_attr_ok`` / ``_a_attr_ok`` gate
             # everything else so ``a href="data:…"`` (an XSS vector) can't slip
             # through.
-            protocols=["http", "https", "mailto", "data"],
+            protocols=["http", "https", "mailto", "data", "message", "tel"],
             strip=True,
         )
         # Auto-link bare URLs / emails that weren't written with Markdown

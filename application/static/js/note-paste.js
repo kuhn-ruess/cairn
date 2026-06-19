@@ -1,4 +1,8 @@
-/* Image-paste support for note textareas.
+/* Image-paste + link-drop support for note textareas.
+ *
+ * Dragging a link (e.g. an Apple Mail message → a ``message://`` URL) into a
+ * note inserts a Markdown link "[subject](url)" rather than bare text — see the
+ * drag-and-drop section at the bottom.
  *
  * Listens on textarea[name="note"]; when the clipboard carries an image we
  * compress it in-browser (resize + re-encode to WebP/JPEG) and store it inline
@@ -133,4 +137,84 @@
   }
 
   document.addEventListener("paste", onPaste, true);
+
+  // ----- Drag-and-drop a link into a note -----------------------------------
+  // Dragging an Apple Mail message (or any link) into a note textarea inserts
+  // a Markdown link instead of the bare subject text. Mail provides a
+  // ``message://<id>`` URL in the drag; we keep that as the target and use the
+  // dragged subject as the label, so the note carries a clickable reference
+  // that reopens the original mail. Works for the task-detail / inspector
+  // notes (``textarea[name="note"]``) and the project note (``.pn-editor``).
+
+  function noteTextareaFor(target) {
+    if (!target || !target.closest) return null;
+    return target.closest('textarea[name="note"], textarea.pn-editor');
+  }
+
+  function firstLink(str) {
+    return (str || "")
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .find((s) => /^(message:|mailto:|https?:)/i.test(s)) || "";
+  }
+
+  // Build "[label](url)" from a drop's DataTransfer, or null when there's no
+  // URL to link (so plain-text drops fall through to the native behaviour).
+  function linkSnippetFromDrop(dt) {
+    const plain = dt.getData("text/plain") || "";
+    const url =
+      firstLink(dt.getData("text/uri-list") || "") ||
+      firstLink(dt.getData("URL") || "") ||
+      firstLink(plain);
+    if (!url) return null;
+    // Label: a Firefox-style "url\ntitle" flavour, else a plain-text line that
+    // isn't the URL itself (Mail drops the subject there), else a fallback.
+    let label = "";
+    const mozParts = (dt.getData("text/x-moz-url") || "").split(/\r?\n/);
+    if (mozParts.length >= 2) label = mozParts[1].trim();
+    if (!label) {
+      label = plain
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .find((s) => s && s !== url && !/^(message:|mailto:|https?:)/i.test(s)) || "";
+    }
+    if (!label) {
+      if (/^message:/i.test(url)) label = "Email";
+      else {
+        try { label = new URL(url).hostname.replace(/^www\./, ""); }
+        catch (e) { label = "Link"; }
+      }
+    }
+    // Keep the label from breaking the Markdown link syntax.
+    label = label.replace(/\s+/g, " ").replace(/[[\]]/g, "").trim() || "Link";
+    return `[${label}](${url})`;
+  }
+
+  // A drop only fires on the textarea if the drag was "accepted" in dragover.
+  // Only claim drags that carry a URL flavour, so dragging plain text into a
+  // note still behaves natively.
+  function onNoteDragOver(e) {
+    if (!noteTextareaFor(e.target)) return;
+    const types = (e.dataTransfer && e.dataTransfer.types) || [];
+    const hasUrl = Array.from(types).some(
+      (t) => t === "text/uri-list" || t === "URL" || t === "text/x-moz-url"
+    );
+    if (hasUrl) e.preventDefault();
+  }
+
+  function onNoteDrop(e) {
+    const textarea = noteTextareaFor(e.target);
+    if (!textarea) return;
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    const snippet = linkSnippetFromDrop(dt);
+    if (!snippet) return; // not a link drop — let the browser handle it
+    e.preventDefault();
+    e.stopPropagation();
+    textarea.focus();
+    insertAtCursor(textarea, snippet);
+  }
+
+  document.addEventListener("dragover", onNoteDragOver, true);
+  document.addEventListener("drop", onNoteDrop, true);
 })();
