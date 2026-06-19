@@ -68,6 +68,11 @@ class Team(Document):
     # ``Team.objects(admin=user)`` therefore means "teams this user pays for".
     admin = ReferenceField(User, required=True)
     admins = ListField(ReferenceField(User))
+    # Members allowed to *bill* (lock) time entries. A biller can settle time
+    # across every TimeTrackingProject reachable from a Cairn item they're a
+    # member of — scoped by the GTD subtree they have rights to, not account-wide
+    # (this is the deliberate edge over mite, which only has account-wide admins).
+    billers = ListField(ReferenceField(User))
     created_at = DateTimeField(default=_utcnow)
     invites = EmbeddedDocumentListField(TeamInvite)
     # Family (non-commercial) team → flat base price covering FAMILY_INCLUDED_SEATS

@@ -309,6 +309,12 @@ class Item(Document):
     share_enabled = BooleanField(default=False)
     share_token = StringField(unique=True, sparse=True)
 
+    # Team time-tracking link. On a folder/project this binds the GTD subtree to
+    # a billing project; tasks inherit it by climbing parents (see
+    # application.services.timetracking.resolve_time_project). Stored as a string
+    # ref so the dependency points one way (timetracking → item, never back).
+    time_project = ReferenceField("TimeTrackingProject")
+
     # calendar write-back
     gcal_due_event_id = StringField()
     gcal_plan_event_id = StringField()
