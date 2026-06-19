@@ -145,6 +145,15 @@
     } else {
       opts.handle = ".task-handle";
     }
+    // The sub-project list (.sp-list) nests each sub-project's own task
+    // list inside its rows (.sp-children). Without this, grabbing a task's
+    // .task-handle in a nested list starts an OUTER drag of the whole
+    // sub-project block (both share the .task-handle handle) — so dragging
+    // a task inside a sub-project looked broken. Restrict the outer list to
+    // dragging .sp-row items only; the nested .task-list owns its tasks.
+    if (el.classList.contains("sp-list")) {
+      opts.draggable = ".sp-row";
+    }
     new Sortable(el, opts);
   }
 
