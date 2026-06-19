@@ -76,6 +76,30 @@
                 </label>
                 <button class="btn btn-sm btn-outline-secondary align-self-start">Save</button>
               </form>
+              <hr class="my-2">
+              <div class="small">
+                <div class="text-muted mb-1"><i class="bi bi-link-45deg"></i> Customer link (hours only)</div>
+                {% if p.share_enabled and p.share_token %}
+                  <input class="form-control form-control-sm mb-1" readonly
+                         onclick="this.select()"
+                         value="{{ url_for('public.project_time', token=p.share_token, _external=True) }}">
+                  <div class="d-flex gap-1">
+                    <form method="post" action="{{ url_for('timetracking.project_share', pid=p.id) }}">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button name="action" value="regenerate" class="btn btn-sm btn-outline-secondary">New link</button>
+                    </form>
+                    <form method="post" action="{{ url_for('timetracking.project_share', pid=p.id) }}">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button name="action" value="disable" class="btn btn-sm btn-outline-danger">Disable</button>
+                    </form>
+                  </div>
+                {% else %}
+                  <form method="post" action="{{ url_for('timetracking.project_share', pid=p.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button name="action" value="enable" class="btn btn-sm btn-outline-primary">Enable customer link</button>
+                  </form>
+                {% endif %}
+              </div>
             </details>
           </div>
 

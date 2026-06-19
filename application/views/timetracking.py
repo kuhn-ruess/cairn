@@ -394,6 +394,28 @@ def project_edit(pid):
     return redirect(url_for("timetracking.index"))
 
 
+@timetracking_bp.route("/projects/<pid>/share", methods=["POST"])
+@login_required
+@team_required
+def project_share(pid):
+    """Toggle the customer's read-only time-sheet link for a billing project.
+
+    ``action`` ∈ enable / disable / regenerate. The link shows hours only."""
+    team = _team()
+    p = _project_or_404(pid, team)
+    action = request.form.get("action")
+    if action == "disable":
+        p.share_enabled = False
+        flash("Customer link disabled.", "info")
+    else:  # enable / regenerate
+        if action == "regenerate" or not p.share_token:
+            p.regenerate_share_token()
+        p.share_enabled = True
+        flash("Customer link is live.", "success")
+    p.save()
+    return redirect(url_for("timetracking.index"))
+
+
 # ---------------------------------------------------------------------------
 # Linking a Cairn folder/project to a billing project
 # ---------------------------------------------------------------------------

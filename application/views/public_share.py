@@ -92,6 +92,21 @@ def project(token):
         project_status_label=PROJECT_STATUS_LABEL.get(proj.status, proj.status),
     )
 
+@public_bp.route("/time/<token>")
+def project_time(token):
+    """Customer-facing read-only time sheet for one billing project. Hours and
+    notes only — never rates or amounts. Addressed by an opaque, revocable
+    token on the TimeTrackingProject."""
+    from application.models.timetracking import TimeTrackingProject
+    from application.services.timetracking import public_project_report
+    proj = TimeTrackingProject.objects(
+        share_token=token, share_enabled=True).first()
+    if not proj:
+        abort(404)
+    data = public_project_report(proj)
+    return render_template("public/project_time.html", project=proj, **data)
+
+
 @public_bp.route("/<token>/t/<task_id>")
 def task(token, task_id):
     proj = _project_or_404(token)

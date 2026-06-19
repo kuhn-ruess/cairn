@@ -348,6 +348,35 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
     return rows
 
 
+def public_project_report(project):
+    """Read-only hours for the customer share link — months → entries, hours
+    only (never rates or amounts). Deref-free over the buckets."""
+    buckets = TimeBucket.objects(team=project.team, customer=project.customer)
+    pid = str(project.id)
+    months = {}
+    total = 0
+    for b in buckets:
+        for e in b.entries:
+            if e.project_id != pid or e.status != "active":
+                continue
+            total += e.minutes or 0
+            d = e.spent_on
+            dd = d.date() if hasattr(d, "date") else d
+            key = f"{dd.year:04d}-{dd.month:02d}"
+            mo = months.setdefault(key, {
+                "key": key, "label": dd.strftime("%B %Y"),
+                "minutes": 0, "entries": []})
+            mo["minutes"] += e.minutes or 0
+            mo["entries"].append({"date": dd, "minutes": e.minutes or 0,
+                                  "note": e.note or ""})
+    out = []
+    for key in sorted(months, reverse=True):
+        mo = months[key]
+        mo["entries"].sort(key=lambda r: r["date"], reverse=True)
+        out.append(mo)
+    return {"months": out, "total_minutes": total}
+
+
 def can_bill(user, team) -> bool:
     """A team manager, or a member the manager has named a biller, may settle
     (lock) time — each still bounded by their reachable project scope."""
