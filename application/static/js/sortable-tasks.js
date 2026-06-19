@@ -332,22 +332,14 @@
         setTimeout(() => window.location.reload(), 800);
         return;
       }
-      const payload = await resp.json();
-      const wrap = document.createElement("div");
-      wrap.innerHTML = payload.html.trim();
-      const newBlock = wrap.firstElementChild;
-      // Drop the two original rows and put the merged block where the
-      // target sat. Initialise SortableJS on its inner .task-list so
-      // more tasks can be dragged in immediately.
-      const slot = targetRow.parentNode;
-      slot.insertBefore(newBlock, targetRow);
-      sourceRow.remove();
-      targetRow.remove();
-      newBlock.querySelectorAll(".task-list, .tree-tasks").forEach(init);
-      const nameInput = newBlock.querySelector(".merged-name-input");
-      if (nameInput) {
-        nameInput.focus();
-        nameInput.select();
+      await resp.json().catch(() => ({}));
+      // Source is now a sub-task of target (target stays a task). Re-render
+      // the view server-side so target shows its expand chevron with the
+      // nested sub-task, instead of swapping in a project block.
+      if (typeof window.bktodoRefreshMain === "function") {
+        window.bktodoRefreshMain();
+      } else {
+        window.location.reload();
       }
     } catch (err) {
       flashError("Merge failed (network).");

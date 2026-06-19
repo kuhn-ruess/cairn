@@ -1833,39 +1833,34 @@ def convert_to_project(task_id):
 @tasks_bp.route("/merge", methods=["POST"])
 @login_required
 def merge():
-    """Drag-merge: drop task A onto task B → B becomes a project, A is its child.
+    """Drag-merge: drop task A onto task B → A becomes a SUB-TASK of B.
 
-    The unified Item model lets a task hold children — flipping the
-    target's kind to "project" is enough; no extra container is created
-    and the project limit doesn't trigger because nothing new gets made.
+    B stays a task — a task can hold child tasks directly, so it is NOT
+    converted into a project/container (same rule as 'add subtask'). The
+    caller re-renders the view so B shows its expand chevron with A nested.
     """
-    from flask import jsonify, render_template
+    from flask import jsonify
     user = current_user._get_current_object()
     source = Item.objects(pk=request.form.get("source_id"), owner=user).first()
     target = Item.objects(pk=request.form.get("target_id"), owner=user).first()
     if not source or not target or source.pk == target.pk:
         return jsonify({"error": "invalid tasks"}), 400
-    # Flip target → project (idempotent) and nest source under it.
-    target.ensure_container()
+    # Reject cycles: target must not be a descendant of source.
+    cur, depth = target.parent, 0
+    while cur is not None and depth < 50:
+        if cur.pk == source.pk:
+            return jsonify({"error": "can't nest a task under its own subtask"}), 400
+        cur, depth = cur.parent, depth + 1
     source.parent = target
     source.save()
-    # Render the merged block showing the new project (= target) and
-    # all its children, so the client can swap the two rows out for it.
-    children = list(
-        Item.objects(parent=target, kind="task")
-            .order_by("+sort_order", "+created_at")
-    )
-    html = render_template(
-        "tasks/_merged_block.html",
-        project=target, tasks=children,
-        target_project_id=str(target.pk),
-    )
-    return jsonify({
-        "ok": True,
-        "project_id": str(target.pk),
-        "project_name": target.title,
-        "html": html,
-    })
+    # Auto-expand the target in the list so the freshly-nested sub-task is
+    # visible right away (a pk in collapsed_items marks an EXPANDED parent).
+    collapsed = list(user.collapsed_items or [])
+    if str(target.pk) not in collapsed:
+        collapsed.append(str(target.pk))
+        user.collapsed_items = collapsed
+        user.save()
+    return jsonify({"ok": True})
 
 @tasks_bp.route("/<task_id>/schedule", methods=["POST"])
 @login_required
