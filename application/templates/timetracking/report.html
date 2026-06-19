@@ -92,6 +92,29 @@
   <p class="text-muted">No time entries match these filters.</p>
 {% endif %}
 
+{% if can_bill and groups %}
+<form method="post" action="{{ url_for('timetracking.report_bill') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {# carry the current filters so the redirect keeps the same view #}
+  <input type="hidden" name="period" value="{{ f.preset }}">
+  <input type="hidden" name="from" value="{{ f.date_from.isoformat() }}">
+  <input type="hidden" name="to" value="{{ f.date_to.isoformat() }}">
+  <input type="hidden" name="customer" value="{{ f.customer_id or '' }}">
+  <input type="hidden" name="project" value="{{ f.project_id or '' }}">
+  <input type="hidden" name="user" value="{{ f.user_id or '' }}">
+  <input type="hidden" name="billable" value="{{ '1' if f.billable == true else '0' if f.billable == false else '' }}">
+  <input type="hidden" name="locked" value="{{ '1' if f.locked == true else '0' if f.locked == false else '' }}">
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <button class="btn btn-sm btn-success" name="action" value="bill">
+      <i class="bi bi-lock"></i> Mark selected billed</button>
+    {% if can_unlock %}
+      <button class="btn btn-sm btn-outline-secondary" name="action" value="unlock">
+        <i class="bi bi-unlock"></i> Reopen selected</button>
+    {% endif %}
+    <span class="small text-muted">Tick entries to settle them. Billed entries are locked.</span>
+  </div>
+{% endif %}
+
 {% for c in groups %}
   <div class="card mb-3">
     <div class="card-header py-2 d-flex align-items-center">
@@ -118,6 +141,14 @@
                 <tbody>
                   {% for e in u.entries %}
                     <tr>
+                      {% if can_bill %}
+                        <td style="width:1.5rem;">
+                          {% if not e.locked or can_unlock %}
+                            <input type="checkbox" class="form-check-input" name="entry"
+                                   value="{{ e.bucket_id }}:{{ e.entry_id }}">
+                          {% endif %}
+                        </td>
+                      {% endif %}
                       <td class="text-muted small" style="width:6rem;">{{ e.spent_on.isoformat() }}</td>
                       <td class="small" style="width:5rem;">{{ e.minutes|duration }}</td>
                       <td class="small">
@@ -137,4 +168,8 @@
     </div>
   </div>
 {% endfor %}
+
+{% if can_bill and groups %}
+</form>
+{% endif %}
 {% endblock %}

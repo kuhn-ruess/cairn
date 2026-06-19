@@ -82,6 +82,7 @@
              title="View {{ m.username }}'s tasks + shared projects">{{ m.username }}</a></strong>
           {% if is_member_payer %}<span class="badge text-bg-warning ms-1">pays</span>
           {% elif is_member_admin %}<span class="badge text-bg-secondary ms-1">admin</span>{% endif %}
+          {% if (m.pk|string) in biller_ids %}<span class="badge text-bg-info ms-1" title="Can bill time"><i class="bi bi-receipt"></i> biller</span>{% endif %}
           <div class="small text-muted">{{ m.email }} · {{ m.level }}</div>
         </div>
         {% if can_manage %}
@@ -98,6 +99,23 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="team_id" value="{{ team.pk }}">
                 <button class="btn btn-sm btn-outline-secondary" title="Make team admin">Make admin</button>
+              </form>
+            {% endif %}
+          {% endif %}
+          {# Time-tracking billing rights. Managers can already bill, so only
+             offer the toggle for non-admin members. #}
+          {% if not is_member_admin %}
+            {% if (m.pk|string) in biller_ids %}
+              <form method="post" action="{{ url_for('teams.remove_biller', user_id=m.pk) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="team_id" value="{{ team.pk }}">
+                <button class="btn btn-sm btn-outline-info" title="Revoke billing rights">Unbiller</button>
+              </form>
+            {% else %}
+              <form method="post" action="{{ url_for('teams.add_biller', user_id=m.pk) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="team_id" value="{{ team.pk }}">
+                <button class="btn btn-sm btn-outline-info" title="Allow billing time entries">Make biller</button>
               </form>
             {% endif %}
           {% endif %}

@@ -272,7 +272,10 @@ def reachable_project_ids(user, team) -> set:
     sees projects linked at or below any Cairn container they own or are a
     member of (full-depth subtree walk)."""
     actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
-    if team.is_managed_by(actor) or actor in (team.billers or []):
+    # Team managers see/bill everything. Everyone else — billers included — is
+    # bounded by their subtree: a biller bills the projects they have rights to,
+    # not the whole team (their billing reach == their visibility reach).
+    if team.is_managed_by(actor):
         return {str(p.id) for p in TimeTrackingProject.objects(team=team).only("id")}
     container_ids, frontier = set(), [
         it.id for it in Item.objects(
@@ -343,6 +346,55 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
                 "note": e.note or "",
             })
     return rows
+
+
+def can_bill(user, team) -> bool:
+    """A team manager, or a member the manager has named a biller, may settle
+    (lock) time — each still bounded by their reachable project scope."""
+    actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
+    return team.is_managed_by(actor) or actor in (team.billers or [])
+
+
+def set_locked(*, team, user, items, locked: bool) -> int:
+    """Lock (bill) or unlock the given ``(bucket_id, entry_id)`` pairs.
+
+    Locking marks entries billed + frozen (records who/when). Only a biller/
+    manager may lock, and only entries whose project is in their reachable scope;
+    only managers may unlock. Returns how many entries actually changed."""
+    actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
+    if locked and not can_bill(actor, team):
+        return 0
+    if not locked and not team.is_managed_by(actor):
+        return 0
+    scope = reachable_project_ids(actor, team)
+
+    from collections import defaultdict
+    by_bucket = defaultdict(list)
+    for bid, eid in items:
+        by_bucket[bid].append(eid)
+
+    changed = 0
+    for bid, eids in by_bucket.items():
+        bucket = TimeBucket.objects(pk=bid, team=team).first()
+        if not bucket:
+            continue
+        wanted = set(eids)
+        for e in bucket.entries:
+            if e.entry_id not in wanted or e.status != "active":
+                continue
+            if e.project_id not in scope:
+                continue
+            if bool(e.locked) == locked:
+                continue
+            res = TimeBucket.objects(pk=bid, entries__entry_id=e.entry_id).update_one(
+                set__entries__S__locked=locked,
+                set__entries__S__billed_at=(_utcnow() if locked else None),
+                set__entries__S__billed_by=(actor if locked else None),
+                set__updated_at=_utcnow(),
+            )
+            if res:
+                changed += 1
+    return changed
 
 
 def cancel_entry(*, bucket: TimeBucket, entry_id: str, user) -> bool:

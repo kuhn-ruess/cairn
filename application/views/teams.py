@@ -73,6 +73,7 @@ def index():
         is_payer=bool(team.admin and team.admin.pk == user.pk),
         payer=team.admin,
         manager_ids=manager_ids,
+        biller_ids={str(b.pk) for b in (team.billers or []) if b},
         billing_active=billing.team_billing_active(team),
         billable=billing.billable_member_count(team),
         cost_label=billing.team_cost_label(team),
@@ -237,6 +238,41 @@ def remove_admin(user_id):
     team.admins = [a for a in (team.admins or []) if a and str(a.pk) != str(user_id)]
     team.save()
     flash("Admin rights revoked.", "info")
+    return redirect(url_for("teams.index", team=str(team.pk)))
+
+
+@teams_bp.route("/billers/<user_id>/add", methods=["POST"])
+@login_required
+@team_admin_required
+def add_biller(user_id):
+    """Grant a member time-tracking billing rights (settle/lock entries within
+    the projects they have access to)."""
+    user = current_user._get_current_object()
+    team = _team_from_form(user)
+    if not team:
+        abort(403)
+    member = User.objects(pk=user_id, team=team).first()
+    if not member:
+        abort(404)
+    if member.pk not in [b.pk for b in (team.billers or []) if b]:
+        team.billers = list(team.billers or []) + [member]
+        team.save()
+        flash(f"{member.username} can now bill time.", "success")
+    return redirect(url_for("teams.index", team=str(team.pk)))
+
+
+@teams_bp.route("/billers/<user_id>/remove", methods=["POST"])
+@login_required
+@team_admin_required
+def remove_biller(user_id):
+    """Revoke a member's billing rights."""
+    user = current_user._get_current_object()
+    team = _team_from_form(user)
+    if not team:
+        abort(403)
+    team.billers = [b for b in (team.billers or []) if b and str(b.pk) != str(user_id)]
+    team.save()
+    flash("Billing rights revoked.", "info")
     return redirect(url_for("teams.index", team=str(team.pk)))
 
 

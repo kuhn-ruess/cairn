@@ -252,13 +252,43 @@ def _grouped_report(team, f):
 @login_required
 @team_required
 def report():
-    from application.services.timetracking import PERIOD_PRESETS
+    from application.services.timetracking import PERIOD_PRESETS, can_bill
     team = _team()
+    user = current_user._get_current_object()
     f = _report_filters()
     data = _grouped_report(team, f)
     return render_template(
-        "timetracking/report.html", team=team, f=f,
-        presets=PERIOD_PRESETS, **data)
+        "timetracking/report.html", team=team, f=f, presets=PERIOD_PRESETS,
+        can_bill=can_bill(user, team), can_unlock=team.is_managed_by(user),
+        **data)
+
+
+@timetracking_bp.route("/report/bill", methods=["POST"])
+@login_required
+@team_required
+def report_bill():
+    """Bulk lock (bill) or unlock the selected entries, then back to the report
+    with the same filters preserved."""
+    from application.services.timetracking import set_locked
+    team = _team()
+    user = current_user._get_current_object()
+    pairs = []
+    for raw in request.form.getlist("entry"):
+        bid, _, eid = raw.partition(":")
+        if bid and eid:
+            pairs.append((bid, eid))
+    lock = request.form.get("action") != "unlock"
+    n = set_locked(team=team, user=user, items=pairs, locked=lock)
+    if n:
+        flash(f"{n} entr{'y' if n == 1 else 'ies'} "
+              f"marked {'billed' if lock else 'open'}.", "success")
+    else:
+        flash("Nothing changed.", "info")
+    # Preserve the report filters from the hidden query string.
+    args = {k: v for k, v in request.form.items()
+            if k in ("period", "from", "to", "customer", "project", "user",
+                     "billable", "locked")}
+    return redirect(url_for("timetracking.report", **args))
 
 
 @timetracking_bp.route("/report.csv")
