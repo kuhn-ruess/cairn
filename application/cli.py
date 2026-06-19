@@ -50,6 +50,24 @@ def wipe_legacy_collections():
         else:
             click.echo(f"skip (missing): {name}")
 
+@cairn_cli.command("drop-legacy-time-entries")
+def drop_legacy_time_entries():
+    """Remove the old embedded ``time_entries`` field left on ``items``.
+
+    Time tracking moved to the team billing module (separate ``tt_*``
+    collections), so the field was dropped from the ``Item`` model. Under
+    mongoengine's strict mode, items that still carry the stale field fail to
+    load (FieldDoesNotExist). This one-shot ``$unset`` clears it. Raw pymongo,
+    so it bypasses the model and never trips the strict check. Idempotent.
+    """
+    from mongoengine import get_db
+    res = get_db().items.update_many(
+        {"time_entries": {"$exists": True}},
+        {"$unset": {"time_entries": ""}},
+    )
+    click.echo(f"cleared time_entries on {res.modified_count} item(s)")
+
+
 @cairn_cli.command("cleanup-completed-tasks")
 @click.option("--dry-run", is_flag=True, help="Report only, don't delete.")
 @click.option("--user", "username", help="Only sweep one user (by username).")
