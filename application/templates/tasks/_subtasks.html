@@ -2,11 +2,16 @@
    Self-contained AJAX widget: add + toggle re-render this partial. #}
 {% set subs = task.child_tasks()|list %}
 {% set _done = subs|selectattr('status', 'in', ['done', 'completed'])|list|length %}
-<div class="task-subtasks" data-refresh-url="{{ url_for('tasks.subtasks', task_id=task.pk) }}">
+<div class="task-subtasks" data-refresh-url="{{ url_for('tasks.subtasks', task_id=task.pk) }}" data-collapsible>
   <h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center">
+    <button type="button" class="btn btn-sm btn-link text-muted p-0 me-1"
+            data-collapse-key="cairn-collapse-subtasks" title="Show / hide subtasks">
+      <i class="bi bi-chevron-down"></i>
+    </button>
     Subtasks
     {% if subs %}<span class="text-muted ms-1">({{ _done }}/{{ subs|length }})</span>{% endif %}
   </h2>
+  <div class="section-collapsible">
   <ul class="subtask-list list-unstyled mb-2">
     {% for s in subs %}
       {% set sd = s.status in ['done', 'completed'] %}
@@ -41,4 +46,5 @@
     <input type="text" class="form-control form-control-sm subtask-add-input"
            placeholder="Add a subtask… (Enter)" autocomplete="off" maxlength="500">
   </div>
+  </div>{# /.section-collapsible #}
 </div>

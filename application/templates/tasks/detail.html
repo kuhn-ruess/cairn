@@ -123,23 +123,29 @@
 
 <div class="row g-4">
   <div class="col-lg-8 task-detail-body">
-    <section class="task-detail-section task-detail-note" id="note">
+    <section class="task-detail-section task-detail-note" id="note" data-collapsible>
       <div class="d-flex align-items-center mb-2">
+        <button type="button" class="btn btn-link btn-sm p-0 me-1 text-muted"
+                data-collapse-key="cairn-collapse-note" title="Show / hide note">
+          <i class="bi bi-chevron-down"></i>
+        </button>
         <h2 class="h6 text-muted small text-uppercase mb-0 me-auto">Note</h2>
         <button type="button" class="btn btn-link btn-sm p-0 note-edit-btn" title="Edit note">
           <i class="bi bi-pencil"></i> Edit
         </button>
       </div>
-      <div class="note-view">{% include "tasks/_note_body.html" %}</div>
-      <form method="post" action="{{ url_for('tasks.note_edit', task_id=task.pk) }}" class="note-edit d-none">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <textarea name="note" class="form-control mb-2" rows="6"
-                  placeholder="Notes, links, context…">{{ task.note or '' }}</textarea>
-        <div class="d-flex gap-2">
-          <button type="submit" class="btn btn-sm btn-primary">Save</button>
-          <button type="button" class="btn btn-sm btn-outline-secondary note-cancel-btn">Cancel</button>
-        </div>
-      </form>
+      <div class="section-collapsible">
+        <div class="note-view">{% include "tasks/_note_body.html" %}</div>
+        <form method="post" action="{{ url_for('tasks.note_edit', task_id=task.pk) }}" class="note-edit d-none">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <textarea name="note" class="form-control mb-2" rows="6"
+                    placeholder="Notes, links, context…">{{ task.note or '' }}</textarea>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-primary">Save</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary note-cancel-btn">Cancel</button>
+          </div>
+        </form>
+      </div>
     </section>
 
     <section class="task-detail-section" id="subtasks">
@@ -204,10 +210,10 @@
       </section>
     {% endif %}
 
-    <section class="task-detail-section" id="comments">
+    <section class="task-detail-section" id="comments" data-collapsible>
       <h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center">
-        <button type="button" class="btn btn-sm btn-link text-muted p-0 me-1 comments-collapse-toggle"
-                title="Hide comments" aria-expanded="true">
+        <button type="button" class="btn btn-sm btn-link text-muted p-0 me-1"
+                data-collapse-key="cairn-collapse-comments" title="Show / hide comments">
           <i class="bi bi-chevron-down"></i>
         </button>
         Comments
@@ -219,7 +225,7 @@
         </button>
         {% endif %}
       </h2>
-      <div class="comments-body">
+      <div class="comments-body section-collapsible">
       <div class="task-detail-comments newest-first">
       {% for c in task.comments %}
         <div class="task-detail-comment {% if c.is_public %}is-public{% endif %}"
@@ -346,34 +352,6 @@
     } catch (err) {
       form.submit();
     }
-  });
-})();
-
-/* Comments — collapse / expand, remembering the choice across tasks. */
-(function () {
-  const section = document.getElementById("comments");
-  if (!section) return;
-  const body = section.querySelector(".comments-body");
-  const btn = section.querySelector(".comments-collapse-toggle");
-  if (!body || !btn) return;
-  const icon = btn.querySelector("i");
-  const KEY = "cairn-comments-collapsed";
-
-  const apply = (collapsed) => {
-    body.classList.toggle("d-none", collapsed);
-    if (icon) icon.className = collapsed ? "bi bi-chevron-right" : "bi bi-chevron-down";
-    btn.title = collapsed ? "Show comments" : "Hide comments";
-    btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
-  };
-
-  let collapsed = false;
-  try { collapsed = localStorage.getItem(KEY) === "1"; } catch (e) {}
-  apply(collapsed);
-
-  btn.addEventListener("click", () => {
-    collapsed = !collapsed;
-    try { localStorage.setItem(KEY, collapsed ? "1" : "0"); } catch (e) {}
-    apply(collapsed);
   });
 })();
 
