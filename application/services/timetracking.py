@@ -106,10 +106,12 @@ def add_entry(*, project: TimeTrackingProject, user, minutes: int,
         src_kind = source_item.kind
         label = (source_item.title or "")[:200]
 
+    actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
     entry = TimeEntry(
-        project=project,
-        user=user._get_current_object() if hasattr(user, "_get_current_object") else user,
-        user_name=getattr(user, "display_name", None) or getattr(user, "username", "") or "",
+        project_id=str(project.id),
+        project_name=project.name,
+        user_id=str(actor.id) if actor else None,
+        user_name=getattr(actor, "display_name", None) or getattr(actor, "username", "") or "",
         minutes=minutes,
         spent_on=spent_on,
         note=(note or "")[:1000],
@@ -194,6 +196,153 @@ def task_time_context(user, item):
             })
     rows.sort(key=lambda r: r["spent_on"] or _utcnow(), reverse=True)
     return {"project": project, "total_minutes": total, "entries": rows}
+
+
+# ---------------------------------------------------------------------------
+# Report: scope, period presets, aggregation (all deref-free over the buckets)
+# ---------------------------------------------------------------------------
+
+from datetime import date, timedelta  # noqa: E402
+from mongoengine import Q  # noqa: E402
+
+PERIOD_PRESETS = [
+    ("this_month", "This month"),
+    ("last_month", "Last month"),
+    ("this_week", "This week"),
+    ("last_week", "Last week"),
+    ("this_year", "This year"),
+    ("last_year", "Last year"),
+    ("today", "Today"),
+    ("yesterday", "Yesterday"),
+    ("custom", "Custom range"),
+]
+
+
+def resolve_period(preset: str, from_str: str, to_str: str, today: date):
+    """Return ``(date_from, date_to)`` for a preset or a custom YYYY-MM-DD range.
+
+    Falls back to the current month on bad/blank input."""
+    def _parse(s):
+        try:
+            return date.fromisoformat((s or "").strip())
+        except ValueError:
+            return None
+
+    if preset == "custom":
+        df = _parse(from_str) or today.replace(day=1)
+        dt = _parse(to_str) or today
+        return (df, dt) if df <= dt else (dt, df)
+    if preset == "today":
+        return today, today
+    if preset == "yesterday":
+        y = today - timedelta(days=1)
+        return y, y
+    if preset == "this_week":
+        start = today - timedelta(days=today.weekday())
+        return start, start + timedelta(days=6)
+    if preset == "last_week":
+        start = today - timedelta(days=today.weekday() + 7)
+        return start, start + timedelta(days=6)
+    if preset == "last_month":
+        first_this = today.replace(day=1)
+        last_prev = first_this - timedelta(days=1)
+        return last_prev.replace(day=1), last_prev
+    if preset == "this_year":
+        return date(today.year, 1, 1), date(today.year, 12, 31)
+    if preset == "last_year":
+        return date(today.year - 1, 1, 1), date(today.year - 1, 12, 31)
+    # default: this_month
+    first = today.replace(day=1)
+    nxt = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return first, nxt - timedelta(days=1)
+
+
+def _months_between(d_from: date, d_to: date):
+    periods, y, m = [], d_from.year, d_from.month
+    while (y, m) <= (d_to.year, d_to.month):
+        periods.append(f"{y:04d}-{m:02d}")
+        m, y = (1, y + 1) if m == 12 else (m + 1, y)
+    return periods
+
+
+def reachable_project_ids(user, team) -> set:
+    """Billing-project ids (as strings) the user may see/bill.
+
+    Team managers + billers see every project in the team. A regular member
+    sees projects linked at or below any Cairn container they own or are a
+    member of (full-depth subtree walk)."""
+    actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
+    if team.is_managed_by(actor) or actor in (team.billers or []):
+        return {str(p.id) for p in TimeTrackingProject.objects(team=team).only("id")}
+    container_ids, frontier = set(), [
+        it.id for it in Item.objects(
+            (Q(owner=actor) | Q(members=actor)) & Q(kind__in=["project", "folder"])
+        ).only("id")
+    ]
+    while frontier:
+        container_ids.update(frontier)
+        frontier = [
+            it.id for it in Item.objects(
+                parent__in=frontier, kind__in=["project", "folder"]
+            ).only("id") if it.id not in container_ids
+        ]
+    if not container_ids:
+        return set()
+    projs = Item.objects(id__in=list(container_ids)).distinct("time_project")
+    return {str(p.id) for p in projs if p}
+
+
+def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
+                      project_id=None, user_id=None, billable=None, locked=None):
+    """Flat list of matching active entries. ``scope_ids`` (set of project-id
+    strings) bounds visibility; ``None`` means unbounded (manager).
+
+    Deref-free over the embedded entries — every field used is a snapshot — so
+    a month of team activity is a handful of bucket reads, no per-entry queries.
+    The customer name is dereferenced once per bucket."""
+    periods = _months_between(date_from, date_to)
+    q = TimeBucket.objects(team=team, period__in=periods)
+    if customer_id:
+        q = q.filter(customer=customer_id)
+    rows = []
+    for b in q:
+        cust_name = None
+        for e in b.entries:
+            if e.status != "active":
+                continue
+            if scope_ids is not None and e.project_id not in scope_ids:
+                continue
+            if project_id and e.project_id != project_id:
+                continue
+            d = e.spent_on
+            dd = d.date() if hasattr(d, "date") else d
+            if dd < date_from or dd > date_to:
+                continue
+            if user_id and e.user_id != user_id:
+                continue
+            if billable is not None and bool(e.billable) != billable:
+                continue
+            if locked is not None and bool(e.locked) != locked:
+                continue
+            if cust_name is None:
+                cust_name = b.customer.name if b.customer else "—"
+            rows.append({
+                "entry_id": e.entry_id,
+                "bucket_id": str(b.id),
+                "customer": cust_name,
+                "customer_id": str(b.customer.id) if b.customer else "",
+                "project_id": e.project_id,
+                "project": e.project_name,
+                "user_name": e.user_name,
+                "user_id": e.user_id,
+                "spent_on": dd,
+                "minutes": e.minutes or 0,
+                "amount_cents": e.amount_cents,
+                "billable": bool(e.billable),
+                "locked": bool(e.locked),
+                "note": e.note or "",
+            })
+    return rows
 
 
 def cancel_entry(*, bucket: TimeBucket, entry_id: str, user) -> bool:

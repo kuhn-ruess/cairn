@@ -1,0 +1,140 @@
+{% extends "layout/base.html" %}
+{% block title %}Time report{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center gap-2 mb-3">
+  <h1 class="h4 mb-0 me-auto"><i class="bi bi-table"></i> Time report</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('timetracking.index') }}">
+    <i class="bi bi-gear"></i> Manage</a>
+  <a class="btn btn-sm btn-outline-secondary"
+     href="{{ url_for('timetracking.report_csv', **request.args) }}">
+    <i class="bi bi-download"></i> CSV</a>
+</div>
+
+{# ---- Filters (mite-style) ---- #}
+<form method="get" class="card card-body mb-3">
+  <div class="row g-2 align-items-end">
+    <div class="col-auto">
+      <label class="form-label small mb-0">Period</label>
+      <select name="period" class="form-select form-select-sm" onchange="this.form.submit()">
+        {% for val, label in presets %}
+          <option value="{{ val }}" {% if f.preset == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label small mb-0">From</label>
+      <input type="date" name="from" value="{{ f.date_from.isoformat() }}"
+             class="form-control form-control-sm">
+    </div>
+    <div class="col-auto">
+      <label class="form-label small mb-0">To</label>
+      <input type="date" name="to" value="{{ f.date_to.isoformat() }}"
+             class="form-control form-control-sm">
+    </div>
+    <div class="col-auto">
+      <label class="form-label small mb-0">Customer</label>
+      <select name="customer" class="form-select form-select-sm">
+        <option value="">All</option>
+        {% for c in customers %}
+          <option value="{{ c.id }}" {% if f.customer_id == c.id|string %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label small mb-0">Project</label>
+      <select name="project" class="form-select form-select-sm">
+        <option value="">All</option>
+        {% for p in projects %}
+          <option value="{{ p.id }}" {% if f.project_id == p.id|string %}selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label small mb-0">User</label>
+      <select name="user" class="form-select form-select-sm">
+        <option value="">All</option>
+        {% for m in members %}
+          <option value="{{ m.id }}" {% if f.user_id == m.id|string %}selected{% endif %}>{{ m.username }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label small mb-0">Billable</label>
+      <select name="billable" class="form-select form-select-sm">
+        <option value="">All</option>
+        <option value="1" {% if f.billable == true %}selected{% endif %}>Billable</option>
+        <option value="0" {% if f.billable == false %}selected{% endif %}>Non-billable</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label small mb-0">Status</label>
+      <select name="locked" class="form-select form-select-sm">
+        <option value="">All</option>
+        <option value="0" {% if f.locked == false %}selected{% endif %}>Open</option>
+        <option value="1" {% if f.locked == true %}selected{% endif %}>Billed</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-sm btn-primary">Apply</button>
+    </div>
+  </div>
+</form>
+
+{# ---- Totals ---- #}
+<div class="d-flex gap-3 align-items-baseline mb-3">
+  <span class="h5 mb-0">{{ grand_minutes|duration }}</span>
+  <span class="text-muted">·</span>
+  <span class="h6 mb-0 text-success">{{ grand_amount|eur }}</span>
+  <span class="text-muted small">{{ f.date_from.isoformat() }} – {{ f.date_to.isoformat() }}</span>
+</div>
+
+{% if not groups %}
+  <p class="text-muted">No time entries match these filters.</p>
+{% endif %}
+
+{% for c in groups %}
+  <div class="card mb-3">
+    <div class="card-header py-2 d-flex align-items-center">
+      <strong class="me-auto"><i class="bi bi-person-vcard"></i> {{ c.name }}</strong>
+      <span class="text-muted small me-3">{{ c.minutes|duration }}</span>
+      <span class="text-success">{{ c.amount|eur }}</span>
+    </div>
+    <div class="card-body py-2">
+      {% for p in c.projects %}
+        <div class="mb-2">
+          <div class="d-flex align-items-center">
+            <span class="me-auto fw-semibold">{{ p.name }}</span>
+            <span class="text-muted small me-3">{{ p.minutes|duration }}</span>
+            <span class="text-success small">{{ p.amount|eur }}</span>
+          </div>
+          {% for u in p.users %}
+            <details class="ms-3">
+              <summary class="small d-flex align-items-center" style="cursor:pointer;">
+                <span class="me-auto">{{ u.name }}</span>
+                <span class="text-muted me-3">{{ u.minutes|duration }}</span>
+                <span class="text-success">{{ u.amount|eur }}</span>
+              </summary>
+              <table class="table table-sm table-borderless mb-1 mt-1">
+                <tbody>
+                  {% for e in u.entries %}
+                    <tr>
+                      <td class="text-muted small" style="width:6rem;">{{ e.spent_on.isoformat() }}</td>
+                      <td class="small" style="width:5rem;">{{ e.minutes|duration }}</td>
+                      <td class="small">
+                        {% if e.locked %}<i class="bi bi-lock text-muted" title="Billed"></i> {% endif %}
+                        {% if not e.billable %}<span class="badge text-bg-secondary">n/b</span> {% endif %}
+                        {{ e.note }}
+                      </td>
+                      <td class="small text-success text-end" style="width:6rem;">{{ e.amount_cents|eur }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </details>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endfor %}
+{% endblock %}

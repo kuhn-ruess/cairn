@@ -156,7 +156,7 @@ def entry_cancel(bucket_id, entry_id):
     entry = next((e for e in bucket.entries if e.entry_id == entry_id), None)
     if entry is None:
         abort(404)
-    is_owner = entry.user and entry.user.id == user.id
+    is_owner = entry.user_id == str(user.id)
     is_manager = team.is_managed_by(user) or user in (team.billers or [])
     if not (is_owner or is_manager):
         abort(403)
@@ -167,13 +167,126 @@ def entry_cancel(bucket_id, entry_id):
     return _task_time_response(task)
 
 
+def _report_filters():
+    """Parse the report query string into normalised filter values + the
+    resolved date range, shared by the HTML report and the CSV export."""
+    from application.services.tz import user_zone
+    from application.services.timetracking import resolve_period
+
+    user = current_user._get_current_object()
+    today = datetime.now(user_zone(user)).date()
+    preset = request.args.get("period") or "this_month"
+    date_from, date_to = resolve_period(
+        preset, request.args.get("from"), request.args.get("to"), today)
+
+    def _tri(name):
+        v = request.args.get(name)
+        return True if v == "1" else False if v == "0" else None
+
+    return {
+        "preset": preset,
+        "date_from": date_from,
+        "date_to": date_to,
+        "customer_id": request.args.get("customer") or None,
+        "project_id": request.args.get("project") or None,
+        "user_id": request.args.get("user") or None,
+        "billable": _tri("billable"),
+        "locked": _tri("locked"),
+    }
+
+
+def _grouped_report(team, f):
+    """Build the customer → project → user grouping + totals for the filters."""
+    from application.services.timetracking import (
+        build_report_rows, reachable_project_ids)
+    from application.services.permissions import team_members
+
+    user = current_user._get_current_object()
+    scope = reachable_project_ids(user, team)
+    rows = build_report_rows(
+        team=team, scope_ids=scope,
+        date_from=f["date_from"], date_to=f["date_to"],
+        customer_id=f["customer_id"], project_id=f["project_id"],
+        user_id=f["user_id"], billable=f["billable"], locked=f["locked"],
+    )
+
+    customers = {}
+    grand_min = grand_amt = 0
+    for r in rows:
+        grand_min += r["minutes"]
+        grand_amt += r["amount_cents"] or 0
+        c = customers.setdefault(r["customer"], {
+            "name": r["customer"], "minutes": 0, "amount": 0, "projects": {}})
+        c["minutes"] += r["minutes"]; c["amount"] += r["amount_cents"] or 0
+        p = c["projects"].setdefault(r["project_id"], {
+            "name": r["project"], "minutes": 0, "amount": 0, "users": {}})
+        p["minutes"] += r["minutes"]; p["amount"] += r["amount_cents"] or 0
+        u = p["users"].setdefault(r["user_id"] or "", {
+            "name": r["user_name"] or "—", "minutes": 0, "amount": 0, "entries": []})
+        u["minutes"] += r["minutes"]; u["amount"] += r["amount_cents"] or 0
+        u["entries"].append(r)
+
+    # Stable ordering: customers/projects by name; entries newest first.
+    out = []
+    for c in sorted(customers.values(), key=lambda x: x["name"].lower()):
+        projects = []
+        for p in sorted(c["projects"].values(), key=lambda x: x["name"].lower()):
+            users = sorted(p["users"].values(), key=lambda x: x["name"].lower())
+            for u in users:
+                u["entries"].sort(key=lambda r: r["spent_on"], reverse=True)
+            projects.append({**p, "users": users})
+        out.append({**c, "projects": projects})
+
+    # Filter dropdown data.
+    customers_list = list(Customer.objects(team=team).order_by("+name"))
+    projects_list = list(TimeTrackingProject.objects(team=team).order_by("+name"))
+    members = team_members(team)
+    return {
+        "groups": out, "rows": rows,
+        "grand_minutes": grand_min, "grand_amount": grand_amt,
+        "customers": customers_list, "projects": projects_list, "members": members,
+    }
+
+
 @timetracking_bp.route("/report")
 @login_required
 @team_required
 def report():
-    # Filtered report + export — built in phase 4.
-    flash("The time report is coming in the next step.", "info")
-    return redirect(url_for("timetracking.index"))
+    from application.services.timetracking import PERIOD_PRESETS
+    team = _team()
+    f = _report_filters()
+    data = _grouped_report(team, f)
+    return render_template(
+        "timetracking/report.html", team=team, f=f,
+        presets=PERIOD_PRESETS, **data)
+
+
+@timetracking_bp.route("/report.csv")
+@login_required
+@team_required
+def report_csv():
+    import csv
+    import io
+    from flask import Response
+    team = _team()
+    f = _report_filters()
+    data = _grouped_report(team, f)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Date", "Customer", "Project", "User", "Minutes", "Hours",
+                "Billable", "Billed", "Amount (EUR)", "Note"])
+    for r in sorted(data["rows"], key=lambda r: r["spent_on"]):
+        w.writerow([
+            r["spent_on"].isoformat(), r["customer"], r["project"],
+            r["user_name"], r["minutes"], f"{r['minutes'] / 60:.2f}",
+            "yes" if r["billable"] else "no", "yes" if r["locked"] else "no",
+            f"{(r['amount_cents'] or 0) / 100:.2f}", r["note"],
+        ])
+    return Response(buf.getvalue(), mimetype="text/csv", headers={
+        "Content-Disposition":
+            f"attachment; filename=cairn-time-"
+            f"{f['date_from']:%Y%m%d}-{f['date_to']:%Y%m%d}.csv",
+    })
 
 
 # ---------------------------------------------------------------------------

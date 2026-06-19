@@ -101,10 +101,17 @@ class TimeEntry(EmbeddedDocument):
     on a fragile list index)."""
 
     entry_id = StringField(default=lambda: secrets.token_urlsafe(12))
-    project = ReferenceField(TimeTrackingProject, required=True)
+    # Project as a soft id + name snapshot (not a hard ReferenceField): keeps the
+    # report deref-free (group/filter by the string id, show the snapshot name)
+    # and survives a project being renamed or archived. The customer is the
+    # bucket's customer; the frozen rate/amount are below.
+    project_id = StringField(required=True)
+    project_name = StringField(default="")
 
-    user = ReferenceField(User)
-    user_name = StringField(default="")  # snapshot, survives user changes
+    # Who logged it — soft id + name snapshot (deref-free in reports, survives
+    # the user being removed from the team).
+    user_id = StringField()
+    user_name = StringField(default="")
 
     minutes = IntField(required=True, min_value=1)
     spent_on = DateTimeField(default=_utcnow)  # date the work happened, tz-aware
