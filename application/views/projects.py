@@ -511,6 +511,12 @@ def detail(project_id):
         if t.pk not in seen:
             seen.add(t.pk)
             all_tasks.append(t)
+    # "Available only" (persisted per project): drop every blocked task —
+    # deferred, ancestor-deferred, follow-up-pending or sequentially-blocked —
+    # from the whole page (list / kanban / calendar) before grouping.
+    if project.show_available_only:
+        _av_now = datetime.now(timezone.utc)
+        all_tasks = [t for t in all_tasks if t.is_available(_av_now)]
     grouping_tag = (project.task_grouping_tag or "").strip()
     subproject_groups: dict = {}
     flat_tag_view = False
@@ -1083,6 +1089,23 @@ def toggle_show_blocked(project_id):
     project.save()
     # Stay on the page that fired the toggle — so toggling a section
     # from its parent project view doesn't navigate INTO the section.
+    return redirect(
+        request.referrer or url_for("projects.detail", project_id=project_id)
+    )
+
+@projects_bp.route("/<project_id>/available-only", methods=["POST"])
+@login_required
+def toggle_available_only(project_id):
+    """Per-project 'available only' filter — persisted on the project so it
+    sticks across reloads/devices. Works for ANY project (not just
+    sequential ones): when on, the page hides blocked tasks."""
+    user = current_user._get_current_object()
+    project = Item.objects(pk=project_id).first()
+    if not project or not project.can_be_viewed_by(user):
+        abort(404)
+    project.show_available_only = not project.show_available_only
+    project.save()
+    # Stay on the page that fired the toggle (keeps ?group/?completed).
     return redirect(
         request.referrer or url_for("projects.detail", project_id=project_id)
     )

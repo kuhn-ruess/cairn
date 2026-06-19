@@ -431,33 +431,41 @@
       </select>
     </form>
   {% endif %}
-  {% if project.project_type == 'sequential' %}
-    <form method="post" action="{{ url_for('projects.toggle_show_blocked', project_id=project.pk) }}"
-          class="m-0 ms-auto">
+  {# Filter switches grouped on the right so the page's filter state reads at
+     a glance. "Available only" persists on the project (POST, any project
+     type); "Blocked" is sequential-only; completed + sub-project roll-up are
+     URL params. Each is a pill: solid when on, outline when off. #}
+  <div class="d-flex align-items-center gap-1 ms-auto">
+    <span class="text-muted small me-1">Show:</span>
+    <form method="post" action="{{ url_for('projects.toggle_available_only', project_id=project.pk) }}" class="m-0">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button class="btn btn-sm btn-link" type="submit" title="Sequential project — only the first available action is shown by default">
-        {% if project.show_blocked_tasks %}
-          <i class="bi bi-eye-slash"></i> Hide blocked
-        {% else %}
-          <i class="bi bi-eye"></i> Show blocked
-        {% endif %}
+      <button class="btn btn-sm {% if project.show_available_only %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+              type="submit" title="Available only — hide deferred, follow-up-pending and sequentially-blocked tasks">
+        <i class="bi bi-funnel{{ '-fill' if project.show_available_only else '' }}"></i> Available only
       </button>
     </form>
-  {% endif %}
-  <a class="btn btn-sm btn-link {% if project.project_type != 'sequential' %}ms-auto{% endif %}"
-     href="?group={{ grouping }}&completed={% if show_completed %}0{% else %}1{% endif %}">
-    {% if show_completed %}Hide{% else %}Show{% endif %} completed
-  </a>
-  {# Sub-project roll-up is a Project-view-only opt-in; the flatten groupings
-     always include every descendant task. #}
-  {% if not flatten and sub_projects %}
-    <a class="btn btn-sm btn-link"
-       href="?group={{ grouping }}&completed={% if show_completed %}1{% endif %}&descendants={% if include_descendants %}0{% else %}1{% endif %}"
-       title="Roll up tasks from sub-projects into this view">
-      {% if include_descendants %}Hide{% else %}Include{% endif %} sub-project tasks
+    {% if project.project_type == 'sequential' %}
+      <form method="post" action="{{ url_for('projects.toggle_show_blocked', project_id=project.pk) }}" class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm {% if project.show_blocked_tasks %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+                type="submit" title="Sequential project — show every action, not just the first available one">
+          <i class="bi bi-eye"></i> Blocked
+        </button>
+      </form>
+    {% endif %}
+    <a class="btn btn-sm {% if show_completed %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+       href="?group={{ grouping }}&completed={% if show_completed %}0{% else %}1{% endif %}">
+      <i class="bi bi-check2-all"></i> Completed
     </a>
-  {% endif %}
-  <div class="ms-auto">
+    {% if not flatten and sub_projects %}
+      <a class="btn btn-sm {% if include_descendants %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+         href="?group={{ grouping }}&completed={% if show_completed %}1{% endif %}&descendants={% if include_descendants %}0{% else %}1{% endif %}"
+         title="Roll up tasks from sub-projects into this view">
+        <i class="bi bi-diagram-3"></i> Sub-tasks
+      </a>
+    {% endif %}
+  </div>
+  <div class="ms-2">
     {% with view_key='project:' ~ project.pk|string, view_label=project.name %}
       {% include "tasks/_display_dropdown.html" %}
     {% endwith %}

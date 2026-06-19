@@ -269,6 +269,10 @@ class Item(Document):
     task_grouping_tag = StringField(default="")
     view_mode = StringField(default="list")
     show_blocked_tasks = BooleanField(default=False)
+    # Per-project "available only" filter: when set, the whole project page
+    # drops blocked tasks (deferred / ancestor-deferred / follow-up-pending /
+    # sequentially-blocked). Available for ANY project, not just sequential.
+    show_available_only = BooleanField(default=False)
     # When set on a project, completing the last open task anywhere in the
     # project auto-marks the project ``completed`` (see complete()).
     auto_complete_when_done = BooleanField(default=False)
