@@ -71,6 +71,22 @@ def teams_of(actor) -> list:
         teams.append(actor.team)
     return teams
 
+def participating_teams(actor) -> list:
+    """Canonical "all teams this user belongs to" — broader than ``teams_of``:
+    their member team (``user.team``) plus every team where they're the payer
+    (``admin``), a co-admin (``admins``) or a biller (``billers``). This is the
+    set the team page + time-tracking module use for the team switcher, so a
+    co-admin or member never loses sight of a team they're in."""
+    from mongoengine import Q
+    from application.models.team import Team
+    actor = actor._get_current_object() if hasattr(actor, "_get_current_object") else actor
+    if actor is None:
+        return []
+    teams = list(Team.objects(Q(admins=actor) | Q(admin=actor) | Q(billers=actor)))
+    if actor.team and not any(t.pk == actor.team.pk for t in teams):
+        teams.append(actor.team)
+    return teams
+
 
 def team_members(team) -> list:
     """All users in ``team``: its members plus the admin (whose own

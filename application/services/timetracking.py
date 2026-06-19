@@ -44,19 +44,10 @@ def has_team(user) -> bool:
 
 
 def user_teams(user) -> list:
-    """Every team the user may act in for time tracking: their member team
-    (``user.team``) plus any team they admin (payer OR co-admin) or are a
-    biller of. Broader than ``permissions.teams_of`` on purpose — a co-admin or
-    biller who isn't the payer still belongs here."""
-    from mongoengine import Q
-    from application.models.team import Team
-    actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
-    if actor is None:
-        return []
-    teams = list(Team.objects(Q(admins=actor) | Q(admin=actor) | Q(billers=actor)))
-    if actor.team and not any(t.pk == actor.team.pk for t in teams):
-        teams.append(actor.team)
-    return teams
+    """Every team the user may act in for time tracking — the canonical
+    participating-teams set (member + payer + co-admin + biller)."""
+    from application.services.permissions import participating_teams
+    return participating_teams(user)
 
 
 def user_team_ids(user) -> set:

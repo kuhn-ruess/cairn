@@ -13,26 +13,30 @@ teams_bp = Blueprint("teams", __name__, url_prefix="/team")
 
 
 def _user_teams(user) -> list[Team]:
-    """Every team the user can manage (as paying admin or co-admin),
-    sorted by name."""
-    return list(Team.objects(admins=user).order_by("+name"))
+    """Every team the user participates in (member, payer, co-admin or biller),
+    sorted by name — the set offered in the team switcher."""
+    from application.services.permissions import participating_teams
+    return sorted(participating_teams(user), key=lambda t: (t.name or "").lower())
 
 
 def _select_team(user) -> Team | None:
     """Pick which team to show on the page.
 
-    ``?team=<pk>`` lets a manager switch when they manage more than one;
-    otherwise fall back to the first managed team, then to the team the
-    user belongs to as a member.
+    ``?team=<pk>`` switches to any team the user is in (member or manager);
+    otherwise default to a team they manage, then any team they're in.
     """
+    teams = _user_teams(user)
     raw = request.args.get("team")
     if raw:
-        cand = Team.objects(pk=raw).first()
-        if cand and (cand.is_managed_by(user) or user.team == cand):
-            return cand
-    managed = _user_teams(user)
+        for t in teams:
+            if str(t.pk) == raw:
+                return t
+        # Fall through to the default if they asked for a team they're not in.
+    managed = [t for t in teams if t.is_managed_by(user)]
     if managed:
         return managed[0]
+    if teams:
+        return teams[0]
     return user.team
 
 
