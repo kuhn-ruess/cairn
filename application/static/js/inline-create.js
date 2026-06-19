@@ -205,7 +205,10 @@
   });
 
   // ---- 3. Project / folder quick-create in the project sidebar ---------
-  function openSidebarRow(kind) {
+  // `parentId` (optional) pins the new item under a specific project/folder —
+  // used by the hover "+" button on each sidebar row. Without it we fall back
+  // to the project currently open (id in the URL), or top level.
+  function openSidebarRow(kind, parentId) {
     const list = document.querySelector("#project-sidebar .ps-list");
     if (!list) { window.location.href = "/projects/new"; return; }
     let li = document.getElementById("ps-inline-create");
@@ -220,12 +223,15 @@
       '<input type="text" class="form-control form-control-sm" ' +
       'autocomplete="off" placeholder="' +
       (kind === "folder" ? "Folder" : "Project") + ' name — Enter / Esc">';
+    // Resolve the parent: an explicit row "+" wins; otherwise the
+    // currently-open project/folder (id in the URL); otherwise top level.
+    const urlMatch = window.location.pathname.match(/\/projects\/([a-f0-9]{24})/i);
+    const effectiveParent = parentId || (urlMatch && urlMatch[1]) || null;
     // Place the naming row where the new item will actually live: just
-    // under the currently-open project/folder (id in the URL), indented
-    // one level past it, so it doesn't flash at the top and then jump
-    // into the project after the refresh. No selection → below Inbox.
-    const m = window.location.pathname.match(/\/projects\/([a-f0-9]{24})/i);
-    const parentRow = m && list.querySelector(`li[data-project-id="${m[1]}"]`);
+    // under its parent, indented one level past it, so it doesn't flash at
+    // the top and then jump into the project after the refresh.
+    const parentRow = effectiveParent &&
+      list.querySelector(`li[data-project-id="${effectiveParent}"]`);
     if (parentRow) {
       const parentLink = parentRow.querySelector(".ps-row");
       const pad = parentLink ? parseInt(parentLink.style.paddingLeft, 10) || 8 : 8;
@@ -244,11 +250,8 @@
       input,
       async () => {
         try {
-          // Create inside the project/folder currently open (its id is in
-          // the URL on a detail page). No selection → top level.
-          const _m = window.location.pathname.match(/\/projects\/([a-f0-9]{24})/i);
           const _payload = { name: input.value.trim(), kind };
-          if (_m) _payload.parent = _m[1];
+          if (effectiveParent) _payload.parent = effectiveParent;
           const resp = await postForm("/projects/quick-create", _payload);
           const data = await resp.json().catch(() => ({}));
           if (!resp.ok) {
@@ -271,5 +274,15 @@
     if (!el) return;
     ev.preventDefault();
     openSidebarRow(el.dataset.inlineCreateSidebar);
+  });
+
+  // Hover "+" on a sidebar row → create a sub-project pinned under that
+  // folder/project, regardless of which page is open. Delegated so it
+  // survives the in-place sidebar refresh.
+  document.addEventListener("click", (ev) => {
+    const el = ev.target.closest("[data-add-sub]");
+    if (!el) return;
+    ev.preventDefault();
+    openSidebarRow("project", el.dataset.addSub);
   });
 })();

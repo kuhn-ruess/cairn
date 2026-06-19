@@ -50,6 +50,14 @@
   }
   .ps-list .ps-drop-target:hover .ps-inspect-btn { opacity: 1; }
   .ps-list .ps-inspect-btn:hover { color: var(--bs-info); }
+  /* New-sub-project button — sits just left of the inspector button, same reveal. */
+  .ps-list .ps-add-btn {
+    position: absolute; right: 48px; top: 50%; transform: translateY(-50%);
+    opacity: 0; border: 0; background: transparent; line-height: 1;
+    color: var(--bs-secondary-color); padding: 2px 4px; cursor: pointer;
+  }
+  .ps-list .ps-drop-target:hover .ps-add-btn { opacity: 1; }
+  .ps-list .ps-add-btn:hover { color: var(--bs-success); }
 </style>
 <aside class="app-project-sidebar" id="project-sidebar">
   <div class="ps-header">
@@ -115,6 +123,11 @@
               {{ item_icon(p) }}
               <span class="ps-name">{{ p.name }}</span>
             </a>
+            <button type="button" class="ps-add-btn"
+                    data-add-sub="{{ p.pk }}"
+                    title="New sub-project in {{ p.name }}">
+              <i class="bi bi-plus-lg"></i>
+            </button>
             <a class="ps-inspect-btn" href="{{ url_for('projects.edit', project_id=p.pk) }}"
                data-inspector-url="{{ url_for('projects.edit', project_id=p.pk) }}"
                data-inspector-title="{{ p.name }}"
