@@ -83,6 +83,8 @@ def register_filters(app):
             icon, klass = "bi-folder2-open", "text-warning"
         elif getattr(item, "is_section", False):
             icon, klass = "bi-bookmark", "text-info"
+        elif getattr(item, "is_note", False):
+            icon, klass = "bi-journal-text", "text-success"
         else:
             icon, klass = "bi-collection", "text-info"
         color = getattr(item, "color", "") or ""
@@ -103,12 +105,14 @@ def register_filters(app):
         projects = []
         if current_user.is_authenticated:
             user = current_user._get_current_object()
-            # Folders are organisational only — you can't put tasks inside them.
+            # Folders are organisational only — you can't put tasks inside them;
+            # notes aren't task containers either. Both are excluded so the
+            # quick-add / move-to dropdowns only offer real task containers.
             projects = list(
                 Item.objects(
                     (Q(owner=user) | Q(members=user)),
                     status="active",
-                    kind__ne="folder",
+                    kind__nin=["folder", "note"],
                 ).order_by("+name")
             )
         # Sidebar perspectives — render from the user's custom list.
@@ -129,6 +133,13 @@ def register_filters(app):
                 return []
             from application.views.projects import project_tree_for_sidebar
             return project_tree_for_sidebar(current_user._get_current_object())
+
+        # Notes tree for the notes navigator — same lazy pattern.
+        def _notes_tree():
+            if not current_user.is_authenticated:
+                return []
+            from application.views.notes import notes_tree_for_sidebar
+            return notes_tree_for_sidebar(current_user._get_current_object())
 
         def _can_view_container(item):
             """True if the current user may open ``item`` — a task's parent
@@ -193,6 +204,7 @@ def register_filters(app):
             "sidebar_custom_perspectives": sidebar_custom_perspectives,
             "static_version": _static_version(),
             "project_tree": _project_tree,
+            "notes_tree": _notes_tree,
             "item_icon": _item_icon,
             "can_view_container": _can_view_container,
             "inspector_section_order": inspector_section_order,

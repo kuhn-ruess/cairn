@@ -1,0 +1,29 @@
+{% extends "layout/base.html" %}
+{% block title %}Notes · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <h1 class="h4 mb-0 me-auto"><i class="bi bi-journal-text text-success"></i> Notes</h1>
+</div>
+<div class="notes-wrap">
+  {% include "notes/_nav.html" %}
+  <div class="notes-content">
+    {% if tree %}
+      <div class="text-muted">
+        <p>Select a note on the left, or create a new one with the
+        <i class="bi bi-plus-lg"></i> button.</p>
+      </div>
+    {% else %}
+      <div class="text-center text-muted py-5">
+        <i class="bi bi-journal-text" style="font-size: 2.5rem;"></i>
+        <p class="mt-3 mb-2">No notes yet.</p>
+        <form method="post" action="{{ url_for('notes.new', kind='note') }}" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-plus-lg"></i> New note
+          </button>
+        </form>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

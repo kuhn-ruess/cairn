@@ -1,0 +1,322 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ note.title }} · Notes · Cairn{% endblock %}
+{% block content %}
+<div class="notes-wrap">
+  {% include "notes/_nav.html" %}
+  <div class="notes-content" id="note-detail" data-note-id="{{ note.pk }}">
+
+    {# ---- Title + actions ---- #}
+    <div class="d-flex align-items-start gap-2 mb-3">
+      <input type="text" id="note-title" class="form-control form-control-lg fw-semibold border-0 px-0"
+             value="{{ note.title }}" style="background: transparent;"
+             {% if not can_edit %}readonly{% endif %}>
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown">
+          <i class="bi bi-three-dots"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          {% if member_choices %}
+          <li><button type="button" class="dropdown-item" data-bs-toggle="modal"
+                      data-bs-target="#shareModal">
+            <i class="bi bi-people"></i> Share…
+            {% if selected_members %}<span class="badge text-bg-secondary ms-1">{{ selected_members|length }}</span>{% endif %}
+          </button></li>
+          {% endif %}
+          <li>
+            <form method="post" action="{{ url_for('notes.delete', note_id=note.pk) }}" class="m-0"
+                  onsubmit="return confirm('Move this note to the trash?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="dropdown-item text-danger">
+                <i class="bi bi-trash"></i> Delete
+              </button>
+            </form>
+          </li>
+        </ul>
+      </div>
+    </div>
+    {% if not is_owner %}
+      <p class="small text-muted"><i class="bi bi-people"></i> Shared by {{ note.owner }}</p>
+    {% elif selected_members %}
+      <p class="small text-muted"><i class="bi bi-people"></i> Shared with {{ selected_members|length }} member(s)</p>
+    {% endif %}
+
+    {# ---- Markdown body: rendered view + editor ---- #}
+    <div id="note-body-view" class="note-body markdown-body mb-2">
+      {% if note.note %}{{ note.note|markdown }}
+      {% else %}<p class="text-muted fst-italic" id="note-empty-hint">Empty note — click “Edit” to start writing in Markdown.</p>{% endif %}
+    </div>
+    <div id="note-body-edit" class="d-none mb-2">
+      <textarea name="note" id="note-editor" class="form-control"
+                rows="18" style="font-family: var(--bs-font-monospace); font-size: .9rem;"
+                placeholder="Write in Markdown… paste images, drag a link or email in.">{{ note.note }}</textarea>
+      <div class="form-text">Markdown supported. Paste an image to embed it. Drag a link or email to insert it.</div>
+    </div>
+    {% if can_edit %}
+    <div class="mb-4">
+      <button type="button" id="note-edit-btn" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-pencil"></i> Edit
+      </button>
+      <button type="button" id="note-save-btn" class="btn btn-sm btn-primary d-none">
+        <i class="bi bi-check2"></i> Save
+      </button>
+      <button type="button" id="note-cancel-btn" class="btn btn-sm btn-link text-muted d-none">Cancel</button>
+      <span id="note-save-status" class="small text-muted ms-2"></span>
+    </div>
+    {% endif %}
+
+    {# ---- Linked tasks ---- #}
+    <div class="mb-4">
+      <h6 class="text-muted small text-uppercase">
+        <i class="bi bi-check2-square"></i> Linked tasks
+      </h6>
+      <ul class="list-unstyled mb-2" id="linked-tasks">
+        {% for t in linked_tasks %}
+          <li class="d-flex align-items-center gap-2 py-1" data-task-id="{{ t.pk }}">
+            <a href="{{ url_for('tasks.detail', task_id=t.pk) }}" class="text-decoration-none">
+              <i class="bi bi-check2-square text-muted"></i> {{ t.title }}
+            </a>
+            <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-auto note-unlink-task"
+                    data-task-id="{{ t.pk }}" title="Unlink"><i class="bi bi-x-lg"></i></button>
+          </li>
+        {% else %}
+          <li class="text-muted small" id="no-linked-tasks">No tasks linked yet.</li>
+        {% endfor %}
+      </ul>
+      <div class="position-relative" style="max-width: 28rem;">
+        <input type="search" id="task-link-search" class="form-control form-control-sm"
+               placeholder="Search a task to link…" autocomplete="off">
+        <ul class="list-group position-absolute w-100 shadow-sm d-none" id="task-link-results"
+            style="z-index: 1050; max-height: 16rem; overflow-y: auto;"></ul>
+      </div>
+    </div>
+
+    {# ---- Linked calendar events ---- #}
+    <div class="mb-4">
+      <h6 class="text-muted small text-uppercase">
+        <i class="bi bi-calendar-event"></i> Linked events
+      </h6>
+      <ul class="list-unstyled mb-2" id="linked-events">
+        {% for ev in note.linked_events %}
+          <li class="d-flex align-items-center gap-2 py-1" data-event-uid="{{ ev.uid }}">
+            <i class="bi bi-calendar-event text-muted"></i>
+            {% if ev.url %}<a href="{{ ev.url }}" target="_blank" rel="noopener" class="text-decoration-none">{{ ev.title or 'Event' }}</a>
+            {% else %}<span>{{ ev.title or 'Event' }}</span>{% endif %}
+            {% if ev.start %}<span class="small text-muted">{{ ev.start|localdt }}</span>{% endif %}
+            <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-auto note-unlink-event"
+                    data-event-uid="{{ ev.uid }}" title="Unlink"><i class="bi bi-x-lg"></i></button>
+          </li>
+        {% else %}
+          <li class="text-muted small" id="no-linked-events">No events linked yet.</li>
+        {% endfor %}
+      </ul>
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button"
+                id="event-link-btn" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+          <i class="bi bi-plus-lg"></i> Link event
+        </button>
+        <div class="dropdown-menu p-0" style="min-width: 24rem; max-height: 20rem; overflow-y: auto;">
+          <div class="px-3 py-2 small text-muted" id="event-list-status">Loading upcoming events…</div>
+          <div id="event-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ---- Share modal ---- #}
+{% if member_choices %}
+<div class="modal fade" id="shareModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('notes.share', note_id=note.pk) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header py-2">
+          <h2 class="h6 mb-0"><i class="bi bi-people"></i> Share note</h2>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted">Members can see and edit this note.</p>
+          <select name="members" class="form-select" multiple size="6">
+            {% for pk, label in member_choices %}
+              <option value="{{ pk }}" {% if pk in selected_members %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-link text-muted" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary">Save sharing</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+/* Notes detail page — edit toggle, task linking, event linking. Notes pages
+   are full reloads (no <main> swap), so inline page scripts are safe here. */
+(function () {
+  const root = document.getElementById("note-detail");
+  if (!root) return;
+  const noteId = root.dataset.noteId;
+  const csrf = () => (document.querySelector('input[name="csrf_token"]') || {}).value || "";
+
+  function post(url, body) {
+    const fd = new FormData();
+    fd.append("csrf_token", csrf());
+    for (const k in (body || {})) fd.append(k, body[k]);
+    return fetch(url, { method: "POST", body: fd,
+      headers: { "X-Requested-With": "XMLHttpRequest" } });
+  }
+
+  // ---- Markdown edit toggle + AJAX save ----
+  const view = document.getElementById("note-body-view");
+  const editWrap = document.getElementById("note-body-edit");
+  const editor = document.getElementById("note-editor");
+  const titleInput = document.getElementById("note-title");
+  const editBtn = document.getElementById("note-edit-btn");
+  const saveBtn = document.getElementById("note-save-btn");
+  const cancelBtn = document.getElementById("note-cancel-btn");
+  const status = document.getElementById("note-save-status");
+  let savedTitle = titleInput ? titleInput.value : "";
+
+  function enterEdit() {
+    view.classList.add("d-none");
+    editWrap.classList.remove("d-none");
+    editBtn.classList.add("d-none");
+    saveBtn.classList.remove("d-none");
+    cancelBtn.classList.remove("d-none");
+    editor.focus();
+  }
+  function exitEdit() {
+    editWrap.classList.add("d-none");
+    view.classList.remove("d-none");
+    editBtn.classList.remove("d-none");
+    saveBtn.classList.add("d-none");
+    cancelBtn.classList.add("d-none");
+  }
+  async function save() {
+    status.textContent = "Saving…";
+    const resp = await post(`/notes/${noteId}/edit`, {
+      title: titleInput.value, note: editor.value,
+    }).then(r => r.json()).catch(() => null);
+    if (resp && resp.ok) {
+      view.innerHTML = resp.html || '<p class="text-muted fst-italic">Empty note.</p>';
+      savedTitle = resp.title;
+      titleInput.value = resp.title;
+      document.title = resp.title + " · Notes · Cairn";
+      status.textContent = "Saved";
+      setTimeout(() => (status.textContent = ""), 1500);
+      exitEdit();
+    } else {
+      status.textContent = "Save failed";
+    }
+  }
+  if (editBtn) editBtn.addEventListener("click", enterEdit);
+  if (saveBtn) saveBtn.addEventListener("click", save);
+  if (cancelBtn) cancelBtn.addEventListener("click", () => {
+    editor.value = root.dataset.original || editor.defaultValue;
+    titleInput.value = savedTitle;
+    exitEdit();
+  });
+  // Save title on blur even outside edit mode.
+  if (titleInput && !titleInput.readOnly) {
+    titleInput.addEventListener("blur", () => {
+      if (titleInput.value !== savedTitle) save();
+    });
+  }
+  // Ctrl/Cmd+S in the editor saves.
+  if (editor) editor.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); }
+  });
+
+  // ---- Link tasks (typeahead over /tasks/quickjump) ----
+  const tSearch = document.getElementById("task-link-search");
+  const tResults = document.getElementById("task-link-results");
+  let tTimer = null;
+  function hideResults() { tResults.classList.add("d-none"); tResults.innerHTML = ""; }
+  if (tSearch) {
+    tSearch.addEventListener("input", () => {
+      clearTimeout(tTimer);
+      const q = tSearch.value.trim();
+      if (!q) return hideResults();
+      tTimer = setTimeout(async () => {
+        const data = await fetch(`/tasks/quickjump?q=${encodeURIComponent(q)}`)
+          .then(r => r.json()).catch(() => ({ results: [] }));
+        const tasks = (data.results || []).filter(r => r.kind === "task");
+        if (!tasks.length) { hideResults(); return; }
+        tResults.innerHTML = tasks.map(t =>
+          `<li class="list-group-item list-group-item-action py-1" role="button"
+               data-id="${t.id}">${escapeHtml(t.title)}
+             <span class="small text-muted">${escapeHtml(t.subtitle || "")}</span></li>`
+        ).join("");
+        tResults.classList.remove("d-none");
+      }, 200);
+    });
+    tResults.addEventListener("click", async (e) => {
+      const li = e.target.closest("[data-id]");
+      if (!li) return;
+      await post(`/notes/${noteId}/link-task`, { task_id: li.dataset.id });
+      window.location.reload();
+    });
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest("#task-link-search, #task-link-results")) hideResults();
+    });
+  }
+  document.querySelectorAll(".note-unlink-task").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      await post(`/notes/${noteId}/unlink-task/${btn.dataset.taskId}`);
+      window.location.reload();
+    });
+  });
+
+  // ---- Link calendar events ----
+  const evBtn = document.getElementById("event-link-btn");
+  const evList = document.getElementById("event-list");
+  const evStatus = document.getElementById("event-list-status");
+  let evLoaded = false;
+  if (evBtn) {
+    evBtn.addEventListener("click", async () => {
+      if (evLoaded) return;
+      evLoaded = true;
+      const data = await fetch("/notes/events").then(r => r.json()).catch(() => ({ events: [] }));
+      const evs = data.events || [];
+      if (!evs.length) { evStatus.textContent = "No upcoming events found."; return; }
+      evStatus.classList.add("d-none");
+      evList.innerHTML = evs.map(e => {
+        const when = e.start ? new Date(e.start).toLocaleString() : "";
+        return `<button type="button" class="dropdown-item d-flex flex-column align-items-start ev-pick"
+            data-uid="${escapeAttr(e.uid)}" data-calendar-pk="${escapeAttr(e.calendar_pk)}"
+            data-title="${escapeAttr(e.title)}" data-start="${escapeAttr(e.start)}"
+            data-all-day="${e.all_day ? 1 : 0}" data-url="${escapeAttr(e.url)}">
+            <span>${escapeHtml(e.title || "Event")}</span>
+            <span class="small text-muted">${escapeHtml(when)} · ${escapeHtml(e.calendar_name || "")}</span>
+          </button>`;
+      }).join("");
+    });
+    evList.addEventListener("click", async (e) => {
+      const b = e.target.closest(".ev-pick");
+      if (!b) return;
+      await post(`/notes/${noteId}/link-event`, {
+        uid: b.dataset.uid, calendar_pk: b.dataset.calendarPk,
+        title: b.dataset.title, start: b.dataset.start,
+        all_day: b.dataset.allDay, url: b.dataset.url,
+      });
+      window.location.reload();
+    });
+  }
+  document.querySelectorAll(".note-unlink-event").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      await post(`/notes/${noteId}/unlink-event`, { uid: btn.dataset.eventUid });
+      window.location.reload();
+    });
+  });
+
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, c =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+  function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+})();
+</script>
+{% endblock %}

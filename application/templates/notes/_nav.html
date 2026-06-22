@@ -1,0 +1,89 @@
+{# Notes navigator — the folder + note tree. Variables in scope:
+     tree  — list of (depth, item)  (notes + notes-folders)
+     note  — the currently open note (or None)
+   Inline styles ship with the partial so CSS edits never hit the app.css
+   cache-bust dance. #}
+<style>
+  .notes-wrap { display: flex; gap: 1rem; align-items: flex-start; }
+  .notes-nav {
+    flex: 0 0 260px; width: 260px; align-self: stretch;
+    border-right: 1px solid var(--bs-border-color); padding-right: .75rem;
+  }
+  .notes-content { flex: 1 1 auto; min-width: 0; }
+  @media (max-width: 768px) {
+    .notes-wrap { flex-direction: column; }
+    .notes-nav { flex-basis: auto; width: 100%; border-right: 0;
+                 border-bottom: 1px solid var(--bs-border-color);
+                 padding-right: 0; padding-bottom: .75rem; }
+  }
+  .nn-list { list-style: none; margin: 0; padding: 0; }
+  .nn-row {
+    display: flex; align-items: center; gap: .35rem; position: relative;
+    border-radius: .35rem; padding: .15rem .35rem; text-decoration: none;
+    color: var(--bs-body-color);
+  }
+  .nn-row:hover { background: var(--bs-tertiary-bg); }
+  .nn-row.active { background: var(--bs-primary-bg-subtle); }
+  .nn-row .nn-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nn-li.nn-drop-hover > .nn-row { outline: 2px dashed var(--bs-primary); outline-offset: -2px; }
+  .nn-li.nn-dragging > .nn-row { opacity: .5; }
+  .nn-add {
+    margin-left: auto; opacity: 0; border: 0; background: transparent;
+    color: var(--bs-secondary-color); line-height: 1; padding: 1px 4px; cursor: pointer;
+  }
+  .nn-li:hover .nn-add { opacity: 1; }
+  .nn-add:hover { color: var(--bs-success); }
+</style>
+<aside class="notes-nav" id="notes-nav">
+  <div class="d-flex align-items-center mb-2">
+    <h6 class="text-muted small text-uppercase mb-0 me-auto">Notes</h6>
+    <form method="post" action="{{ url_for('notes.new', kind='note') }}" class="d-inline m-0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-primary py-0 px-2" title="New note">
+        <i class="bi bi-plus-lg"></i>
+      </button>
+    </form>
+    <a class="btn btn-sm btn-outline-secondary py-0 px-2 ms-1"
+       href="{{ url_for('notes.new', kind='folder') }}" title="New folder">
+      <i class="bi bi-folder-plus"></i>
+    </a>
+  </div>
+  <input type="search" class="form-control form-control-sm mb-2 nn-search"
+         placeholder="Filter…" autocomplete="off">
+  <ul class="nn-list">
+    <li class="nn-li nn-drop-target" data-target-folder="">
+      <a class="nn-row {% if not note %}active{% endif %}" href="{{ url_for('notes.index') }}"
+         data-nn-name="all notes">
+        <i class="bi bi-journals text-muted"></i>
+        <span class="nn-name">All notes</span>
+      </a>
+    </li>
+    {% for depth, it in tree %}
+      <li class="nn-li nn-drop-target" data-note-id="{{ it.pk }}"
+          {% if it.is_folder %}data-target-folder="{{ it.pk }}"{% endif %}>
+        {% if it.is_folder %}
+          <div class="nn-row" style="padding-left: {{ depth * 14 + 6 }}px;"
+               data-nn-name="{{ it.name|lower }}" title="{{ it.name }}">
+            {{ item_icon(it) }}
+            <span class="nn-name fw-medium">{{ it.name }}</span>
+            <form method="post" action="{{ url_for('notes.new', kind='note', parent=it.pk) }}"
+                  class="m-0 ms-auto">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="nn-add" title="New note in {{ it.name }}">
+                <i class="bi bi-plus-lg"></i>
+              </button>
+            </form>
+          </div>
+        {% else %}
+          <a class="nn-row {% if note and (note.pk|string) == (it.pk|string) %}active{% endif %}"
+             href="{{ url_for('notes.detail', note_id=it.pk) }}"
+             style="padding-left: {{ depth * 14 + 6 }}px;"
+             data-nn-name="{{ it.name|lower }}" title="{{ it.name }}">
+            {{ item_icon(it) }}
+            <span class="nn-name">{{ it.name }}</span>
+          </a>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+</aside>

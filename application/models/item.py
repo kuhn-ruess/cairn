@@ -8,7 +8,12 @@ sections, and folders.
                 children + project metadata (status, review, members).
 * ``section`` — inline grouping inside a project. Holds child tasks.
 * ``folder``  — organisational container; holds projects/folders only,
-                no tasks.
+                no tasks. ``folder_domain`` splits these into two parallel
+                trees: ``tasks`` (the project navigator) and ``notes`` (the
+                notes navigator) so the two don't bleed into each other.
+* ``note``    — a standalone Markdown note. Lives under a ``notes`` folder
+                (or at the top level) and links to tasks (via ``related``)
+                and calendar events (via ``linked_events``).
 
 Hierarchy is expressed via ``parent`` (self-reference). Any item can
 have a parent of any kind, though only certain combos are meaningful:
@@ -45,7 +50,7 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-ITEM_KINDS = ("task", "project", "section", "folder")
+ITEM_KINDS = ("task", "project", "section", "folder", "note")
 TASK_STATUS = ("open", "next", "waiting", "waiting_reply", "agenda",
                "scheduled", "someday", "done", "dropped")
 PROJECT_TYPES = ("parallel", "sequential", "single_actions")
@@ -106,6 +111,19 @@ class NoteImage(EmbeddedDocument):
     created_at = DateTimeField(default=_utcnow)
 
 
+class LinkedEvent(EmbeddedDocument):
+    """A calendar event linked to a note. Calendar events have no DB document
+    in Cairn — only a ``uid`` plus the owning calendar — so we snapshot just
+    enough to render the chip (title/start) without a live fetch, and keep
+    ``uid`` + ``calendar_pk`` so the link can re-resolve / deep-link later."""
+    uid = StringField(required=True)
+    calendar_pk = StringField()      # ExternalCalendar.pk_ref, as a string
+    title = StringField(default="")
+    start = DateTimeField()
+    all_day = BooleanField(default=False)
+    url = StringField()              # provider's html link, when there is one
+
+
 class Item(Document):
     meta = {
         "collection": "items",
@@ -135,6 +153,11 @@ class Item(Document):
 
     # discriminator
     kind = StringField(choices=ITEM_KINDS, default="task")
+    # For ``folder`` items only: which navigator the folder belongs to —
+    # ``tasks`` (the project tree) or ``notes`` (the notes tree). Lets the two
+    # folder hierarchies stay separate without a second kind. Missing/absent
+    # counts as ``tasks`` (every pre-notes folder is a project folder).
+    folder_domain = StringField(choices=("tasks", "notes"), default="tasks")
 
     # ownership & hierarchy
     owner = ReferenceField(User, required=True)
@@ -255,6 +278,11 @@ class Item(Document):
 
     # compressed images pasted into the note, stored inline (see NoteImage)
     note_images = EmbeddedDocumentListField(NoteImage)
+
+    # Calendar events linked to a ``note`` item (see LinkedEvent). Tasks are
+    # linked via the symmetric ``related`` field instead, so they back-link
+    # automatically from the task side too.
+    linked_events = EmbeddedDocumentListField(LinkedEvent)
 
     # ----- project-flavoured fields -----
     project_type = StringField(choices=PROJECT_TYPES, default="parallel")
@@ -576,6 +604,10 @@ class Item(Document):
     @property
     def is_task(self) -> bool:
         return self.kind == "task"
+
+    @property
+    def is_note(self) -> bool:
+        return self.kind == "note"
 
     # ----- task behaviour helpers (no-op for non-tasks) -----
 

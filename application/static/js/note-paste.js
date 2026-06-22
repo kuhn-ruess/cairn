@@ -21,13 +21,19 @@
     return el ? el.value : "";
   }
 
-  // Pull the item id out of the surrounding form's action (…/tasks/<id>/…).
-  // Returns null for the create form (/tasks/new) — there's no item yet.
-  function taskIdFor(textarea) {
+  // Resolve the note-image upload URL for a textarea, or null when there's no
+  // saved item to attach to yet (create form → fall back to an inline data URI).
+  // Notes live under #note-detail[data-note-id]; tasks/projects carry the id in
+  // their surrounding form's action (…/tasks/<id>/…).
+  function uploadUrlFor(textarea) {
+    const noteWrap = textarea.closest("[data-note-id]");
+    if (noteWrap && noteWrap.dataset.noteId) {
+      return `/notes/${noteWrap.dataset.noteId}/note-image`;
+    }
     const form = textarea.closest("form");
     const action = (form && form.getAttribute("action")) || "";
     const m = action.match(/\/tasks\/([0-9a-fA-F]{12,})(?:\/|$)/);
-    return m ? m[1] : null;
+    return m ? `/tasks/${m[1]}/note-image` : null;
   }
 
   function loadImage(blob) {
@@ -68,11 +74,11 @@
     return url;
   }
 
-  async function uploadToItem(taskId, blob) {
+  async function uploadToItem(uploadUrl, blob) {
     const fd = new FormData();
     fd.append("file", blob, "pasted.webp");
     fd.append("csrf_token", csrfToken());
-    const resp = await fetch(`/tasks/${taskId}/note-image`, { method: "POST", body: fd });
+    const resp = await fetch(uploadUrl, { method: "POST", body: fd });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data.error || ("upload failed: " + resp.status));
     return data; // { markdown, warning? }
@@ -107,13 +113,13 @@
     try {
       const img = await loadImage(blob);
       const canvas = scaledCanvas(img);
-      const taskId = taskIdFor(textarea);
-      if (taskId) {
-        const data = await uploadToItem(taskId, await canvasToBlob(canvas));
+      const uploadUrl = uploadUrlFor(textarea);
+      if (uploadUrl) {
+        const data = await uploadToItem(uploadUrl, await canvasToBlob(canvas));
         replacePlaceholder(textarea, placeholder, data.markdown);
         if (data.warning) toast(data.warning, "warning");
       } else {
-        // Unsaved task: no item to attach to yet — embed compressed inline.
+        // Unsaved item: nothing to attach to yet — embed compressed inline.
         replacePlaceholder(textarea, placeholder, `![pasted image](${canvasToDataUrl(canvas)})`);
       }
     } catch (err) {

@@ -34,7 +34,12 @@ def container_choices(user, *, selectable_kinds=("project", "folder"),
     """
     scope = (Q(owner=user) | Q(members=user)) if include_shared else Q(owner=user)
     containers = list(
-        Item.objects(scope, kind__in=["project", "folder", "section"])
+        # ``folder_domain != "notes"`` keeps the notes-tree folders out of the
+        # project/task container pickers (a note folder is never a valid parent
+        # for a project or task). ``$ne`` also matches pre-notes folders that
+        # have no ``folder_domain`` field at all.
+        Item.objects(scope, kind__in=["project", "folder", "section"],
+                     folder_domain__ne="notes")
         # ``name`` is a property alias for ``title`` — project the real field
         # or mongoengine raises LookUpError on .only().
         .only("pk", "title", "kind", "parent", "status")

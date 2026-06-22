@@ -253,6 +253,9 @@ def project_tree_for_sidebar(user):
         fq & (Q(owner=user) | Q(members=user)),
         kind__in=["project", "folder"],
         status="active",
+        # Notes live in their own folder tree (folder_domain="notes") — keep
+        # those folders out of the project navigator.
+        folder_domain__ne="notes",
     )
     # Hide deferred projects from the navigator too (unless the user opted in).
     if not getattr(user, "show_deferred_projects", False):
