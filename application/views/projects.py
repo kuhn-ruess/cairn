@@ -1849,10 +1849,13 @@ def import_csv(project_id):
                 # with an "external" badge) rather than crediting the importing
                 # user. Use the row timestamp as created_at when it parses;
                 # otherwise keep it visible as a small prefix so nothing is lost.
-                created = None
+                # NB: a distinct name from the ``created`` row counter above —
+                # reusing ``created`` here clobbered the counter to None and the
+                # next row's ``created += 1`` blew up.
+                created_dt = None
                 if ts:
                     try:
-                        created = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        created_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                     except ValueError:
                         body = f"_{ts}_\n\n{body}" if body else ts
                 # A comment the importing user wrote themselves is attributed to
@@ -1867,8 +1870,8 @@ def import_csv(project_id):
                     ckwargs["author"] = user
                 else:
                     ckwargs["external_author"] = author or "Import"
-                if created:
-                    ckwargs["created_at"] = created
+                if created_dt:
+                    ckwargs["created_at"] = created_dt
                 target.comments.append(ItemComment(**ckwargs))
 
         if csv_id:
