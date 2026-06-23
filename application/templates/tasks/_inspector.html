@@ -54,7 +54,11 @@
         <button type="button" class="btn btn-outline-secondary"
                 data-quick-date="defer_date" data-set="tomorrow">Tomorrow</button>
         <button type="button" class="btn btn-outline-secondary"
-                data-quick-date="defer_date" data-set="next-monday">Next Mon</button>
+                data-quick-date="defer_date" data-set="add-day" title="Add a day">+1d</button>
+        <button type="button" class="btn btn-outline-secondary"
+                data-quick-date="defer_date" data-set="add-week" title="Add a week">+1w</button>
+        <button type="button" class="btn btn-outline-secondary"
+                data-quick-date="defer_date" data-set="add-month" title="Add a month">+1m</button>
         <button type="button" class="btn btn-outline-secondary"
                 data-quick-date="defer_date" data-set="clear">×</button>
       </div>
@@ -68,7 +72,11 @@
         <button type="button" class="btn btn-outline-secondary"
                 data-quick-date="due_date" data-set="tomorrow">Tomorrow</button>
         <button type="button" class="btn btn-outline-secondary"
-                data-quick-date="due_date" data-set="in-week">+1w</button>
+                data-quick-date="due_date" data-set="add-day" title="Add a day">+1d</button>
+        <button type="button" class="btn btn-outline-secondary"
+                data-quick-date="due_date" data-set="add-week" title="Add a week">+1w</button>
+        <button type="button" class="btn btn-outline-secondary"
+                data-quick-date="due_date" data-set="add-month" title="Add a month">+1m</button>
         <button type="button" class="btn btn-outline-secondary"
                 data-quick-date="due_date" data-set="clear">×</button>
       </div>
@@ -84,9 +92,13 @@
       <button type="button" class="btn btn-outline-secondary"
               data-quick-date="plan_date" data-set="today">Today</button>
       <button type="button" class="btn btn-outline-secondary"
-              data-quick-date="plan_date" data-set="evening">Evening</button>
-      <button type="button" class="btn btn-outline-secondary"
               data-quick-date="plan_date" data-set="tomorrow">Tomorrow</button>
+      <button type="button" class="btn btn-outline-secondary"
+              data-quick-date="plan_date" data-set="add-day" title="Add a day">+1d</button>
+      <button type="button" class="btn btn-outline-secondary"
+              data-quick-date="plan_date" data-set="add-week" title="Add a week">+1w</button>
+      <button type="button" class="btn btn-outline-secondary"
+              data-quick-date="plan_date" data-set="add-month" title="Add a month">+1m</button>
       <button type="button" class="btn btn-outline-secondary"
               data-quick-date="plan_date" data-set="clear">×</button>
     </div>
@@ -170,9 +182,15 @@
         {{ form.followup_at(class="form-control form-control-sm", id="followup_at") }}
         <div class="quick-date-row btn-group btn-group-sm mt-1">
           <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="followup_at" data-set="today">Today</button>
+          <button type="button" class="btn btn-outline-secondary"
                   data-quick-date="followup_at" data-set="tomorrow">Tomorrow</button>
           <button type="button" class="btn btn-outline-secondary"
-                  data-quick-date="followup_at" data-set="in-week">+1w</button>
+                  data-quick-date="followup_at" data-set="add-day" title="Add a day">+1d</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="followup_at" data-set="add-week" title="Add a week">+1w</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="followup_at" data-set="add-month" title="Add a month">+1m</button>
           <button type="button" class="btn btn-outline-secondary"
                   data-quick-date="followup_at" data-set="clear">×</button>
         </div>

@@ -88,17 +88,35 @@
       <div class="quick-date-row btn-group btn-group-sm mt-1">
         <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_defer_date" data-set="today">Today</button>
         <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_defer_date" data-set="tomorrow">Tomorrow</button>
-        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_defer_date" data-set="next-monday">Next Mon</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_defer_date" data-set="add-day" title="Add a day">+1d</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_defer_date" data-set="add-week" title="Add a week">+1w</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_defer_date" data-set="add-month" title="Add a month">+1m</button>
         <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_defer_date" data-set="clear">×</button>
       </div>
     </div>
     <div>
       {{ form.due_date.label(class="form-label small text-uppercase text-muted") }}
-      {{ form.due_date(class="form-control form-control-sm") }}
+      {{ form.due_date(class="form-control form-control-sm", id="proj_due_date") }}
+      <div class="quick-date-row btn-group btn-group-sm mt-1">
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_due_date" data-set="today">Today</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_due_date" data-set="tomorrow">Tomorrow</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_due_date" data-set="add-day" title="Add a day">+1d</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_due_date" data-set="add-week" title="Add a week">+1w</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_due_date" data-set="add-month" title="Add a month">+1m</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_due_date" data-set="clear">×</button>
+      </div>
     </div>
     <div>
       {{ form.plan_date.label(class="form-label small text-uppercase text-muted") }}
-      {{ form.plan_date(class="form-control form-control-sm") }}
+      {{ form.plan_date(class="form-control form-control-sm", id="proj_plan_date") }}
+      <div class="quick-date-row btn-group btn-group-sm mt-1">
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_plan_date" data-set="today">Today</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_plan_date" data-set="tomorrow">Tomorrow</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_plan_date" data-set="add-day" title="Add a day">+1d</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_plan_date" data-set="add-week" title="Add a week">+1w</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_plan_date" data-set="add-month" title="Add a month">+1m</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_plan_date" data-set="clear">×</button>
+      </div>
     </div>
   </div>
 
