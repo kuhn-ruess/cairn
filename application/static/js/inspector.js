@@ -345,9 +345,10 @@
   });
 
   // ---- Comment sort order (newest vs oldest first) -----------------------
-  // Remembered per browser. Newest-first is the default and is applied by
-  // reversing the flex container visually — the DOM stays chronological so
-  // comment indices and JS-appended comments keep working.
+  // Remembered per browser. The DOM is rendered newest-first (each row keeps
+  // its real data-index), so the default needs no reversal — the newest is at
+  // the top of the scroll box. "Oldest first" flips the view via the
+  // column-reverse ``oldest-first`` class.
   const COMMENT_SORT_KEY = "cairn:comment-sort";
   function commentsNewestFirst() {
     try { return localStorage.getItem(COMMENT_SORT_KEY) !== "oldest"; }
@@ -357,7 +358,7 @@
     const newest = commentsNewestFirst();
     (scope || document)
       .querySelectorAll(".comments-list, .task-detail-comments")
-      .forEach((list) => list.classList.toggle("newest-first", newest));
+      .forEach((list) => list.classList.toggle("oldest-first", !newest));
     document.querySelectorAll(".comment-sort-toggle").forEach((btn) => {
       const icon = btn.querySelector("i");
       if (icon) icon.className = newest ? "bi bi-sort-down" : "bi bi-sort-up";
@@ -425,7 +426,9 @@
       visibilityBadgeHtml(c.is_public) +
       "</button></div>" +
       `<div class="comment-body mt-1" style="white-space: pre-wrap;">${escapeHtml(c.body)}</div>`;
-    list.appendChild(div);
+    // Comments render newest-first, so a new one goes to the top of the DOM.
+    list.insertBefore(div, list.firstChild);
+    list.scrollTop = 0;  // keep the freshly added comment in view
     // Visibility toggle wires up via the document-level delegate.
     // Bump the badge counter.
     const counter = body.querySelector(".comments-block .badge");

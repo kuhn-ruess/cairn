@@ -234,10 +234,11 @@
         {% endif %}
       </h2>
       <div class="comments-body section-collapsible">
-      <div class="task-detail-comments newest-first">
-      {% for c in task.comments %}
+      <div class="task-detail-comments">
+      {% for c in task.comments|reverse %}
+        {% set _idx = task.comments|length - 1 - loop.index0 %}
         <div class="task-detail-comment {% if c.is_public %}is-public{% endif %}"
-             data-comment-index="{{ loop.index0 }}">
+             data-comment-index="{{ _idx }}">
           <div class="comment-avatar">{{ (c.author_name or '?')[:1]|upper }}</div>
           <div class="comment-body-wrap">
             <div class="comment-header">
@@ -249,7 +250,7 @@
               <button type="button"
                       class="comment-visibility-toggle"
                       data-task-id="{{ task.pk }}"
-                      data-index="{{ loop.index0 }}"
+                      data-index="{{ _idx }}"
                       data-public="{{ '1' if c.is_public else '0' }}"
                       title="Click to toggle internal / public">
                 {% if c.is_public %}
