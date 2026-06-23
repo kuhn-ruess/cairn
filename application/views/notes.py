@@ -319,6 +319,10 @@ def events():
     until = since + timedelta(days=days)
     out = []
     for cal in (user.calendars or []):
+        # Honour the same per-calendar visibility toggle as the Today/Plan
+        # view — a calendar the user switched off shouldn't surface here.
+        if not cal.show_in_today:
+            continue
         try:
             evs = fetch_events(cal, since, until, user=user)
         except Exception:  # noqa: BLE001 — a flaky calendar shouldn't 500 the picker
