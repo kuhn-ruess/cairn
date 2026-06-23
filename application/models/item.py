@@ -379,6 +379,18 @@ class Item(Document):
                 self.completed_at = None
                 self.completed_by = None
                 self.completed_via = None
+            # A task that becomes actionable again (next/open) must not stay
+            # hidden behind a pending follow-up: a future ``followup_at`` blocks
+            # the task (see ``_own_block``), so e.g. when a customer replies and
+            # a Zammad sync flips ``waiting`` → ``next``, the leftover reminder
+            # would keep it invisible. Drop the pending follow-up on that
+            # transition (only on the actual status change, so a follow-up set
+            # by hand on an already-next task is left alone).
+            if (self.status in ("next", "open")
+                    and self.followup_at is not None
+                    and self.id is not None
+                    and "status" in self._get_changed_fields()):
+                self.followup_at = None
         result = super().save(*args, **kwargs)
         if cascade_status:
             self._cascade_close(cascade_status)
