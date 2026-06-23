@@ -234,7 +234,20 @@
   const tSearch = document.getElementById("task-link-search");
   const tResults = document.getElementById("task-link-results");
   let tTimer = null;
-  function hideResults() { tResults.classList.add("d-none"); tResults.innerHTML = ""; }
+  let tActive = -1;   // index of the keyboard-highlighted result (-1 = none)
+  function hideResults() { tResults.classList.add("d-none"); tResults.innerHTML = ""; tActive = -1; }
+  function tItems() { return Array.from(tResults.querySelectorAll("[data-id]")); }
+  function setActive(idx) {
+    const items = tItems();
+    if (!items.length) return;
+    tActive = (idx + items.length) % items.length;   // wrap around
+    items.forEach((li, i) => li.classList.toggle("active", i === tActive));
+    items[tActive].scrollIntoView({ block: "nearest" });
+  }
+  async function linkTask(id) {
+    await post(`/notes/${noteId}/link-task`, { task_id: id });
+    window.location.reload();
+  }
   if (tSearch) {
     tSearch.addEventListener("input", () => {
       clearTimeout(tTimer);
@@ -251,13 +264,27 @@
              <span class="small text-muted">${escapeHtml(t.subtitle || "")}</span></li>`
         ).join("");
         tResults.classList.remove("d-none");
+        tActive = -1;   // nothing highlighted until the user presses ↓
       }, 200);
     });
-    tResults.addEventListener("click", async (e) => {
+    // Arrow keys / Enter / Escape navigate the result list.
+    tSearch.addEventListener("keydown", (e) => {
+      if (tResults.classList.contains("d-none")) return;
+      if (e.key === "ArrowDown") { e.preventDefault(); setActive(tActive + 1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); setActive(tActive - 1); }
+      else if (e.key === "Enter") {
+        const items = tItems();
+        const li = items[tActive] || items[0];   // Enter with no selection picks the first
+        if (li) { e.preventDefault(); linkTask(li.dataset.id); }
+      } else if (e.key === "Escape") { hideResults(); }
+    });
+    tResults.addEventListener("mousemove", (e) => {
       const li = e.target.closest("[data-id]");
-      if (!li) return;
-      await post(`/notes/${noteId}/link-task`, { task_id: li.dataset.id });
-      window.location.reload();
+      if (li) setActive(tItems().indexOf(li));
+    });
+    tResults.addEventListener("click", (e) => {
+      const li = e.target.closest("[data-id]");
+      if (li) linkTask(li.dataset.id);
     });
     document.addEventListener("click", (e) => {
       if (!e.target.closest("#task-link-search, #task-link-results")) hideResults();
