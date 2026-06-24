@@ -11,11 +11,16 @@
   }
   .notes-content { flex: 1 1 auto; min-width: 0; }
   .notes-inspector {
-    flex: 0 0 320px; width: 320px; align-self: stretch;
+    flex: 0 0 320px; width: 320px; align-self: stretch; min-width: 0;
     border-left: 1px solid var(--bs-border-color); padding-left: 1rem;
     position: sticky; top: calc(var(--nav-height, 56px) + .5rem);
-    max-height: calc(100vh - var(--nav-height, 56px) - 1rem); overflow-y: auto;
+    max-height: calc(100vh - var(--nav-height, 56px) - 1rem);
+    /* Clip horizontally so long linked-item titles can never push the column
+       wide and leave it horizontally scrolled over itself. */
+    overflow: hidden auto;
   }
+  /* Let truncating flex children actually shrink inside the fixed-width column. */
+  .notes-inspector .text-truncate { min-width: 0; }
   .notes-inspector .ni-section { margin-bottom: 1.25rem; }
   .notes-inspector h6 { letter-spacing: .03em; }
   @media (max-width: 992px) {
