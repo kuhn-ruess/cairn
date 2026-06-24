@@ -19,6 +19,10 @@
   // Don't ALSO open the pinned offcanvas there — it'd sit empty beside the
   // inline one. The pin state still persists for list pages.
   const hasInline = !!document.getElementById("inline-inspector");
+  // Only auto-open the pinned inspector on pages that actually host
+  // inspectable items (task/project lists). Settings, admin, profile, …
+  // have nothing to inspect — a pinned-open empty panel there is just noise.
+  const isInspectorHost = () => !!document.querySelector("[data-inspector-url]");
   function isPinned() {
     try { return localStorage.getItem(PIN_KEY) === "1"; }
     catch (e) { return false; }
@@ -45,13 +49,13 @@
       const next = !isPinned();
       try { localStorage.setItem(PIN_KEY, next ? "1" : "0"); } catch (e) {}
       reflectPin();
-      if (next && !hasInline) { bsOffcanvas.show(); showPinnedPlaceholder(); }
+      if (next && !hasInline && isInspectorHost()) { bsOffcanvas.show(); showPinnedPlaceholder(); }
     });
   }
   reflectPin();
   // Pinned → open the column on load so it's a permanent fixture (but not on
   // the detail page, which already has its own inline inspector).
-  if (isPinned() && !hasInline) { bsOffcanvas.show(); showPinnedPlaceholder(); }
+  if (isPinned() && !hasInline && isInspectorHost()) { bsOffcanvas.show(); showPinnedPlaceholder(); }
 
   // When the user closes the inspector after at least one successful save,
   // refresh the list behind it so the change is visible. We *don't* reload

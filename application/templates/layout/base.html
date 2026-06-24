@@ -134,7 +134,7 @@
       <div class="d-flex align-items-center mb-1">
         <h6 class="text-muted small text-uppercase mb-0 me-auto">Perspectives</h6>
         <a class="text-muted small me-2" href="{{ url_for('custom_perspectives.index') }}"
-           title="Manage custom perspectives"><i class="bi bi-funnel"></i></a>
+           title="Manage custom perspectives"><i class="bi bi-binoculars"></i></a>
         <a class="text-muted small" href="{{ url_for('settings.perspectives') }}"
            title="Customise sidebar"><i class="bi bi-sliders"></i></a>
       </div>
@@ -159,7 +159,7 @@
         <li><a class="nav-link py-1" href="{{ url_for('braindump.index') }}"><i class="bi bi-stars"></i> Braindump</a></li>
         <li><a class="nav-link py-1" href="{{ url_for('tree.index') }}"><i class="bi bi-diagram-3"></i> Tree</a></li>
         <li><a class="nav-link py-1" href="{{ url_for('tags.index') }}"><i class="bi bi-tag"></i> Tags / Contexts</a></li>
-        <li><a class="nav-link py-1" href="{{ url_for('custom_perspectives.index') }}"><i class="bi bi-funnel"></i> Perspectives</a></li>
+        <li><a class="nav-link py-1" href="{{ url_for('custom_perspectives.index') }}"><i class="bi bi-binoculars"></i> Perspectives</a></li>
         {% if current_user.team or current_user.is_team_admin %}
         <li><a class="nav-link py-1" href="{{ url_for('timetracking.index') }}"><i class="bi bi-stopwatch"></i> Time tracking</a></li>
         {% endif %}
