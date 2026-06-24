@@ -140,7 +140,7 @@ def sidebar_counts(user, now=None, keys=None) -> dict:
     (scalar fields only — no per-doc deref). Mirrors each perspective view's
     filter; completed/home never get a badge."""
     now = now or datetime.now(timezone.utc)
-    want = set(keys) if keys is not None else (_PASS_KEYS | {"inbox", "assigned"})
+    want = set(keys) if keys is not None else (_PASS_KEYS | {"inbox", "assigned", "delegated"})
     c = {}
 
     if want & _PASS_KEYS:
@@ -191,6 +191,13 @@ def sidebar_counts(user, now=None, keys=None) -> dict:
         c["assigned"] = Item.objects(
             focus.restrict(Q(assigned_to=user), user), kind="task",
             status__nin=["done", "dropped"]).count()
+    if "delegated" in want:
+        from application.services import focus
+        c["delegated"] = Item.objects(
+            focus.restrict(
+                Q(owner=user) & Q(assigned_to__ne=None) & Q(assigned_to__ne=user),
+                user),
+            kind="task", status__nin=["done", "dropped"]).count()
     return c
 
 def _writeback_calendar(task, user) -> list[str]:
@@ -1360,6 +1367,28 @@ def assigned_to_me():
     ).order_by("+due_date")
     return render_template(
         "tasks/list.html", title="Assigned to me", perspective="assigned", tasks=prepare_list(tasks)
+    )
+
+
+@tasks_bp.route("/delegated")
+@login_required
+def delegated():
+    """Tasks I own but handed off to someone else — the mirror of
+    'Assigned to me'. ``assigned_to__ne=user`` alone would also match
+    unassigned tasks (None != user), so we exclude None explicitly."""
+    user = current_user._get_current_object()
+    from application.services import focus
+    tasks = _filter_by_project(
+        Item.objects(
+            focus.restrict(
+                Q(owner=user) & Q(assigned_to__ne=None) & Q(assigned_to__ne=user),
+                user),
+            status__nin=["done", "dropped"]),
+        user,
+    ).order_by("+due_date")
+    return render_template(
+        "tasks/list.html", title="Assigned to others", perspective="delegated",
+        tasks=prepare_list(tasks)
     )
 
 @tasks_bp.route("/completed")
