@@ -38,8 +38,8 @@
 {%- macro sec_tags() -%}
   <div class="inspector-section" data-section="tags">
     {{ form.tags.label(class="form-label small text-uppercase text-muted") }}
-    {{ form.tags(class="form-select form-select-sm", size="5") }}
-    <div class="form-text">⌘/Ctrl-click for multi-select.</div>
+    {{ form.tags(class="form-select form-select-sm", size="5", **{"data-tag-toggle": "1"}) }}
+    <div class="form-text">Click a label to toggle it.</div>
   </div>
 {%- endmacro -%}
 

@@ -528,6 +528,7 @@
         // open and just swap the body.
         body.innerHTML = await resp.text();
         wireForm();
+        document.dispatchEvent(new Event("inspector:loaded"));
         scrollSavedBannerIntoView();
         autoFadeSavedBanner();
         // Refresh the underlying main content so newly created sections /
@@ -538,6 +539,7 @@
       } else if (resp.status === 422 || resp.status === 400) {
         body.innerHTML = await resp.text();
         wireForm();
+        document.dispatchEvent(new Event("inspector:loaded"));
       } else {
         throw new Error("save failed: " + resp.status);
       }
