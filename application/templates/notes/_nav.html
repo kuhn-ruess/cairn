@@ -10,11 +10,25 @@
     border-right: 1px solid var(--bs-border-color); padding-right: .75rem;
   }
   .notes-content { flex: 1 1 auto; min-width: 0; }
+  .notes-inspector {
+    flex: 0 0 320px; width: 320px; align-self: stretch;
+    border-left: 1px solid var(--bs-border-color); padding-left: 1rem;
+    position: sticky; top: calc(var(--nav-height, 56px) + .5rem);
+    max-height: calc(100vh - var(--nav-height, 56px) - 1rem); overflow-y: auto;
+  }
+  .notes-inspector .ni-section { margin-bottom: 1.25rem; }
+  .notes-inspector h6 { letter-spacing: .03em; }
+  @media (max-width: 992px) {
+    .notes-inspector { position: static; max-height: none; }
+  }
   @media (max-width: 768px) {
     .notes-wrap { flex-direction: column; }
     .notes-nav { flex-basis: auto; width: 100%; border-right: 0;
                  border-bottom: 1px solid var(--bs-border-color);
                  padding-right: 0; padding-bottom: .75rem; }
+    .notes-inspector { flex-basis: auto; width: 100%; border-left: 0;
+                 border-top: 1px solid var(--bs-border-color);
+                 padding-left: 0; padding-top: .75rem; }
   }
   .nn-list { list-style: none; margin: 0; padding: 0; }
   .nn-row {

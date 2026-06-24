@@ -400,6 +400,25 @@
   </div>
 </div>
 
+{% if linked_notes %}
+<div class="card project-note-card mb-3">
+  <div class="card-body py-2">
+    <span class="text-muted small text-uppercase d-block mb-1">
+      <i class="bi bi-journal-text"></i> Linked notes
+    </span>
+    <ul class="list-unstyled mb-0">
+      {% for n in linked_notes %}
+        <li class="py-1">
+          <a href="{{ url_for('notes.detail', note_id=n.pk) }}" class="text-decoration-none">
+            <i class="bi bi-journal-text text-muted"></i> {{ n.title }}
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
 <div class="d-flex align-items-center mb-3 flex-wrap gap-2">
   <span class="text-muted small">Group by:</span>
   <div class="btn-group btn-group-sm" role="group">

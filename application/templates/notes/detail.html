@@ -1,6 +1,12 @@
 {% extends "layout/base.html" %}
 {% block title %}{{ note.title }} · Notes · Cairn{% endblock %}
 {% block content %}
+{# EasyMDE — rich Markdown editor (live syntax highlight + toolbar). Loaded
+   only on this page; base.html has no scripts block. CDN matches the existing
+   jsdelivr pattern used for Bootstrap/SortableJS. #}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.css">
+<script src="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.js"></script>
+
 <div class="notes-wrap">
   {% include "notes/_nav.html" %}
   <div class="notes-content" id="note-detail" data-note-id="{{ note.pk }}">
@@ -49,7 +55,6 @@
       <textarea name="note" id="note-editor" class="form-control"
                 rows="18" style="font-family: var(--bs-font-monospace); font-size: .9rem;"
                 placeholder="Write in Markdown… paste images, drag a link or email in.">{{ note.note }}</textarea>
-      <div class="form-text">Markdown supported. Paste an image to embed it. Drag a link or email to insert it.</div>
     </div>
     {% if can_edit %}
     <div class="mb-4">
@@ -63,64 +68,116 @@
       <span id="note-save-status" class="small text-muted ms-2"></span>
     </div>
     {% endif %}
+  </div>
 
-    {# ---- Linked tasks ---- #}
-    <div class="mb-4">
-      <h6 class="text-muted small text-uppercase">
-        <i class="bi bi-check2-square"></i> Linked tasks
-      </h6>
-      <ul class="list-unstyled mb-2" id="linked-tasks">
+  {# ---- Inspector: tags + all links ---- #}
+  <aside class="notes-inspector" id="note-inspector">
+
+    {# Tags #}
+    <div class="ni-section" data-section="tags">
+      <h6 class="text-muted small text-uppercase"><i class="bi bi-tag"></i> Tags</h6>
+      <div id="note-tag-chips" class="d-flex flex-wrap gap-1 mb-2">
+        {% for tag_name in (note.tags or []) %}
+          {% set tg = current_user.tag_by_name(tag_name) %}
+          <span class="tag-chip" style="background: {{ tg.color if tg else '#6c757d' }};">
+            {% if tg and tg.is_context %}@{% endif %}{{ tag_name }}
+          </span>
+        {% else %}
+          <span class="text-muted small" id="note-no-tags">No tags.</span>
+        {% endfor %}
+      </div>
+      {% if can_edit %}
+      <select id="note-tags" class="form-select form-select-sm" multiple size="5"
+              data-searchable-select="1" data-searchable-placeholder="Search tags…">
+        {% for value, label in tag_choices %}
+          {% set tg = current_user.tag_by_name(value) %}
+          <option value="{{ value }}" data-color="{{ tg.color if tg else '#6c757d' }}"
+                  data-context="{{ '1' if tg and tg.is_context else '' }}"
+                  {% if value in (note.tags or []) %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <div class="form-text">⌘/Ctrl-click to multi-select.</div>
+      {% endif %}
+    </div>
+
+    {# Linked tasks #}
+    <div class="ni-section">
+      <h6 class="text-muted small text-uppercase"><i class="bi bi-check2-square"></i> Linked tasks</h6>
+      <ul class="list-unstyled mb-1" id="linked-tasks">
         {% for t in linked_tasks %}
-          <li class="d-flex align-items-center gap-2 py-1" data-task-id="{{ t.pk }}">
-            <a href="{{ url_for('tasks.detail', task_id=t.pk) }}" class="text-decoration-none">
+          <li class="d-flex align-items-center gap-2 py-1" data-item-id="{{ t.pk }}">
+            <a href="{{ url_for('tasks.detail', task_id=t.pk) }}" class="text-decoration-none text-truncate">
               <i class="bi bi-check2-square text-muted"></i> {{ t.title }}
             </a>
-            <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-auto note-unlink-task"
-                    data-task-id="{{ t.pk }}" title="Unlink"><i class="bi bi-x-lg"></i></button>
+            {% if can_edit %}<button type="button" class="btn btn-sm btn-link text-danger p-0 ms-auto note-unlink-item"
+                    data-item-id="{{ t.pk }}" title="Unlink"><i class="bi bi-x-lg"></i></button>{% endif %}
           </li>
         {% else %}
-          <li class="text-muted small" id="no-linked-tasks">No tasks linked yet.</li>
+          <li class="text-muted small" id="no-linked-tasks">No tasks linked.</li>
         {% endfor %}
       </ul>
-      <div class="position-relative" style="max-width: 28rem;">
-        <input type="search" id="task-link-search" class="form-control form-control-sm"
-               placeholder="Search a task to link…" autocomplete="off">
-        <ul class="list-group position-absolute w-100 shadow-sm d-none" id="task-link-results"
+    </div>
+
+    {# Linked projects #}
+    <div class="ni-section">
+      <h6 class="text-muted small text-uppercase"><i class="bi bi-collection"></i> Linked projects</h6>
+      <ul class="list-unstyled mb-1" id="linked-projects">
+        {% for p in linked_projects %}
+          <li class="d-flex align-items-center gap-2 py-1" data-item-id="{{ p.pk }}">
+            <a href="{{ url_for('projects.detail', project_id=p.pk) }}" class="text-decoration-none text-truncate">
+              <i class="bi bi-collection text-muted"></i> {{ p.title }}
+            </a>
+            {% if can_edit %}<button type="button" class="btn btn-sm btn-link text-danger p-0 ms-auto note-unlink-item"
+                    data-item-id="{{ p.pk }}" title="Unlink"><i class="bi bi-x-lg"></i></button>{% endif %}
+          </li>
+        {% else %}
+          <li class="text-muted small" id="no-linked-projects">No projects linked.</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    {% if can_edit %}
+    {# Unified linker for tasks + projects #}
+    <div class="ni-section">
+      <div class="position-relative">
+        <input type="search" id="item-link-search" class="form-control form-control-sm"
+               placeholder="Link a task or project…" autocomplete="off">
+        <ul class="list-group position-absolute w-100 shadow-sm d-none" id="item-link-results"
             style="z-index: 1050; max-height: 16rem; overflow-y: auto;"></ul>
       </div>
     </div>
+    {% endif %}
 
-    {# ---- Linked calendar events ---- #}
-    <div class="mb-4">
-      <h6 class="text-muted small text-uppercase">
-        <i class="bi bi-calendar-event"></i> Linked events
-      </h6>
-      <ul class="list-unstyled mb-2" id="linked-events">
+    {# Linked calendar events #}
+    <div class="ni-section">
+      <h6 class="text-muted small text-uppercase"><i class="bi bi-calendar-event"></i> Linked events</h6>
+      <ul class="list-unstyled mb-1" id="linked-events">
         {% for ev in note.linked_events %}
           <li class="d-flex align-items-center gap-2 py-1" data-event-uid="{{ ev.uid }}">
             <i class="bi bi-calendar-event text-muted"></i>
-            {% if ev.url %}<a href="{{ ev.url }}" target="_blank" rel="noopener" class="text-decoration-none">{{ ev.title or 'Event' }}</a>
-            {% else %}<span>{{ ev.title or 'Event' }}</span>{% endif %}
-            {% if ev.start %}<span class="small text-muted">{{ ev.start|localdt }}</span>{% endif %}
-            <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-auto note-unlink-event"
-                    data-event-uid="{{ ev.uid }}" title="Unlink"><i class="bi bi-x-lg"></i></button>
+            {% if ev.url %}<a href="{{ ev.url }}" target="_blank" rel="noopener" class="text-decoration-none text-truncate">{{ ev.title or 'Event' }}</a>
+            {% else %}<span class="text-truncate">{{ ev.title or 'Event' }}</span>{% endif %}
+            {% if can_edit %}<button type="button" class="btn btn-sm btn-link text-danger p-0 ms-auto note-unlink-event"
+                    data-event-uid="{{ ev.uid }}" title="Unlink"><i class="bi bi-x-lg"></i></button>{% endif %}
           </li>
         {% else %}
-          <li class="text-muted small" id="no-linked-events">No events linked yet.</li>
+          <li class="text-muted small" id="no-linked-events">No events linked.</li>
         {% endfor %}
       </ul>
+      {% if can_edit %}
       <div class="dropdown">
         <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button"
                 id="event-link-btn" data-bs-toggle="dropdown" data-bs-auto-close="outside">
           <i class="bi bi-plus-lg"></i> Link event
         </button>
-        <div class="dropdown-menu p-0" style="min-width: 24rem; max-height: 20rem; overflow-y: auto;">
+        <div class="dropdown-menu p-0" style="min-width: 22rem; max-height: 20rem; overflow-y: auto;">
           <div class="px-3 py-2 small text-muted" id="event-list-status">Loading upcoming events…</div>
           <div id="event-list"></div>
         </div>
       </div>
+      {% endif %}
     </div>
-  </div>
+  </aside>
 </div>
 
 {# ---- Share modal ---- #}
@@ -153,8 +210,9 @@
 {% endif %}
 
 <script>
-/* Notes detail page — edit toggle, task linking, event linking. Notes pages
-   are full reloads (no <main> swap), so inline page scripts are safe here. */
+/* Notes detail — EasyMDE body editor, tag editing, task/project linking, event
+   linking. Notes pages are full reloads (no <main> swap), so inline page
+   scripts are safe here. */
 (function () {
   const root = document.getElementById("note-detail");
   if (!root) return;
@@ -168,8 +226,13 @@
     return fetch(url, { method: "POST", body: fd,
       headers: Object.assign({ "X-Requested-With": "XMLHttpRequest" }, extraHeaders || {}) });
   }
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, c =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+  function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
 
-  // ---- Markdown edit toggle + AJAX save ----
+  // ---- Markdown body: EasyMDE (lazy-initialised on first Edit) ----
   const view = document.getElementById("note-body-view");
   const editWrap = document.getElementById("note-body-edit");
   const editor = document.getElementById("note-editor");
@@ -180,22 +243,71 @@
   const status = document.getElementById("note-save-status");
   let savedTitle = titleInput ? titleInput.value : "";
   let savedNote = editor ? editor.value : "";
+  let easymde = null;
 
-  // Persist the editor's current title/body if they differ from what's saved.
-  // Called before any action that reloads the page (linking a task/event) so
-  // in-progress edits are never lost. Returns true when it's safe to proceed
-  // (nothing dirty, or the save succeeded), false when a dirty save failed.
+  function bodyValue() { return easymde ? easymde.value() : (editor ? editor.value : ""); }
+  function setBodyValue(v) { if (easymde) easymde.value(v || ""); else if (editor) editor.value = v || ""; }
+
+  // Compress (reusing note-paste.js' pipeline) + upload an image, handing
+  // EasyMDE back the stored URL so it inserts the Markdown itself.
+  function uploadNoteImage(file, onSuccess, onError) {
+    (async () => {
+      try {
+        const helper = window.CairnNoteImage;
+        const blob = helper ? await helper.compress(file) : file;
+        const fd = new FormData();
+        fd.append("file", blob, "pasted.webp");
+        fd.append("csrf_token", csrf());
+        const resp = await fetch(`/notes/${noteId}/note-image`, { method: "POST", body: fd });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.error || ("upload failed: " + resp.status));
+        const m = (data.markdown || "").match(/\(([^)]*)\)/);  // extract URL from "![..](url)"
+        onSuccess(m ? m[1] : data.markdown);
+        if (data.warning) alert(data.warning);
+      } catch (err) { onError(err.message || "image upload failed"); }
+    })();
+  }
+
+  function initEditor() {
+    if (easymde || typeof EasyMDE === "undefined" || !editor) return;
+    easymde = new EasyMDE({
+      element: editor,
+      spellChecker: false,
+      status: false,
+      autoDownloadFontAwesome: true,
+      uploadImage: true,
+      imageUploadFunction: uploadNoteImage,
+      placeholder: "Write in Markdown… paste images, drag a link or email in.",
+      toolbar: ["bold", "italic", "heading", "|", "quote", "code", "unordered-list",
+                "ordered-list", "table", "|", "link", "image", "|",
+                "preview", "side-by-side", "fullscreen", "|", "guide"],
+    });
+    // Drag a Mail message / link into the editor → Markdown link (images fall
+    // through to EasyMDE's own upload). Capture so we beat EasyMDE's handler.
+    const wrap = easymde.codemirror.getWrapperElement();
+    wrap.addEventListener("drop", (e) => {
+      const helper = window.CairnNoteImage;
+      const snippet = helper && e.dataTransfer ? helper.linkSnippetFromDrop(e.dataTransfer) : null;
+      if (snippet) {
+        e.preventDefault(); e.stopPropagation();
+        easymde.codemirror.replaceSelection(snippet);
+      }
+    }, true);
+    // Cmd/Ctrl+S saves from within the editor.
+    wrap.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); }
+    });
+  }
+
   async function persistIfDirty() {
     if (!editor) return true;
-    if (editor.value === savedNote && titleInput.value === savedTitle) return true;
+    if (bodyValue() === savedNote && titleInput.value === savedTitle) return true;
     const resp = await post(`/notes/${noteId}/edit`, {
-      title: titleInput.value, note: editor.value,
+      title: titleInput.value, note: bodyValue(),
     }, { "X-Partial": "1" }).then(r => r.json()).catch(() => null);
     if (resp && resp.ok) { savedNote = resp.note; savedTitle = resp.title; return true; }
     return false;
   }
-  // Flush unsaved edits, then reload — but abort (keeping the edits on screen)
-  // if the save failed, so a reload never silently discards the note body.
   async function reloadKeepingEdits() {
     if (await persistIfDirty()) { window.location.reload(); }
     else { alert("Couldn't save your changes — nothing was reloaded so your text is safe. Check your connection and try again."); }
@@ -207,7 +319,9 @@
     editBtn.classList.add("d-none");
     saveBtn.classList.remove("d-none");
     cancelBtn.classList.remove("d-none");
-    editor.focus();
+    initEditor();
+    if (easymde) { easymde.codemirror.refresh(); easymde.codemirror.focus(); }
+    else if (editor) editor.focus();
   }
   function exitEdit() {
     editWrap.classList.add("d-none");
@@ -219,7 +333,7 @@
   async function save() {
     status.textContent = "Saving…";
     const resp = await post(`/notes/${noteId}/edit`, {
-      title: titleInput.value, note: editor.value,
+      title: titleInput.value, note: bodyValue(),
     }, { "X-Partial": "1" }).then(r => r.json()).catch(() => null);
     if (resp && resp.ok) {
       view.innerHTML = resp.html || '<p class="text-muted fst-italic">Empty note.</p>';
@@ -237,93 +351,113 @@
   if (editBtn) editBtn.addEventListener("click", enterEdit);
   if (saveBtn) saveBtn.addEventListener("click", save);
   if (cancelBtn) cancelBtn.addEventListener("click", () => {
-    editor.value = savedNote;
+    setBodyValue(savedNote);
     titleInput.value = savedTitle;
     exitEdit();
   });
-  // Save title on blur even outside edit mode.
   if (titleInput && !titleInput.readOnly) {
     titleInput.addEventListener("blur", () => {
       if (titleInput.value !== savedTitle) save();
     });
   }
-  // Ctrl/Cmd+S in the editor saves.
-  if (editor) editor.addEventListener("keydown", (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); }
-  });
 
-  // ---- Link tasks (typeahead over /tasks/quickjump) ----
-  const tSearch = document.getElementById("task-link-search");
-  const tResults = document.getElementById("task-link-results");
-  let tTimer = null;
-  let tActive = -1;   // index of the keyboard-highlighted result (-1 = none)
-  function hideResults() { tResults.classList.add("d-none"); tResults.innerHTML = ""; tActive = -1; }
-  function tItems() { return Array.from(tResults.querySelectorAll("[data-id]")); }
-  function setActive(idx) {
-    const items = tItems();
-    if (!items.length) return;
-    tActive = (idx + items.length) % items.length;   // wrap around
-    items.forEach((li, i) => li.classList.toggle("active", i === tActive));
-    items[tActive].scrollIntoView({ block: "nearest" });
+  // ---- Tags ----
+  const tagSelect = document.getElementById("note-tags");
+  const tagChips = document.getElementById("note-tag-chips");
+  let tagTimer = null;
+  function renderTagChips() {
+    const opts = Array.from(tagSelect.selectedOptions);
+    tagChips.innerHTML = opts.length
+      ? opts.map(o => `<span class="tag-chip" style="background:${escapeAttr(o.dataset.color || "#6c757d")};">`
+          + `${o.dataset.context ? "@" : ""}${escapeHtml(o.value)}</span>`).join("")
+      : '<span class="text-muted small">No tags.</span>';
   }
-  async function linkTask(id) {
+  async function saveTags() {
+    const names = Array.from(tagSelect.selectedOptions).map(o => o.value);
+    const fd = new FormData();
+    fd.append("csrf_token", csrf());
+    names.forEach(n => fd.append("tags", n));
+    await fetch(`/notes/${noteId}/tags`, { method: "POST", body: fd,
+      headers: { "X-Requested-With": "XMLHttpRequest" } }).catch(() => {});
+  }
+  if (tagSelect) {
+    tagSelect.addEventListener("change", () => {
+      renderTagChips();
+      clearTimeout(tagTimer);
+      tagTimer = setTimeout(saveTags, 400);
+    });
+  }
+
+  // ---- Link tasks + projects (typeahead over /tasks/quickjump) ----
+  const search = document.getElementById("item-link-search");
+  const results = document.getElementById("item-link-results");
+  let timer = null, active = -1;
+  function hide() { if (results) { results.classList.add("d-none"); results.innerHTML = ""; active = -1; } }
+  function rows() { return results ? Array.from(results.querySelectorAll("[data-id]")) : []; }
+  function setActive(idx) {
+    const items = rows();
+    if (!items.length) return;
+    active = (idx + items.length) % items.length;
+    items.forEach((li, i) => li.classList.toggle("active", i === active));
+    items[active].scrollIntoView({ block: "nearest" });
+  }
+  function linkedIds() {
+    return new Set(Array.from(document.querySelectorAll("#linked-tasks [data-item-id], #linked-projects [data-item-id]"))
+      .map(el => el.dataset.itemId));
+  }
+  async function linkItem(id) {
     if (!(await persistIfDirty())) { reloadKeepingEdits(); return; }
-    await post(`/notes/${noteId}/link-task`, { task_id: id });
+    await post(`/notes/${noteId}/link-item`, { item_id: id });
     window.location.reload();
   }
-  if (tSearch) {
-    tSearch.addEventListener("input", () => {
-      clearTimeout(tTimer);
-      const q = tSearch.value.trim();
-      if (!q) return hideResults();
-      tTimer = setTimeout(async () => {
+  if (search) {
+    search.addEventListener("input", () => {
+      clearTimeout(timer);
+      const q = search.value.trim();
+      if (!q) return hide();
+      timer = setTimeout(async () => {
         const data = await fetch(`/tasks/quickjump?q=${encodeURIComponent(q)}`)
           .then(r => r.json()).catch(() => ({ results: [] }));
-        // Drop tasks that are already linked to this note (collected fresh
-        // each query so the list reflects any links added without a reload).
-        const linked = new Set(
-          Array.from(document.querySelectorAll("#linked-tasks [data-task-id]"))
-            .map(el => el.dataset.taskId)
-        );
-        const tasks = (data.results || [])
-          .filter(r => r.kind === "task" && !linked.has(r.id));
-        if (!tasks.length) { hideResults(); return; }
-        tResults.innerHTML = tasks.map(t =>
-          `<li class="list-group-item list-group-item-action py-1" role="button"
-               data-id="${t.id}">${escapeHtml(t.title)}
-             <span class="small text-muted">${escapeHtml(t.subtitle || "")}</span></li>`
-        ).join("");
-        tResults.classList.remove("d-none");
-        tActive = -1;   // nothing highlighted until the user presses ↓
+        const linked = linkedIds();
+        const items = (data.results || [])
+          .filter(r => (r.kind === "task" || r.kind === "project") && !linked.has(r.id));
+        if (!items.length) { hide(); return; }
+        results.innerHTML = items.map(r => {
+          const icon = r.kind === "project" ? "bi-collection" : "bi-check2-square";
+          return `<li class="list-group-item list-group-item-action py-1" role="button" data-id="${escapeAttr(r.id)}">
+              <i class="bi ${icon} text-muted"></i> ${escapeHtml(r.title)}
+              <span class="small text-muted">${escapeHtml(r.subtitle || "")}</span></li>`;
+        }).join("");
+        results.classList.remove("d-none");
+        active = -1;
       }, 200);
     });
-    // Arrow keys / Enter / Escape navigate the result list.
-    tSearch.addEventListener("keydown", (e) => {
-      if (tResults.classList.contains("d-none")) return;
-      if (e.key === "ArrowDown") { e.preventDefault(); setActive(tActive + 1); }
-      else if (e.key === "ArrowUp") { e.preventDefault(); setActive(tActive - 1); }
+    search.addEventListener("keydown", (e) => {
+      if (results.classList.contains("d-none")) return;
+      if (e.key === "ArrowDown") { e.preventDefault(); setActive(active + 1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); setActive(active - 1); }
       else if (e.key === "Enter") {
-        const items = tItems();
-        const li = items[tActive] || items[0];   // Enter with no selection picks the first
-        if (li) { e.preventDefault(); linkTask(li.dataset.id); }
-      } else if (e.key === "Escape") { hideResults(); }
+        const items = rows();
+        const li = items[active] || items[0];
+        if (li) { e.preventDefault(); linkItem(li.dataset.id); }
+      } else if (e.key === "Escape") { hide(); }
     });
-    tResults.addEventListener("mousemove", (e) => {
+    results.addEventListener("mousemove", (e) => {
       const li = e.target.closest("[data-id]");
-      if (li) setActive(tItems().indexOf(li));
+      if (li) setActive(rows().indexOf(li));
     });
-    tResults.addEventListener("click", (e) => {
+    results.addEventListener("click", (e) => {
       const li = e.target.closest("[data-id]");
-      if (li) linkTask(li.dataset.id);
+      if (li) linkItem(li.dataset.id);
     });
     document.addEventListener("click", (e) => {
-      if (!e.target.closest("#task-link-search, #task-link-results")) hideResults();
+      if (!e.target.closest("#item-link-search, #item-link-results")) hide();
     });
   }
-  document.querySelectorAll(".note-unlink-task").forEach(btn => {
+  document.querySelectorAll(".note-unlink-item").forEach(btn => {
     btn.addEventListener("click", async () => {
       if (!(await persistIfDirty())) { reloadKeepingEdits(); return; }
-      await post(`/notes/${noteId}/unlink-task/${btn.dataset.taskId}`);
+      await post(`/notes/${noteId}/unlink-item/${btn.dataset.itemId}`);
       window.location.reload();
     });
   });
@@ -371,12 +505,6 @@
       window.location.reload();
     });
   });
-
-  function escapeHtml(s) {
-    return (s || "").replace(/[&<>"']/g, c =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  }
-  function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
 })();
 </script>
 {% endblock %}

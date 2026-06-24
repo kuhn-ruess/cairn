@@ -746,9 +746,13 @@ def detail(project_id):
         cal_tz = resolve_tz(user)
         calendar_data = _build_calendar(all_tasks, request.args.get("month"), cal_tz)
 
+    # Notes linked to this project (symmetric back-link from the note side).
+    linked_notes = [r for r in project.related_items() if r.kind == "note"]
+
     return render_template(
         "projects/detail.html",
         project=project,
+        linked_notes=linked_notes,
         sections=sections,
         sub_projects=sub_projects,
         subprojects_by_section=subprojects_by_section,

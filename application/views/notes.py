@@ -129,12 +129,19 @@ def detail(note_id):
     if item.kind == "folder":
         return redirect(url_for("notes.index"))
     tree = notes_tree_for_sidebar(user)
-    linked_tasks = [r for r in item.related_items() if r.kind == "task"]
+    related = item.related_items()
+    linked_tasks = [r for r in related if r.kind == "task"]
+    linked_projects = [r for r in related if r.kind == "project"]
+    # Reuse the task tag picker's tree builder (imported lazily — tasks.py
+    # pulls in a lot and importing it at module load would risk a cycle).
+    from application.views.tasks import _tag_choices_tree
     return render_template(
         "notes/detail.html",
         note=item,
         tree=tree,
         linked_tasks=linked_tasks,
+        linked_projects=linked_projects,
+        tag_choices=_tag_choices_tree(user.tags or []),
         can_edit=item.can_be_edited_by(user),
         is_owner=(item.owner == user),
         folder_choices=_folder_choices(user, exclude_pk=item.pk),
@@ -282,27 +289,57 @@ def share(note_id):
     return redirect(url_for("notes.detail", note_id=str(item.pk)))
 
 
-# ---------- task links (symmetric, via Item.related) ----------
+# ---------- item links: tasks + projects (symmetric, via Item.related) ----------
 
-@notes_bp.route("/<note_id>/link-task", methods=["POST"])
+@notes_bp.route("/<note_id>/link-item", methods=["POST"])
 @login_required
-def link_task(note_id):
+def link_item(note_id):
+    """Link a task OR project to this note (symmetric — the other side
+    back-links to the note, which is how it surfaces on the project page)."""
     item = _editable_note_or_404(note_id, kinds=("note",))
     user = current_user._get_current_object()
-    task_id = (request.form.get("task_id") or "").strip()
-    task = Item.objects(pk=task_id, kind="task").first() if task_id else None
-    if task and task.can_be_viewed_by(user):
-        item.relate_to(task)
+    other_id = (request.form.get("item_id") or "").strip()
+    other = (Item.objects(pk=other_id, kind__in=["task", "project"]).first()
+             if other_id else None)
+    if other and other.can_be_viewed_by(user):
+        item.relate_to(other)
     return jsonify({"ok": True})
 
 
-@notes_bp.route("/<note_id>/unlink-task/<task_id>", methods=["POST"])
+@notes_bp.route("/<note_id>/unlink-item/<item_id>", methods=["POST"])
 @login_required
-def unlink_task(note_id, task_id):
+def unlink_item(note_id, item_id):
     item = _editable_note_or_404(note_id, kinds=("note",))
-    other = Item.all_objects(pk=task_id).first()
+    other = Item.all_objects(pk=item_id).first()
     item.unrelate_from(other)
     return jsonify({"ok": True})
+
+
+# ---------- tags ----------
+
+@notes_bp.route("/<note_id>/tags", methods=["POST"])
+@login_required
+def set_tags(note_id):
+    """Replace the note's tags from the inspector multi-select. Enforces
+    exclusive-children groups (one child per exclusive parent), mirroring the
+    task save path. Label→status rules don't apply to notes."""
+    item = _editable_note_or_404(note_id, kinds=("note",))
+    user = current_user._get_current_object()
+    submitted = request.form.getlist("tags")
+    by_name = {t.name: t for t in (user.tags or [])}
+    final, seen_excl = [], set()
+    for name in submitted:
+        tag = by_name.get(name)
+        if tag and tag.parent:
+            parent = by_name.get(tag.parent)
+            if parent and parent.exclusive_children:
+                if parent.name in seen_excl:
+                    continue  # already picked a child of this exclusive group
+                seen_excl.add(parent.name)
+        final.append(name)
+    item.tags = final
+    item.save()
+    return jsonify({"ok": True, "tags": final})
 
 
 # ---------- calendar event links (snapshotted on the note) ----------

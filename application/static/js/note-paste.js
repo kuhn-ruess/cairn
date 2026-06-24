@@ -223,4 +223,15 @@
 
   document.addEventListener("dragover", onNoteDragOver, true);
   document.addEventListener("drop", onNoteDrop, true);
+
+  // Expose the compression + Mail-link helpers. The EasyMDE note editor swaps
+  // the raw textarea for CodeMirror, so the paste/drop listeners above never
+  // fire there — its own hooks call into these to get the identical pipeline.
+  window.CairnNoteImage = {
+    async compress(blob) {
+      const img = await loadImage(blob);
+      return canvasToBlob(scaledCanvas(img));
+    },
+    linkSnippetFromDrop: linkSnippetFromDrop,
+  };
 })();
