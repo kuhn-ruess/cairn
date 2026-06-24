@@ -125,7 +125,7 @@ def _scope(user):
     return focus.restrict(Q(owner=user) | Q(assigned_to=user), user)
 
 _PASS_KEYS = frozenset(
-    {"today", "next", "waiting", "waiting_reply", "agenda", "someday",
+    {"today", "next", "waiting", "waiting_reply", "someday",
      "scheduled", "flagged", "forecast", "followup"}
 )
 
@@ -165,8 +165,6 @@ def sidebar_counts(user, now=None, keys=None) -> dict:
                 c["waiting"] += 1
             elif st == "waiting_reply":
                 c["waiting_reply"] += 1
-            elif st == "agenda":
-                c["agenda"] += 1
             elif st == "someday":
                 c["someday"] += 1
             if t.defer_date and t.defer_date > now:
@@ -1318,19 +1316,6 @@ def waiting_reply():
     ).order_by("+due_date")
     return render_template(
         "tasks/list.html", title="Waiting on reply", perspective="waiting_reply",
-        tasks=prepare_list(tasks),
-    )
-
-@tasks_bp.route("/agenda")
-@login_required
-def agenda():
-    """Tasks to raise / ask about at the next jour fixe."""
-    user = current_user._get_current_object()
-    tasks = _filter_by_project(
-        Item.objects(_scope(user), status="agenda"), user,
-    ).order_by("+due_date")
-    return render_template(
-        "tasks/list.html", title="To discuss", perspective="agenda",
         tasks=prepare_list(tasks),
     )
 

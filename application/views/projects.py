@@ -906,7 +906,6 @@ def _group_tasks(tasks, mode):
             ("next", "Next", "bi-arrow-right-circle"),
             ("waiting", "Waiting", "bi-hourglass-split"),
             ("waiting_reply", "Waiting on reply", "bi-reply"),
-            ("agenda", "To discuss", "bi-chat-square-dots"),
             ("scheduled", "Scheduled", "bi-calendar-event"),
             ("someday", "Someday", "bi-cloud"),
             ("done", "Done", "bi-check2-all"),

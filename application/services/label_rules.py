@@ -11,7 +11,7 @@ task. The caller is responsible for saving the item afterwards.
 from __future__ import annotations
 
 # Single source of truth — derive valid rule targets from the model so a new
-# status (e.g. "waiting_reply", "agenda") is automatically accepted. A
+# status (e.g. "waiting_reply") is automatically accepted. A
 # hardcoded copy here once silently rejected new statuses, leaving tickets on
 # their importer default ("next") instead of what the rule asked for.
 from application.models.item import TASK_STATUS
