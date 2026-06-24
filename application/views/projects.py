@@ -748,11 +748,13 @@ def detail(project_id):
 
     # Notes linked to this project (symmetric back-link from the note side).
     linked_notes = [r for r in project.related_items() if r.kind == "note"]
+    editable_note_ids = {n.pk for n in linked_notes if n.can_be_edited_by(user)}
 
     return render_template(
         "projects/detail.html",
         project=project,
         linked_notes=linked_notes,
+        editable_note_ids=editable_note_ids,
         sections=sections,
         sub_projects=sub_projects,
         subprojects_by_section=subprojects_by_section,

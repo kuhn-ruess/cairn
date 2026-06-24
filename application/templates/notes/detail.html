@@ -55,7 +55,7 @@
     {% endif %}
 
     {# ---- Markdown body: rendered view + editor ---- #}
-    <div id="note-body-view" class="note-body markdown-body mb-2">
+    <div id="note-body-view" class="note-body markdown-body md-body mb-2">
       {% if note.note %}{{ note.note|markdown }}
       {% else %}<p class="text-muted fst-italic" id="note-empty-hint">Empty note — click “Edit” to start writing in Markdown.</p>{% endif %}
     </div>

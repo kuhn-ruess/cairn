@@ -401,17 +401,48 @@
 </div>
 
 {% if linked_notes %}
-<div class="card project-note-card mb-3">
+<div class="card project-note-card mb-3" id="linked-notes">
   <div class="card-body py-2">
     <span class="text-muted small text-uppercase d-block mb-1">
       <i class="bi bi-journal-text"></i> Linked notes
     </span>
     <ul class="list-unstyled mb-0">
       {% for n in linked_notes %}
-        <li class="py-1">
-          <a href="{{ url_for('notes.detail', note_id=n.pk) }}" class="text-decoration-none">
-            <i class="bi bi-journal-text text-muted"></i> {{ n.title }}
-          </a>
+        <li class="ln-item py-1 {% if not loop.first %}border-top{% endif %}"
+            data-note-id="{{ n.pk }}"
+            data-note-url="{{ url_for('notes.edit', note_id=n.pk) }}">
+          <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-sm btn-link p-0 ln-toggle" title="Expand / collapse">
+              <i class="bi bi-chevron-right"></i>
+            </button>
+            <span class="me-auto text-truncate">
+              <i class="bi bi-journal-text text-muted"></i> {{ n.title }}
+            </span>
+            {% if n.pk in editable_note_ids %}
+            <button type="button" class="btn btn-sm btn-link p-0 ln-edit" title="Edit note">
+              <i class="bi bi-pencil"></i>
+            </button>
+            {% endif %}
+            <a href="{{ url_for('notes.detail', note_id=n.pk) }}" class="btn btn-sm btn-link p-0"
+               title="Open note"><i class="bi bi-box-arrow-up-right"></i></a>
+          </div>
+          <div class="ln-body d-none mt-1">
+            <div class="ln-view md-body">
+              {% if n.note %}{{ n.note|markdown }}
+              {% else %}<span class="text-muted fst-italic">Empty note.</span>{% endif %}
+            </div>
+            {% if n.pk in editable_note_ids %}
+            <div class="ln-edit-wrap d-none">
+              <textarea class="form-control ln-editor" rows="6"
+                        placeholder="Markdown supported">{{ n.note }}</textarea>
+              <div class="mt-1">
+                <button type="button" class="btn btn-sm btn-primary ln-save">Save</button>
+                <button type="button" class="btn btn-sm btn-link ln-cancel">Cancel</button>
+                <span class="text-muted small ms-1">Markdown · Ctrl/⌘+Enter to save</span>
+              </div>
+            </div>
+            {% endif %}
+          </div>
         </li>
       {% endfor %}
     </ul>
