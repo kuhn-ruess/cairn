@@ -39,9 +39,13 @@
         + (o.selected ? " active" : "");
       const icon = document.createElement("i");
       icon.className = o.selected ? "bi bi-check-square" : "bi bi-square";
+      icon.style.flex = "0 0 auto";
       const span = document.createElement("span");
-      span.style.whiteSpace = "pre";          // keep the tag-tree indentation
-      span.textContent = o.textContent;
+      // Truncate, don't widen: a long/nested tag label must never force the
+      // button past the narrow inspector (that overflowed the panel sideways).
+      // Hierarchy still reads from the "└─" marker in the label text.
+      span.style.cssText = "flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+      span.textContent = o.textContent.replace(/^\s+/, "");
       b.appendChild(icon);
       b.appendChild(span);
       b._option = o;
