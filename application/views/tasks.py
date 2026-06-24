@@ -419,23 +419,29 @@ def process_inbox_save(task_id):
     if not form.validate_on_submit():
         flash("Couldn't save — please review the form.", "danger")
         return redirect(url_for("tasks.process_inbox", task_id=task_id))
+    # Cursor into the queue: where we are *now*. The queue is ordered newest
+    # first, so "the next task to process" is the first one strictly older than
+    # the one we just handled — captured before save so it's stable even if the
+    # task leaves the inbox (e.g. the user filed it under a project).
+    cursor = task.created_at
     _apply_form(form, task, user)
     _apply_smart_tokens(task, form.title.data, user)
     task.save()
     _writeback_calendar(task, user)
-    # Recompute the queue *after* save — if the user picked a project,
-    # the task has left the inbox, so the next ID we land on is what's
-    # left first.
+    # Advance *forward* through the queue (like Skip) rather than restarting at
+    # the top — otherwise Save would re-present every task the user already
+    # skipped past this pass.
     from application.services.permissions import inbox_q
     remaining = list(
         Item.objects((_scope(user) & inbox_q(user)), kind="task",
                      status__nin=["done", "dropped"])
         .order_by("-created_at")
     )
-    if not remaining:
-        flash("Inbox cleared — nice work.", "success")
+    nxt = next((t for t in remaining if t.created_at < cursor), None)
+    if nxt is None:
+        flash("Reached the end of the inbox — nice work.", "success")
         return redirect(url_for("dashboard.home"))
-    return redirect(url_for("tasks.process_inbox", task_id=str(remaining[0].pk)))
+    return redirect(url_for("tasks.process_inbox", task_id=str(nxt.pk)))
 
 
 def _scoped_project_pks(user, project_id: str | None) -> list | None:
