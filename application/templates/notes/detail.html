@@ -28,6 +28,14 @@
             {% if selected_members %}<span class="badge text-bg-secondary ms-1">{{ selected_members|length }}</span>{% endif %}
           </button></li>
           {% endif %}
+          <li><a class="dropdown-item" href="{{ url_for('notes.export_markdown', note_id=note.pk) }}">
+            <i class="bi bi-markdown"></i> Export Markdown
+          </a></li>
+          <li><a class="dropdown-item" href="{{ url_for('notes.export_textbundle', note_id=note.pk) }}">
+            <i class="bi bi-file-earmark-zip"></i> Export TextBundle
+            {% if note.note_images %}<span class="badge text-bg-secondary ms-1">{{ note.note_images|length }} img</span>{% endif %}
+          </a></li>
+          <li><hr class="dropdown-divider"></li>
           <li>
             <form method="post" action="{{ url_for('notes.delete', note_id=note.pk) }}" class="m-0"
                   onsubmit="return confirm('Move this note to the trash?');">

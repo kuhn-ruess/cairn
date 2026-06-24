@@ -8,6 +8,10 @@ inherit hierarchy (``parent``), sharing (``members`` + services/permissions),
 soft-delete (``trashed_at`` + services/trash) and inline image paste
 (``note_images``) for free — this module is just the views.
 """
+import io
+import json
+import re
+import zipfile
 from datetime import datetime, timedelta, timezone
 
 from flask import (
@@ -468,3 +472,72 @@ def note_image(note_id, token):
         abort(404)
     return Response(bytes(img.data), mimetype=img.content_type,
                     headers={"Cache-Control": "private, max-age=86400"})
+
+
+# ---------- export (Markdown / TextBundle) ----------
+
+_EXT_BY_CTYPE = {
+    "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp",
+}
+
+
+def _note_slug(title: str) -> str:
+    """Filesystem-safe stem for the download filename."""
+    slug = re.sub(r"[^\w.-]+", "-", (title or "").strip()).strip("-")
+    return slug or "note"
+
+
+def _attachment_headers(filename: str) -> dict:
+    return {"Content-Disposition": f'attachment; filename="{filename}"'}
+
+
+@notes_bp.route("/<note_id>/export.md")
+@login_required
+def export_markdown(note_id):
+    """Plain Markdown download. Embedded images stay as in-app URLs (use the
+    TextBundle export to carry the attachments with the text)."""
+    item = _note_or_404(note_id, kinds=("note",))
+    body = item.note or ""
+    return Response(
+        body, mimetype="text/markdown",
+        headers=_attachment_headers(f"{_note_slug(item.title)}.md"),
+    )
+
+
+@notes_bp.route("/<note_id>/export.textpack")
+@login_required
+def export_textbundle(note_id):
+    """TextBundle export (as a zipped ``.textpack``) — the Markdown plus every
+    embedded image rewritten to ``assets/<file>`` so attachments travel with
+    the note (TextBundle spec: bundle dir with text.md + info.json + assets/)."""
+    item = _note_or_404(note_id, kinds=("note",))
+    body = item.note or ""
+
+    bundle = f"{_note_slug(item.title)}.textbundle"
+    assets = []  # (arcname, bytes)
+    for idx, img in enumerate(item.note_images or []):
+        ext = _EXT_BY_CTYPE.get(img.content_type, "img")
+        fname = f"{img.token}.{ext}"
+        # Point every reference to this image (the upload inserts an absolute
+        # /notes/<id>/note-image/<token> URL) at the bundled copy.
+        src = url_for("notes.note_image", note_id=str(item.pk), token=img.token)
+        body = body.replace(src, f"assets/{fname}")
+        assets.append((f"{bundle}/assets/{fname}", bytes(img.data)))
+
+    info = {
+        "version": 2,
+        "type": "net.daringfireball.markdown",
+        "transient": False,
+        "creatorIdentifier": "de.cairn-app",
+    }
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(f"{bundle}/text.md", body)
+        zf.writestr(f"{bundle}/info.json", json.dumps(info, indent=2))
+        for arcname, data in assets:
+            zf.writestr(arcname, data)
+    return Response(
+        buf.getvalue(), mimetype="application/zip",
+        headers=_attachment_headers(f"{_note_slug(item.title)}.textpack"),
+    )
