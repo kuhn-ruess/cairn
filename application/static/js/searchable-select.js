@@ -47,21 +47,6 @@
         filter();
       }
     });
-
-    // For a multi-select, a plain click natively REPLACES the selection
-    // (deselecting everything else) — so assigning a second label drops the
-    // first unless you hold ⌘/Ctrl. Make each click toggle just that option,
-    // so labels accumulate and only un-assign on a second click.
-    if (sel.multiple) {
-      sel.addEventListener("mousedown", (e) => {
-        const opt = e.target.closest("option");
-        if (!opt) return;
-        e.preventDefault();
-        opt.selected = !opt.selected;
-        sel.focus();
-        sel.dispatchEvent(new Event("change", { bubbles: true }));
-      });
-    }
   }
 
   function init() {

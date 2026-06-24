@@ -95,15 +95,23 @@
         {% endfor %}
       </div>
       {% if can_edit %}
-      <select id="note-tags" class="form-select form-select-sm" multiple size="5"
-              data-searchable-select="1" data-searchable-placeholder="Search tags…">
-        {% for value, label in tag_choices %}
-          {% set tg = current_user.tag_by_name(value) %}
-          <option value="{{ value }}" data-color="{{ tg.color if tg else '#6c757d' }}"
-                  data-context="{{ '1' if tg and tg.is_context else '' }}"
-                  {% if value in (note.tags or []) %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
+      <div id="note-tag-picker" class="border rounded">
+        <input type="search" id="note-tag-filter" class="form-control form-control-sm border-0 border-bottom rounded-0"
+               placeholder="Search tags…" autocomplete="off">
+        <div id="note-tag-options" style="max-height: 11rem; overflow-y: auto;">
+          {% for value, label in tag_choices %}
+            {% set tg = current_user.tag_by_name(value) %}
+            {% set on = value in (note.tags or []) %}
+            <button type="button"
+                    class="note-tag-opt btn btn-sm w-100 text-start d-flex align-items-center gap-2 rounded-0 {% if on %}active{% endif %}"
+                    data-name="{{ value }}" data-color="{{ tg.color if tg else '#6c757d' }}"
+                    data-context="{{ '1' if tg and tg.is_context else '' }}" aria-pressed="{{ 'true' if on else 'false' }}">
+              <i class="bi {{ 'bi-check-square' if on else 'bi-square' }}"></i>
+              <span class="text-truncate">{{ label }}</span>
+            </button>
+          {% endfor %}
+        </div>
+      </div>
       <div class="form-text">Click a label to toggle it.</div>
       {% endif %}
     </div>
@@ -369,30 +377,47 @@
     });
   }
 
-  // ---- Tags ----
-  const tagSelect = document.getElementById("note-tags");
+  // ---- Tags (custom toggle list — a native multi-select replaces its
+  // selection on a plain click, dropping previously-picked labels) ----
   const tagChips = document.getElementById("note-tag-chips");
+  const tagOptionsBox = document.getElementById("note-tag-options");
+  const tagFilter = document.getElementById("note-tag-filter");
   let tagTimer = null;
+  function tagOpts() { return tagOptionsBox ? Array.from(tagOptionsBox.querySelectorAll(".note-tag-opt")) : []; }
+  function selectedTagOpts() { return tagOpts().filter(o => o.classList.contains("active")); }
   function renderTagChips() {
-    const opts = Array.from(tagSelect.selectedOptions);
-    tagChips.innerHTML = opts.length
-      ? opts.map(o => `<span class="tag-chip" style="background:${escapeAttr(o.dataset.color || "#6c757d")};">`
-          + `${o.dataset.context ? "@" : ""}${escapeHtml(o.value)}</span>`).join("")
+    const on = selectedTagOpts();
+    tagChips.innerHTML = on.length
+      ? on.map(o => `<span class="tag-chip" style="background:${escapeAttr(o.dataset.color || "#6c757d")};">`
+          + `${o.dataset.context ? "@" : ""}${escapeHtml(o.dataset.name)}</span>`).join("")
       : '<span class="text-muted small">No tags.</span>';
   }
   async function saveTags() {
-    const names = Array.from(tagSelect.selectedOptions).map(o => o.value);
     const fd = new FormData();
     fd.append("csrf_token", csrf());
-    names.forEach(n => fd.append("tags", n));
+    selectedTagOpts().forEach(o => fd.append("tags", o.dataset.name));
     await fetch(`/notes/${noteId}/tags`, { method: "POST", body: fd,
       headers: { "X-Requested-With": "XMLHttpRequest" } }).catch(() => {});
   }
-  if (tagSelect) {
-    tagSelect.addEventListener("change", () => {
+  if (tagOptionsBox) {
+    tagOptionsBox.addEventListener("click", (e) => {
+      const opt = e.target.closest(".note-tag-opt");
+      if (!opt) return;
+      const on = opt.classList.toggle("active");
+      opt.setAttribute("aria-pressed", on ? "true" : "false");
+      const icon = opt.querySelector("i");
+      if (icon) icon.className = on ? "bi bi-check-square" : "bi bi-square";
       renderTagChips();
       clearTimeout(tagTimer);
       tagTimer = setTimeout(saveTags, 400);
+    });
+  }
+  if (tagFilter) {
+    tagFilter.addEventListener("input", () => {
+      const q = tagFilter.value.trim().toLowerCase();
+      tagOpts().forEach(o => {
+        o.style.display = (!q || o.dataset.name.toLowerCase().includes(q)) ? "" : "none";
+      });
     });
   }
 
