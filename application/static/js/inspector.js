@@ -66,6 +66,12 @@
   });
   panel.addEventListener("hidden.bs.offcanvas", () => {
     document.body.classList.remove("inspector-docked");
+    // Closing the panel (X / Esc / backdrop) while pinned means "I'm done with
+    // it" — drop the sticky so it doesn't reopen on the next page.
+    if (isPinned()) {
+      try { localStorage.setItem(PIN_KEY, "0"); } catch (e) {}
+      reflectPin();
+    }
     if (needsReloadOnClose) {
       needsReloadOnClose = false;
       window.location.reload();
