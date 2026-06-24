@@ -1057,6 +1057,11 @@ code, pre {
      Open = reserves its width; closed = collapses to zero. */
   position: sticky;
   top: var(--nav-height, 56px);
+  /* align-self keeps the flex container (align-items: stretch) from stretching
+     this sticky child — a stretched sticky flex item triggers a WebKit/Safari
+     bug where the panel renders horizontally displaced until the next scroll
+     repaints it. flex-start lets sticky position correctly on first paint. */
+  align-self: flex-start;
   height: calc(100vh - var(--nav-height, 56px));
   flex: 0 0 var(--inspector-width);
   width: var(--inspector-width);
@@ -2088,6 +2093,7 @@ body.is-dragging .sp-row[data-sp-id]:hover,
   background: var(--gv-bg0);
   position: sticky;
   top: var(--nav-height, 56px);
+  align-self: flex-start;   /* see .offcanvas.inspector — avoids the WebKit sticky-in-flex displacement */
   height: calc(100vh - var(--nav-height, 56px));
   display: flex;
   flex-direction: column;
