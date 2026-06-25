@@ -425,6 +425,68 @@ def unlink_event(note_id):
     return jsonify({"ok": True})
 
 
+def _linked_event_from_form() -> LinkedEvent:
+    """Build a LinkedEvent snapshot from the posted event fields (shared by the
+    day/plan-view 'note for this event' actions)."""
+    start = None
+    raw_start = (request.form.get("start") or "").strip()
+    if raw_start:
+        try:
+            start = datetime.fromisoformat(raw_start)
+        except ValueError:
+            start = None
+    url = (request.form.get("url") or "").strip()
+    if url and not url.startswith(("http://", "https://")):
+        url = ""  # only keep safe hrefs
+    return LinkedEvent(
+        uid=(request.form.get("uid") or "").strip(),
+        calendar_pk=(request.form.get("calendar_pk") or "").strip() or None,
+        title=(request.form.get("title") or "").strip(),
+        start=start,
+        all_day=(request.form.get("all_day") in ("1", "true", "True", "on")),
+        url=url or None,
+    )
+
+
+@notes_bp.route("/for-event")
+@login_required
+def notes_for_event():
+    """Notes the current user has linked to a calendar event (by uid). Used by
+    the day/plan view to list existing notes for an event."""
+    user = current_user._get_current_object()
+    uid = (request.args.get("uid") or "").strip()
+    notes = []
+    if uid:
+        for n in Item.objects(owner=user, kind="note",
+                              linked_events__uid=uid).only("title"):
+            notes.append({
+                "id": str(n.pk),
+                "title": n.title or "Untitled note",
+                "url": url_for("notes.detail", note_id=str(n.pk)),
+            })
+    return jsonify({"notes": notes})
+
+
+@notes_bp.route("/new-for-event", methods=["POST"])
+@login_required
+def new_for_event():
+    """Create a note already linked to a calendar event, straight from the
+    day/plan view. Returns the new note's URL so the client can open it."""
+    user = current_user._get_current_object()
+    snap = _linked_event_from_form()
+    if not snap.uid:
+        return jsonify({"error": "missing event id"}), 400
+    note = Item(owner=user, kind="note",
+                title=snap.title or "Untitled note", note="")
+    note.linked_events.append(snap)
+    note.save()
+    return jsonify({
+        "ok": True,
+        "id": str(note.pk),
+        "url": url_for("notes.detail", note_id=str(note.pk)),
+    })
+
+
 # ---------- inline pasted images (mirrors tasks.note_image*) ----------
 
 @notes_bp.route("/<note_id>/note-image", methods=["POST"])

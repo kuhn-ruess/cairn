@@ -849,6 +849,18 @@ def today():
         except Exception:
             next_event = None
 
+    # How many notes are linked to each visible event — one query for the
+    # whole day (never per-event in the template). Drives the badge on the
+    # "notes for this event" button in the calendar/plan/list views.
+    event_note_counts = {}
+    uids = list({ev.uid for ev in events if ev.uid})
+    if uids:
+        for n in Item.objects(owner=user, kind="note",
+                              linked_events__uid__in=uids).only("linked_events"):
+            for le in (n.linked_events or []):
+                if le.uid in uids:
+                    event_note_counts[le.uid] = event_note_counts.get(le.uid, 0) + 1
+
     # Group events by date when window spans more than one day, so the
     # template can render section headers per day.
     events_by_day = {}
@@ -1178,6 +1190,7 @@ def today():
         view_mode=view_mode,
         timeline=timeline,
         plan_data=plan_data,
+        event_note_counts=event_note_counts,
     )
 
 def _group_by_project(tasks, extra_projects=()):

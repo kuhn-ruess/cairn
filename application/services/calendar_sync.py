@@ -45,6 +45,7 @@ class CalendarEvent:
     url: str = ""
     calendar_color: str = "#458588"
     calendar_name: str = ""
+    calendar_pk: str = ""   # owning ExternalCalendar.pk_ref, for note linking
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +58,7 @@ class CalendarEvent:
             "url": self.url,
             "calendar_color": self.calendar_color,
             "calendar_name": self.calendar_name,
+            "calendar_pk": self.calendar_pk,
         }
 
 
@@ -350,6 +352,7 @@ def _fetch_google(calendar, user, since: datetime, until: datetime) -> list[Cale
             url=it.get("htmlLink", "") or "",
             calendar_color=calendar.color,
             calendar_name=calendar.name,
+            calendar_pk=str(getattr(calendar, "pk_ref", "") or ""),
         ))
     calendar.last_synced_at = datetime.now(timezone.utc)
     calendar.last_error = ""
@@ -447,6 +450,7 @@ def _fetch_ical(calendar, since: datetime, until: datetime) -> list[CalendarEven
             url=str(comp.get("URL", "") or ""),
             calendar_color=calendar.color,
             calendar_name=calendar.name,
+            calendar_pk=str(getattr(calendar, "pk_ref", "") or ""),
         ))
     calendar.last_synced_at = datetime.now(timezone.utc)
     calendar.last_error = ""

@@ -167,6 +167,8 @@ class Item(Document):
             ("owner", "kind", "due_date"),
             # Project detail / sequential-blocking walk children by parent.
             ("owner", "kind", "parent"),
+            # Reverse lookup: notes linked to a calendar event (day/plan view).
+            ("owner", "kind", "linked_events.uid"),
         ],
         "ordering": ["+sort_order", "+created_at"],
     }

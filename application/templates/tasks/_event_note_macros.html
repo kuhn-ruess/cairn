@@ -1,0 +1,18 @@
+{# Button on a calendar event (day / plan / list view) that opens a small
+   panel to create a note linked to the event, or open notes already linked.
+   `count` = how many notes are already linked (batched in views.tasks.today).
+   event-notes.js reads the data-* attributes off the button directly. #}
+{% macro event_note_btn(ev, count) -%}
+<button type="button"
+        class="event-notes-btn{% if count %} has-notes{% endif %}"
+        title="{% if count %}{{ count }} note(s) for this event{% else %}Add a note for this event{% endif %}"
+        aria-label="Notes for this event"
+        data-event-uid="{{ ev.uid }}"
+        data-calendar-pk="{{ ev.calendar_pk or '' }}"
+        data-event-title="{{ ev.title }}"
+        data-event-start="{{ ev.start.isoformat() if ev.start else '' }}"
+        data-event-allday="{{ '1' if ev.all_day else '' }}"
+        data-event-url="{{ ev.url or '' }}">
+  <i class="bi bi-journal-text"></i>{% if count %}<span class="event-notes-count">{{ count }}</span>{% endif %}
+</button>
+{%- endmacro %}
