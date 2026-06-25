@@ -145,6 +145,7 @@
             <button type="button" class="btn btn-sm btn-outline-secondary note-cancel-btn">Cancel</button>
           </div>
         </form>
+        {% with item=task %}{% include "layout/_storage_meter.html" %}{% endwith %}
       </div>
     </section>
 

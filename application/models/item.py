@@ -50,6 +50,14 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Stored-document size thresholds. MongoDB hard-caps a document at 16 MB; note
+# images and file attachments live inline on the item, so the whole doc must
+# stay under that. These drive both the upload guard (views.tasks/notes) and
+# the storage meter shown on task/project/note detail pages.
+ITEM_DOC_CAP_BYTES = 16 * 1024 * 1024   # MongoDB's hard per-document limit
+ITEM_WARN_BYTES = 10 * 1024 * 1024      # warn the user past this
+ITEM_MAX_BYTES = 15 * 1024 * 1024       # refuse new attachments past this
+
 ITEM_KINDS = ("task", "project", "section", "folder", "note")
 TASK_STATUS = ("open", "next", "waiting", "waiting_reply",
                "scheduled", "someday", "done", "dropped")
@@ -107,6 +115,18 @@ class NoteImage(EmbeddedDocument):
     ``/tasks/<id>/note-image/<token>`` instead of carrying a base64 blob."""
     token = StringField(required=True)
     content_type = StringField(default="image/webp")
+    data = BinaryField(required=True)
+    created_at = DateTimeField(default=_utcnow)
+
+
+class NoteFile(EmbeddedDocument):
+    """An arbitrary file dragged/pasted onto a note, stored inline on the item
+    (same model as NoteImage, never on the filesystem). The note references it
+    by ``token`` via ``/tasks/<id>/note-file/<token>`` as a download link;
+    unlike images it is always served as an attachment, never rendered inline."""
+    token = StringField(required=True)
+    filename = StringField(required=True)
+    content_type = StringField(default="application/octet-stream")
     data = BinaryField(required=True)
     created_at = DateTimeField(default=_utcnow)
 
@@ -278,6 +298,9 @@ class Item(Document):
 
     # compressed images pasted into the note, stored inline (see NoteImage)
     note_images = EmbeddedDocumentListField(NoteImage)
+
+    # arbitrary files dragged/pasted onto the note, stored inline (see NoteFile)
+    note_files = EmbeddedDocumentListField(NoteFile)
 
     # Calendar events linked to a ``note`` item (see LinkedEvent). Tasks are
     # linked via the symmetric ``related`` field instead, so they back-link
@@ -957,6 +980,26 @@ class Item(Document):
                 new_assignee.save()
             except Exception:
                 pass
+
+    def storage_bytes(self) -> int:
+        """Size of this item's stored BSON document. Dominated by inline note
+        images/files; drives the upload guard and the storage meter."""
+        from bson import BSON
+        return len(BSON.encode(self.to_mongo()))
+
+    def storage_info(self) -> dict:
+        """Storage usage for the meter: used MB, the 16 MB doc cap, percent
+        full, and a Bootstrap colour level (success/warning/danger)."""
+        used = self.storage_bytes()
+        level = ("danger" if used >= ITEM_MAX_BYTES
+                 else "warning" if used >= ITEM_WARN_BYTES else "success")
+        return {
+            "used_bytes": used,
+            "used_mb": round(used / 1024 / 1024, 1),
+            "max_mb": ITEM_DOC_CAP_BYTES // 1024 // 1024,
+            "pct": min(100, round(used / ITEM_DOC_CAP_BYTES * 100)),
+            "level": level,
+        }
 
     def can_be_viewed_by(self, user: User) -> bool:
         if self.owner == user:

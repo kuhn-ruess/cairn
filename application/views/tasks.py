@@ -94,7 +94,10 @@ from mongoengine import Q
 from application.forms import CommentForm, TaskForm
 
 from application.models.user import User
-from application.models.item import ChecklistItem, Item, NoteImage
+from application.models.item import (
+    ChecklistItem, Item, NoteImage, NoteFile,
+    ITEM_WARN_BYTES, ITEM_MAX_BYTES,
+)
 
 tasks_bp = Blueprint("tasks", __name__, url_prefix="/tasks")
 
@@ -2611,9 +2614,17 @@ def note_edit(task_id):
 
 
 # Pasted note images are compressed client-side and stored inline on the item.
+# ITEM_WARN_BYTES / ITEM_MAX_BYTES (the doc-size guard) live on the model.
 NOTE_IMAGE_MAX_BYTES = 5 * 1024 * 1024     # per-image upload cap
-ITEM_WARN_BYTES = 10 * 1024 * 1024         # warn the user past this
-ITEM_MAX_BYTES = 15 * 1024 * 1024          # refuse past this (MongoDB caps at 16)
+NOTE_FILE_MAX_BYTES = 10 * 1024 * 1024     # per-attachment upload cap
+
+
+def _safe_attachment_name(name: str) -> str:
+    """Strip any path and control/quote chars from a client-supplied filename
+    so it's safe in a Content-Disposition header and as a Markdown link label."""
+    name = (name or "").replace("\\", "/").split("/")[-1]
+    name = "".join(ch for ch in name if ch >= " " and ch != '"').strip()
+    return name or "attachment"
 
 
 def _sniff_image_type(head: bytes) -> str | None:
@@ -2631,8 +2642,7 @@ def _sniff_image_type(head: bytes) -> str | None:
 
 
 def _item_bson_size(task) -> int:
-    from bson import BSON
-    return len(BSON.encode(task.to_mongo()))
+    return task.storage_bytes()
 
 
 @tasks_bp.route("/<task_id>/note-image", methods=["POST"])
@@ -2663,7 +2673,10 @@ def note_image_upload(task_id):
         return jsonify({"error": "item is full — remove some images before adding more"}), 413
     task.save()
 
-    payload = {"markdown": f"![pasted image]({url_for('tasks.note_image', task_id=str(task.pk), token=token)})"}
+    payload = {
+        "markdown": f"![pasted image]({url_for('tasks.note_image', task_id=str(task.pk), token=token)})",
+        "storage": task.storage_info(),
+    }
     if size > ITEM_WARN_BYTES:
         payload["warning"] = f"This item is getting large ({size / 1024 / 1024:.1f} MB of 16 MB max) — consider removing some images."
     return jsonify(payload)
@@ -2685,6 +2698,83 @@ def note_image(task_id, token):
         mimetype=img.content_type or "image/webp",
         headers={"Cache-Control": "private, max-age=86400"},
     )
+
+
+def _store_note_file(item, fileobj):
+    """Append an arbitrary uploaded file to ``item.note_files`` (shared by the
+    task and note routes). Returns a JSON-ready payload dict, or an
+    ``(error, status)`` tuple on failure."""
+    import secrets
+    if not fileobj:
+        return ("no file", 400)
+    data = fileobj.read()
+    if not data:
+        return ("empty file", 400)
+    if len(data) > NOTE_FILE_MAX_BYTES:
+        return (f"file too large (max {NOTE_FILE_MAX_BYTES // 1024 // 1024} MB)", 413)
+    name = _safe_attachment_name(fileobj.filename)
+    token = secrets.token_urlsafe(12)
+    item.note_files.append(NoteFile(
+        token=token, filename=name,
+        content_type=fileobj.mimetype or "application/octet-stream", data=data,
+    ))
+    size = _item_bson_size(item)
+    if size > ITEM_MAX_BYTES:
+        item.note_files.pop()  # don't persist — would risk the 16 MB doc cap
+        return ("item is full — remove some attachments before adding more", 413)
+    item.save()
+    return {"token": token, "filename": name, "size": size,
+            "storage": item.storage_info()}
+
+
+def _note_file_response(item, token):
+    """Serve an inline note attachment as a forced download."""
+    f = next((x for x in (item.note_files or []) if x.token == token), None)
+    if not f:
+        abort(404)
+    from urllib.parse import quote
+    fallback = f.filename.encode("ascii", "ignore").decode() or "attachment"
+    disposition = (f"attachment; filename=\"{fallback}\"; "
+                   f"filename*=UTF-8''{quote(f.filename)}")
+    return Response(
+        bytes(f.data),
+        mimetype=f.content_type or "application/octet-stream",
+        headers={
+            "Content-Disposition": disposition,
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, max-age=86400",
+        },
+    )
+
+
+@tasks_bp.route("/<task_id>/note-file", methods=["POST"])
+@login_required
+def note_file_upload(task_id):
+    """Store an arbitrary file dropped/pasted onto a note inline on the item
+    and return a Markdown download link. Warns / refuses as the item grows."""
+    task = _editable_task_or_404(task_id)
+    result = _store_note_file(task, request.files.get("file"))
+    if isinstance(result, tuple):
+        return jsonify({"error": result[0]}), result[1]
+    label = result["filename"].replace("[", "").replace("]", "")
+    url = url_for("tasks.note_file", task_id=str(task.pk), token=result["token"])
+    payload = {"markdown": f"[{label}]({url})", "storage": result["storage"]}
+    if result["size"] > ITEM_WARN_BYTES:
+        payload["warning"] = (f"This item is getting large "
+                              f"({result['size'] / 1024 / 1024:.1f} MB of 16 MB max) "
+                              f"— consider removing some attachments.")
+    return jsonify(payload)
+
+
+@tasks_bp.route("/<task_id>/note-file/<token>")
+@login_required
+def note_file(task_id, token):
+    """Serve an inline note attachment stored on the item, as a download."""
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_viewed_by(user):
+        abort(404)
+    return _note_file_response(task, token)
 
 
 @tasks_bp.route("/<task_id>/checklist", methods=["POST"])

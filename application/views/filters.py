@@ -206,6 +206,7 @@ def register_filters(app):
             "project_tree": _project_tree,
             "notes_tree": _notes_tree,
             "item_icon": _item_icon,
+            "item_storage": lambda item: item.storage_info(),
             "can_view_container": _can_view_container,
             "inspector_section_order": inspector_section_order,
             "app_version": APP_VERSION,

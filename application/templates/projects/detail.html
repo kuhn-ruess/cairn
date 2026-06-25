@@ -398,6 +398,7 @@
     <button type="button" class="btn btn-sm btn-link pn-cancel">Cancel</button>
     <span class="text-muted small">Markdown · Ctrl/⌘+Enter to save</span>
   </div>
+  {% with item=project %}{% include "layout/_storage_meter.html" %}{% endwith %}
 </div>
 
 {% if linked_notes %}

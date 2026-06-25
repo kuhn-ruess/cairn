@@ -21,7 +21,7 @@ from flask import (
 from flask_login import current_user, login_required
 from mongoengine import Q
 
-from application.models.item import Item, LinkedEvent, NoteImage
+from application.models.item import Item, LinkedEvent, NoteImage, NoteFile
 from application.models.user import User
 
 notes_bp = Blueprint("notes", __name__, url_prefix="/notes")
@@ -454,7 +454,10 @@ def note_image_upload(note_id):
         item.note_images.pop()
         return jsonify({"error": "note is full — remove some images before adding more"}), 413
     item.save()
-    payload = {"markdown": f"![pasted image]({url_for('notes.note_image', note_id=str(item.pk), token=token)})"}
+    payload = {
+        "markdown": f"![pasted image]({url_for('notes.note_image', note_id=str(item.pk), token=token)})",
+        "storage": item.storage_info(),
+    }
     if size > ITEM_WARN_BYTES:
         payload["warning"] = f"This note is getting large ({size / 1024 / 1024:.1f} MB of 16 MB max) — consider removing some images."
     return jsonify(payload)
@@ -472,6 +475,37 @@ def note_image(note_id, token):
         abort(404)
     return Response(bytes(img.data), mimetype=img.content_type,
                     headers={"Cache-Control": "private, max-age=86400"})
+
+
+# ---------- inline file attachments (mirrors tasks.note_file*) ----------
+
+@notes_bp.route("/<note_id>/note-file", methods=["POST"])
+@login_required
+def note_file_upload(note_id):
+    from application.views.tasks import _store_note_file, ITEM_WARN_BYTES
+    item = _editable_note_or_404(note_id, kinds=("note",))
+    result = _store_note_file(item, request.files.get("file"))
+    if isinstance(result, tuple):
+        return jsonify({"error": result[0]}), result[1]
+    label = result["filename"].replace("[", "").replace("]", "")
+    url = url_for("notes.note_file", note_id=str(item.pk), token=result["token"])
+    payload = {"markdown": f"[{label}]({url})", "storage": result["storage"]}
+    if result["size"] > ITEM_WARN_BYTES:
+        payload["warning"] = (f"This note is getting large "
+                              f"({result['size'] / 1024 / 1024:.1f} MB of 16 MB max) "
+                              f"— consider removing some attachments.")
+    return jsonify(payload)
+
+
+@notes_bp.route("/<note_id>/note-file/<token>")
+@login_required
+def note_file(note_id, token):
+    from application.views.tasks import _note_file_response
+    user = current_user._get_current_object()
+    item = Item.objects(pk=note_id).first()
+    if not item or not item.can_be_viewed_by(user):
+        abort(404)
+    return _note_file_response(item, token)
 
 
 # ---------- export (Markdown / TextBundle) ----------
@@ -523,6 +557,14 @@ def export_textbundle(note_id):
         src = url_for("notes.note_image", note_id=str(item.pk), token=img.token)
         body = body.replace(src, f"assets/{fname}")
         assets.append((f"{bundle}/assets/{fname}", bytes(img.data)))
+
+    for f in item.note_files or []:
+        # Bundle each file attachment under its original name (deduped by token
+        # prefix) and repoint the in-app /notes/<id>/note-file/<token> link at it.
+        fname = f"{f.token[:6]}-{f.filename}"
+        src = url_for("notes.note_file", note_id=str(item.pk), token=f.token)
+        body = body.replace(src, f"assets/{fname}")
+        assets.append((f"{bundle}/assets/{fname}", bytes(f.data)))
 
     info = {
         "version": 2,

@@ -76,6 +76,7 @@
       <span id="note-save-status" class="small text-muted ms-2"></span>
     </div>
     {% endif %}
+    {% with item=note %}{% include "layout/_storage_meter.html" %}{% endwith %}
   </div>
 
   {# ---- Inspector: tags + all links ---- #}
@@ -279,8 +280,33 @@
         if (!resp.ok) throw new Error(data.error || ("upload failed: " + resp.status));
         const m = (data.markdown || "").match(/\(([^)]*)\)/);  // extract URL from "![..](url)"
         onSuccess(m ? m[1] : data.markdown);
+        if (window.CairnNoteImage) window.CairnNoteImage.updateStorageMeters(data.storage);
         if (data.warning) alert(data.warning);
       } catch (err) { onError(err.message || "image upload failed"); }
+    })();
+  }
+
+  // Upload an arbitrary file dropped onto the editor → insert a Markdown
+  // download link "[name](url)". Mirrors the textarea path in note-paste.js.
+  function uploadNoteFile(file) {
+    (async () => {
+      const safe = (file.name || "file").replace(/[\[\]]/g, "");
+      const marker = `[uploading ${safe}…](uploading-${file.size})`;
+      easymde.codemirror.replaceSelection(marker);
+      try {
+        const fd = new FormData();
+        fd.append("file", file, file.name || "attachment");
+        fd.append("csrf_token", csrf());
+        const resp = await fetch(`/notes/${noteId}/note-file`, { method: "POST", body: fd });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.error || ("upload failed: " + resp.status));
+        setBodyValue(bodyValue().replace(marker, data.markdown));
+        if (window.CairnNoteImage) window.CairnNoteImage.updateStorageMeters(data.storage);
+        if (data.warning) alert(data.warning);
+      } catch (err) {
+        setBodyValue(bodyValue().replace(marker, `<!-- attachment failed: ${err.message} -->`));
+        alert("Attachment failed: " + err.message);
+      }
     })();
   }
 
@@ -302,8 +328,23 @@
     // through to EasyMDE's own upload). Capture so we beat EasyMDE's handler.
     const wrap = easymde.codemirror.getWrapperElement();
     wrap.addEventListener("drop", (e) => {
+      const dt = e.dataTransfer;
+      // Dropped files: images compress + upload as before, anything else
+      // (Numbers/Word/PDF/…) attaches as a download link.
+      if (dt && dt.files && dt.files.length) {
+        e.preventDefault(); e.stopPropagation();
+        Array.from(dt.files).forEach((f) => {
+          if (f.type && f.type.startsWith("image/")) {
+            uploadNoteImage(f, (url) => easymde.codemirror.replaceSelection(`![image](${url})`),
+                            (msg) => alert(msg));
+          } else {
+            uploadNoteFile(f);
+          }
+        });
+        return;
+      }
       const helper = window.CairnNoteImage;
-      const snippet = helper && e.dataTransfer ? helper.linkSnippetFromDrop(e.dataTransfer) : null;
+      const snippet = helper && dt ? helper.linkSnippetFromDrop(dt) : null;
       if (snippet) {
         e.preventDefault(); e.stopPropagation();
         easymde.codemirror.replaceSelection(snippet);

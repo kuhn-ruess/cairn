@@ -25,15 +25,31 @@
   // saved item to attach to yet (create form → fall back to an inline data URI).
   // Notes live under #note-detail[data-note-id]; tasks/projects carry the id in
   // their surrounding form's action (…/tasks/<id>/…).
-  function uploadUrlFor(textarea) {
+  function uploadUrlFor(textarea, endpoint) {
+    endpoint = endpoint || "note-image";
     const noteWrap = textarea.closest("[data-note-id]");
     if (noteWrap && noteWrap.dataset.noteId) {
-      return `/notes/${noteWrap.dataset.noteId}/note-image`;
+      return `/notes/${noteWrap.dataset.noteId}/${endpoint}`;
     }
     const form = textarea.closest("form");
     const action = (form && form.getAttribute("action")) || "";
     const m = action.match(/\/tasks\/([0-9a-fA-F]{12,})(?:\/|$)/);
-    return m ? `/tasks/${m[1]}/note-image` : null;
+    return m ? `/tasks/${m[1]}/${endpoint}` : null;
+  }
+
+  // Refresh every storage meter on the page from an upload's {used_mb, pct,
+  // level} payload, so the "x / 16 MB" bar moves without a reload.
+  function updateStorageMeters(storage) {
+    if (!storage) return;
+    document.querySelectorAll(".js-storage-meter").forEach((meter) => {
+      const bar = meter.querySelector(".js-storage-bar");
+      const text = meter.querySelector(".js-storage-text");
+      if (bar) {
+        bar.style.width = storage.pct + "%";
+        bar.className = bar.className.replace(/\bbg-\w+\b/, "bg-" + storage.level);
+      }
+      if (text) text.textContent = `${storage.used_mb.toFixed(1)} / ${storage.max_mb} MB`;
+    });
   }
 
   function loadImage(blob) {
@@ -117,6 +133,7 @@
       if (uploadUrl) {
         const data = await uploadToItem(uploadUrl, await canvasToBlob(canvas));
         replacePlaceholder(textarea, placeholder, data.markdown);
+        updateStorageMeters(data.storage);
         if (data.warning) toast(data.warning, "warning");
       } else {
         // Unsaved item: nothing to attach to yet — embed compressed inline.
@@ -128,17 +145,48 @@
     }
   }
 
+  // Upload an arbitrary file (Numbers/Word/PDF/…) to the item and insert a
+  // Markdown download link. Behaves like image paste otherwise; needs a saved
+  // item (there's nowhere to attach to on an as-yet-unsaved create form).
+  async function uploadFile(uploadUrl, file) {
+    const fd = new FormData();
+    fd.append("file", file, file.name || "attachment");
+    fd.append("csrf_token", csrfToken());
+    const resp = await fetch(uploadUrl, { method: "POST", body: fd });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || ("upload failed: " + resp.status));
+    return data; // { markdown, storage, warning? }
+  }
+
+  async function handleFile(textarea, file) {
+    const uploadUrl = uploadUrlFor(textarea, "note-file");
+    if (!uploadUrl) { toast("Save the item first, then attach files.", "warning"); return; }
+    const safe = (file.name || "file").replace(/[[\]]/g, "");
+    const placeholder = `[uploading ${safe}…](uploading-${Date.now()})`;
+    insertAtCursor(textarea, placeholder);
+    try {
+      const data = await uploadFile(uploadUrl, file);
+      replacePlaceholder(textarea, placeholder, data.markdown);
+      updateStorageMeters(data.storage);
+      if (data.warning) toast(data.warning, "warning");
+    } catch (err) {
+      replacePlaceholder(textarea, placeholder, `<!-- attachment failed: ${err.message} -->`);
+      toast("Attachment failed: " + err.message, "danger");
+    }
+  }
+
   function onPaste(e) {
     const textarea = e.target;
     if (!textarea.matches('textarea[name="note"]')) return;
     const items = (e.clipboardData && e.clipboardData.items) || [];
     for (const item of items) {
-      if (item.type && item.type.startsWith("image/")) {
-        e.preventDefault();
-        const blob = item.getAsFile();
-        if (blob) handleImage(textarea, blob);
-        return;
-      }
+      if (item.kind !== "file") continue;
+      e.preventDefault();
+      const blob = item.getAsFile();
+      if (!blob) return;
+      if (item.type && item.type.startsWith("image/")) handleImage(textarea, blob);
+      else handleFile(textarea, blob);
+      return;
     }
   }
 
@@ -199,9 +247,21 @@
   // A drop only fires on the textarea if the drag was "accepted" in dragover.
   // Only claim drags that carry a URL flavour, so dragging plain text into a
   // note still behaves natively.
+  // File drops only attach on the real note textarea (where image paste also
+  // works) — the project ``.pn-editor`` only gets the link-drop behaviour, to
+  // match where inline images are supported today.
+  function fileDropTarget(target) {
+    return (target && target.closest) ? target.closest('textarea[name="note"]') : null;
+  }
+
   function onNoteDragOver(e) {
-    if (!noteTextareaFor(e.target)) return;
     const types = (e.dataTransfer && e.dataTransfer.types) || [];
+    const ta = fileDropTarget(e.target);
+    if (ta && Array.from(types).includes("Files") && uploadUrlFor(ta, "note-file")) {
+      e.preventDefault();
+      return;
+    }
+    if (!noteTextareaFor(e.target)) return;
     const hasUrl = Array.from(types).some(
       (t) => t === "text/uri-list" || t === "URL" || t === "text/x-moz-url"
     );
@@ -209,10 +269,21 @@
   }
 
   function onNoteDrop(e) {
-    const textarea = noteTextareaFor(e.target);
-    if (!textarea) return;
     const dt = e.dataTransfer;
     if (!dt) return;
+    const ta = fileDropTarget(e.target);
+    if (ta && dt.files && dt.files.length && uploadUrlFor(ta, "note-file")) {
+      e.preventDefault();
+      e.stopPropagation();
+      ta.focus();
+      for (const file of dt.files) {
+        if (file.type && file.type.startsWith("image/")) handleImage(ta, file);
+        else handleFile(ta, file);
+      }
+      return;
+    }
+    const textarea = noteTextareaFor(e.target);
+    if (!textarea) return;
     const snippet = linkSnippetFromDrop(dt);
     if (!snippet) return; // not a link drop — let the browser handle it
     e.preventDefault();
@@ -233,5 +304,6 @@
       return canvasToBlob(scaledCanvas(img));
     },
     linkSnippetFromDrop: linkSnippetFromDrop,
+    updateStorageMeters: updateStorageMeters,
   };
 })();

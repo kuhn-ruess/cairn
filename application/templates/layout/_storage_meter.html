@@ -1,0 +1,16 @@
+{# Storage usage meter for a single item (task / project / note).
+   Inline note images + file attachments live on the item document, which
+   MongoDB caps at 16 MB — this shows how much of that is used.
+   Expects `item` in scope. The .js-storage-meter hooks let note-paste.js /
+   the note editor refresh it live after an up/download without a reload. #}
+{% set s = item_storage(item) %}
+<div class="storage-meter js-storage-meter d-flex align-items-center gap-2 small text-muted mt-2"
+     title="Note text, pasted images and file attachments are stored on this item. MongoDB caps each item at {{ s.max_mb }} MB.">
+  <i class="bi bi-hdd"></i>
+  <div class="progress flex-grow-1" style="height: 4px; max-width: 160px;">
+    <div class="progress-bar js-storage-bar bg-{{ s.level }}" role="progressbar"
+         style="width: {{ s.pct }}%;" aria-valuenow="{{ s.pct }}"
+         aria-valuemin="0" aria-valuemax="100"></div>
+  </div>
+  <span class="js-storage-text">{{ "%.1f"|format(s.used_mb) }} / {{ s.max_mb }} MB</span>
+</div>
