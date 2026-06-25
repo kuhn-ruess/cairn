@@ -27,6 +27,21 @@ def _img_attr_ok(tag, name, value):
     return value.startswith(("http://", "https://"))
 
 
+def _link_target(attrs, new=False):
+    """linkify callback: open links in a new tab, EXCEPT OS-handoff schemes
+    (``mailto:`` / ``message:`` / ``tel:``). Those must navigate in place —
+    opening them in a new tab just hands off to Mail/Phone and leaves an empty
+    tab behind to close. External links also get ``rel`` hardening."""
+    href = attrs.get((None, "href"), "")
+    if href.startswith(("mailto:", "message:", "tel:")):
+        attrs.pop((None, "target"), None)
+        attrs.pop((None, "rel"), None)
+        return attrs
+    attrs[(None, "target")] = "_blank"
+    attrs[(None, "rel")] = "nofollow noopener noreferrer"
+    return attrs
+
+
 def _a_attr_ok(tag, name, value):
     if name == "title":
         return True
@@ -324,9 +339,8 @@ def register_filters(app):
         # link syntax (e.g. a pasted https://… or an app link). Existing
         # <a> tags are left alone by linkify; code/pre are skipped so URLs
         # in snippets stay literal. Open in a new tab, no referrer leak.
-        from bleach.callbacks import nofollow, target_blank
         cleaned = bleach.linkify(
-            cleaned, callbacks=[nofollow, target_blank], skip_tags=["pre", "code"],
+            cleaned, callbacks=[_link_target], skip_tags=["pre", "code"],
         )
         return Markup(cleaned)
 

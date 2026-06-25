@@ -2727,20 +2727,33 @@ def _store_note_file(item, fileobj):
             "storage": item.storage_info()}
 
 
+# Types we never render inline: same-origin HTML/SVG/XML can execute script in
+# the user's session. These are always forced to download; everything else is
+# served ``inline`` so the browser opens it in place (PDFs, images, text…) when
+# it can, and falls back to downloading what it can't display (Office docs).
+_FORCE_DOWNLOAD_TYPES = {
+    "text/html", "application/xhtml+xml", "image/svg+xml",
+    "application/xml", "text/xml",
+}
+
+
 def _note_file_response(item, token):
-    """Serve an inline note attachment as a forced download."""
+    """Serve an inline note attachment. Opens in the browser when it can render
+    the type; only script-capable types (HTML/SVG/XML) are forced to download."""
     f = next((x for x in (item.note_files or []) if x.token == token), None)
     if not f:
         abort(404)
     from urllib.parse import quote
+    ctype = (f.content_type or "application/octet-stream").lower()
+    disposition = "attachment" if ctype in _FORCE_DOWNLOAD_TYPES else "inline"
     fallback = f.filename.encode("ascii", "ignore").decode() or "attachment"
-    disposition = (f"attachment; filename=\"{fallback}\"; "
-                   f"filename*=UTF-8''{quote(f.filename)}")
+    content_disposition = (f"{disposition}; filename=\"{fallback}\"; "
+                           f"filename*=UTF-8''{quote(f.filename)}")
     return Response(
         bytes(f.data),
         mimetype=f.content_type or "application/octet-stream",
         headers={
-            "Content-Disposition": disposition,
+            "Content-Disposition": content_disposition,
             "X-Content-Type-Options": "nosniff",
             "Cache-Control": "private, max-age=86400",
         },
