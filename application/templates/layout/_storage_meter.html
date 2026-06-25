@@ -12,5 +12,5 @@
          style="width: {{ s.pct }}%;" aria-valuenow="{{ s.pct }}"
          aria-valuemin="0" aria-valuemax="100"></div>
   </div>
-  <span class="js-storage-text">{{ "%.1f"|format(s.used_mb) }} / {{ s.max_mb }} MB</span>
+  <span class="js-storage-text">{{ s.used_label }} / {{ s.max_mb }} MB</span>
 </div>

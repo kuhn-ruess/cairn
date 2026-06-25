@@ -983,6 +983,33 @@ class Item(Document):
             except Exception:
                 pass
 
+    @classmethod
+    def note_counts_for(cls, items) -> dict:
+        """Map ``str(pk) -> number of linked NOTES`` for the given task-kind
+        items, for the note-button badge. Reads the raw ``related`` refs (no
+        per-row deref → no N+1) and resolves which are notes in one indexed
+        ``$in`` query. (``related_count`` would over-count: it includes related
+        tasks/projects, not just notes.)"""
+        related_by_item = {}
+        all_ids = set()
+        for it in items or []:
+            if getattr(it, "kind", None) != "task":
+                continue
+            rids = []
+            for r in (it._data.get("related") or []):
+                rid = getattr(r, "id", None) or getattr(r, "pk", None)
+                if rid:
+                    rids.append(str(rid))
+            if rids:
+                related_by_item[str(it.pk)] = rids
+                all_ids.update(rids)
+        if not all_ids:
+            return {}
+        note_ids = {str(pk) for pk in cls.objects(
+            pk__in=list(all_ids), kind="note").values_list("id")}
+        return {pk: sum(1 for rid in rids if rid in note_ids)
+                for pk, rids in related_by_item.items()}
+
     def storage_bytes(self) -> int:
         """Size of this item's stored BSON document. Dominated by inline note
         images/files; drives the upload guard and the storage meter."""
@@ -990,14 +1017,22 @@ class Item(Document):
         return len(BSON.encode(self.to_mongo()))
 
     def storage_info(self) -> dict:
-        """Storage usage for the meter: used MB, the 16 MB doc cap, percent
-        full, and a Bootstrap colour level (success/warning/danger)."""
+        """Storage usage for the meter: used size (human-readable — most items
+        are a few KB, which rounds to 0.0 MB, so we pick B/KB/MB), the 16 MB
+        doc cap, percent full, and a Bootstrap colour level."""
         used = self.storage_bytes()
         level = ("danger" if used >= ITEM_MAX_BYTES
                  else "warning" if used >= ITEM_WARN_BYTES else "success")
+        if used < 1024:
+            used_label = f"{used} B"
+        elif used < 1024 * 1024:
+            used_label = f"{used / 1024:.0f} KB"
+        else:
+            used_label = f"{used / 1024 / 1024:.1f} MB"
         return {
             "used_bytes": used,
             "used_mb": round(used / 1024 / 1024, 1),
+            "used_label": used_label,
             "max_mb": ITEM_DOC_CAP_BYTES // 1024 // 1024,
             "pct": min(100, round(used / ITEM_DOC_CAP_BYTES * 100)),
             "level": level,

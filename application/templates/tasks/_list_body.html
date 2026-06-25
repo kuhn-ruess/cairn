@@ -3,6 +3,10 @@
    Optional include var: view_key (string) — when set, per-view task-row
    overrides apply. #}
 {% set _vk = view_key|default(none) %}
+{# Linked-note counts for the per-task note button. Reuse what the view already
+   computed (Today), else batch once for this list (one indexed query — never
+   per row). #}
+{% set _tnc = task_note_counts if task_note_counts is defined else task_note_counts_for(tasks) %}
 <div class="task-list {% if not tasks %}is-empty{% endif %}"
      data-bulk-scope="tasks"
      {% if target_project_id is defined and target_project_id is not none %}data-target-project="{{ target_project_id }}"{% endif %}
@@ -244,9 +248,9 @@
               <i class="bi {{ 'bi-flag-fill text-warning' if task.flagged else 'bi-flag' }}"></i>
             </button>
           </form>
-          {% if show_task_note_btn|default(false) and task.kind == 'task' %}
+          {% if task.kind == 'task' %}
             {% from "tasks/_event_note_macros.html" import task_note_btn %}
-            {{ task_note_btn(task, (task_note_counts|default({})).get(task.pk|string, 0)) }}
+            {{ task_note_btn(task, _tnc.get(task.pk|string, 0)) }}
           {% endif %}
           <button type="button" class="btn btn-sm btn-link p-0 task-delete-btn task-row-hover-action"
                   data-task-id="{{ task.pk }}" data-task-title="{{ task.title }}"

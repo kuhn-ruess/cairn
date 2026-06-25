@@ -48,7 +48,10 @@
         bar.style.width = storage.pct + "%";
         bar.className = bar.className.replace(/\bbg-\w+\b/, "bg-" + storage.level);
       }
-      if (text) text.textContent = `${storage.used_mb.toFixed(1)} / ${storage.max_mb} MB`;
+      if (text) {
+        const used = storage.used_label || (storage.used_mb.toFixed(1) + " MB");
+        text.textContent = `${used} / ${storage.max_mb} MB`;
+      }
     });
   }
 

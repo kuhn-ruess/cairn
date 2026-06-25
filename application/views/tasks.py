@@ -861,29 +861,9 @@ def today():
                 if le.uid in uids:
                     event_note_counts[le.uid] = event_note_counts.get(le.uid, 0) + 1
 
-    # How many linked NOTES each shown task/project has, for its note button.
-    # Read raw related refs (no deref → no N+1), then one query resolves which
-    # of those refs are notes. (related_count would over-count: it includes
-    # related tasks/projects, not just notes.)
-    def _ref_id(r):
-        rid = getattr(r, "id", None) or getattr(r, "pk", None)
-        return str(rid) if rid is not None else None
-
-    related_by_item = {}
-    all_related_ids = set()
-    for it in filtered + projects_with_dates:
-        rids = [rid for rid in (_ref_id(r) for r in (it._data.get("related") or [])) if rid]
-        if rids:
-            related_by_item[str(it.pk)] = rids
-            all_related_ids.update(rids)
-    note_ref_ids = set()
-    if all_related_ids:
-        note_ref_ids = {str(pk) for pk in Item.objects(
-            pk__in=list(all_related_ids), kind="note").values_list("id")}
-    task_note_counts = {
-        pk: sum(1 for rid in rids if rid in note_ref_ids)
-        for pk, rids in related_by_item.items()
-    }
+    # How many linked NOTES each shown task has, for its note button badge
+    # (one batched query — see Item.note_counts_for).
+    task_note_counts = Item.note_counts_for(filtered + projects_with_dates)
 
     # Group events by date when window spans more than one day, so the
     # template can render section headers per day.

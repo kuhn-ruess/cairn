@@ -2654,3 +2654,47 @@ body.ps-resizing * {
 .subtask-item.is-done .subtask-title { text-decoration: line-through; }
 .subtask-toggle { line-height: 1; }
 .subtask-add-input { max-width: 28rem; }
+
+/* Note button on tasks / calendar events (day view + every task row) and its
+   pop-up panel (see event-notes.js, tasks/_event_note_macros.html). */
+.event-notes-btn {
+  border: 0; background: transparent; padding: 0 .25rem; cursor: pointer;
+  color: var(--bs-secondary-color, #6c757d); line-height: 1;
+  display: inline-flex; align-items: center; gap: .1rem; font-size: .8rem;
+  opacity: .55; transition: opacity .12s ease, color .12s ease;
+}
+.event-notes-btn:hover,
+.event-notes-btn.has-notes { opacity: 1; color: var(--bs-primary, #0d6efd); }
+.event-notes-count { font-size: .7rem; font-weight: 600; }
+/* In list rows the button sits among the other muted row actions. */
+.task-row .event-notes-btn { font-size: .95rem; padding: 0 .2rem; }
+.event-notes-panel {
+  position: fixed; z-index: 2200; width: 250px; max-width: calc(100vw - 1rem);
+  background: var(--bs-body-bg, #fff); border: 1px solid var(--bs-border-color, #dee2e6);
+  border-radius: .5rem; box-shadow: 0 .5rem 1.25rem rgba(0,0,0,.18); overflow: hidden;
+}
+.event-notes-panel .enp-head {
+  padding: .4rem .6rem; font-size: .72rem; text-transform: uppercase;
+  letter-spacing: .03em; color: var(--bs-secondary-color, #6c757d);
+  border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.event-notes-panel .enp-item, .event-notes-panel .enp-new {
+  display: flex; align-items: center; gap: .4rem; width: 100%;
+  padding: .45rem .6rem; font-size: .85rem; text-decoration: none;
+  color: var(--bs-body-color, #212529); border: 0; background: transparent;
+  text-align: left; cursor: pointer;
+}
+.event-notes-panel .enp-item:hover, .event-notes-panel .enp-new:hover {
+  background: var(--bs-tertiary-bg, #f1f3f5);
+}
+.event-notes-panel .enp-item span {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.event-notes-panel .enp-new {
+  border-top: 1px solid var(--bs-border-color, #dee2e6);
+  color: var(--bs-primary, #0d6efd); font-weight: 500;
+}
+.event-notes-panel .enp-empty {
+  padding: .5rem .6rem; font-size: .82rem; color: var(--bs-secondary-color, #6c757d);
+}

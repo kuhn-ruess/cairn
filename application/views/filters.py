@@ -222,6 +222,7 @@ def register_filters(app):
             "notes_tree": _notes_tree,
             "item_icon": _item_icon,
             "item_storage": lambda item: item.storage_info(),
+            "task_note_counts_for": lambda items: Item.note_counts_for(items),
             "can_view_container": _can_view_container,
             "inspector_section_order": inspector_section_order,
             "app_version": APP_VERSION,
