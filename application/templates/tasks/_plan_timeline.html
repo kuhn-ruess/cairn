@@ -5,7 +5,7 @@
    is --plan-ppm (px per minute); items are absolutely positioned by time.
    Interactions (drag to reschedule, resize, "Plan my day") are wired by the
    inline plan-view JS in today.html. #}
-{% from "tasks/_event_note_macros.html" import event_note_btn %}
+{% from "tasks/_event_note_macros.html" import event_note_btn, task_note_btn %}
 {% set range0 = plan_data.range_start_min %}
 {% set span = plan_data.range_end_min - range0 %}
 {% set h0 = range0 // 60 %}
@@ -131,6 +131,7 @@
                 </div>
                 <div class="plan-card-meta">{{ tspan }} · <span class="plan-card-dur">{{ it.duration_min }}m</span></div>
               </div>
+              {{ task_note_btn(it.obj, task_note_counts.get(it.obj.pk|string, 0)) }}
               <span class="plan-card-resize" title="Drag to change duration"></span>
             </div>
           {% endif %}

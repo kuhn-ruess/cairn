@@ -1,6 +1,9 @@
 {% extends "layout/base.html" %}
-{% from "tasks/_event_note_macros.html" import event_note_btn %}
+{% from "tasks/_event_note_macros.html" import event_note_btn, task_note_btn %}
 {% set page_project_sidebar = true %}
+{# Enables the per-task note button inside the shared _list_body partial — only
+   set here, so list rows elsewhere in the app are unaffected. #}
+{% set show_task_note_btn = true %}
 {% set _ns = namespace(pks=[]) %}
 {% for t in tasks %}
   {% set _par = t.parent %}
@@ -35,9 +38,12 @@
   .event-notes-btn.has-notes { opacity: 1; color: var(--bs-primary, #0d6efd); }
   .event-notes-count { font-size: .7rem; font-weight: 600; }
   .cal-pill-event .event-notes-btn,
-  .plan-card-event .event-notes-btn { vertical-align: baseline; }
-  .plan-card-event .event-notes-btn { position: absolute; top: 2px; right: 4px; }
+  .cal-pill-task .event-notes-btn { vertical-align: baseline; }
+  .plan-card-event .event-notes-btn,
+  .plan-card-task .event-notes-btn { position: absolute; top: 2px; right: 4px; }
   .plan-allday-chip .event-notes-btn { margin-left: .15rem; }
+  /* In list rows the button sits among the other muted row actions. */
+  .task-row .event-notes-btn { font-size: .95rem; padding: 0 .2rem; }
   .event-notes-panel {
     position: fixed; z-index: 2200; width: 250px; max-width: calc(100vw - 1rem);
     background: var(--bs-body-bg, #fff); border: 1px solid var(--bs-border-color, #dee2e6);
@@ -213,6 +219,7 @@
         {% if it.start %}<span class="cal-pill-time">{{ '%02d:%02d'|format(it.start.hour, it.start.minute) }}</span>{% endif %}
         <a class="cal-pill-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
         <span class="cal-pill-dur" title="Estimated duration">{{ it.obj.estimated_minutes or 30 }}m</span>
+        {{ task_note_btn(it.obj, task_note_counts.get(it.obj.pk|string, 0)) }}
         {% if not it.done %}<span class="cal-pill-resize" title="Drag to change duration">⇕</span>{% endif %}
       </span>
     {% endif %}

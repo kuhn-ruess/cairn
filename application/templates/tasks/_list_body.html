@@ -244,6 +244,10 @@
               <i class="bi {{ 'bi-flag-fill text-warning' if task.flagged else 'bi-flag' }}"></i>
             </button>
           </form>
+          {% if show_task_note_btn|default(false) and task.kind == 'task' %}
+            {% from "tasks/_event_note_macros.html" import task_note_btn %}
+            {{ task_note_btn(task, (task_note_counts|default({})).get(task.pk|string, 0)) }}
+          {% endif %}
           <button type="button" class="btn btn-sm btn-link p-0 task-delete-btn task-row-hover-action"
                   data-task-id="{{ task.pk }}" data-task-title="{{ task.title }}"
                   title="Delete task (d)">

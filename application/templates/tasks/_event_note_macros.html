@@ -16,3 +16,16 @@
   <i class="bi bi-journal-text"></i>{% if count %}<span class="event-notes-count">{{ count }}</span>{% endif %}
 </button>
 {%- endmacro %}
+
+{# Same button, but for a task: create/open notes linked to the task (symmetric
+   ``related`` link). event-notes.js branches on data-task-id. #}
+{% macro task_note_btn(task, count) -%}
+<button type="button" draggable="false"
+        class="event-notes-btn{% if count %} has-notes{% endif %}"
+        title="{% if count %}{{ count }} note(s) for this task{% else %}Add a note for this task{% endif %}"
+        aria-label="Notes for this task"
+        data-task-id="{{ task.pk }}"
+        data-task-title="{{ task.title }}">
+  <i class="bi bi-journal-text"></i>{% if count %}<span class="event-notes-count">{{ count }}</span>{% endif %}
+</button>
+{%- endmacro %}

@@ -861,6 +861,30 @@ def today():
                 if le.uid in uids:
                     event_note_counts[le.uid] = event_note_counts.get(le.uid, 0) + 1
 
+    # How many linked NOTES each shown task/project has, for its note button.
+    # Read raw related refs (no deref → no N+1), then one query resolves which
+    # of those refs are notes. (related_count would over-count: it includes
+    # related tasks/projects, not just notes.)
+    def _ref_id(r):
+        rid = getattr(r, "id", None) or getattr(r, "pk", None)
+        return str(rid) if rid is not None else None
+
+    related_by_item = {}
+    all_related_ids = set()
+    for it in filtered + projects_with_dates:
+        rids = [rid for rid in (_ref_id(r) for r in (it._data.get("related") or [])) if rid]
+        if rids:
+            related_by_item[str(it.pk)] = rids
+            all_related_ids.update(rids)
+    note_ref_ids = set()
+    if all_related_ids:
+        note_ref_ids = {str(pk) for pk in Item.objects(
+            pk__in=list(all_related_ids), kind="note").values_list("id")}
+    task_note_counts = {
+        pk: sum(1 for rid in rids if rid in note_ref_ids)
+        for pk, rids in related_by_item.items()
+    }
+
     # Group events by date when window spans more than one day, so the
     # template can render section headers per day.
     events_by_day = {}
@@ -1191,6 +1215,7 @@ def today():
         timeline=timeline,
         plan_data=plan_data,
         event_note_counts=event_note_counts,
+        task_note_counts=task_note_counts,
     )
 
 def _group_by_project(tasks, extra_projects=()):
@@ -2801,6 +2826,46 @@ def note_file(task_id, token):
     if not task or not task.can_be_viewed_by(user):
         abort(404)
     return _note_file_response(task, token)
+
+
+@tasks_bp.route("/<task_id>/related-notes")
+@login_required
+def related_notes(task_id):
+    """Notes linked to this task (via the symmetric ``related`` field). Used by
+    the day/plan view's per-task note button to list existing notes."""
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_viewed_by(user):
+        abort(404)
+    notes = []
+    for r in task.related_items():
+        if r.kind == "note" and r.can_be_viewed_by(user):
+            notes.append({
+                "id": str(r.pk),
+                "title": r.title or "Untitled note",
+                "url": url_for("notes.detail", note_id=str(r.pk)),
+            })
+    return jsonify({"notes": notes})
+
+
+@tasks_bp.route("/<task_id>/new-note", methods=["POST"])
+@login_required
+def new_related_note(task_id):
+    """Create a note linked to this task, straight from the day/plan view, and
+    return its URL so the client can open it."""
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_viewed_by(user):
+        abort(404)
+    title = (request.form.get("title") or "").strip() or (task.title or "Untitled note")
+    note = Item(owner=user, kind="note", title=title, note="")
+    note.save()
+    note.relate_to(task)  # symmetric: surfaces on the task's related list too
+    return jsonify({
+        "ok": True,
+        "id": str(note.pk),
+        "url": url_for("notes.detail", note_id=str(note.pk)),
+    })
 
 
 @tasks_bp.route("/<task_id>/checklist", methods=["POST"])
