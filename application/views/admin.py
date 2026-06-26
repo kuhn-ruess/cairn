@@ -28,19 +28,28 @@ def data_model():
 
     Useful for reviews and onboarding — every model with its fields,
     types, indexes, and collection name pulled live from the class
-    metadata (so it can't drift from the code)."""
-    from application.models.item import Item, Comment
-    from application.models.calendar import ExternalCalendar
-    from application.models.team import Team, TeamInvite
-    from application.models.user import ApiToken
-    from application.models.tag import Tag
-    from application.models.perspective import CustomPerspective, FilterClause
+    metadata (so it can't drift from the code). The model *set* is
+    auto-discovered from the mongoengine registry, so newly added models
+    (and embedded docs) appear here automatically — no hand-kept list."""
+    import importlib
+    import pkgutil
+
+    import application.models as models_pkg
+    from mongoengine import Document as _Doc
+    from mongoengine.base.common import _document_registry
+
+    # Import every model module so all Document/EmbeddedDocument classes have
+    # registered themselves before we read the registry.
+    for mod in pkgutil.iter_modules(models_pkg.__path__):
+        importlib.import_module(f"application.models.{mod.name}")
 
     docs = [
-        Item, Comment,
-        User, ApiToken, Tag, CustomPerspective, FilterClause, ExternalCalendar,
-        Team, TeamInvite,
+        cls for cls in dict.fromkeys(_document_registry.values())
+        if cls.__module__.startswith("application.models")
+        and not (getattr(cls, "_meta", {}) or {}).get("abstract")
     ]
+    # Top-level collections first, then embedded docs; alphabetical within each.
+    docs.sort(key=lambda c: (not issubclass(c, _Doc), c.__name__))
 
     def describe(doc):
         fields = []

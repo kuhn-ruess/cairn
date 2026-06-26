@@ -31,6 +31,32 @@
     } catch (e) { /* fall back to plain tokens with no colors/exclusivity */ }
     const colorOf = (name) => (meta[name] && meta[name].color) || "#6c757d";
 
+    // Ancestor names top→immediate-parent, so hierarchy stays readable as a
+    // "Parent › Child" path on both chips and suggestions.
+    function pathPrefix(name) {
+      const out = [];
+      let p = meta[name] && meta[name].parent;
+      let guard = 0;
+      while (p && guard++ < 10) {
+        out.unshift(p);
+        p = meta[p] && meta[p].parent;
+      }
+      return out.length ? out.join(" › ") + " › " : "";
+    }
+
+    // Fill `el` with a muted ancestor path + the tag name; tooltip = full path.
+    function labelInto(el, name) {
+      const pre = pathPrefix(name);
+      if (pre) {
+        const m = document.createElement("span");
+        m.className = "text-muted";
+        m.textContent = pre;
+        el.appendChild(m);
+      }
+      el.appendChild(document.createTextNode(name));
+      el.title = pre + name;
+    }
+
     const opts = Array.from(sel.options);
     const byVal = {};
     opts.forEach((o) => { byVal[o.value] = o; });
@@ -67,7 +93,7 @@
       const dot = document.createElement("span");
       dot.style.cssText = "width:.45rem;height:.45rem;border-radius:50%;flex:0 0 auto;background:" + color + ";";
       const txt = document.createElement("span");
-      txt.textContent = o.value;
+      labelInto(txt, o.value);
       txt.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
       const x = document.createElement("span");
       x.textContent = "×";
@@ -161,7 +187,7 @@
           t.appendChild(lead);
           t.appendChild(nm);
         } else {
-          t.textContent = item.value;
+          labelInto(t, item.value);
         }
         row.appendChild(dot);
         row.appendChild(t);

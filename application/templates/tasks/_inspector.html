@@ -123,6 +123,9 @@
       {{ form.estimated_minutes(class="form-control form-control-sm", placeholder="min") }}
     </div>
   </div>
+{%- endmacro -%}
+
+{%- macro sec_location() -%}
   <div class="inspector-section" data-section="location">
     {{ form.location.label(class="form-label small text-uppercase text-muted") }}
     {{ form.location(class="form-control form-control-sm",
@@ -337,6 +340,7 @@
 {%- set _section_macros = {
   "note": sec_note, "status_project": sec_status_project, "tags": sec_tags,
   "dates": sec_dates, "plan": sec_plan, "priority_estimate": sec_priority_estimate,
+  "location": sec_location,
   "repeat": sec_repeat, "review": sec_review,
   "assigned_to": sec_assigned_to, "followup": sec_followup, "flags": sec_flags,
   "checklist": sec_checklist, "time": sec_time,
