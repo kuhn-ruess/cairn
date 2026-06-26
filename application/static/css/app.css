@@ -1160,7 +1160,10 @@ body.inspector-docked #bulk-bar {
   letter-spacing: .08em;
   color: var(--gv-fg4) !important;
 }
-.inspector-section.grid-2 {
+/* Two-column field row. Applies both to section-level grids
+   (.inspector-section.grid-2) and grids nested inside a section
+   (e.g. the follow-up date/cadence pair). */
+.grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: .75rem;
