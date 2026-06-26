@@ -95,6 +95,44 @@
     </div>
     {% endif %}
 
+    {# Notification bell — renders from the embedded list already on
+       current_user, so no extra query. JS marks all read when it opens. #}
+    {% set _unread = current_user.unread_notification_count %}
+    <div class="dropdown me-2" id="notifBell"
+         data-mark-read-url="{{ url_for('notifications.mark_read') }}">
+      <button class="btn btn-sm btn-outline-secondary position-relative"
+              data-bs-toggle="dropdown" data-bs-auto-close="outside"
+              aria-expanded="false" title="Notifications">
+        <i class="bi bi-bell"></i>
+        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill text-bg-danger"
+              id="notifBadge" {% if not _unread %}hidden{% endif %}>{{ _unread }}</span>
+      </button>
+      <div class="dropdown-menu dropdown-menu-end shadow"
+           style="width: 23rem; max-height: 26rem; overflow-y: auto;">
+        <div class="d-flex align-items-center justify-content-between px-3 py-2">
+          <span class="fw-semibold small">Notifications</span>
+          {% if current_user.notifications %}
+            <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none"
+                    id="notifMarkAll">Mark all read</button>
+          {% endif %}
+        </div>
+        <div class="dropdown-divider my-0"></div>
+        {% for n in current_user.notifications|reverse %}
+          <a class="dropdown-item d-flex gap-2 py-2 notif-item{% if not n.read %} bg-body-tertiary{% endif %}"
+             href="{{ n.link or '#' }}" style="white-space: normal;">
+            <i class="bi {{ n.icon or 'bi-bell' }} mt-1 {{ 'text-primary' if not n.read else 'text-muted' }}"></i>
+            <span class="flex-grow-1 lh-sm">
+              <span class="d-block small">{{ n.text }}</span>
+              <span class="d-block text-muted" style="font-size:.72rem;">{{ n.created_at | timeago }}</span>
+            </span>
+          </a>
+        {% else %}
+          <div class="px-3 py-4 text-muted small text-center">You're all caught up.</div>
+        {% endfor %}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      </div>
+    </div>
+
     <div class="dropdown">
       <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
               data-bs-toggle="dropdown" aria-expanded="false">
@@ -507,6 +545,7 @@
 <script src="{{ asset('js/event-notes.js') }}"></script>
 <script src="{{ asset('js/subtasks.js') }}"></script>
 <script src="{{ asset('js/perspectives-order.js') }}"></script>
+<script src="{{ asset('js/notifications.js') }}"></script>
 <script>
 /* Navbar Todoist sync button — fire-and-forget POST, spin while running,
    then reload to show new items. */

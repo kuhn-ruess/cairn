@@ -714,6 +714,9 @@ class Item(Document):
         self.completed_by = by_user
         self.completed_via = "user"
         self.save()  # cascades: closes this task's sub-tasks too
+        # If this was delegated, let the delegator know it's done.
+        from application.services.notifications import notify_completed
+        notify_completed(self, by_user=by_user)
         # Recurrence only makes sense for actual tasks. A project/folder/
         # section never spawns a clone (defensive — ensure_container already
         # strips recurrence on the flip).
@@ -982,6 +985,11 @@ class Item(Document):
                 new_assignee.save()
             except Exception:
                 pass
+        # Tell the assignee — only on a real (re)assignment, and never for
+        # self-assignment (handled above by collapsing to None).
+        if new_assignee != old:
+            from application.services.notifications import notify_assigned
+            notify_assigned(self, by_user=self.assigned_by)
 
     @classmethod
     def note_counts_for(cls, items) -> dict:

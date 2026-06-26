@@ -241,16 +241,9 @@ def assign_task(task_id):
         assignee = resolve_assignable_user(user, assignee_id)
         if not assignee:
             return _bad_request("user not assignable", 403)
-        if assignee != task.assigned_to:
-            task.assignee_parent = None  # new assignee → no inherited filing
-        task.assigned_to = assignee
-        task.assigned_by = user
-        task.assigned_at = datetime.now(timezone.utc)
+        task.assign_to(assignee, by_user=user)  # fires the assignee notification
     else:
-        task.assigned_to = None
-        task.assigned_by = None
-        task.assigned_at = None
-        task.assignee_parent = None
+        task.assign_to(None)
     task.save()
     return jsonify(ser_task(task))
 

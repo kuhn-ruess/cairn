@@ -133,6 +133,14 @@ def invite():
         return redirect(url_for("teams.index", team=str(team.pk)))
     inv = team.add_invite(email)
     link = url_for("teams.accept", token=inv.token, _external=True)
+    # An existing account gets an in-app notification so they can accept from
+    # the bell instead of hunting for the emailed link.
+    if existing:
+        from application.services.notifications import notify_team_invite
+        notify_team_invite(
+            existing, team=team, inviter=user,
+            link=url_for("teams.accept", token=inv.token),
+        )
     flash(
         f"Invite created for {email} on {team.name}. Share this link: {link}",
         "success",

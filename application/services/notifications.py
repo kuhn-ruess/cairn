@@ -1,0 +1,80 @@
+"""In-app notification helpers (the navbar bell).
+
+Thin functions that append an embedded ``Notification`` to a recipient and
+save them. Fired from explicit, user-facing choke points only:
+
+- ``Item.assign_to``  → tell the new assignee  (notify_assigned)
+- ``Item.complete``   → tell the delegator their delegate finished it (notify_completed)
+- team invite of an existing account → tell the invitee  (notify_team_invite)
+
+A notification must never break the action that triggered it, so every push
+is best-effort (failures are swallowed). ``url_for`` is used for links, which
+needs an app context — present on every request path these fire from.
+"""
+from flask import url_for
+
+
+def _task_link(task) -> str:
+    try:
+        if task.pk:
+            return url_for("tasks.detail", task_id=task.pk)
+    except Exception:
+        pass
+    return ""
+
+
+def _push(recipient, *, kind, text, link="", icon="bi-bell", actor=""):
+    if recipient is None:
+        return
+    try:
+        recipient.add_notification(
+            kind=kind, text=text, link=link or "", icon=icon, actor=actor or "",
+        )
+        recipient.save()
+    except Exception:
+        pass
+
+
+def notify_assigned(task, *, by_user) -> None:
+    """A task was delegated to ``task.assigned_to`` by ``by_user``."""
+    assignee = task.assigned_to
+    if assignee is None or assignee == by_user:
+        return
+    _push(
+        assignee,
+        kind="assigned",
+        text=f"{by_user} assigned you “{task.title}”",
+        link=_task_link(task),
+        icon="bi-person-check",
+        actor=str(by_user),
+    )
+
+
+def notify_completed(task, *, by_user) -> None:
+    """A delegated task was completed — tell whoever delegated it."""
+    assigner = task.assigned_by
+    if assigner is None or assigner == by_user:
+        return
+    _push(
+        assigner,
+        kind="completed",
+        text=f"{by_user} completed “{task.title}”",
+        link=_task_link(task),
+        icon="bi-check2-circle",
+        actor=str(by_user),
+    )
+
+
+def notify_team_invite(recipient, *, team, inviter, link) -> None:
+    """An existing account was invited to a team — surface it in-app so they
+    don't have to find the emailed link."""
+    if recipient is None or recipient == inviter:
+        return
+    _push(
+        recipient,
+        kind="team_invite",
+        text=f"{inviter} invited you to the team “{team.name}”",
+        link=link or "",
+        icon="bi-people",
+        actor=str(inviter),
+    )

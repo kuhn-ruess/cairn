@@ -244,6 +244,11 @@ class User(UserMixin, Document):
     from application.models.calendar import ExternalCalendar as _ExternalCalendar  # noqa: E402
     calendars = EmbeddedDocumentListField(_ExternalCalendar)
 
+    # In-app notifications (navbar bell). Embedded so the unread badge is free
+    # on every page — see application.models.notification. Capped on write.
+    from application.models.notification import Notification as _Notification  # noqa: E402
+    notifications = EmbeddedDocumentListField(_Notification)
+
     def save(self, *args, **kwargs):
         # Enforce the 20-perspective ceiling at the model layer so the API
         # path can't sneak around the form.
@@ -264,6 +269,35 @@ class User(UserMixin, Document):
 
     def tag_names(self) -> list[str]:
         return [t.name for t in (self.tags or [])]
+
+    # ---------- notification helpers ----------
+
+    NOTIFICATION_CAP = 50
+
+    @property
+    def unread_notification_count(self) -> int:
+        return sum(1 for n in (self.notifications or []) if not n.read)
+
+    def add_notification(self, **kwargs) -> None:
+        """Append a notification (newest last) and trim to the cap."""
+        from application.models.notification import Notification
+        self.notifications.append(Notification(**kwargs))
+        overflow = len(self.notifications) - self.NOTIFICATION_CAP
+        if overflow > 0:
+            del self.notifications[:overflow]
+
+    def mark_notifications_read(self, ids=None) -> bool:
+        """Mark all (``ids is None``) or the given pk_refs read. Returns
+        True if anything changed (so the caller can skip a no-op save)."""
+        wanted = set(ids) if ids is not None else None
+        changed = False
+        for n in self.notifications or []:
+            if wanted is not None and str(n.pk_ref) not in wanted:
+                continue
+            if not n.read:
+                n.read = True
+                changed = True
+        return changed
 
     def tag_tree(self) -> list[tuple[int, "object"]]:
         """The user's tags in depth-first parent→child order, each paired

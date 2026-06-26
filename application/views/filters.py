@@ -349,6 +349,25 @@ def register_filters(app):
         )
         return Markup(cleaned)
 
+    @app.template_filter("timeago")
+    def timeago(value):
+        """Compact 'time since' for notification timestamps: now, 5m, 3h, 2d,
+        then an absolute date once it's a week old."""
+        if not value:
+            return ""
+        now = datetime.now(timezone.utc)
+        v = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        secs = (now - v).total_seconds()
+        if secs < 60:
+            return "now"
+        if secs < 3600:
+            return f"{int(secs // 60)}m"
+        if secs < 86400:
+            return f"{int(secs // 3600)}h"
+        if secs < 7 * 86400:
+            return f"{int(secs // 86400)}d"
+        return v.strftime("%b %-d")
+
     @app.template_filter("relativedate")
     def relativedate(value):
         if not value:
