@@ -1066,7 +1066,13 @@ code, pre {
   flex: 0 0 var(--inspector-width);
   width: var(--inspector-width);
   max-width: var(--inspector-width);
-  transform: none !important;   /* collapse width instead of translating */
+  /* translateZ(0) instead of `none`: still no horizontal translate (so the
+     panel collapses by width, not by sliding), but it promotes the panel to
+     its own compositing layer. Without that, WebKit/Safari mis-paints the
+     sticky flex child on the FIRST open after it expands from width:0 — the
+     content renders horizontally displaced until a repaint (a second open or a
+     scroll) settles it. The layer forces a correct paint from the first frame. */
+  transform: translateZ(0) !important;
   transition: flex-basis .25s ease, width .25s ease;
   z-index: auto;
 }
