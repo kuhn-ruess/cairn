@@ -57,7 +57,10 @@ class TaskForm(FlaskForm):
     title = StringField("Title", validators=[DataRequired(), Length(max=500)])
     note = TextAreaField("Note", validators=[Optional()])
     project = SelectField("Project", choices=[], validators=[Optional()])
-    tags = SelectMultipleField("Tags / Contexts", choices=[])
+    # validate_choice off: the inspector token field can type-create new tags,
+    # so names that aren't in `choices` yet must reach the view (which creates
+    # them on the user). See views/tasks.py::_apply_common_fields.
+    tags = SelectMultipleField("Tags / Contexts", choices=[], validate_choice=False)
     status = SelectField(
         "Status",
         choices=[

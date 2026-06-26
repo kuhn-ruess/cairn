@@ -322,7 +322,9 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
             # Tampered POST picking a project the assignee doesn't own → Inbox.
             task.set_home_for(user, None)
     # Tags are stored as a list of names; the multi-select submits names.
-    submitted = list(form.tags.data or [])
+    # Normalise once (strip + cap at the model's 64-char limit) so a
+    # type-created tag and the name stored on the task always match.
+    submitted = [n.strip()[:64] for n in (form.tags.data or []) if n and n.strip()]
     # Snapshot the tags already on the task so the label rule below only
     # fires for tags added in *this* edit. Without this, a status-mapping
     # tag re-snaps the status on every save and you can never move the
@@ -332,6 +334,20 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     # parent flagged as exclusive_children.
     final, seen_excl = [], set()
     by_name = {t.name: t for t in (user.tags or [])}
+    # Type-to-create: any submitted name the user doesn't have yet becomes a
+    # new tag (gray default color), mirroring OmniFocus. validate_choice is off
+    # on the field so unknown names reach us here.
+    from application.models.tag import Tag
+    created = False
+    for name in submitted:
+        name = name.strip()
+        if name and name not in by_name and not user.tag_by_name(name):
+            tag = Tag(name=name[:64])
+            user.tags.append(tag)
+            by_name[tag.name] = tag
+            created = True
+    if created:
+        user.save()
     for name in submitted:
         tag = by_name.get(name)
         if tag and tag.parent:

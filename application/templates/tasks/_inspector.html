@@ -43,7 +43,7 @@
       {%- set _ = tag_meta.append({"name": t.name, "parent": t.parent or "", "excl": t.exclusive_children, "color": t.color}) -%}
     {%- endfor -%}
     {{ form.tags(class="form-select form-select-sm", size="5", **{"data-tag-toggle": "1", "data-tag-meta": tag_meta|tojson}) }}
-    <div class="form-text">Click a label to toggle it. One tag per exclusive group.</div>
+    <div class="form-text">Type to search or create a label. One tag per exclusive group.</div>
   </div>
 {%- endmacro -%}
 
