@@ -92,7 +92,9 @@ def _form_context(user):
         "ops_by_type": OPS_BY_TYPE,
         "grouping_modes": GROUPING_MODES,
         "sort_fields": SORT_FIELDS,
-        "user_tags": sorted(user.tags or [], key=lambda t: t.name.lower()),
+        # Depth-first (parent→child) order with depth, so the tag pickers can
+        # render the hierarchy with indentation instead of a flat list.
+        "tag_tree": [{"name": t.name, "depth": d} for d, t in user.tag_tree()],
         "user_projects": [],  # filled by the global context_processor anyway
     }
 
@@ -173,7 +175,10 @@ def view(pid):
         qs = qs.filter(status__nin=["done", "dropped"])
 
     candidates = list(qs)
-    matched = apply_filter(candidates, p)
+    # Map each tag to {itself + descendants} so a tag clause on a parent
+    # also matches tasks carrying a child tag.
+    tag_descendants = {t.name: user.tag_descendants(t.name) for t in (user.tags or [])}
+    matched = apply_filter(candidates, p, tag_descendants)
 
     if not p.show_blocked:
         matched = [t for t in matched if not t.is_blocked()]

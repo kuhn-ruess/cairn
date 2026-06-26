@@ -82,10 +82,10 @@
         <label class="form-label">Tag to group by</label>
         <select name="grouping_tag" class="form-select">
           <option value="">— pick a tag —</option>
-          {% for t in user_tags %}
+          {% for t in tag_tree %}
             <option value="{{ t.name }}"
               {% if perspective and perspective.grouping_tag == t.name %}selected{% endif %}>
-              @{{ t.name }}
+              {{ ("    " * t.depth) }}{{ "└ " if t.depth else "" }}{{ t.name }}
             </option>
           {% endfor %}
         </select>
@@ -133,13 +133,13 @@
 
 <script id="filter-fields-data" type="application/json">{{ filter_fields|tojson }}</script>
 <script id="ops-by-type-data" type="application/json">{{ ops_by_type|tojson }}</script>
-<script id="user-tags-data" type="application/json">{{ user_tags|map(attribute='name')|list|tojson }}</script>
+<script id="user-tags-data" type="application/json">{{ tag_tree|tojson }}</script>
 
 <script>
 (function () {
   const FIELDS = JSON.parse(document.getElementById("filter-fields-data").textContent);
   const OPS = JSON.parse(document.getElementById("ops-by-type-data").textContent);
-  const TAG_NAMES = JSON.parse(document.getElementById("user-tags-data").textContent);
+  const TAG_TREE = JSON.parse(document.getElementById("user-tags-data").textContent);
 
   const list = document.getElementById("clause-list");
   const addBtn = document.getElementById("add-clause");
@@ -191,9 +191,12 @@
     if (t === "tag") {
       const sel = document.createElement("select");
       sel.className = "form-select form-select-sm";
-      TAG_NAMES.forEach(name => {
+      TAG_TREE.forEach(tag => {
         const o = document.createElement("option");
-        o.value = JSON.stringify(name); o.textContent = "@" + name;
+        o.value = JSON.stringify(tag.name);
+        // Show the hierarchy: indent by depth, mark children, no "@" prefix.
+        const indent = "    ".repeat(tag.depth);
+        o.textContent = indent + (tag.depth ? "└ " : "") + tag.name;
         if (currentValue === o.value) o.selected = true;
         sel.appendChild(o);
       });

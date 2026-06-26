@@ -95,7 +95,7 @@ def _date_check(task_date, op: str, value) -> bool:
     return False
 
 
-def _eval_leaf(task, clause) -> bool:
+def _eval_leaf(task, clause, tag_descendants=None) -> bool:
     field = clause.field
     op = clause.op
     val = _decode_value(clause.value)
@@ -133,7 +133,15 @@ def _eval_leaf(task, clause) -> bool:
     if field == "tag":
         # value is the tag NAME (post-refactor); actual is task.tags (names).
         tag_name = str(val) if val is not None else ""
-        has = tag_name in (actual or [])
+        # Filtering by a parent tag matches its child tags too: expand the
+        # target to {tag + descendants} and test for any overlap.
+        targets = None
+        if tag_descendants is not None:
+            targets = tag_descendants.get(tag_name)
+        if targets:
+            has = bool(set(actual or []) & targets)
+        else:
+            has = tag_name in (actual or [])
         if op == "has":
             return has
         if op == "not_has":
@@ -177,26 +185,31 @@ def _eval_leaf(task, clause) -> bool:
     return False
 
 
-def _eval(task, clause) -> bool:
+def _eval(task, clause, tag_descendants=None) -> bool:
     if not clause:
         return True
     if clause.kind == "group":
         op = clause.group_op or "and"
         if not clause.children:
             return True
-        results = [_eval(task, c) for c in clause.children]
+        results = [_eval(task, c, tag_descendants) for c in clause.children]
         return all(results) if op == "and" else any(results)
-    return _eval_leaf(task, clause)
+    return _eval_leaf(task, clause, tag_descendants)
 
 
-def apply_filter(tasks: Iterable, perspective) -> list:
-    """Return the subset of ``tasks`` matching the perspective's filter."""
+def apply_filter(tasks: Iterable, perspective, tag_descendants=None) -> list:
+    """Return the subset of ``tasks`` matching the perspective's filter.
+
+    ``tag_descendants`` maps a tag name to the set of names rooted at it
+    (itself + children); pass ``User.tag_descendants`` results so a tag
+    filter on a parent also matches tasks carrying a child tag.
+    """
     if not perspective.clauses:
         return list(tasks)
     op = perspective.root_op or "and"
     out = []
     for t in tasks:
-        results = [_eval(t, c) for c in perspective.clauses]
+        results = [_eval(t, c, tag_descendants) for c in perspective.clauses]
         if (all(results) if op == "and" else any(results)):
             out.append(t)
     return out

@@ -265,6 +265,50 @@ class User(UserMixin, Document):
     def tag_names(self) -> list[str]:
         return [t.name for t in (self.tags or [])]
 
+    def tag_tree(self) -> list[tuple[int, "object"]]:
+        """The user's tags in depth-first parent→child order, each paired
+        with its depth (0 = root). Used wherever a tag picker should show
+        the hierarchy instead of a flat list."""
+        by_parent: dict = {}
+        for t in self.tags or []:
+            by_parent.setdefault(t.parent or None, []).append(t)
+        out: list = []
+
+        def walk(parent_name, depth):
+            for t in sorted(by_parent.get(parent_name, []), key=lambda x: x.name.lower()):
+                out.append((depth, t))
+                walk(t.name, depth + 1)
+
+        walk(None, 0)
+        # Orphans (parent set but missing) would be skipped above — surface
+        # them at the root so they never silently vanish from a picker.
+        seen = {id(t) for _d, t in out}
+        for t in self.tags or []:
+            if id(t) not in seen:
+                out.append((0, t))
+        return out
+
+    def tag_descendants(self, name: str) -> set[str]:
+        """The set of tag names rooted at ``name`` — the tag itself plus every
+        descendant. Filtering by a parent tag uses this to also match tasks
+        carrying any child tag."""
+        children: dict = {}
+        for t in self.tags or []:
+            if t.parent:
+                children.setdefault(t.parent.lower(), []).append(t.name)
+        acc: set[str] = set()
+
+        def collect(n: str):
+            for child in children.get(n.lower(), []):
+                if child not in acc:
+                    acc.add(child)
+                    collect(child)
+
+        if name:
+            acc.add(name)
+            collect(name)
+        return acc
+
     def show_field(self, name: str, view_key: str | None = None) -> bool:
         """Whether the named field should render in task-row metadata.
 
