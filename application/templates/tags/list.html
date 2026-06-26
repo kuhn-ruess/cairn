@@ -58,6 +58,6 @@
       Drop here to un-nest (make top-level)
     </li>
   </ul>
-  <script src="{{ url_for('static', filename='js/tag-tree.js') }}?v={{ static_version }}"></script>
+  <script src="{{ asset('js/tag-tree.js') }}"></script>
 {% endif %}
 {% endblock %}

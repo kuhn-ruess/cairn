@@ -208,5 +208,5 @@
 {# Drag-and-drop for tasks comes from sortable-tasks.js (loaded in
    base.html). Project drag, quick-filter, quick-add and one-click
    convert-to-task live in tree-page.js, loaded below. #}
-<script src="{{ url_for('static', filename='js/tree-page.js') }}?v={{ static_version }}"></script>
+<script src="{{ asset('js/tree-page.js') }}"></script>
 {% endblock %}

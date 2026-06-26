@@ -63,26 +63,31 @@ def register_filters(app):
     import time as _time
     boot_version = str(int(_time.time()))
 
-    def _static_version():
-        # In debug, derive the cache-buster from the newest js/css mtime so
-        # editing a static asset busts the browser cache on the next page
-        # load — no process restart needed. (The --debug reloader only
-        # restarts on .py changes, which would otherwise leave the boot-time
-        # version stale and serve cached JS.) Prod keeps the boot value.
-        if not app.debug:
+    # Per-file cache-buster: `asset('css/app.css')` -> the static URL with a
+    # `?v=<mtime>` derived from THAT file. So editing one asset busts only it,
+    # on the next normal page load — no hard reload, no process restart, in dev
+    # and prod alike. Prod caches the mtime (static is baked, so it's constant
+    # until the next deploy); debug re-stats every call so live edits show up.
+    from flask import url_for as _url_for
+    _asset_versions = {}
+
+    def _asset_version(filename):
+        path = _os.path.join(app.static_folder or "", filename)
+        try:
+            return str(int(_os.path.getmtime(path)))
+        except OSError:
             return boot_version
-        newest = 0.0
-        for sub in ("js", "css"):
-            base = _os.path.join(app.static_folder or "", sub)
-            for root, _dirs, files in _os.walk(base):
-                for f in files:
-                    try:
-                        m = _os.path.getmtime(_os.path.join(root, f))
-                    except OSError:
-                        continue
-                    if m > newest:
-                        newest = m
-        return str(int(newest)) if newest else boot_version
+
+    def _asset(filename):
+        if app.debug:
+            v = _asset_version(filename)
+        else:
+            v = _asset_versions.get(filename)
+            if v is None:
+                v = _asset_versions[filename] = _asset_version(filename)
+        return f"{_url_for('static', filename=filename)}?v={v}"
+
+    app.jinja_env.globals["asset"] = _asset
 
     import re as _re
     from markupsafe import Markup as _Markup
@@ -217,7 +222,6 @@ def register_filters(app):
             "nav_counts": nav_counts,
             "sidebar_perspectives": sidebar_perspectives,
             "sidebar_custom_perspectives": sidebar_custom_perspectives,
-            "static_version": _static_version(),
             "project_tree": _project_tree,
             "notes_tree": _notes_tree,
             "item_icon": _item_icon,
