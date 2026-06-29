@@ -43,7 +43,10 @@
     const before = textarea.value.slice(0, pos);
     const m = before.match(/(?:^|\s)@([\w.\-äöüÄÖÜß]*)$/);
     if (!m) return null;
-    return { textarea, start: pos - m[1].length, end: pos, query: m[1] };
+    // start points at the "@" itself (‑1 for it), so the whole "@partial" is
+    // replaced by the picked "@username" — otherwise the original "@" stays and
+    // we'd end up with two.
+    return { textarea, start: pos - m[1].length - 1, end: pos, query: m[1] };
   }
 
   function hide() {
