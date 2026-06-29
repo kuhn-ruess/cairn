@@ -15,6 +15,7 @@
   const form = modalEl.querySelector("#quickAddForm");
   const input = modalEl.querySelector("#quickAddText");
   const noteEl = modalEl.querySelector("#quickAddNote");
+  const pending = modalEl.querySelector("[data-pending-attachments]");
   const previewEl = modalEl.querySelector("#quickAddPreview");
   const projectInput = modalEl.querySelector("#quickAddProject");
   const projectHint = modalEl.querySelector("#quickAddProjectHint");
@@ -199,10 +200,17 @@
         showError(data.error || `Server error: ${resp.status}`);
         return;
       }
+      // Upload any held attachments to the freshly-created task (they append
+      // themselves to its note server-side), before any reload.
+      if (pending && window.PendingAttachments &&
+          window.PendingAttachments.count(pending) && data.task && data.task.id) {
+        await window.PendingAttachments.flush(pending, data.task.id);
+      }
       showSuccess(data.task, data.warnings || {});
       if (continueCb.checked) {
         input.value = "";
         if (noteEl) noteEl.value = "";
+        if (pending && window.PendingAttachments) window.PendingAttachments.clear(pending);
         previewEl.classList.add("d-none");
         input.focus();
         // Refresh the main content in the background so the new task
@@ -266,6 +274,7 @@
     updateProjectHint();
     input.value = "";
     if (noteEl) noteEl.value = "";
+    if (pending && window.PendingAttachments) window.PendingAttachments.clear(pending);
     previewEl.classList.add("d-none");
     setTimeout(() => input.focus(), 50);
   });

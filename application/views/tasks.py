@@ -1568,14 +1568,21 @@ def create():
             if form.add_another.data:
                 # Stay open with a fresh empty form, keeping the same
                 # parent project so the user can keep typing.
-                return _render_empty_task_inspector(
+                html = _render_empty_task_inspector(
                     user,
                     parent_project=task.project,
                     just_added_title=task.title,
                 )
-            # Re-render with the saved task so the inspector stays open and
-            # the next submit goes to /edit, not /new.
-            return _render_task_inspector(task, user, just_saved=True)
+            else:
+                # Re-render with the saved task so the inspector stays open and
+                # the next submit goes to /edit, not /new.
+                html = _render_task_inspector(task, user, just_saved=True)
+            # Surface the new id so the client can upload held attachments to it
+            # (the "create then attach" flow) — works even on add-another, whose
+            # fragment is a fresh empty form without the id.
+            resp = Response(html)
+            resp.headers["X-Created-Task-Id"] = str(task.pk)
+            return resp
         flash("Item created.", "success")
         return redirect(url_for("tasks.detail", task_id=str(task.pk)))
     context = {"form": form, "task": None, "form_action": url_for("tasks.create")}
@@ -2710,6 +2717,17 @@ def _item_bson_size(task) -> int:
     return task.storage_bytes()
 
 
+def _append_markdown_to_note(task, markdown: str) -> None:
+    """Append an uploaded attachment's markdown reference to the task note.
+
+    Used by the "create then attach" flow: the file is uploaded right after the
+    task is created, so there's no open editor to insert the reference into —
+    the server appends it to the stored note instead."""
+    note = (task.note or "").rstrip()
+    task.note = (note + "\n\n" + markdown) if note else markdown
+    task.save()
+
+
 @tasks_bp.route("/<task_id>/note-image", methods=["POST"])
 @login_required
 def note_image_upload(task_id):
@@ -2738,8 +2756,13 @@ def note_image_upload(task_id):
         return jsonify({"error": "item is full — remove some images before adding more"}), 413
     task.save()
 
+    markdown = f"![pasted image]({url_for('tasks.note_image', task_id=str(task.pk), token=token)})"
+    # "create then attach" flow: append the reference to the note server-side,
+    # since there's no open editor to insert it into.
+    if request.form.get("append_to_note") == "1":
+        _append_markdown_to_note(task, markdown)
     payload = {
-        "markdown": f"![pasted image]({url_for('tasks.note_image', task_id=str(task.pk), token=token)})",
+        "markdown": markdown,
         "storage": task.storage_info(),
     }
     if size > ITEM_WARN_BYTES:
@@ -2836,7 +2859,10 @@ def note_file_upload(task_id):
         return jsonify({"error": result[0]}), result[1]
     label = result["filename"].replace("[", "").replace("]", "")
     url = url_for("tasks.note_file", task_id=str(task.pk), token=result["token"])
-    payload = {"markdown": f"[{label}]({url})", "storage": result["storage"]}
+    markdown = f"[{label}]({url})"
+    if request.form.get("append_to_note") == "1":
+        _append_markdown_to_note(task, markdown)
+    payload = {"markdown": markdown, "storage": result["storage"]}
     if result["size"] > ITEM_WARN_BYTES:
         payload["warning"] = (f"This item is getting large "
                               f"({result['size'] / 1024 / 1024:.1f} MB of 16 MB max) "

@@ -142,20 +142,43 @@
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
+  // The nearest pending-attachments container reachable from this textarea
+  // (a create form / modal that holds files until the task is saved), or null.
+  function pendingContainerFor(textarea) {
+    let el = textarea;
+    while (el && el !== document.body) {
+      const c = el.querySelector && el.querySelector("[data-pending-attachments]");
+      if (c) return c;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
   async function handleImage(textarea, blob) {
+    const uploadUrl = uploadUrlFor(textarea);
+    if (!uploadUrl) {
+      // Unsaved task: hold the image as a pending attachment (uploaded as a real
+      // NoteImage after the task is created) instead of bloating the note with
+      // an inline base64 image. Falls back to inline only when there's no
+      // pending widget on the page.
+      const pc = pendingContainerFor(textarea);
+      if (pc && window.PendingAttachments) {
+        window.PendingAttachments.add(pc, blob);
+        return;
+      }
+    }
     const placeholder = `![compressing…](pasted-${Date.now()})`;
     insertAtCursor(textarea, placeholder);
     try {
       const img = await loadImage(blob);
       const canvas = scaledCanvas(img);
-      const uploadUrl = uploadUrlFor(textarea);
       if (uploadUrl) {
         const data = await uploadToItem(uploadUrl, await canvasToBlob(canvas));
         replacePlaceholder(textarea, placeholder, data.markdown);
         updateStorageMeters(data.storage);
         if (data.warning) toast(data.warning, "warning");
       } else {
-        // Unsaved item: nothing to attach to yet — embed compressed inline.
+        // No pending widget — embed compressed inline as a last resort.
         replacePlaceholder(textarea, placeholder, `![pasted image](${canvasToDataUrl(canvas)})`);
       }
     } catch (err) {
@@ -179,7 +202,14 @@
 
   async function handleFile(textarea, file) {
     const uploadUrl = uploadUrlFor(textarea, "note-file");
-    if (!uploadUrl) { toast("Save the item first, then attach files.", "warning"); return; }
+    if (!uploadUrl) {
+      // Unsaved task: hold the file as a pending attachment (uploaded after the
+      // task is created). Only refuse if there's no pending widget to hold it.
+      const pc = pendingContainerFor(textarea);
+      if (pc && window.PendingAttachments) { window.PendingAttachments.add(pc, file); return; }
+      toast("Save the item first, then attach files.", "warning");
+      return;
+    }
     const safe = (file.name || "file").replace(/[[\]]/g, "");
     const placeholder = `[uploading ${safe}…](uploading-${Date.now()})`;
     insertAtCursor(textarea, placeholder);
@@ -276,7 +306,8 @@
   function onNoteDragOver(e) {
     const types = (e.dataTransfer && e.dataTransfer.types) || [];
     const ta = fileDropTarget(e.target);
-    if (ta && Array.from(types).includes("Files") && uploadUrlFor(ta, "note-file")) {
+    if (ta && Array.from(types).includes("Files") &&
+        (uploadUrlFor(ta, "note-file") || pendingContainerFor(ta))) {
       e.preventDefault();
       return;
     }
@@ -291,7 +322,8 @@
     const dt = e.dataTransfer;
     if (!dt) return;
     const ta = fileDropTarget(e.target);
-    if (ta && dt.files && dt.files.length && uploadUrlFor(ta, "note-file")) {
+    if (ta && dt.files && dt.files.length &&
+        (uploadUrlFor(ta, "note-file") || pendingContainerFor(ta))) {
       e.preventDefault();
       e.stopPropagation();
       ta.focus();

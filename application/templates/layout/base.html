@@ -298,6 +298,14 @@
           <textarea id="quickAddNote" name="note" rows="3"
                     class="form-control quick-add-note mt-2"
                     placeholder="Notes (optional) — paste or drop an image to attach, Markdown supported"></textarea>
+          <div class="pending-attachments d-flex flex-wrap align-items-center gap-1 mt-2"
+               data-pending-attachments>
+            <div class="pending-attachments-list"></div>
+            <label class="btn btn-sm btn-outline-secondary mb-0">
+              <i class="bi bi-paperclip"></i> Attach
+              <input type="file" multiple class="d-none pending-attachments-input">
+            </label>
+          </div>
           <div class="d-flex align-items-center gap-2 mt-2">
             <label for="quickAddProject" class="form-label small text-muted mb-0">
               <i class="bi bi-folder"></i> Project
@@ -539,6 +547,7 @@
 <script src="{{ asset('js/project-note.js') }}"></script>
 <script src="{{ asset('js/linked-notes.js') }}"></script>
 <script src="{{ asset('js/note-paste.js') }}"></script>
+<script src="{{ asset('js/pending-attachments.js') }}"></script>
 <script src="{{ asset('js/comment-mention.js') }}"></script>
 <script src="{{ asset('js/now-line.js') }}"></script>
 <script src="{{ asset('js/quick-date.js') }}"></script>

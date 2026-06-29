@@ -16,6 +16,18 @@
   <div class="inspector-section" data-section="note">
     {{ form.note.label(class="form-label small text-uppercase text-muted") }}
     {{ form.note(class="form-control", rows="3", placeholder="Notes, links, context…") }}
+    {# Unsaved new task: hold attachments client-side; inspector.js uploads them
+       to the task right after it's created. A saved task uploads inline. #}
+    {% if not task %}
+      <div class="pending-attachments d-flex flex-wrap align-items-center gap-1 mt-2"
+           data-pending-attachments>
+        <div class="pending-attachments-list"></div>
+        <label class="btn btn-sm btn-outline-secondary mb-0">
+          <i class="bi bi-paperclip"></i> Attach
+          <input type="file" multiple class="d-none pending-attachments-input">
+        </label>
+      </div>
+    {% endif %}
   </div>
 {%- endmacro -%}
 

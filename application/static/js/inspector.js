@@ -571,6 +571,18 @@
         // on a task they can no longer load — navigate where the server says.
         const goTo = resp.headers.get("X-Inspector-Redirect");
         if (goTo) { window.location.href = goTo; return; }
+        // "Create then attach": if this was a NEW task with held attachments,
+        // grab them (the pending container lives in the form we just submitted)
+        // so we can upload them to the freshly-created task below.
+        const wasCreate = /\/tasks\/new(\?|$)/.test(form.getAttribute("action") || "");
+        const pendingC = wasCreate ? form.querySelector("[data-pending-attachments]") : null;
+        const pendingCount = (pendingC && window.PendingAttachments)
+          ? window.PendingAttachments.count(pendingC) : 0;
+        const newTitle = pendingCount
+          ? (form.querySelector('input[name="title"]') || {}).value : "";
+        // The new task's id, surfaced by the create route (works on add-another
+        // too, whose fragment has no id).
+        const createdId = resp.headers.get("X-Created-Task-Id");
         // Server returns the saved-state inspector fragment. Keep the panel
         // open and just swap the body.
         body.innerHTML = await resp.text();
@@ -578,6 +590,16 @@
         document.dispatchEvent(new Event("inspector:loaded"));
         scrollSavedBannerIntoView();
         autoFadeSavedBanner();
+        if (pendingCount && createdId) {
+          // Upload the held files to the freshly-created task (they append to
+          // its note server-side). On a normal create reopen so the note shows
+          // them; on add-another keep the fresh empty form for the next task.
+          await window.PendingAttachments.flush(pendingC, createdId);
+          const reForm = body.querySelector("form[data-inspector-form]");
+          const stillNew = /\/tasks\/new(\?|$)/.test(
+            (reForm && reForm.getAttribute("action")) || "");
+          if (!stillNew) openInspector("/tasks/" + createdId, newTitle);
+        }
         // Refresh the underlying main content so newly created sections /
         // updated counters / moved tasks are visible immediately, without
         // closing the inspector.
