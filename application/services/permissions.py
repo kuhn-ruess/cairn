@@ -159,6 +159,56 @@ def resolve_visible_item(actor, item_id):
     return item
 
 
+def managed_teams(actor) -> list:
+    """Teams the actor manages (is payer/admin or co-admin of)."""
+    from mongoengine import Q
+    from application.models.team import Team
+    return list(Team.objects(Q(admin=actor) | Q(admins=actor)))
+
+
+def managed_team_ids(actor) -> set:
+    return {str(t.pk) for t in managed_teams(actor)}
+
+
+def admin_subtree_pks(actor) -> set:
+    """Container pks a team admin may open in full: everything under any subtree
+    shared with a team they manage — descendant overrides DON'T lock the admin
+    out (unlike regular members). Cached per request."""
+    try:
+        from flask import g, has_request_context
+        in_request = has_request_context()
+    except Exception:
+        g, in_request = None, False
+    if in_request:
+        cached = getattr(g, "_admin_subtree_pks", None)
+        if cached is not None:
+            return cached
+    from application.models.item import Item
+    teams = managed_teams(actor)
+    pks = set()
+    if teams:
+        roots = list(Item.objects(
+            shared_teams__in=teams, kind__in=["project", "folder", "section"],
+        ).only("pk"))
+        pks = {str(r.pk) for r in roots}
+        frontier = [r.pk for r in roots]
+        while frontier:
+            kids = Item.objects(
+                parent__in=frontier, kind__in=["project", "folder", "section"],
+            ).only("pk")
+            nxt = []
+            for k in kids:
+                kp = str(k.pk)
+                if kp in pks:
+                    continue
+                pks.add(kp)
+                nxt.append(k.pk)
+            frontier = nxt
+    if in_request:
+        g._admin_subtree_pks = pks
+    return pks
+
+
 def container_visibility_q(actor):
     """Query for containers (project/folder/section) the actor sees DIRECTLY:
     owned, shared with them by name (members), or shared with one of their teams
@@ -212,6 +262,9 @@ def viewable_container_pks(user) -> set:
             pks.add(cpk)
             nxt.append(c.pk)
         frontier = nxt
+    # Team admins additionally see every container under a subtree shared with a
+    # team they manage — overrides don't lock them out.
+    pks |= admin_subtree_pks(user)
     if in_request:
         g._viewable_container_pks = pks
     return pks

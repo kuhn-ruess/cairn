@@ -1078,10 +1078,32 @@ class Item(Document):
             node = node.parent
         return None
 
+    def _admin_can_view(self, user) -> bool:
+        """A team admin sees everything under any subtree shared with a team
+        they manage — a descendant override (shared with specific people) does
+        NOT lock the admin out, unlike a regular member."""
+        from application.services.permissions import managed_team_ids
+        mids = managed_team_ids(user)
+        if not mids:
+            return False
+        node, seen = self, set()
+        while node is not None:
+            pk = str(getattr(node, "pk", "") or "")
+            if pk and pk in seen:
+                break
+            if pk:
+                seen.add(pk)
+            if node.shared_teams and any(str(t.pk) in mids for t in node.shared_teams):
+                return True
+            node = node.parent
+        return False
+
     def can_be_viewed_by(self, user: User) -> bool:
         if self.owner == user:
             return True
         if self.assigned_to == user:
+            return True
+        if self._admin_can_view(user):
             return True
         # Nearest explicit share wins: walk up to the first item (self, then
         # ancestors) that defines its own share. A descendant with its own
