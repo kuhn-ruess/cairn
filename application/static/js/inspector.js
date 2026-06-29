@@ -61,6 +61,10 @@
   // refresh the list behind it so the change is visible. We *don't* reload
   // immediately on save — that would close the panel.
   let needsReloadOnClose = false;
+  // True once the user has typed into an as-yet-unsaved NEW task form. Guards
+  // against an accidental outside-click discarding the whole task (the panel
+  // would close and the unsaved task be lost). Reset on every (re)render.
+  let unsavedNewTask = false;
   panel.addEventListener("show.bs.offcanvas", () => {
     document.body.classList.add("inspector-docked");
   });
@@ -99,6 +103,9 @@
     // (a trigger reloads the body — handled elsewhere), must not close it.
     if (panel.contains(ev.target)) return;
     if (ev.target.closest("[data-inspector-url]")) return;
+    // Don't let an accidental outside-click discard an unsaved new task — keep
+    // the panel open so the work survives. Escape / the × still close it.
+    if (unsavedNewTask) return;
     bsOffcanvas.hide();
   }, true);
 
@@ -167,6 +174,17 @@
       a.textContent = text;
       a.title = "Open the full detail page";
       titleEl.appendChild(a);
+    }
+    // Track unsaved input on a NEW task form so an accidental outside-click
+    // can't discard it. A saved form re-renders as an /edit form, so this
+    // resets to false automatically. (The comment box is its own action — don't
+    // let typing a comment count as unsaved task data.)
+    unsavedNewTask = false;
+    if (form && /\/tasks\/new(\?|$)/.test(form.getAttribute("action") || "")) {
+      form.addEventListener("input", (ev) => {
+        if (ev.target && ev.target.name === "comment_body") return;
+        unsavedNewTask = true;
+      });
     }
     if (form) {
       form.addEventListener("submit", onFormSubmit);
