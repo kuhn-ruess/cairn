@@ -126,7 +126,9 @@ def toggle_collapse(task_id):
 
 def _scope(user):
     from application.services import focus
-    return focus.restrict(Q(owner=user) | Q(assigned_to=user), user)
+    # owner OR assignee OR member — members keeps a re-delegated task visible to
+    # whoever passed it on (Item.assign_to records non-owner delegators there).
+    return focus.restrict(Q(owner=user) | Q(assigned_to=user) | Q(members=user), user)
 
 _PASS_KEYS = frozenset(
     {"today", "next", "waiting", "waiting_reply", "someday",

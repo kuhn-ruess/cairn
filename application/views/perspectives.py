@@ -20,7 +20,8 @@ perspectives_bp = Blueprint("custom_perspectives", __name__, url_prefix="/perspe
 
 def _scope(user):
     from application.services import focus
-    return focus.restrict(Q(owner=user) | Q(assigned_to=user), user)
+    # members keeps re-delegated tasks visible to whoever passed them on.
+    return focus.restrict(Q(owner=user) | Q(assigned_to=user) | Q(members=user), user)
 
 def _find(user, pid):
     for p in user.custom_perspectives or []:

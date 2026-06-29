@@ -18,7 +18,8 @@ def _user_tz(user):
 
 
 def _scope(user):
-    return Q(owner=user) | Q(assigned_to=user)
+    # members keeps re-delegated tasks visible to whoever passed them on.
+    return Q(owner=user) | Q(assigned_to=user) | Q(members=user)
 
 
 def _today_task_query(user, now):

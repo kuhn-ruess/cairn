@@ -978,6 +978,13 @@ class Item(Document):
         self.assigned_to = new_assignee
         self.assigned_by = by_user or self.owner
         self.assigned_at = _utcnow()
+        # A non-owner who re-delegates a task they were assigned stays in the
+        # loop: keep them as a member so the task doesn't vanish from their lists
+        # once ``assigned_to`` moves on to someone else. Owners always retain
+        # visibility via ``owner``; members accumulates across a delegation chain.
+        actor = by_user or self.owner
+        if actor != self.owner and not any(m == actor for m in (self.members or [])):
+            self.members = list(self.members or []) + [actor]
         # Inherit tags onto assignee's user.tags.
         if new_assignee != old and self.tags:
             try:
