@@ -132,10 +132,28 @@ def index():
 def detail(note_id):
     user = current_user._get_current_object()
     item = _note_or_404(note_id)
-    # A folder has no body of its own — land on the index (its children show
-    # in the navigator).
+    # A folder has no body of its own — show an overview of its contents and
+    # let the user manage sharing/rights for the whole subtree.
     if item.kind == "folder":
-        return redirect(url_for("notes.index"))
+        children = list(Item.objects(
+            parent=item, kind__in=["note", "folder"],
+        ))
+        children = [c for c in children if c.can_be_viewed_by(user)]
+        children.sort(key=lambda x: (x.kind != "folder", (x.title or "").lower()))
+        return render_template(
+            "notes/folder.html",
+            note=item,
+            folder=item,
+            children=children,
+            tree=notes_tree_for_sidebar(user),
+            can_edit=item.can_be_edited_by(user),
+            is_owner=(item.owner == user),
+            member_choices=_member_choices(user),
+            selected_members=[str(m.pk) for m in (item.members or [])],
+            team_choices=_team_choices(user),
+            selected_teams=[str(t.pk) for t in (item.shared_teams or [])],
+            access=item.effective_viewers(),
+        )
     tree = notes_tree_for_sidebar(user)
     related = item.related_items()
     linked_tasks = [r for r in related if r.kind == "task"]

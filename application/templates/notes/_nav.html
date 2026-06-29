@@ -81,10 +81,15 @@
       <li class="nn-li nn-drop-target" data-note-id="{{ it.pk }}"
           {% if it.is_folder %}data-target-folder="{{ it.pk }}"{% endif %}>
         {% if it.is_folder %}
-          <div class="nn-row" style="padding-left: {{ depth * 14 + 6 }}px;"
+          <div class="nn-row {% if note and (note.pk|string) == (it.pk|string) %}active{% endif %}"
+               style="padding-left: {{ depth * 14 + 6 }}px;"
                data-nn-name="{{ it.name|lower }}" title="{{ it.name }}">
-            {{ item_icon(it) }}
-            <span class="nn-name fw-medium">{{ it.name }}</span>
+            <a class="flex-grow-1 d-flex align-items-center gap-1"
+               href="{{ url_for('notes.detail', note_id=it.pk) }}"
+               style="min-width: 0; text-decoration: none; color: inherit;">
+              {{ item_icon(it) }}
+              <span class="nn-name fw-medium">{{ it.name }}</span>
+            </a>
             <form method="post" action="{{ url_for('notes.new', kind='note', parent=it.pk) }}"
                   class="m-0 ms-auto">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

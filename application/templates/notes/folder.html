@@ -1,0 +1,64 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ folder.name }} · Notes · Cairn{% endblock %}
+{% block content %}
+<div class="notes-wrap">
+  {% include "notes/_nav.html" %}
+  <div class="notes-content">
+    <div class="d-flex align-items-center mb-3">
+      <h1 class="h4 mb-0 me-auto">
+        {{ item_icon(folder) }} {{ folder.name }}
+      </h1>
+      {% if is_owner and (member_choices or team_choices) %}
+        <button type="button" class="btn btn-sm btn-outline-secondary"
+                data-bs-toggle="modal" data-bs-target="#shareModal">
+          <i class="bi bi-people"></i> Manage access
+        </button>
+      {% endif %}
+      <a class="btn btn-sm btn-primary ms-2" href="#"
+         onclick="event.preventDefault(); document.getElementById('newNoteHereForm').submit();">
+        <i class="bi bi-plus-lg"></i> New note
+      </a>
+      <form id="newNoteHereForm" method="post" class="d-none"
+            action="{{ url_for('notes.new', kind='note', parent=folder.pk) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      </form>
+    </div>
+
+    {# Effective access at a glance #}
+    <div class="access-summary small mb-3 p-2 rounded" style="background: var(--gv-bg1); max-width: 40rem;">
+      <span class="text-uppercase text-muted" style="font-size:.7rem; letter-spacing:.08em;">
+        <i class="bi bi-eye"></i> Who can see this
+      </span>
+      {% if not access.members and not access.teams %}
+        <span class="ms-1"><i class="bi bi-lock"></i> Private — only you.</span>
+      {% else %}
+        <span class="ms-1">
+          {% for m in access.members %}<span class="badge text-bg-secondary"><i class="bi bi-person"></i> {{ m.display_name or m.username }}</span> {% endfor %}
+          {% for t in access.teams %}<span class="badge text-bg-info"><i class="bi bi-people"></i> {{ t.name }}</span> {% endfor %}
+        </span>
+        {% if access.inherited %}
+          <span class="text-muted ms-1">· inherited from <strong>{{ access.source.name }}</strong></span>
+        {% endif %}
+      {% endif %}
+    </div>
+
+    {% if children %}
+      <div class="list-group">
+        {% for c in children %}
+          <a class="list-group-item list-group-item-action d-flex align-items-center gap-2"
+             href="{{ url_for('notes.detail', note_id=c.pk) }}">
+            {{ item_icon(c) }}
+            <span class="me-auto">{{ c.name }}</span>
+            {% if c.is_folder %}<i class="bi bi-chevron-right text-muted"></i>{% endif %}
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-muted">This folder is empty. Use <strong>New note</strong> to add one.</p>
+    {% endif %}
+  </div>
+</div>
+
+{# ---- Share modal ---- #}
+{% include "notes/_share_modal.html" %}
+{% endblock %}
