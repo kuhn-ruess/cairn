@@ -473,8 +473,10 @@ def _nest_subtasks(roots, collapsed_pks, show_completed):
 def detail(project_id):
     user = current_user._get_current_object()
     project = Item.objects(pk=project_id).first()
-    if not project or not project.can_be_viewed_by(user):
+    if not project:
         abort(404)
+    if not project.can_be_viewed_by(user):
+        abort(403)
     # All Items share one collection — a pk that points at a task
     # would otherwise render as an empty "project". Bounce the caller
     # to the right view so the URL never shows the same item twice.
@@ -1174,8 +1176,10 @@ def complete(project_id):
 def toggle_show_blocked(project_id):
     user = current_user._get_current_object()
     project = Item.objects(pk=project_id).first()
-    if not project or not project.can_be_viewed_by(user):
+    if not project:
         abort(404)
+    if not project.can_be_viewed_by(user):
+        abort(403)
     project.show_blocked_tasks = not project.show_blocked_tasks
     project.save()
     # Stay on the page that fired the toggle — so toggling a section
@@ -1192,8 +1196,10 @@ def toggle_available_only(project_id):
     sequential ones): when on, the page hides blocked tasks."""
     user = current_user._get_current_object()
     project = Item.objects(pk=project_id).first()
-    if not project or not project.can_be_viewed_by(user):
+    if not project:
         abort(404)
+    if not project.can_be_viewed_by(user):
+        abort(403)
     project.show_available_only = not project.show_available_only
     project.save()
     # Stay on the page that fired the toggle (keeps ?group/?completed).
@@ -1208,8 +1214,10 @@ def set_view_mode(project_id):
 
     user = current_user._get_current_object()
     project = Item.objects(pk=project_id).first()
-    if not project or not project.can_be_viewed_by(user):
+    if not project:
         abort(404)
+    if not project.can_be_viewed_by(user):
+        abort(403)
     mode = (request.form.get("view") or "").strip()
     if mode not in VIEW_MODES:
         flash("Invalid view.", "danger")
@@ -1335,8 +1343,10 @@ def set_grouping(project_id):
 
     user = current_user._get_current_object()
     project = Item.objects(pk=project_id).first()
-    if not project or not project.can_be_viewed_by(user):
+    if not project:
         abort(404)
+    if not project.can_be_viewed_by(user):
+        abort(403)
     mode = (request.form.get("group") or "").strip()
     tag = (request.form.get("grouping_tag") or "").strip()
     if mode and mode not in TASK_GROUPINGS:

@@ -72,11 +72,14 @@ def notes_tree_for_sidebar(user):
 # ---------- lookups ----------
 
 def _note_or_404(note_id, *, kinds=("note", "folder")):
-    """A note/folder the current user may view, else 404."""
+    """A note/folder the current user may view. 404 if missing, 403 (friendly
+    no-access page) if it exists but isn't shared with them."""
     user = current_user._get_current_object()
     item = Item.objects(pk=note_id, kind__in=list(kinds)).first()
-    if not item or not item.can_be_viewed_by(user):
+    if not item:
         abort(404)
+    if not item.can_be_viewed_by(user):
+        abort(403)
     return item
 
 

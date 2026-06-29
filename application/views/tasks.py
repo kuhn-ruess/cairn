@@ -1596,8 +1596,10 @@ def create():
 def detail(task_id):
     user = current_user._get_current_object()
     task = Item.objects(pk=task_id).first()
-    if not task or not task.can_be_viewed_by(user):
+    if not task:
         abort(404)
+    if not task.can_be_viewed_by(user):
+        abort(403)
     # Mirror of the projects.detail redirect — if the pk actually
     # points at a project/folder/section, hand off to the right view
     # so the same item never renders as both kinds.

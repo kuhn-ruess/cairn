@@ -9,7 +9,7 @@ from mongoengine import connect, disconnect
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Public app version — surfaced in the nav footer + the About page.
-APP_VERSION = "1.4.115"
+APP_VERSION = "1.4.116"
 
 # Pull settings out of a local ``.env`` file if one exists. Doesn't override
 # values that are already set in the real environment.
@@ -109,6 +109,15 @@ def create_app(config_object: str | None = None) -> Flask:
     from application.views.filters import register_filters
 
     register_filters(app)
+
+    # Forbidden → a friendly "no access" page instead of a bare error. Routes
+    # abort(403) when an item EXISTS but the user may not view it (vs abort(404)
+    # for a genuinely missing item).
+    from flask import render_template
+
+    @app.errorhandler(403)
+    def _forbidden(_e):
+        return render_template("errors/403.html"), 403
 
     # Under gunicorn, route Flask's logger through gunicorn's error handler so
     # app logs AND unhandled-exception tracebacks (app.log_exception) actually

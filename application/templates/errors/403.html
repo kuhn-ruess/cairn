@@ -1,0 +1,16 @@
+{% extends "layout/base.html" %}
+{% block title %}No access · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex flex-column align-items-center justify-content-center text-center py-5"
+     style="min-height: 50vh;">
+  <i class="bi bi-lock display-4 text-muted mb-3"></i>
+  <h1 class="h4 mb-2">You don't have access to this</h1>
+  <p class="text-muted mb-4" style="max-width: 30rem;">
+    This item is shared with specific people only. Ask its owner to share it with
+    you or your team if you need access.
+  </p>
+  <a href="{{ url_for('dashboard.home') }}" class="btn btn-sm btn-primary">
+    <i class="bi bi-house"></i> Back to dashboard
+  </a>
+</div>
+{% endblock %}
