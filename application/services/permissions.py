@@ -159,14 +159,26 @@ def resolve_visible_item(actor, item_id):
     return item
 
 
+def container_visibility_q(actor):
+    """Query for containers (project/folder/section) the actor sees DIRECTLY:
+    owned, shared with them by name (members), or shared with one of their teams
+    (shared_teams). The flat/direct building block — inherited descendants are
+    expanded by ``viewable_container_pks``."""
+    from mongoengine import Q
+    return (Q(owner=actor) | Q(members=actor)
+            | Q(shared_teams__in=teams_of(actor)))
+
+
 def viewable_container_pks(user) -> set:
     """Set of str pks for every project/folder/section ``user`` may open —
-    owned, directly a member of, or a child of a folder/project they're a
-    member of (mirrors ``Item.can_be_viewed_by`` container inheritance).
+    owned, directly shared (members or one of their teams), or inherited as a
+    descendant of a shared container. Inheritance stops at any descendant that
+    sets its OWN share (members/shared_teams): that override is only visible if
+    it shares directly with the user (then it's already in the direct set). This
+    mirrors ``Item.can_be_viewed_by``'s nearest-share-wins rule.
 
     Cached on ``flask.g`` per request so the Inbox query and the
     ``can_view_container`` template helper share ONE computation."""
-    from mongoengine import Q
     from application.models.item import Item
     try:
         from flask import g, has_request_context
@@ -177,22 +189,29 @@ def viewable_container_pks(user) -> set:
         cached = getattr(g, "_viewable_container_pks", None)
         if cached is not None:
             return cached
-    pks = {
-        str(pk) for pk in Item.objects(
-            (Q(owner=user) | Q(members=user)),
+    direct = list(Item.objects(
+        container_visibility_q(user),
+        kind__in=["project", "folder", "section"],
+    ).only("pk"))
+    pks = {str(c.pk) for c in direct}
+    # Walk down: a shared container's children inherit access unless they
+    # override with their own share. One query per tree level until nothing new.
+    frontier = [c.pk for c in direct]
+    while frontier:
+        children = Item.objects(
+            parent__in=frontier,
             kind__in=["project", "folder", "section"],
-        ).values_list("pk")
-    }
-    member_folders = list(Item.objects(
-        members=user, kind__in=["folder", "project"],
-    ).values_list("pk"))
-    if member_folders:
-        pks |= {
-            str(pk) for pk in Item.objects(
-                parent__in=member_folders,
-                kind__in=["project", "folder", "section"],
-            ).values_list("pk")
-        }
+        ).only("pk", "members", "shared_teams")
+        nxt = []
+        for c in children:
+            cpk = str(c.pk)
+            if cpk in pks:
+                continue
+            if c.members or c.shared_teams:
+                continue  # override: not inherited (direct set already has it if shared with us)
+            pks.add(cpk)
+            nxt.append(c.pk)
+        frontier = nxt
     if in_request:
         g._viewable_container_pks = pks
     return pks

@@ -37,11 +37,12 @@ def notes_tree_for_sidebar(user):
     """Notes + notes-folders the user owns or is a member of, as a depth-first
     ``list[(depth, item)]`` for the notes navigator. Mirrors
     ``project_tree_for_sidebar`` but for the ``notes`` folder domain."""
+    from application.services.permissions import container_visibility_q
     items = list(
         Item.objects(
-            (Q(owner=user) | Q(members=user))
+            container_visibility_q(user)
             & (Q(kind="note") | Q(kind="folder", folder_domain="notes"))
-        ).only("pk", "title", "kind", "parent", "color", "members", "owner")
+        ).only("pk", "title", "kind", "parent", "color", "members", "owner", "shared_teams")
     )
     by_id = {str(i.pk): i for i in items}
     children: dict = {}

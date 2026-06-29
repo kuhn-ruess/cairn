@@ -159,8 +159,9 @@ def index():
     from application.services import focus
     focus_pks = focus.focus_pks(user)
     fq = Q(pk__in=focus_pks) if focus_pks is not None else Q()
+    from application.services.permissions import viewable_container_pks
     qs = Item.objects(
-        fq & (Q(owner=user) | Q(members=user)),
+        fq & Q(pk__in=list(viewable_container_pks(user))),
         kind__in=["project", "folder"],
     )
     # Folders have no real status; keep them visible. Projects default
@@ -260,8 +261,10 @@ def project_tree_for_sidebar(user):
     from application.services import focus
     focus_pks = focus.focus_pks(user)
     fq = Q(pk__in=focus_pks) if focus_pks is not None else Q()
+    from application.services.permissions import viewable_container_pks
+    visible_pks = list(viewable_container_pks(user))
     proj_q = Item.objects(
-        fq & (Q(owner=user) | Q(members=user)),
+        fq & Q(pk__in=visible_pks),
         kind__in=["project", "folder"],
         status="active",
         # Notes live in their own folder tree (folder_domain="notes") — keep
@@ -277,7 +280,7 @@ def project_tree_for_sidebar(user):
     # one query, then build a {section_pk: effective_parent_pk} map.
     sections = list(
         Item.objects(
-            fq & (Q(owner=user) | Q(members=user)),
+            fq & Q(pk__in=visible_pks),
             kind="section",
         ).only("pk", "parent")
     )

@@ -32,7 +32,11 @@ def container_choices(user, *, selectable_kinds=("project", "folder"),
     - ``exclude_pk`` — drop this item (so a project can't become its own
       ancestor when editing).
     """
-    scope = (Q(owner=user) | Q(members=user)) if include_shared else Q(owner=user)
+    if include_shared:
+        from application.services.permissions import teams_of
+        scope = Q(owner=user) | Q(members=user) | Q(shared_teams__in=teams_of(user))
+    else:
+        scope = Q(owner=user)
     containers = list(
         # ``folder_domain != "notes"`` keeps the notes-tree folders out of the
         # project/task container pickers (a note folder is never a valid parent

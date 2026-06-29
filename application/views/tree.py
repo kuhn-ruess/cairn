@@ -11,9 +11,10 @@ tree_bp = Blueprint("tree", __name__, url_prefix="/tree")
 def index():
     user = current_user._get_current_object()
 
+    from application.services.permissions import viewable_container_pks
     projects = list(
         Item.objects(
-            (Q(owner=user) | Q(members=user)),
+            pk__in=list(viewable_container_pks(user)),
             status="active",
         )
     )

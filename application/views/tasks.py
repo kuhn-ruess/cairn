@@ -2231,12 +2231,14 @@ def move_options(task_id):
     projects / folders.
     """
     from flask import jsonify
+    from application.services.permissions import container_visibility_q
     user = current_user._get_current_object()
     task = Item.objects(pk=task_id).first()
     if not task or not task.can_be_edited_by(user):
         abort(404)
 
     cur_parent = task.parent
+    cvis = container_visibility_q(user)  # owned / member / team-shared containers
     q = (request.args.get("q") or "").strip().lower()
 
     def _path_of(item) -> str:
@@ -2265,7 +2267,7 @@ def move_options(task_id):
     if q:
         all_containers = list(
             Item.objects(
-                (Q(owner=user) | Q(members=user)),
+                cvis,
                 kind__in=["project", "folder", "section"],
                 status="active",
             ).order_by("+name").limit(800)
@@ -2289,7 +2291,7 @@ def move_options(task_id):
     if cur_parent is None:
         # Inbox — show top-level active containers.
         for p in Item.objects(
-            (Q(owner=user) | Q(members=user)),
+            cvis,
             kind__in=["project", "folder"],
             parent=None, status="active",
         ).order_by("+name").limit(50):
@@ -2312,7 +2314,7 @@ def move_options(task_id):
     while anchor and anchor.pk not in seen:
         seen.add(anchor.pk)
         other = Item.objects(
-            (Q(owner=user) | Q(members=user)),
+            cvis,
             parent=anchor.pk,
             kind__in=["project", "folder", "section"],
             status="active",
@@ -2332,7 +2334,7 @@ def move_options(task_id):
     while frontier:
         nxt = []
         kids = list(Item.objects(
-            (Q(owner=user) | Q(members=user)),
+            cvis,
             parent__in=[f.pk for f in frontier],
             kind__in=["project", "folder", "section"],
             status="active",
@@ -2349,7 +2351,7 @@ def move_options(task_id):
     # most common "move between sections of the same project" case.
     sibling_pks = {
         str(s.pk) for s in Item.objects(
-            (Q(owner=user) | Q(members=user)),
+            cvis,
             parent=cur_parent.parent,
             kind__in=["project", "folder", "section"],
             status="active",

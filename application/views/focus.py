@@ -77,8 +77,9 @@ def choose():
     the dashboard; "show everything" clears focus the same way.
     """
     user = current_user._get_current_object()
+    from application.services.permissions import container_visibility_q
     folders = list(
-        Item.objects(Q(owner=user) | Q(members=user), kind="folder")
+        Item.objects(container_visibility_q(user), kind="folder")
         .only("pk", "title", "parent")
         .order_by("+title")
     )
