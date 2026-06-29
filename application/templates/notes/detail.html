@@ -209,13 +209,49 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <p class="small text-muted">Members can see and edit this note.</p>
+          <p class="small text-muted mb-1">Members can see and edit this note.</p>
           <select name="members" class="form-select" multiple size="6"
                   data-searchable-select="1" data-searchable-placeholder="Search people…">
             {% for pk, label in member_choices %}
               <option value="{{ pk }}" {% if pk in selected_members %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
+          {% if team_choices %}
+            <label class="form-label small text-uppercase text-muted mt-3 mb-1">Share with teams</label>
+            <select name="shared_teams" class="form-select" multiple size="3"
+                    data-searchable-select="1" data-searchable-placeholder="Search teams…">
+              {% for pk, label in team_choices %}
+                <option value="{{ pk }}" {% if pk in selected_teams %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">
+              Inherited by everything inside this folder — unless a child sets its own sharing.
+            </div>
+          {% endif %}
+          <div class="access-summary small mt-3 p-2 rounded" style="background: var(--gv-bg1);">
+            <div class="text-uppercase text-muted" style="font-size:.7rem; letter-spacing:.08em;">
+              <i class="bi bi-eye"></i> Who can see this
+            </div>
+            {% if not access.members and not access.teams %}
+              <div class="mt-1"><i class="bi bi-lock"></i> Private — only you.</div>
+            {% else %}
+              <div class="mt-1 d-flex flex-wrap gap-1">
+                {% for m in access.members %}
+                  <span class="badge text-bg-secondary"><i class="bi bi-person"></i> {{ m.display_name or m.username }}</span>
+                {% endfor %}
+                {% for t in access.teams %}
+                  <span class="badge text-bg-info"><i class="bi bi-people"></i> {{ t.name }}</span>
+                {% endfor %}
+              </div>
+              {% if access.inherited %}
+                <div class="text-muted mt-1">
+                  <i class="bi bi-arrow-down-right"></i>
+                  Inherited from <strong>{{ access.source.name }}</strong>. Set members or a team
+                  here to override it for this note.
+                </div>
+              {% endif %}
+            {% endif %}
+          </div>
         </div>
         <div class="modal-footer py-2">
           <button type="button" class="btn btn-sm btn-link text-muted" data-bs-dismiss="modal">Cancel</button>

@@ -19,9 +19,8 @@ from application.models.item import (
 api_v1_bp = Blueprint("api_v1", __name__, url_prefix="/api/v1")
 
 def _scope():
-    user = g.current_user
-    # members keeps re-delegated tasks visible to whoever passed them on.
-    return Q(owner=user) | Q(assigned_to=user) | Q(members=user)
+    from application.services.permissions import visible_items_q
+    return visible_items_q(g.current_user)
 
 def _parse_dt(value):
     if not value:

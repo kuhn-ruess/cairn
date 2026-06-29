@@ -18,8 +18,8 @@ def _user_tz(user):
 
 
 def _scope(user):
-    # members keeps re-delegated tasks visible to whoever passed them on.
-    return Q(owner=user) | Q(assigned_to=user) | Q(members=user)
+    from application.services.permissions import visible_items_q
+    return visible_items_q(user)
 
 
 def _today_task_query(user, now):

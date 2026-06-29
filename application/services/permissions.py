@@ -126,6 +126,18 @@ def shareable_user_ids(actor) -> list:
     return list(ids)
 
 
+def visible_items_q(actor):
+    """Base visibility query for items the actor can see DIRECTLY: owned,
+    assigned to them, shared with them by name (members), or shared with one of
+    their teams (shared_teams). Shared building block for the per-view ``_scope``
+    helpers — note this is the flat/direct query for LISTS; inherited (parent →
+    child) visibility with override is resolved per-item in
+    ``Item.can_be_viewed_by``."""
+    from mongoengine import Q
+    return (Q(owner=actor) | Q(assigned_to=actor) | Q(members=actor)
+            | Q(shared_teams__in=teams_of(actor)))
+
+
 def resolve_visible_item(actor, item_id):
     """Look up an Item by pk and assert the actor may view it.
 

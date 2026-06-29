@@ -157,6 +157,7 @@ class Item(Document):
             "due_date",
             "defer_date",
             "members",
+            "shared_teams",
             "next_review_at",
             "trashed_at",
             ("owner", "kind"),
@@ -291,6 +292,10 @@ class Item(Document):
     assigned_by = ReferenceField(User)
     assigned_at = DateTimeField()
     members = ListField(ReferenceField(User))  # for project-like items
+    # Share with whole teams. Inherited down the tree; a descendant that sets its
+    # OWN share (members/shared_teams) overrides the inherited one — see
+    # can_be_viewed_by. String ref avoids a circular import with Team.
+    shared_teams = ListField(ReferenceField("Team"))
 
     # comments live with the item
     comments = EmbeddedDocumentListField(Comment)
@@ -1053,17 +1058,60 @@ class Item(Document):
             "level": level,
         }
 
+    def _user_team_ids(self, user):
+        from application.services.permissions import teams_of
+        return {str(t.pk) for t in teams_of(user)}
+
+    def _explicit_share_node(self):
+        """Nearest item up the chain (self first) that defines its OWN share
+        (members or shared_teams), or None if nobody up the chain shares.
+        This is what gives override semantics: the closest share wins."""
+        node, seen = self, set()
+        while node is not None:
+            pk = str(getattr(node, "pk", "") or "")
+            if pk and pk in seen:
+                break
+            if pk:
+                seen.add(pk)
+            if node.members or node.shared_teams:
+                return node
+            node = node.parent
+        return None
+
     def can_be_viewed_by(self, user: User) -> bool:
         if self.owner == user:
             return True
         if self.assigned_to == user:
             return True
-        if self.members and any(m == user for m in self.members):
+        # Nearest explicit share wins: walk up to the first item (self, then
+        # ancestors) that defines its own share. A descendant with its own
+        # members/shared_teams therefore OVERRIDES (narrows) what a parent
+        # shared — e.g. a sub-folder shared with one person hides it from the
+        # team the parent was shared with.
+        node = self._explicit_share_node()
+        if node is None:
+            return False
+        if node.members and any(m == user for m in node.members):
             return True
-        # Inherit visibility from parent project's members.
-        if self.parent and self.parent.members and any(m == user for m in self.parent.members):
-            return True
+        if node.shared_teams:
+            team_ids = self._user_team_ids(user)
+            if any(str(t.pk) in team_ids for t in node.shared_teams):
+                return True
         return False
+
+    def effective_viewers(self):
+        """Who can see this item, for display ("wer sieht was"). Returns the
+        nearest explicit-share node's member users + shared teams, and whether
+        that share is inherited from an ancestor (vs set on this item)."""
+        node = self._explicit_share_node()
+        if node is None:
+            return {"members": [], "teams": [], "inherited": False, "source": None}
+        return {
+            "members": list(node.members or []),
+            "teams": list(node.shared_teams or []),
+            "inherited": (node.pk != self.pk),
+            "source": node,
+        }
 
     def can_be_edited_by(self, user: User) -> bool:
         return self.can_be_viewed_by(user)

@@ -34,8 +34,8 @@ def datenschutz():
 
 def _scope(user):
     from application.services import focus
-    # members keeps re-delegated tasks visible to whoever passed them on.
-    return focus.restrict(Q(owner=user) | Q(assigned_to=user) | Q(members=user), user)
+    from application.services.permissions import visible_items_q
+    return focus.restrict(visible_items_q(user), user)
 
 @dashboard_bp.route("/")
 @login_required

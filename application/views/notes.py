@@ -151,6 +151,9 @@ def detail(note_id):
         folder_choices=_folder_choices(user, exclude_pk=item.pk),
         member_choices=_member_choices(user),
         selected_members=[str(m.pk) for m in (item.members or [])],
+        team_choices=_team_choices(user),
+        selected_teams=[str(t.pk) for t in (item.shared_teams or [])],
+        access=item.effective_viewers(),
     )
 
 
@@ -159,6 +162,11 @@ def _member_choices(user):
     ids = [pk for pk in shareable_user_ids(user) if pk != str(user.pk)]
     users = User.objects(pk__in=ids) if ids else []
     return [(str(u.pk), str(u)) for u in users]
+
+
+def _team_choices(user):
+    from application.services.permissions import teams_of
+    return [(str(t.pk), t.name) for t in teams_of(user)]
 
 
 @notes_bp.route("/new", methods=["GET", "POST"])
@@ -279,16 +287,22 @@ def share(note_id):
     item = Item.objects(pk=note_id, owner=user, kind__in=["note", "folder"]).first()
     if not item:
         abort(404)
-    from application.services.permissions import resolve_assignable_user
+    from application.services.permissions import resolve_assignable_user, teams_of
     members = []
     for mid in request.form.getlist("members"):
         m = resolve_assignable_user(user, mid)
         if m:
             members.append(m)
     item.members = members
+    # Team shares, validated against the teams the user actually participates in.
+    allowed_teams = {str(t.pk): t for t in teams_of(user)}
+    item.shared_teams = [
+        allowed_teams[tid] for tid in request.form.getlist("shared_teams")
+        if tid in allowed_teams
+    ]
     item.save()
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return jsonify({"ok": True, "count": len(members)})
+        return jsonify({"ok": True, "count": len(members) + len(item.shared_teams)})
     flash("Sharing updated.", "success")
     return redirect(url_for("notes.detail", note_id=str(item.pk)))
 

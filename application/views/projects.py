@@ -13,6 +13,7 @@ def _render_project_inspector(project, user, *, just_saved=False):
     _populate_choices(form, user, project)
     form.parent.data = str(project.parent.pk) if project.parent else ""
     form.members.data = [str(m.pk) for m in (project.members or [])]
+    form.shared_teams.data = [str(t.pk) for t in (project.shared_teams or [])]
     form.kind.data = _kind_of(project)
     return render_template(
         "projects/_inspector.html",
@@ -52,10 +53,12 @@ def _populate_choices(form: ProjectForm, user: User, current: Item | None = None
     # Sharing is restricted to team members. Free / solo users see no
     # candidates (the form still renders, but the dropdown is empty so
     # they can't share). Premium and team_admin show their teammates.
-    from application.services.permissions import shareable_user_ids
+    from application.services.permissions import shareable_user_ids, teams_of
     candidate_ids = [pk for pk in shareable_user_ids(user) if pk != str(user.pk)]
     users = User.objects(pk__in=candidate_ids) if candidate_ids else []
     form.members.choices = [(str(u.pk), str(u)) for u in users]
+    # Share with a whole team (inherited by children, overridable on a child).
+    form.shared_teams.choices = [(str(t.pk), t.name) for t in teams_of(user)]
 
 def _apply(form: ProjectForm, project: Item) -> None:
     from application.services.tz import attach_user_tz
@@ -91,6 +94,14 @@ def _apply(form: ProjectForm, project: Item) -> None:
         project.members = members
     else:
         project.members = []
+    # Team shares — only teams the user actually participates in (a tampered POST
+    # can't share into a stranger's team).
+    from application.services.permissions import teams_of
+    allowed_team_ids = {str(t.pk): t for t in teams_of(user)}
+    project.shared_teams = [
+        allowed_team_ids[tid] for tid in (form.shared_teams.data or [])
+        if tid in allowed_team_ids
+    ]
 
     # Kind-specific cleanup. Sections share the project_type field
     # (they can be sequential too — the per-section blocking logic
@@ -1101,6 +1112,7 @@ def edit(project_id):
         localise_form_dates(form, user)
         form.parent.data = str(project.parent.pk) if project.parent else ""
         form.members.data = [str(m.pk) for m in (project.members or [])]
+        form.shared_teams.data = [str(t.pk) for t in (project.shared_teams or [])]
         # ``kind`` isn't a model attribute — it's a UI abstraction over
         # ``is_folder`` / ``is_section``. Derive it explicitly so the
         # dropdown reflects the project's actual type. Without this the
