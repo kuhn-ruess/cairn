@@ -210,7 +210,8 @@
         </div>
         <div class="modal-body">
           <p class="small text-muted">Members can see and edit this note.</p>
-          <select name="members" class="form-select" multiple size="6">
+          <select name="members" class="form-select" multiple size="6"
+                  data-searchable-select="1" data-searchable-placeholder="Search people…">
             {% for pk, label in member_choices %}
               <option value="{{ pk }}" {% if pk in selected_members %}selected{% endif %}>{{ label }}</option>
             {% endfor %}

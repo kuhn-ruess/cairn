@@ -132,8 +132,10 @@
 
   <div class="inspector-section" data-show-for="project">
     {{ form.members.label(class="form-label small text-uppercase text-muted") }}
-    {{ form.members(class="form-select form-select-sm", size="5") }}
-    <div class="form-text">Members can see and act on this project.</div>
+    {{ form.members(class="form-select form-select-sm", size="5",
+                    **{"data-searchable-select": "1",
+                       "data-searchable-placeholder": "Search people…"}) }}
+    <div class="form-text">Click to toggle — members can see and act on this project.</div>
   </div>
 </form>
 

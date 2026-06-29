@@ -47,6 +47,21 @@
         filter();
       }
     });
+
+    if (sel.multiple) {
+      // A native <select multiple> replaces the whole selection on a plain
+      // click — you'd need Cmd/Ctrl-click to add. That makes picking a second
+      // member silently drop the first. Make each click TOGGLE its option
+      // instead, leaving the others intact.
+      sel.addEventListener("mousedown", (e) => {
+        const opt = e.target.closest("option");
+        if (!opt || opt.disabled) return;
+        e.preventDefault();
+        opt.selected = !opt.selected;
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+        sel.focus();
+      });
+    }
   }
 
   function init() {
