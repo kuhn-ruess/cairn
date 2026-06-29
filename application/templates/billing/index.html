@@ -18,6 +18,8 @@
       <span class="badge text-bg-primary text-uppercase">{{ user.level|replace('_', ' ') }}</span>
       {% if user.has_active_subscription and user.subscription_plan %}
         <span class="badge text-bg-success ms-1">{{ user.subscription_plan|capitalize }} · paid</span>
+      {% elif user.is_premium_via_team %}
+        <span class="badge text-bg-success ms-1">Premium · via team</span>
       {% elif user.is_trial_active %}
         <span class="badge text-bg-info ms-1">Trial — {{ user.trial_days_left }} day{{ '' if user.trial_days_left == 1 else 's' }} left</span>
       {% endif %}

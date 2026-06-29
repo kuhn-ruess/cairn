@@ -100,7 +100,7 @@
         <i class="bi bi-credit-card fs-3 text-primary"></i>
         <div>
           <div class="fw-semibold">Subscription
-            {% if current_user.is_trial_active and not current_user.has_active_subscription %}
+            {% if current_user.is_trial_active and not current_user.has_active_subscription and not current_user.is_premium_via_team %}
               <span class="badge text-bg-info ms-1">{{ current_user.trial_days_left }}d trial</span>
             {% endif %}
           </div>

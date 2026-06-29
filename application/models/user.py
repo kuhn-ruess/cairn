@@ -396,6 +396,13 @@ class User(UserMixin, Document):
         return self.subscription_status in ("active", "trialing")
 
     @property
+    def is_premium_via_team(self) -> bool:
+        """Premium granted by team membership (bundled in the team's
+        subscription), not the user's own. While true, trial messaging is
+        irrelevant — it only matters again once they leave the team."""
+        return self.team is not None
+
+    @property
     def trial_days_left(self) -> int:
         if not self.is_trial_active:
             return 0
