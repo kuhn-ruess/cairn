@@ -2358,10 +2358,21 @@ body.ps-resizing * {
   overflow: hidden;
 }
 
-/* Quick-date buttons under datetime-local inputs — small + low key. */
+/* Quick-date buttons under datetime-local inputs — small + low key. They sit
+   under Defer/Due inside the two-column .grid-2, which is too narrow for six
+   connected buttons in a row, so let them wrap. Wrapping breaks the btn-group's
+   joined look, so give each button its own rounded border + a small gap. */
+.quick-date-row {
+  flex-wrap: wrap;
+  gap: .2rem;
+}
 .quick-date-row .btn {
   padding: .12rem .45rem;
   font-size: .72rem;
+  /* !important: btn-group's per-child radius/overlap rules outrank this
+     selector. Override so each wrapped button is a standalone rounded pill. */
+  border-radius: .2rem !important;
+  margin-left: 0 !important;
 }
 
 /* Review — a task whose own (overridden) review interval has come due gets
