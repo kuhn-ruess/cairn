@@ -53,13 +53,25 @@ def login():
     return render_template("auth/login.html", form=form)
 
 
+# German umlauts/ß transliterated the conventional way *before* NFKD. NFKD
+# decomposes umlauts to a/o/u (losing the e) and leaves ß untouched, so
+# encode("ascii","ignore") would drop ß entirely — "Rueß" → "rue". Mapping first
+# gives "ruess" / "ä→ae" etc.
+_DE_TRANSLIT = {
+    "ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss",
+    "Ä": "ae", "Ö": "oe", "Ü": "ue",
+}
+
+
 def _slugify_username(name: str) -> str:
     """Reduce a display name to an ASCII slug fit for the username field
-    (lowercase, alnum + dashes, ≤ 64 chars). Falls back to ``user`` so
-    we never end up with an empty string."""
+    (lowercase, alnum + dashes, ≤ 64 chars). German umlauts/ß are transliterated
+    (ä→ae, ö→oe, ü→ue, ß→ss) rather than dropped, so "Sven Rueß" → "sven-ruess".
+    Falls back to ``user`` so we never end up with an empty string."""
     import re
     import unicodedata
-    s = unicodedata.normalize("NFKD", name or "")
+    s = "".join(_DE_TRANSLIT.get(ch, ch) for ch in (name or ""))
+    s = unicodedata.normalize("NFKD", s)
     s = s.encode("ascii", "ignore").decode("ascii").lower()
     s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
     return (s or "user")[:64]
