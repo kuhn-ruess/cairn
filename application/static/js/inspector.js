@@ -64,12 +64,9 @@
   panel.addEventListener("show.bs.offcanvas", () => {
     document.body.classList.add("inspector-docked");
   });
-  // WebKit mis-paints the sticky flex child the first time the column animates
-  // from width:0 → full width (it computes geometry while the panel is still
-  // ~0-wide and holding only the spinner, then never recomputes). Force a layout
-  // pass once the open animation has finished so the panel settles in place
-  // without needing a scroll or a second open. (CSS-only mitigations alone left
-  // this gap.)
+  // First open paints the panel shifted left until a second open/scroll. Once
+  // the open animation has finished and the panel is at full width, kick its
+  // compositing layer so WebKit re-paints it in the right place. See forceReflow.
   panel.addEventListener("shown.bs.offcanvas", () => {
     forceReflow();
   });
@@ -105,13 +102,22 @@
     bsOffcanvas.hide();
   }, true);
 
-  // Nudge WebKit into recomputing the sticky panel's geometry. Reading
-  // offsetWidth forces a synchronous reflow; the rAF re-runs it after the
-  // browser has applied the latest layout so the fix sticks across both the
-  // open transition and content injection.
+  // On first open the panel paints shifted left into the page margin (a WebKit
+  // bug: the sticky flex child's promoted compositing layer — transform:
+  // translateZ(0) in app.css — is positioned wrong until a later repaint, e.g.
+  // a second open or a scroll). It's a paint/layer bug, not a layout one, so
+  // reading offsetWidth alone doesn't fix it. Briefly drop the promoted layer
+  // (transform:none, via inline !important to beat the stylesheet), flush, then
+  // restore it on the next frame so WebKit re-establishes the layer at the
+  // correct position. translateZ(0) and none have identical visual offset
+  // (zero), so the toggle is invisible.
   function forceReflow() {
+    panel.style.setProperty("transform", "none", "important");
     void panel.offsetWidth;
-    requestAnimationFrame(() => { void panel.offsetWidth; });
+    requestAnimationFrame(() => {
+      panel.style.removeProperty("transform"); // back to stylesheet translateZ(0)
+      void panel.offsetWidth;
+    });
   }
 
   function withInspectorParam(url) {
