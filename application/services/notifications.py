@@ -6,6 +6,7 @@ save them. Fired from explicit, user-facing choke points only:
 - ``Item.assign_to``  → tell the new assignee  (notify_assigned)
 - ``Item.complete``   → tell the delegator their delegate finished it (notify_completed)
 - team invite of an existing account → tell the invitee  (notify_team_invite)
+- ``@name`` in a comment → tell the mentioned teammate  (notify_mention)
 
 A notification must never break the action that triggered it, so every push
 is best-effort (failures are swallowed). ``url_for`` is used for links, which
@@ -61,6 +62,20 @@ def notify_completed(task, *, by_user) -> None:
         text=f"{by_user} completed “{task.title}”",
         link=_task_link(task),
         icon="bi-check2-circle",
+        actor=str(by_user),
+    )
+
+
+def notify_mention(recipient, *, by_user, task) -> None:
+    """``recipient`` was @-mentioned in a comment on ``task`` by ``by_user``."""
+    if recipient is None or recipient == by_user:
+        return
+    _push(
+        recipient,
+        kind="mention",
+        text=f"{by_user} mentioned you in a comment on “{task.title}”",
+        link=_task_link(task),
+        icon="bi-at",
         actor=str(by_user),
     )
 

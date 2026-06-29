@@ -16,6 +16,15 @@
   const MAX_DIM = 1600;
   const QUALITY = 0.72;
 
+  // Textareas that accept image paste / file drop. Notes plus both comment
+  // boxes: the inspector's (name="comment_body") and the full task-detail
+  // form's (the CommentForm body field, scoped to its form so we don't grab
+  // unrelated name="body" fields elsewhere). Comments render through the same
+  // markdown filter as notes, so an uploaded image shows up inline.
+  const COMMENT_TEXTAREA_SEL =
+    'textarea[name="comment_body"], .task-detail-comment-form textarea';
+  const UPLOAD_TEXTAREA_SEL = 'textarea[name="note"], ' + COMMENT_TEXTAREA_SEL;
+
   function csrfToken() {
     const el = document.querySelector('input[name="csrf_token"]');
     return el ? el.value : "";
@@ -31,8 +40,15 @@
     if (noteWrap && noteWrap.dataset.noteId) {
       return `/notes/${noteWrap.dataset.noteId}/${endpoint}`;
     }
+    // The inspector comment box isn't a real <form> — it carries its own
+    // /tasks/<id>/comment action on a [data-action] wrapper. Prefer that, then
+    // fall back to the surrounding form's action (…/tasks/<id>/…). Either way we
+    // only need the item id; uploads still go to the shared note-image endpoint.
+    const commentWrap = textarea.closest("[data-action]");
     const form = textarea.closest("form");
-    const action = (form && form.getAttribute("action")) || "";
+    const action =
+      (commentWrap && commentWrap.getAttribute("data-action")) ||
+      (form && form.getAttribute("action")) || "";
     const m = action.match(/\/tasks\/([0-9a-fA-F]{12,})(?:\/|$)/);
     return m ? `/tasks/${m[1]}/${endpoint}` : null;
   }
@@ -180,7 +196,7 @@
 
   function onPaste(e) {
     const textarea = e.target;
-    if (!textarea.matches('textarea[name="note"]')) return;
+    if (!textarea.matches(UPLOAD_TEXTAREA_SEL)) return;
     const items = (e.clipboardData && e.clipboardData.items) || [];
     for (const item of items) {
       if (item.kind !== "file") continue;
@@ -205,7 +221,7 @@
 
   function noteTextareaFor(target) {
     if (!target || !target.closest) return null;
-    return target.closest('textarea[name="note"], textarea.pn-editor');
+    return target.closest('textarea[name="note"], textarea.pn-editor, ' + COMMENT_TEXTAREA_SEL);
   }
 
   function firstLink(str) {
@@ -254,7 +270,7 @@
   // works) — the project ``.pn-editor`` only gets the link-drop behaviour, to
   // match where inline images are supported today.
   function fileDropTarget(target) {
-    return (target && target.closest) ? target.closest('textarea[name="note"]') : null;
+    return (target && target.closest) ? target.closest(UPLOAD_TEXTAREA_SEL) : null;
   }
 
   function onNoteDragOver(e) {

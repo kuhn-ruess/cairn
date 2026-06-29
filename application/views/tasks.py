@@ -1,4 +1,5 @@
 """Item views — perspectives, CRUD, comments, assignments."""
+import re
 from datetime import datetime, timedelta, timezone
 
 from flask import (
@@ -244,15 +245,16 @@ def _tag_choices_tree(tags) -> list:
     return out
 
 def _populate_form_choices(form: TaskForm, user: User) -> None:
-    # Project picker only lists real projects (kind="project"). Folders
-    # are organisational; sections live inline in a project and aren't
-    # task containers. Labels carry the full folder breadcrumb so a project
-    # nested in folders is unambiguous (see services/containers.py).
+    # The location picker lists projects, folders AND sections — all valid task
+    # containers (a task's parent can be any of them). Labels carry the full
+    # breadcrumb so a section reads as "🔖  Work / Website / Backlog" and a
+    # project nested in folders is unambiguous (see services/containers.py).
+    # Including sections is what lets the section "+" button (which seeds
+    # ?project=<section_pk>) actually file the task into that section, and gives
+    # the inspector a manual section picker.
     from application.services.containers import container_choices
-    # Folders can hold tasks too, so they're valid task containers — offer
-    # them alongside projects (full breadcrumb labels keep them distinct).
     form.project.choices = [("", "—")] + container_choices(
-        user, selectable_kinds=("project", "folder"),
+        user, selectable_kinds=("project", "folder", "section"),
         include_shared=True, active_projects_only=True,
     )
     # Tag dropdown choices use the tag NAME both as value and label.
@@ -2571,6 +2573,28 @@ def bulk():
         flash("Nothing selected.", "warning")
     return redirect(request.referrer or url_for("dashboard.home"))
 
+_MENTION_RE = re.compile(r"@([\w.\-]+)")
+
+
+def _notify_mentions(task, body, *, by_user):
+    """Fire an in-app notification for every ``@name`` in a comment that
+    resolves to a teammate. Best-effort and scoped to assignable users, so a
+    stray ``@`` or an email address never notifies a stranger. Done here in the
+    view (not ``Item.add_comment``) so imported/system comments aren't scanned —
+    matching the notifications module's "user-facing choke points only" design."""
+    if not body:
+        return
+    from application.services.permissions import resolve_assignable_user_by_name
+    from application.services.notifications import notify_mention
+    notified = {str(by_user.pk)}  # never notify yourself
+    for token in dict.fromkeys(m.lower() for m in _MENTION_RE.findall(body)):
+        recipient = resolve_assignable_user_by_name(by_user, token)
+        if recipient is None or str(recipient.pk) in notified:
+            continue
+        notified.add(str(recipient.pk))
+        notify_mention(recipient, by_user=by_user, task=task)
+
+
 @tasks_bp.route("/<task_id>/comment", methods=["POST"])
 @login_required
 def comment(task_id):
@@ -2581,6 +2605,7 @@ def comment(task_id):
     form = CommentForm()
     if form.validate_on_submit():
         task.add_comment(user, form.body.data)
+        _notify_mentions(task, form.body.data, by_user=user)
         if request.headers.get("X-Inspector-Request") == "1":
             from flask import jsonify
             c = task.comments[-1]
@@ -2590,6 +2615,9 @@ def comment(task_id):
                     "index": len(task.comments) - 1,
                     "author": c.author_name,
                     "body": c.body,
+                    # Pre-rendered markdown so the inspector can show pasted
+                    # images / formatting immediately, without a reload.
+                    "body_html": current_app.jinja_env.filters["markdown"](c.body),
                     "created_at": c.created_at.isoformat(),
                     "is_public": c.is_public,
                 }

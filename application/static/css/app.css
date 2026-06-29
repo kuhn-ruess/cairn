@@ -1174,6 +1174,12 @@ body.inspector-docked #bulk-bar {
   grid-template-columns: 1fr 1fr;
   gap: .75rem;
 }
+/* Grid items default to min-width:auto, so a datetime-local input's intrinsic
+   width blows out its track and squeezes the sibling (Due lost room to Defer).
+   Let both columns shrink to equal 1fr tracks. */
+.grid-2 > * {
+  min-width: 0;
+}
 .inspector-form .form-control,
 .inspector-form .form-select {
   background: var(--gv-bg0);

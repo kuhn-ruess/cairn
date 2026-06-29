@@ -64,6 +64,15 @@
   panel.addEventListener("show.bs.offcanvas", () => {
     document.body.classList.add("inspector-docked");
   });
+  // WebKit mis-paints the sticky flex child the first time the column animates
+  // from width:0 → full width (it computes geometry while the panel is still
+  // ~0-wide and holding only the spinner, then never recomputes). Force a layout
+  // pass once the open animation has finished so the panel settles in place
+  // without needing a scroll or a second open. (CSS-only mitigations alone left
+  // this gap.)
+  panel.addEventListener("shown.bs.offcanvas", () => {
+    forceReflow();
+  });
   panel.addEventListener("hidden.bs.offcanvas", () => {
     document.body.classList.remove("inspector-docked");
     // Closing the panel (X / Esc / backdrop) while pinned means "I'm done with
@@ -96,6 +105,15 @@
     bsOffcanvas.hide();
   }, true);
 
+  // Nudge WebKit into recomputing the sticky panel's geometry. Reading
+  // offsetWidth forces a synchronous reflow; the rAF re-runs it after the
+  // browser has applied the latest layout so the fix sticks across both the
+  // open transition and content injection.
+  function forceReflow() {
+    void panel.offsetWidth;
+    requestAnimationFrame(() => { void panel.offsetWidth; });
+  }
+
   function withInspectorParam(url) {
     const u = new URL(url, window.location.origin);
     u.searchParams.set("inspector", "1");
@@ -120,6 +138,9 @@
       const html = await resp.text();
       body.innerHTML = html;
       wireForm();
+      // The real (taller, full-width) form just replaced the spinner — relayout
+      // so the sticky panel doesn't keep the spinner-era geometry.
+      forceReflow();
       document.dispatchEvent(new Event("inspector:loaded"));
     } catch (err) {
       body.innerHTML =
@@ -435,7 +456,9 @@
       `title="Click to toggle internal / public">` +
       visibilityBadgeHtml(c.is_public) +
       "</button></div>" +
-      `<div class="comment-body mt-1" style="white-space: pre-wrap;">${escapeHtml(c.body)}</div>`;
+      // Use the server-rendered markdown (so pasted images / formatting show
+      // immediately); fall back to escaped plain text if it's missing.
+      `<div class="comment-text md-body mt-1">${c.body_html || escapeHtml(c.body)}</div>`;
     // Comments render newest-first, so a new one goes to the top of the DOM.
     list.insertBefore(div, list.firstChild);
     list.scrollTop = 0;  // keep the freshly added comment in view
