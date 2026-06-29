@@ -210,6 +210,7 @@
       if (continueCb.checked) {
         input.value = "";
         if (noteEl) noteEl.value = "";
+        modalEl.querySelectorAll('input[type="datetime-local"]').forEach((i) => { i.value = ""; });
         if (pending && window.PendingAttachments) window.PendingAttachments.clear(pending);
         previewEl.classList.add("d-none");
         input.focus();
@@ -274,6 +275,7 @@
     updateProjectHint();
     input.value = "";
     if (noteEl) noteEl.value = "";
+    modalEl.querySelectorAll('input[type="datetime-local"]').forEach((i) => { i.value = ""; });
     if (pending && window.PendingAttachments) window.PendingAttachments.clear(pending);
     previewEl.classList.add("d-none");
     setTimeout(() => input.focus(), 50);

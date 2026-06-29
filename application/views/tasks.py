@@ -1836,6 +1836,21 @@ def quick_add():
     if not parsed.title:
         return jsonify({"error": "Couldn't extract a title from the input."}), 400
 
+    # Explicit datetime-local pickers (naive wall-clock → attach the user's tz).
+    # An explicit Due wins over a date token parsed from the text.
+    from application.services.tz import attach_user_tz
+
+    def _parse_local(value):
+        s = (value or "").strip()
+        if not s:
+            return None
+        for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                return attach_user_tz(datetime.strptime(s, fmt), user)
+            except ValueError:
+                continue
+        return None
+
     task = Item(
         owner=user,
         kind="task",
@@ -1844,7 +1859,9 @@ def quick_add():
         parent=parsed.project,
         tags=parsed.tags,
         priority=parsed.priority,
-        due_date=parsed.due_date,
+        defer_date=_parse_local(data.get("defer_date")),
+        due_date=_parse_local(data.get("due_date")) or parsed.due_date,
+        plan_date=_parse_local(data.get("plan_date")),
         flagged=parsed.flagged,
         status="open",
     )
