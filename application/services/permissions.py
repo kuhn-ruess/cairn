@@ -217,6 +217,35 @@ def viewable_container_pks(user) -> set:
     return pks
 
 
+def locked_container_pks(user) -> set:
+    """Containers the user can see EXIST — a direct child of something they can
+    view — but may NOT open, because that child overrides the inherited share
+    with its own (which excludes the user). The navigator shows these as locked
+    instead of hiding them, so it's clear access was deliberately restricted."""
+    from bson import ObjectId
+    from application.models.item import Item
+    try:
+        from flask import g, has_request_context
+        in_request = has_request_context()
+    except Exception:
+        g, in_request = None, False
+    if in_request:
+        cached = getattr(g, "_locked_container_pks", None)
+        if cached is not None:
+            return cached
+    viewable = viewable_container_pks(user)
+    locked = set()
+    if viewable:
+        children = Item.objects(
+            parent__in=[ObjectId(p) for p in viewable],
+            kind__in=["project", "folder"],
+        ).only("pk")
+        locked = {str(c.pk) for c in children if str(c.pk) not in viewable}
+    if in_request:
+        g._locked_container_pks = locked
+    return locked
+
+
 def inbox_q(user):
     """Mongo filter (a ``Q``) for the user's Inbox.
 

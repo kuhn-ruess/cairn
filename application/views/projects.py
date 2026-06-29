@@ -296,7 +296,27 @@ def project_tree_for_sidebar(user):
             cur = cur.parent
         section_parent[str(s.pk)] = cur
 
+    projects += _locked_nav_items(user)
     return _as_tree_skipping_sections(projects, section_parent)
+
+
+def _locked_nav_items(user):
+    """Override-locked containers (a child of a visible folder that the user
+    can't open) flagged with ``_locked`` so the navigator shows them greyed and
+    non-clickable rather than hiding them."""
+    from application.services.permissions import locked_container_pks
+    locked = locked_container_pks(user)
+    if not locked:
+        return []
+    from bson import ObjectId
+    items = list(Item.objects(
+        pk__in=[ObjectId(p) for p in locked],
+        kind__in=["project", "folder"],
+        folder_domain__ne="notes",
+    ))
+    for it in items:
+        it._locked = True
+    return items
 
 
 def _as_tree_skipping_sections(projects, section_parent):

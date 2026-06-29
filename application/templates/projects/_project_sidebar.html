@@ -113,6 +113,15 @@
       </li>
       {% for depth, p in tree %}
         {% if (_visible is none) or ((p.pk|string) in _visible) %}
+          {% if p._locked %}
+            <li class="ps-locked-row">
+              <span class="nav-link py-1 ps-row text-muted" style="padding-left: {{ depth * 14 + 8 }}px; cursor: not-allowed;"
+                    title="Locked — shared with specific people only, not the whole team">
+                <i class="bi bi-lock"></i>
+                <span class="ps-name">{{ p.name }}</span>
+              </span>
+            </li>
+          {% else %}
           <li class="ps-drop-target" data-target-project="{{ p.pk }}"
               data-project-id="{{ p.pk }}">
             <a class="nav-link py-1 ps-row {% if (current_pk and current_pk == (p.pk|string)) or (_filter_mode and request.args.get('project') == (p.pk|string)) %}active{% endif %}"
@@ -141,6 +150,7 @@
               <i class="bi bi-bullseye"></i>
             </button>
           </li>
+          {% endif %}
         {% endif %}
       {% endfor %}
     </ul>
