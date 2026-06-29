@@ -140,6 +140,9 @@ def detail(note_id):
         ))
         children = [c for c in children if c.can_be_viewed_by(user)]
         children.sort(key=lambda x: (x.kind != "folder", (x.title or "").lower()))
+        for c in children:
+            if c.kind == "note":
+                c._preview = _note_preview(c.note)
         return render_template(
             "notes/folder.html",
             note=item,
@@ -189,6 +192,18 @@ def _member_choices(user):
 def _team_choices(user):
     from application.services.permissions import teams_of
     return [(str(t.pk), t.name) for t in teams_of(user)]
+
+
+def _note_preview(text, limit=200):
+    """A short plain-text snippet of a note's markdown body, for the mail-style
+    folder preview. Drops images, unwraps links to their text, strips markdown
+    punctuation and collapses whitespace."""
+    s = text or ""
+    s = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", s)        # images out
+    s = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", s)     # links → their text
+    s = re.sub(r"[`*_#>~]|(?<!\w)-(?!\w)", " ", s)      # md punctuation
+    s = re.sub(r"\s+", " ", s).strip()
+    return (s[:limit] + "…") if len(s) > limit else s
 
 
 @notes_bp.route("/new", methods=["GET", "POST"])

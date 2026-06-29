@@ -1,6 +1,13 @@
 {% extends "layout/base.html" %}
 {% block title %}{{ folder.name }} · Notes · Cairn{% endblock %}
 {% block content %}
+<style>
+  /* Mail-style 2-line preview snippet under each note title. */
+  .note-preview-snippet {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+</style>
 <div class="notes-wrap">
   {% include "notes/_nav.html" %}
   <div class="notes-content">
@@ -43,13 +50,26 @@
     </div>
 
     {% if children %}
-      <div class="list-group">
+      <div class="list-group note-preview-list">
         {% for c in children %}
-          <a class="list-group-item list-group-item-action d-flex align-items-center gap-2"
+          <a class="list-group-item list-group-item-action {% if c.is_folder %}d-flex align-items-center gap-2{% endif %}"
              href="{{ url_for('notes.detail', note_id=c.pk) }}">
-            {{ item_icon(c) }}
-            <span class="me-auto">{{ c.name }}</span>
-            {% if c.is_folder %}<i class="bi bi-chevron-right text-muted"></i>{% endif %}
+            {% if c.is_folder %}
+              {{ item_icon(c) }}
+              <span class="me-auto fw-medium">{{ c.name }}</span>
+              <i class="bi bi-chevron-right text-muted"></i>
+            {% else %}
+              <div class="d-flex align-items-baseline gap-2">
+                <span class="fw-medium text-truncate">{{ item_icon(c) }} {{ c.name }}</span>
+                {% if c.note_images %}<i class="bi bi-image text-muted small" title="{{ c.note_images|length }} image(s)"></i>{% endif %}
+                {% if c.updated_at %}<span class="ms-auto text-muted small flex-shrink-0">{{ c.updated_at|localdt }}</span>{% endif %}
+              </div>
+              {% if c._preview %}
+                <div class="text-muted small note-preview-snippet mt-1">{{ c._preview }}</div>
+              {% else %}
+                <div class="text-muted small fst-italic mt-1">Empty note</div>
+              {% endif %}
+            {% endif %}
           </a>
         {% endfor %}
       </div>
