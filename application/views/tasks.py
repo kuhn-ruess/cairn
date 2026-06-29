@@ -1833,6 +1833,7 @@ def quick_add():
         owner=user,
         kind="task",
         title=parsed.title,
+        note=(data.get("note") or "").strip(),
         parent=parsed.project,
         tags=parsed.tags,
         priority=parsed.priority,

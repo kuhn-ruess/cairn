@@ -285,7 +285,7 @@
 {% if current_user.is_authenticated %}
 <div class="modal fade quick-add-modal" id="quickAddModal" tabindex="-1"
      aria-hidden="true" data-bs-backdrop="true">
-  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <form id="quickAddForm" autocomplete="off" class="m-0">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -295,6 +295,9 @@
                  placeholder="What needs to happen?  e.g. ‘Call mom tomorrow @phone p1’"
                  autocomplete="off">
           <div id="quickAddPreview" class="quick-add-preview small mt-2 d-none"></div>
+          <textarea id="quickAddNote" name="note" rows="3"
+                    class="form-control quick-add-note mt-2"
+                    placeholder="Notes (optional) — paste or drop an image to attach, Markdown supported"></textarea>
           <div class="d-flex align-items-center gap-2 mt-2">
             <label for="quickAddProject" class="form-label small text-muted mb-0">
               <i class="bi bi-folder"></i> Project

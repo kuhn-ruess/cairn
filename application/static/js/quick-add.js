@@ -14,6 +14,7 @@
   const modal = bootstrap.Modal.getOrCreateInstance(modalEl, { keyboard: true });
   const form = modalEl.querySelector("#quickAddForm");
   const input = modalEl.querySelector("#quickAddText");
+  const noteEl = modalEl.querySelector("#quickAddNote");
   const previewEl = modalEl.querySelector("#quickAddPreview");
   const projectInput = modalEl.querySelector("#quickAddProject");
   const projectHint = modalEl.querySelector("#quickAddProjectHint");
@@ -201,6 +202,7 @@
       showSuccess(data.task, data.warnings || {});
       if (continueCb.checked) {
         input.value = "";
+        if (noteEl) noteEl.value = "";
         previewEl.classList.add("d-none");
         input.focus();
         // Refresh the main content in the background so the new task
@@ -263,6 +265,7 @@
     if (projectInput.value !== wanted) projectInput.value = "";
     updateProjectHint();
     input.value = "";
+    if (noteEl) noteEl.value = "";
     previewEl.classList.add("d-none");
     setTimeout(() => input.focus(), 50);
   });
