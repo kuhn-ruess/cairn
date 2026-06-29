@@ -33,6 +33,24 @@ def create_user(username, email, password, admin):
     user.save()
     click.echo(f"Created user {user.username} ({user.pk})")
 
+@cairn_cli.command("rename-user")
+@click.argument("old_username")
+@click.argument("new_username")
+def rename_user(old_username, new_username):
+    """Change a user's username (login is by email, so this is safe).
+
+    Used to repair auto-generated usernames — e.g. names with ß/umlauts that
+    predate the transliteration fix (``sven-rue`` → ``sven-ruess``).
+    """
+    user = User.objects(username=old_username).first()
+    if not user:
+        raise click.ClickException(f"no user '{old_username}'")
+    if User.objects(username=new_username).first():
+        raise click.ClickException(f"username '{new_username}' already taken")
+    user.username = new_username
+    user.save()
+    click.echo(f"renamed {old_username} → {user.username} ({user.pk})")
+
 @cairn_cli.command("wipe-legacy-collections")
 def wipe_legacy_collections():
     """Drop the pre-unification ``tasks`` and ``projects`` collections.
