@@ -1,4 +1,5 @@
 {% extends "layout/base.html" %}
+{% import "favorites_macros.html" as fav with context %}
 {% block title %}{{ task.title }} · Cairn{% endblock %}
 {% block content %}
 <header class="task-detail-header mb-3">
@@ -36,6 +37,7 @@
 
     <div class="me-auto">
       <h1 class="h4 mb-1 task-detail-title">
+        {{ fav.star("item:" ~ task.pk, "fs-5 align-middle") }}
         {% if task.flagged %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
         {% if task.priority %}<span class="priority-p{{ task.priority }} me-1">P{{ task.priority }}</span>{% endif %}
         {{ task.title }}

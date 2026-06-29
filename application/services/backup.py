@@ -80,6 +80,7 @@ _MERGE_CONTENT_FIELDS = (
     "today_days",
     "today_view_mode",
     "sidebar_perspectives",
+    "favorites",
 )
 
 

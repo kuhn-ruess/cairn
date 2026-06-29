@@ -1,0 +1,14 @@
+{# Favorite star button. Import WITH CONTEXT so it can read favorite_tokens:
+     {% import "favorites_macros.html" as fav with context %}
+     {{ fav.star("item:" ~ task.pk) }}
+   The toggle is wired globally by favorites.js. #}
+{% macro star(token, extra="") %}
+  {% set _on = favorite_tokens and (token in favorite_tokens) %}
+  <button type="button"
+          class="fav-star {{ extra }}{% if _on %} is-fav{% endif %}"
+          data-fav-token="{{ token }}"
+          aria-pressed="{{ 'true' if _on else 'false' }}"
+          title="{{ 'Remove from favorites' if _on else 'Add to favorites' }}">
+    <i class="bi {{ 'bi-star-fill' if _on else 'bi-star' }}"></i>
+  </button>
+{% endmacro %}

@@ -3,6 +3,7 @@
    Optional include var: view_key (string) — when set, per-view task-row
    overrides apply. #}
 {% set _vk = view_key|default(none) %}
+{% import "favorites_macros.html" as fav with context %}
 {# Linked-note counts for the per-task note button. Reuse what the view already
    computed (Today), else batch once for this list (one indexed query — never
    per row). #}
@@ -67,6 +68,7 @@
              data-inspector-title="{{ task.title }}" title="Open inspector">
             <i class="bi bi-info-circle"></i>
           </a>
+          {{ fav.star("item:" ~ task.pk, "fav-star-hover") }}
           {% if task.status == 'next' and current_user.show_field('next_chip', view_key=_vk) %}
             <span class="next-chip" title="Next action">NEXT</span>
           {% endif %}

@@ -1,4 +1,5 @@
 {% extends "layout/base.html" %}
+{% import "favorites_macros.html" as fav with context %}
 {% block title %}{{ note.title }} · Notes · Cairn{% endblock %}
 {% block content %}
 {# EasyMDE — rich Markdown editor (live syntax highlight + toolbar). Loaded
@@ -12,7 +13,8 @@
   <div class="notes-content" id="note-detail" data-note-id="{{ note.pk }}">
 
     {# ---- Title + actions ---- #}
-    <div class="d-flex align-items-start gap-2 mb-3">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      {{ fav.star("item:" ~ note.pk, "fs-5") }}
       <input type="text" id="note-title" class="form-control form-control-lg fw-semibold border-0 px-0"
              value="{{ note.title }}" style="background: transparent;"
              {% if not can_edit %}readonly{% endif %}>

@@ -185,6 +185,14 @@ class User(UserMixin, Document):
     # single read returns the whole set per request.
     collapsed_items = ListField(StringField())
 
+    # Favorites pinned to the sidebar. Heterogeneous targets stored as
+    # namespaced tokens (list order = display order), resolved at render time:
+    #   item:<pk>     — a task or note
+    #   persp:<key>   — a built-in perspective
+    #   cp:<pid>      — a custom perspective
+    #   org:<slug>    — an "Organize" nav entry (projects, notes, tree, …)
+    favorites = ListField(StringField())
+
     # Braindump scratch pad — the raw Markdown text the user is drafting on
     # the /braindump page. Persisted server-side so the dump survives across
     # devices/browsers (not just localStorage) and stays put after a convert.
@@ -298,6 +306,24 @@ class User(UserMixin, Document):
                 n.read = True
                 changed = True
         return changed
+
+    # ---------- favorites ----------
+
+    def is_favorite(self, token: str) -> bool:
+        return token in (self.favorites or [])
+
+    def toggle_favorite(self, token: str) -> bool:
+        """Add/remove a favorite token (list order = sidebar order). Returns the
+        new state (True = now favorited). Caller saves."""
+        favs = list(self.favorites or [])
+        if token in favs:
+            favs.remove(token)
+            now_fav = False
+        else:
+            favs.append(token)
+            now_fav = True
+        self.favorites = favs
+        return now_fav
 
     def tag_tree(self) -> list[tuple[int, "object"]]:
         """The user's tags in depth-first parent→child order, each paired

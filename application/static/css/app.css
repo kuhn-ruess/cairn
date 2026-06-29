@@ -1299,6 +1299,21 @@ body.inspector-docked #bulk-bar {
 .qa-chip.qa-flag     { background: var(--gv-yellow-br); color: #1d2021; font-weight: 600; }
 .qa-chip.qa-assignee { background: var(--gv-purple-br, #d3869b); color: #1d2021; }
 
+/* Favorite star toggle — low-key until hovered or active (gold when favorited). */
+.fav-star {
+  border: 0;
+  background: transparent;
+  color: var(--gv-fg4);
+  line-height: 1;
+  padding: 0 .25rem;
+  cursor: pointer;
+}
+.fav-star:hover { color: var(--gv-yellow-br); }
+.fav-star.is-fav { color: var(--gv-yellow-br); }
+/* In list/sidebar rows, fade the empty star in only on hover to stay quiet. */
+.fav-star-hover { opacity: 0; transition: opacity .12s; }
+*:hover > .fav-star-hover, .fav-star-hover.is-fav { opacity: 1; }
+
 /* +assignee autocomplete dropdown in the quick-add modal */
 .qa-assignee-ac {
   margin-top: .35rem;

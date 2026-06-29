@@ -169,6 +169,21 @@
           <i class="bi bi-plus-lg"></i> New task <span class="text-muted small ms-1">q</span>
         </button>
       </div>
+      {% import "favorites_macros.html" as fav with context %}
+      {% if sidebar_favorites %}
+      <h6 class="text-muted small text-uppercase mb-1"><i class="bi bi-star-fill text-warning"></i> Favorites</h6>
+      <ul class="nav flex-column mb-3">
+        {% for f in sidebar_favorites %}
+          <li class="nav-fav-row d-flex align-items-center" data-fav-remove-on-unset>
+            <a class="nav-link py-1 flex-grow-1 d-flex align-items-center text-truncate" href="{{ f.url }}">
+              <i class="bi {{ f.icon }}"{% if f.color %} style="color: {{ f.color }};"{% endif %}></i>
+              <span class="ms-1 text-truncate">{{ f.label }}</span>
+            </a>
+            {{ fav.star(f.token) }}
+          </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
       <div class="d-flex align-items-center mb-1">
         <h6 class="text-muted small text-uppercase mb-0 me-auto">Perspectives</h6>
         <a class="text-muted small me-2" href="{{ url_for('custom_perspectives.index') }}"
@@ -179,36 +194,59 @@
       <ul class="nav flex-column mb-3">
         {% for p in sidebar_perspectives %}
           {% set _c = nav_counts.get(p.key) %}
-          <li><a class="nav-link py-1 d-flex align-items-center" href="{{ url_for(p.endpoint) }}">
-            <i class="bi {{ p.icon }}"></i> <span class="ms-1">{{ p.label }}</span>
-            {% if _c %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ _c }}</span>{% endif %}
-          </a></li>
+          <li class="nav-fav-row d-flex align-items-center">
+            <a class="nav-link py-1 flex-grow-1 d-flex align-items-center" href="{{ url_for(p.endpoint) }}">
+              <i class="bi {{ p.icon }}"></i> <span class="ms-1">{{ p.label }}</span>
+              {% if _c %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ _c }}</span>{% endif %}
+            </a>
+            {{ fav.star("persp:" ~ p.key, "fav-star-hover") }}
+          </li>
         {% endfor %}
         {% for p in sidebar_custom_perspectives %}
-          <li><a class="nav-link py-1" href="{{ url_for('custom_perspectives.view', pid=p.pid) }}">
-            <i class="bi {{ p.icon }}" style="color: {{ p.color }};"></i> {{ p.name }}
-          </a></li>
+          <li class="nav-fav-row d-flex align-items-center">
+            <a class="nav-link py-1 flex-grow-1" href="{{ url_for('custom_perspectives.view', pid=p.pid) }}">
+              <i class="bi {{ p.icon }}" style="color: {{ p.color }};"></i> {{ p.name }}
+            </a>
+            {{ fav.star("cp:" ~ p.pid, "fav-star-hover") }}
+          </li>
         {% endfor %}
       </ul>
       <h6 class="text-muted small text-uppercase">Organize</h6>
       <ul class="nav flex-column">
-        <li><a class="nav-link py-1" href="{{ url_for('projects.index') }}"><i class="bi bi-collection"></i> Projects</a></li>
-        <li><a class="nav-link py-1" href="{{ url_for('notes.index') }}"><i class="bi bi-journal-text"></i> Notes</a></li>
-        <li><a class="nav-link py-1" href="{{ url_for('braindump.index') }}"><i class="bi bi-stars"></i> Braindump</a></li>
-        <li><a class="nav-link py-1" href="{{ url_for('tree.index') }}"><i class="bi bi-diagram-3"></i> Tree</a></li>
-        <li><a class="nav-link py-1" href="{{ url_for('tags.index') }}"><i class="bi bi-tag"></i> Tags / Contexts</a></li>
-        <li><a class="nav-link py-1" href="{{ url_for('custom_perspectives.index') }}"><i class="bi bi-binoculars"></i> Perspectives</a></li>
+        {% set _org = [
+          ('projects', 'projects.index', 'bi-collection', 'Projects'),
+          ('notes', 'notes.index', 'bi-journal-text', 'Notes'),
+          ('braindump', 'braindump.index', 'bi-stars', 'Braindump'),
+          ('tree', 'tree.index', 'bi-diagram-3', 'Tree'),
+          ('tags', 'tags.index', 'bi-tag', 'Tags / Contexts'),
+          ('perspectives', 'custom_perspectives.index', 'bi-binoculars', 'Perspectives'),
+        ] %}
+        {% for slug, endpoint, icon, label in _org %}
+          <li class="nav-fav-row d-flex align-items-center">
+            <a class="nav-link py-1 flex-grow-1" href="{{ url_for(endpoint) }}"><i class="bi {{ icon }}"></i> {{ label }}</a>
+            {{ fav.star("org:" ~ slug, "fav-star-hover") }}
+          </li>
+        {% endfor %}
         {% if current_user.team or current_user.is_team_admin %}
-        <li><a class="nav-link py-1" href="{{ url_for('timetracking.index') }}"><i class="bi bi-stopwatch"></i> Time tracking</a></li>
+        <li class="nav-fav-row d-flex align-items-center">
+          <a class="nav-link py-1 flex-grow-1" href="{{ url_for('timetracking.index') }}"><i class="bi bi-stopwatch"></i> Time tracking</a>
+          {{ fav.star("org:timetracking", "fav-star-hover") }}
+        </li>
         {% endif %}
-        <li><a class="nav-link py-1 d-flex align-items-center" href="{{ url_for('review.index') }}">
-          <i class="bi bi-arrow-clockwise"></i> <span class="ms-1">Review</span>
-          {% if nav_counts.get('review') %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ nav_counts.get('review') }}</span>{% endif %}
-        </a></li>
-        <li><a class="nav-link py-1 d-flex align-items-center" href="{{ url_for('trash.index') }}">
-          <i class="bi bi-trash"></i> <span class="ms-1">Trash</span>
-          {% if nav_counts.get('trash') %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ nav_counts.get('trash') }}</span>{% endif %}
-        </a></li>
+        <li class="nav-fav-row d-flex align-items-center">
+          <a class="nav-link py-1 flex-grow-1 d-flex align-items-center" href="{{ url_for('review.index') }}">
+            <i class="bi bi-arrow-clockwise"></i> <span class="ms-1">Review</span>
+            {% if nav_counts.get('review') %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ nav_counts.get('review') }}</span>{% endif %}
+          </a>
+          {{ fav.star("org:review", "fav-star-hover") }}
+        </li>
+        <li class="nav-fav-row d-flex align-items-center">
+          <a class="nav-link py-1 flex-grow-1 d-flex align-items-center" href="{{ url_for('trash.index') }}">
+            <i class="bi bi-trash"></i> <span class="ms-1">Trash</span>
+            {% if nav_counts.get('trash') %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ nav_counts.get('trash') }}</span>{% endif %}
+          </a>
+          {{ fav.star("org:trash", "fav-star-hover") }}
+        </li>
       </ul>
       </div>
 
@@ -565,6 +603,7 @@
 <script src="{{ asset('js/linked-notes.js') }}"></script>
 <script src="{{ asset('js/note-paste.js') }}"></script>
 <script src="{{ asset('js/pending-attachments.js') }}"></script>
+<script src="{{ asset('js/favorites.js') }}"></script>
 <script src="{{ asset('js/comment-mention.js') }}"></script>
 <script src="{{ asset('js/now-line.js') }}"></script>
 <script src="{{ asset('js/quick-date.js') }}"></script>

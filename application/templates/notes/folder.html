@@ -1,4 +1,5 @@
 {% extends "layout/base.html" %}
+{% import "favorites_macros.html" as fav with context %}
 {% block title %}{{ folder.name }} · Notes · Cairn{% endblock %}
 {% block content %}
 <style>
@@ -52,25 +53,28 @@
     {% if children %}
       <div class="list-group note-preview-list">
         {% for c in children %}
-          <a class="list-group-item list-group-item-action {% if c.is_folder %}d-flex align-items-center gap-2{% endif %}"
-             href="{{ url_for('notes.detail', note_id=c.pk) }}">
-            {% if c.is_folder %}
-              {{ item_icon(c) }}
-              <span class="me-auto fw-medium">{{ c.name }}</span>
-              <i class="bi bi-chevron-right text-muted"></i>
-            {% else %}
-              <div class="d-flex align-items-baseline gap-2">
-                <span class="fw-medium text-truncate">{{ item_icon(c) }} {{ c.name }}</span>
-                {% if c.note_images %}<i class="bi bi-image text-muted small" title="{{ c.note_images|length }} image(s)"></i>{% endif %}
-                {% if c.updated_at %}<span class="ms-auto text-muted small flex-shrink-0">{{ c.updated_at|localdt }}</span>{% endif %}
-              </div>
-              {% if c._preview %}
-                <div class="text-muted small note-preview-snippet mt-1">{{ c._preview }}</div>
+          <div class="list-group-item position-relative d-flex gap-2">
+            <span class="position-relative pt-1" style="z-index: 2;">{{ fav.star("item:" ~ c.pk) }}</span>
+            <a class="stretched-link text-reset text-decoration-none flex-grow-1 {% if c.is_folder %}d-flex align-items-center gap-2{% endif %}"
+               href="{{ url_for('notes.detail', note_id=c.pk) }}">
+              {% if c.is_folder %}
+                {{ item_icon(c) }}
+                <span class="me-auto fw-medium">{{ c.name }}</span>
+                <i class="bi bi-chevron-right text-muted"></i>
               {% else %}
-                <div class="text-muted small fst-italic mt-1">Empty note</div>
+                <div class="d-flex align-items-baseline gap-2">
+                  <span class="fw-medium text-truncate">{{ item_icon(c) }} {{ c.name }}</span>
+                  {% if c.note_images %}<i class="bi bi-image text-muted small" title="{{ c.note_images|length }} image(s)"></i>{% endif %}
+                  {% if c.updated_at %}<span class="ms-auto text-muted small flex-shrink-0">{{ c.updated_at|localdt }}</span>{% endif %}
+                </div>
+                {% if c._preview %}
+                  <div class="text-muted small note-preview-snippet mt-1">{{ c._preview }}</div>
+                {% else %}
+                  <div class="text-muted small fst-italic mt-1">Empty note</div>
+                {% endif %}
               {% endif %}
-            {% endif %}
-          </a>
+            </a>
+          </div>
         {% endfor %}
       </div>
     {% else %}

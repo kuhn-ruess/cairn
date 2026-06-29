@@ -145,6 +145,17 @@ def register_filters(app):
             sidebar_custom_perspectives = [
                 p for p in (user.custom_perspectives or []) if p.in_sidebar
             ]
+        # Sidebar favorites + the set of favorited tokens (so star buttons
+        # anywhere on the page render filled/empty without extra queries).
+        sidebar_favorites = []
+        favorite_tokens = set()
+        if current_user.is_authenticated:
+            user = current_user._get_current_object()
+            favorite_tokens = set(user.favorites or [])
+            if favorite_tokens:
+                from application.services.favorites import resolve_favorites
+                sidebar_favorites = resolve_favorites(user)
+
         # Project tree for the right-hand OmniFocus-style sidebar — only
         # populated when a template asks for it (cheap query but cuts a
         # round-trip if nothing renders it).
@@ -222,6 +233,8 @@ def register_filters(app):
             "nav_counts": nav_counts,
             "sidebar_perspectives": sidebar_perspectives,
             "sidebar_custom_perspectives": sidebar_custom_perspectives,
+            "sidebar_favorites": sidebar_favorites,
+            "favorite_tokens": favorite_tokens,
             "project_tree": _project_tree,
             "notes_tree": _notes_tree,
             "item_icon": _item_icon,
