@@ -261,16 +261,16 @@
   </div>
   <div class="btn-group">
     <div class="btn-group" role="group">
-      <button type="button" class="btn btn-primary dropdown-toggle"
+      <a class="btn btn-primary" href="{{ url_for('tasks.create', project=project.pk) }}"
+         data-inspector-url="{{ url_for('tasks.create', project=project.pk) }}"
+         data-inspector-title="New task in {{ project.name }}">
+        <i class="bi bi-plus-lg"></i> Task
+      </a>
+      <button type="button" class="btn btn-primary dropdown-toggle dropdown-toggle-split"
               data-bs-toggle="dropdown" aria-expanded="false">
-        <i class="bi bi-plus-lg"></i> New
+        <span class="visually-hidden">More new-item options</span>
       </button>
       <ul class="dropdown-menu">
-        <li><a class="dropdown-item" href="{{ url_for('tasks.create', project=project.pk) }}"
-               data-inspector-url="{{ url_for('tasks.create', project=project.pk) }}"
-               data-inspector-title="New task in {{ project.name }}">
-          <i class="bi bi-check2-square text-success"></i> Task
-        </a></li>
         <li><a class="dropdown-item"
                href="{{ url_for('projects.create', section=1, parent=project.pk) }}"
                data-inspector-url="{{ url_for('projects.create', section=1, parent=project.pk) }}"
