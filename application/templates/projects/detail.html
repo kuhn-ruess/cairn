@@ -303,6 +303,12 @@
                data-inspector-title="New project in {{ project.name }}">
           <i class="bi bi-collection text-info"></i> Project
         </a></li>
+        <li><a class="dropdown-item"
+               href="{{ url_for('projects.create', parent=project.pk, folder=1) }}"
+               data-inspector-url="{{ url_for('projects.create', parent=project.pk, folder=1) }}"
+               data-inspector-title="New folder in {{ project.name }}">
+          <i class="bi bi-folder2-open text-warning"></i> Folder
+        </a></li>
       </ul>
     {% endif %}
     </div>

@@ -21,7 +21,9 @@ have a parent of any kind, though only certain combos are meaningful:
 * task   → parent ∈ {task, project, section}   (sub-task or list item)
 * project → parent ∈ {project, folder}         (sub-project)
 * section → parent ∈ {project}                 (always inside a project)
-* folder → parent ∈ {folder}                   (nested folders)
+* folder → parent ∈ {folder, project}          (nested folders; also allowed
+                                                inside a project to group its
+                                                sub-projects)
 
 Lifecycle / cascade rules: never declared via mongoengine
 ``reverse_delete_rule`` (per-doc fan-out would N+1 at scale). Use
