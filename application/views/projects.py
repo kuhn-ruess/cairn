@@ -46,8 +46,11 @@ def _populate_choices(form: ProjectForm, user: User, current: Item | None = None
     # live inline in a project and shouldn't host sub-projects; tasks aren't
     # containers. Labels carry the full breadcrumb (see services/containers.py).
     from application.services.containers import container_choices
+    # ``include_shared`` so a team admin (or anyone shared into a container) can
+    # parent a new project/folder under a folder shared with their team — not
+    # just under one they own. The save path re-validates the chosen parent.
     form.parent.choices = [("", "— top level —")] + container_choices(
-        user, selectable_kinds=("project", "folder"),
+        user, selectable_kinds=("project", "folder"), include_shared=True,
         exclude_pk=current.pk if current else None,
     )
     # Sharing is restricted to team members. Free / solo users see no
@@ -362,6 +365,7 @@ def create():
     _populate_choices(form, user)
 
     # Pre-fill from URL hints: ?folder=1 / ?section=1&parent=<id> / ?kind=...
+    from application.services.permissions import resolve_visible_item
     if request.method == "GET":
         if request.args.get("folder") == "1":
             form.kind.data = "folder"
@@ -370,7 +374,10 @@ def create():
         elif request.args.get("kind") in ("project", "folder", "section"):
             form.kind.data = request.args["kind"]
         parent_id = request.args.get("parent")
-        if parent_id and Item.objects(pk=parent_id, owner=user).first():
+        # Prefill with any container the caller may edit — owned OR shared with
+        # them (e.g. a team admin adding a folder inside a team-shared folder),
+        # not only ones they own.
+        if parent_id and resolve_visible_item(user, parent_id):
             form.parent.data = parent_id
 
     if form.validate_on_submit():

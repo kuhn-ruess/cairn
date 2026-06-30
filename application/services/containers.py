@@ -33,8 +33,13 @@ def container_choices(user, *, selectable_kinds=("project", "folder"),
       ancestor when editing).
     """
     if include_shared:
-        from application.services.permissions import teams_of
-        scope = Q(owner=user) | Q(members=user) | Q(shared_teams__in=teams_of(user))
+        # Every container the user may OPEN — owned, directly shared (members /
+        # team), inherited from a shared ancestor, or under a subtree a team
+        # admin manages. Since ``can_be_edited_by == can_be_viewed_by``, this is
+        # also exactly the set they may create/file inside.
+        from bson import ObjectId
+        from application.services.permissions import viewable_container_pks
+        scope = Q(pk__in=[ObjectId(p) for p in viewable_container_pks(user)])
     else:
         scope = Q(owner=user)
     containers = list(
