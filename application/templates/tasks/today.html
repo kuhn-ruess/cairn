@@ -100,16 +100,35 @@
       {% include "tasks/_display_dropdown.html" %}
     {% endwith %}
 
-    <button type="button" id="today-only-mine" class="btn btn-sm btn-outline-secondary ms-2"
-            data-me-id="{{ current_user.pk }}"
-            title="Hide tasks assigned to someone else">
-      <i class="bi bi-person-check"></i> Only mine
-    </button>
-
-    <button type="button" id="today-hide-followups" class="btn btn-sm btn-outline-secondary"
-            title="Hide tasks that are only here because a follow-up is due">
-      <i class="bi bi-reply"></i> Hide follow-ups
-    </button>
+    <div class="dropdown ms-2">
+      <button type="button" id="today-view-toggles"
+              class="btn btn-sm btn-outline-secondary dropdown-toggle"
+              data-bs-toggle="dropdown" data-bs-auto-close="outside"
+              title="Show/hide rows in this view">
+        <i class="bi bi-funnel"></i> View
+      </button>
+      <div class="dropdown-menu dropdown-menu-end p-2" style="min-width: 210px;">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox"
+                 id="vt-only-mine" data-me-id="{{ current_user.pk }}">
+          <label class="form-check-label" for="vt-only-mine">
+            <i class="bi bi-person-check"></i> Only mine
+          </label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="vt-hide-followups">
+          <label class="form-check-label" for="vt-hide-followups">
+            <i class="bi bi-reply"></i> Hide follow-ups
+          </label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="vt-hide-calendar">
+          <label class="form-check-label" for="vt-hide-calendar">
+            <i class="bi bi-calendar3"></i> Hide calendar
+          </label>
+        </div>
+      </div>
+    </div>
   {% endif %}
 
   {% if view_mode != 'plan' %}
@@ -605,64 +624,49 @@
 
 <script>
 (function () {
-  // "Only mine" toggle: client-side, no reload. Hides rows assigned to
-  // someone else. Unassigned rows carry no data-assigned-to-id, so they
-  // stay visible (mine by ownership). A scoped <style> does the hiding so
-  // AJAX-swapped rows are covered for free. State persists in localStorage.
-  const btn = document.getElementById("today-only-mine");
+  // Consolidated "View" toggles: client-side, no reload. Each checkbox
+  // injects a scoped CSS rule, so AJAX-swapped rows are covered for free and
+  // state survives in localStorage. Unassigned rows carry no
+  // data-assigned-to-id, so "Only mine" leaves them visible (mine by
+  // ownership). "Hide follow-ups" keys off data-followup-only (set by the
+  // view). "Hide calendar" drops the events block + interleaved event rows.
+  const btn = document.getElementById("today-view-toggles");
   if (!btn) return;
-  const meId = btn.dataset.meId || "";
-  const KEY = "today_only_mine";
+  const meBox = document.getElementById("vt-only-mine");
+  const meId = (meBox && meBox.dataset.meId) || "";
   const styleEl = document.createElement("style");
   document.head.appendChild(styleEl);
 
-  function apply(on) {
-    styleEl.textContent = on
-      ? `.task-row[data-assigned-to-id]:not([data-assigned-to-id="${meId}"]) { display: none !important; }`
-      : "";
-    btn.classList.toggle("btn-toolbar-on", on);
-    btn.classList.toggle("btn-outline-secondary", !on);
-    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  const toggles = [
+    {id: "vt-only-mine", key: "today_only_mine",
+     css: `.task-row[data-assigned-to-id]:not([data-assigned-to-id="${meId}"]) { display: none !important; }`},
+    {id: "vt-hide-followups", key: "today_hide_followups",
+     css: `.task-row[data-followup-only] { display: none !important; }`},
+    {id: "vt-hide-calendar", key: "today_hide_calendar",
+     css: `.calendar-events, .cal-event, .cal-empty-hint { display: none !important; }`},
+  ];
+
+  function render() {
+    let css = "", anyOn = false;
+    for (const t of toggles) {
+      const box = document.getElementById(t.id);
+      if (box && box.checked) { css += t.css + "\n"; anyOn = true; }
+    }
+    styleEl.textContent = css;
+    btn.classList.toggle("btn-toolbar-on", anyOn);
+    btn.classList.toggle("btn-outline-secondary", !anyOn);
   }
 
-  let on = localStorage.getItem(KEY) === "1";
-  apply(on);
-  btn.addEventListener("click", () => {
-    on = !on;
-    localStorage.setItem(KEY, on ? "1" : "0");
-    apply(on);
-  });
-})();
-</script>
-
-<script>
-(function () {
-  // "Hide follow-ups" toggle: client-side, no reload. Hides rows that earned
-  // their spot in Today only because a follow-up is due (data-followup-only,
-  // set by the view). A scoped <style> does the hiding so AJAX-swapped rows
-  // are covered for free. State persists in localStorage.
-  const btn = document.getElementById("today-hide-followups");
-  if (!btn) return;
-  const KEY = "today_hide_followups";
-  const styleEl = document.createElement("style");
-  document.head.appendChild(styleEl);
-
-  function apply(on) {
-    styleEl.textContent = on
-      ? `.task-row[data-followup-only] { display: none !important; }`
-      : "";
-    btn.classList.toggle("btn-toolbar-on", on);
-    btn.classList.toggle("btn-outline-secondary", !on);
-    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  for (const t of toggles) {
+    const box = document.getElementById(t.id);
+    if (!box) continue;
+    box.checked = localStorage.getItem(t.key) === "1";
+    box.addEventListener("change", () => {
+      localStorage.setItem(t.key, box.checked ? "1" : "0");
+      render();
+    });
   }
-
-  let on = localStorage.getItem(KEY) === "1";
-  apply(on);
-  btn.addEventListener("click", () => {
-    on = !on;
-    localStorage.setItem(KEY, on ? "1" : "0");
-    apply(on);
-  });
+  render();
 })();
 </script>
 {% endblock %}
