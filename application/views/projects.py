@@ -1135,8 +1135,13 @@ def _subproject_tree(project):
 def edit(project_id):
     user = current_user._get_current_object()
     project = Item.objects(pk=project_id).first()
-    if not project or project.owner != user:
+    if not project:
         abort(404)
+    # Anyone who may edit it (owner, shared member, or a team admin over the
+    # subtree) can open + save the inspector — not only the owner. Mirrors the
+    # detail view's visibility gate; save() never reassigns ``owner``.
+    if not project.can_be_edited_by(user):
+        abort(403)
     form = ProjectForm(obj=project)
     _populate_choices(form, user, project)
     if form.is_submitted() is False:
