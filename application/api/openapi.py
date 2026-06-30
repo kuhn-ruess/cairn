@@ -49,9 +49,15 @@ def build_openapi_spec() -> dict:
                     "type": "object",
                     "properties": {
                         "id": {"type": "string", "format": "objectid"},
+                        "kind": {
+                            "type": "string",
+                            "enum": ["task", "project", "section", "folder"],
+                        },
                         "title": {"type": "string"},
                         "note": {"type": "string"},
                         "color": {"type": "string", "nullable": True},
+                        "location": {"type": "string", "nullable": True},
+                        "sort_order": {"type": "integer"},
                         "status": {
                             "type": "string",
                             "enum": [
@@ -65,6 +71,22 @@ def build_openapi_spec() -> dict:
                             "nullable": True,
                         },
                         "project_id": {"type": "string", "nullable": True},
+                        "parent_id": {
+                            "type": "string", "nullable": True,
+                            "description": "Alias of project_id (project == parent). "
+                                            "May point at another task → a sub-task.",
+                        },
+                        "related_ids": {
+                            "type": "array", "items": {"type": "string"},
+                            "description": "Symmetric 'see also' links to other items.",
+                        },
+                        "checklist": {
+                            "type": "array",
+                            "items": {"$ref": "#/components/schemas/ChecklistItem"},
+                        },
+                        "waiting_on": {"type": "string", "nullable": True},
+                        "followup_at": {"type": "string", "format": "date-time", "nullable": True},
+                        "followup_every_days": {"type": "integer", "nullable": True},
                         "tags": {
                             "type": "array", "items": {"type": "string"},
                         },
@@ -82,6 +104,11 @@ def build_openapi_spec() -> dict:
                         "repeat_unit": {
                             "type": "string",
                             "enum": ["day", "weekday", "weekend", "week", "month", "year"],
+                        },
+                        "repeat_weekdays": {
+                            "type": "array",
+                            "items": {"type": "integer", "minimum": 0, "maximum": 6},
+                            "description": "Weekdays the task repeats on (0=Mon .. 6=Sun).",
                         },
                         "repeat_from_completion": {"type": "boolean"},
                         "is_internal": {"type": "boolean"},
@@ -150,16 +177,42 @@ def build_openapi_spec() -> dict:
                         },
                         "flagged": {"type": "boolean"},
                         "priority": {"type": "integer", "minimum": 1, "maximum": 4},
+                        "location": {"type": "string"},
+                        "sort_order": {"type": "integer"},
                         "project_id": {"type": "string"},
+                        "parent_id": {
+                            "type": "string",
+                            "description": "Alias of project_id. Point at another task "
+                                            "to make this a sub-task; null/empty for Inbox.",
+                        },
+                        "related_ids": {
+                            "type": "array", "items": {"type": "string"},
+                            "description": "Full desired set of symmetric 'see also' "
+                                            "links — replaces the existing set (both sides "
+                                            "kept in sync). Omit to leave links untouched.",
+                        },
+                        "checklist": {
+                            "type": "array",
+                            "items": {"$ref": "#/components/schemas/ChecklistItem"},
+                            "description": "Replaces the whole checklist. Plain strings "
+                                            "are accepted as unchecked items.",
+                        },
                         "tags": {"type": "array", "items": {"type": "string"}},
                         "due_date": {"type": "string", "format": "date-time"},
                         "defer_date": {"type": "string", "format": "date-time"},
                         "plan_date": {"type": "string", "format": "date-time"},
+                        "waiting_on": {"type": "string"},
+                        "followup_at": {"type": "string", "format": "date-time"},
+                        "followup_every_days": {"type": "integer"},
                         "estimated_minutes": {"type": "integer"},
                         "repeat_every_days": {"type": "integer"},
                         "repeat_unit": {
                             "type": "string",
                             "enum": ["day", "weekday", "weekend", "week", "month", "year"],
+                        },
+                        "repeat_weekdays": {
+                            "type": "array",
+                            "items": {"type": "integer", "minimum": 0, "maximum": 6},
                         },
                         "repeat_from_completion": {"type": "boolean"},
                         "is_internal": {"type": "boolean"},
@@ -167,6 +220,14 @@ def build_openapi_spec() -> dict:
                             "type": "string",
                             "description": "User pk to assign this task to. Null/empty to clear.",
                         },
+                    },
+                },
+                "ChecklistItem": {
+                    "type": "object",
+                    "required": ["text"],
+                    "properties": {
+                        "text": {"type": "string", "maxLength": 500},
+                        "done": {"type": "boolean", "default": False},
                     },
                 },
                 "TaskUpdate": {
@@ -204,6 +265,10 @@ def build_openapi_spec() -> dict:
                             "enum": ["active", "on_hold", "completed", "dropped"],
                         },
                         "parent_id": {"type": "string", "nullable": True},
+                        "related_ids": {
+                            "type": "array", "items": {"type": "string"},
+                            "description": "Symmetric 'see also' links to other items.",
+                        },
                         "tags": {
                             "type": "array",
                             "items": {"type": "string"},
@@ -232,6 +297,10 @@ def build_openapi_spec() -> dict:
                             "enum": ["parallel", "sequential", "single_actions"],
                         },
                         "parent_id": {"type": "string"},
+                        "related_ids": {
+                            "type": "array", "items": {"type": "string"},
+                            "description": "Replaces the symmetric 'see also' link set.",
+                        },
                         "tags": {
                             "type": "array",
                             "items": {"type": "string"},

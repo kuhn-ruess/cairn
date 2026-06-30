@@ -6,6 +6,19 @@ def iso(dt):
     return dt.isoformat() if dt else None
 
 
+def ref_ids(raw) -> list[str]:
+    """Stringified ids of a ListField(ReferenceField) read straight from the
+    document's raw ``_data`` — so serializing a list row never dereferences
+    the refs (one $in per row → N+1; see CLAUDE.md: minimise DB load). Works
+    for both undereferenced DBRefs (``.id``) and loaded docs (``.pk``)."""
+    out = []
+    for r in raw or []:
+        rid = getattr(r, "id", None) or getattr(r, "pk", None)
+        if rid:
+            out.append(str(rid))
+    return out
+
+
 def user_brief(user) -> dict[str, Any] | None:
     if not user:
         return None
@@ -40,7 +53,8 @@ def project(p) -> dict[str, Any]:
         "type": p.project_type,
         "status": p.status,
         "is_folder": p.is_folder,
-        "parent_id": str(p.parent.pk) if p.parent else None,
+        "parent_id": ref_ids([p._data.get("parent")])[0] if p._data.get("parent") else None,
+        "related_ids": ref_ids(p._data.get("related")),
         "tags": list(p.tags or []),
         "due_date": iso(p.due_date),
         "plan_date": iso(p.plan_date),
@@ -128,6 +142,7 @@ def task_compact(t) -> dict[str, Any]:
         "waiting_on": t.waiting_on or None,
         "project_id": str(t.project.pk) if t.project else None,
         "assignee_parent_id": str(t.assignee_parent.pk) if t.assignee_parent else None,
+        "related_ids": ref_ids(t._data.get("related")),
         "sort_order": t.sort_order,
         "estimated_minutes": t.estimated_minutes,
         "repeat_every_days": t.repeat_every_days,
@@ -172,12 +187,15 @@ def note_image(task_pk, i) -> dict[str, Any]:
 def task(t) -> dict[str, Any]:
     return {
         "id": str(t.pk),
+        "kind": t.kind,
         "title": t.title,
         "note": t.note,
         "color": t.color or None,
         "status": t.status,
         "flagged": t.flagged,
         "priority": t.priority,
+        "sort_order": t.sort_order,
+        "location": t.location or None,
         "defer_date": iso(t.defer_date),
         "due_date": iso(t.due_date),
         "plan_date": iso(t.plan_date),
@@ -188,10 +206,17 @@ def task(t) -> dict[str, Any]:
         "estimated_minutes": t.estimated_minutes,
         "repeat_every_days": t.repeat_every_days,
         "repeat_unit": t.repeat_unit,
+        "repeat_weekdays": list(t.repeat_weekdays or []),
         "repeat_from_completion": t.repeat_from_completion,
         "is_internal": bool(t.is_internal),
-        "project_id": str(t.project.pk) if t.project else None,
+        # ``project_id`` and ``parent_id`` are the same field (project is an
+        # alias for parent); both are returned — parent_id reads clearer when
+        # the parent is another task (a sub-task).
+        "project_id": ref_ids([t._data.get("parent")])[0] if t._data.get("parent") else None,
+        "parent_id": ref_ids([t._data.get("parent")])[0] if t._data.get("parent") else None,
         "assignee_parent_id": str(t.assignee_parent.pk) if t.assignee_parent else None,
+        "related_ids": ref_ids(t._data.get("related")),
+        "checklist": [{"text": c.text, "done": bool(c.done)} for c in (t.checklist or [])],
         "tags": list(t.tags or []),
         # ``tag_names`` retained as an alias so existing clients keep
         # working — drop after the next major bump.

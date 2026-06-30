@@ -176,6 +176,7 @@ def create_task():
     task = Item(owner=user, title=data["title"], note=data.get("note", ""))
     _apply_task_payload(task, data, user)
     task.save()
+    _apply_relations(task, data, user)  # after save: relate_to needs a pk
     return jsonify(ser_task(task)), 201
 
 @api_v1_bp.get("/tasks/<task_id>")
@@ -197,6 +198,7 @@ def update_task(task_id):
     data = request.get_json(silent=True) or {}
     _apply_task_payload(task, data, user)
     task.save()
+    _apply_relations(task, data, user)  # after save: relate_to needs a pk
     return jsonify(ser_task(task))
 
 @api_v1_bp.delete("/tasks/<task_id>")
@@ -401,6 +403,30 @@ def get_attachment(task_id, token):
         )
     return _bad_request("not found", 404)
 
+def _apply_relations(item: Item, data: dict, user) -> None:
+    """Sync the symmetric ``related`` ("see also") links to the id set in
+    ``related_ids``. Must run AFTER the item is saved: ``relate_to`` /
+    ``unrelate_from`` persist BOTH sides, so the item needs a pk. No-op when
+    ``related_ids`` is absent (so a partial PATCH leaves links untouched)."""
+    if "related_ids" not in data:
+        return
+    from application.services.permissions import resolve_visible_item
+    desired = {}
+    for rid in (data["related_ids"] or []):
+        other = resolve_visible_item(user, rid)
+        if not other:
+            raise ValueError(f"related item not accessible: {rid}")
+        if other.pk != item.pk:
+            desired[str(other.pk)] = other
+    current = {str(r.pk): r for r in item.related_items()}
+    for pk, other in desired.items():
+        if pk not in current:
+            item.relate_to(other)
+    for pk, other in current.items():
+        if pk not in desired:
+            item.unrelate_from(other)
+
+
 def _apply_task_payload(task: Item, data: dict, user) -> None:
     # Block mass-assignment of fields that must only be set by the
     # server (owner, share tokens, gcal event ids, creation time, …).
@@ -435,6 +461,26 @@ def _apply_task_payload(task: Item, data: dict, user) -> None:
                 raise ValueError("estimated_minutes must be an integer")
     if "plan_date" in data:
         task.plan_date = _parse_dt(data["plan_date"])
+    if "location" in data:
+        task.location = (data["location"] or "").strip() or None
+    if "sort_order" in data:
+        try:
+            task.sort_order = int(data["sort_order"])
+        except (TypeError, ValueError):
+            raise ValueError("sort_order must be an integer")
+    if "waiting_on" in data:
+        task.waiting_on = (data["waiting_on"] or "").strip() or None
+    if "followup_at" in data:
+        task.followup_at = _parse_dt(data["followup_at"])
+    if "followup_every_days" in data:
+        fed = data["followup_every_days"]
+        if fed in (None, ""):
+            task.followup_every_days = None
+        else:
+            try:
+                task.followup_every_days = max(1, int(fed))
+            except (TypeError, ValueError):
+                raise ValueError("followup_every_days must be an integer")
     if "repeat_every_days" in data:
         task.repeat_every_days = data["repeat_every_days"]
     if "repeat_unit" in data:
@@ -442,20 +488,42 @@ def _apply_task_payload(task: Item, data: dict, user) -> None:
         if unit and unit not in ("day", "weekday", "weekend", "week", "month", "year"):
             raise ValueError(f"invalid repeat_unit: {unit}")
         task.repeat_unit = unit or "day"
+    if "repeat_weekdays" in data:
+        days = data["repeat_weekdays"] or []
+        try:
+            days = sorted({int(d) for d in days})
+        except (TypeError, ValueError):
+            raise ValueError("repeat_weekdays must be a list of integers")
+        if any(d < 0 or d > 6 for d in days):
+            raise ValueError("repeat_weekdays values must be 0 (Mon) .. 6 (Sun)")
+        task.repeat_weekdays = days
     if "repeat_from_completion" in data:
         task.repeat_from_completion = bool(data["repeat_from_completion"])
     if "is_internal" in data:
         task.is_internal = bool(data["is_internal"])
     if "color" in data:
         task.color = (data["color"] or "").strip()
-    if "project_id" in data:
+    if "checklist" in data:
+        from application.models.item import ChecklistItem
+        items = []
+        for entry in (data["checklist"] or []):
+            if isinstance(entry, str):
+                entry = {"text": entry}
+            text = (entry.get("text") or "").strip()
+            if not text:
+                raise ValueError("checklist items need text")
+            items.append(ChecklistItem(text=text, done=bool(entry.get("done"))))
+        task.checklist = items
+    # ``parent_id`` and ``project_id`` are aliases (project == parent); accept
+    # either. The parent may be another task (→ a sub-task) or a project/folder.
+    if "parent_id" in data or "project_id" in data:
         from application.services.permissions import resolve_visible_item
-        pid = data["project_id"]
+        pid = data.get("parent_id") if "parent_id" in data else data.get("project_id")
         dest = None
         if pid:
             dest = resolve_visible_item(user, pid)
             if not dest:
-                raise ValueError("project_id not accessible")
+                raise ValueError("parent_id not accessible")
         # Role-aware (matches the web): an assignee files into their own
         # project (assignee_parent); the owner moves the canonical parent.
         task.set_home_for(user, dest)
@@ -525,6 +593,7 @@ def create_project():
     p = Item(owner=user)
     _apply_project_payload(p, data)
     p.save()
+    _apply_relations(p, data, user)  # after save: relate_to needs a pk
     return jsonify(ser_project(p)), 201
 
 @api_v1_bp.get("/projects/<project_id>")
@@ -546,6 +615,7 @@ def update_project(project_id):
     data = request.get_json(silent=True) or {}
     _apply_project_payload(p, data)
     p.save()
+    _apply_relations(p, data, user)  # after save: relate_to needs a pk
     return jsonify(ser_project(p))
 
 @api_v1_bp.delete("/projects/<project_id>")
