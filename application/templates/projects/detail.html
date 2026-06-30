@@ -261,26 +261,6 @@
   </div>
   <div class="btn-group">
     <div class="btn-group" role="group">
-    {% if project.is_folder %}
-      {# A folder holds projects/folders only — no tasks, no sections. #}
-      <a class="btn btn-primary" href="{{ url_for('projects.create', parent=project.pk) }}"
-         data-inspector-url="{{ url_for('projects.create', parent=project.pk) }}"
-         data-inspector-title="New project in {{ project.name }}">
-        <i class="bi bi-plus-lg"></i> Project
-      </a>
-      <button type="button" class="btn btn-primary dropdown-toggle dropdown-toggle-split"
-              data-bs-toggle="dropdown" aria-expanded="false">
-        <span class="visually-hidden">More new-item options</span>
-      </button>
-      <ul class="dropdown-menu">
-        <li><a class="dropdown-item"
-               href="{{ url_for('projects.create', parent=project.pk, folder=1) }}"
-               data-inspector-url="{{ url_for('projects.create', parent=project.pk, folder=1) }}"
-               data-inspector-title="New folder in {{ project.name }}">
-          <i class="bi bi-folder2-open text-warning"></i> Folder
-        </a></li>
-      </ul>
-    {% else %}
       <a class="btn btn-primary" href="{{ url_for('tasks.create', project=project.pk) }}"
          data-inspector-url="{{ url_for('tasks.create', project=project.pk) }}"
          data-inspector-title="New task in {{ project.name }}">
@@ -310,7 +290,6 @@
           <i class="bi bi-folder2-open text-warning"></i> Folder
         </a></li>
       </ul>
-    {% endif %}
     </div>
     <button type="button" class="btn btn-outline-secondary"
             data-inspector-url="{{ url_for('projects.edit', project_id=project.pk) }}"
