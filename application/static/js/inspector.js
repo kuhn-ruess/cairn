@@ -147,7 +147,13 @@
       const resp = await fetch(withInspectorParam(url), {
         headers: { "X-Inspector-Request": "1" },
       });
-      if (!resp.ok) throw new Error("fetch failed: " + resp.status);
+      if (!resp.ok) {
+        // No raw 403/404 in the panel — show a plain, friendly explanation
+        // (e.g. a teammate opening something not shared with them).
+        body.innerHTML = inspectorErrorHtml(resp.status);
+        forceReflow();
+        return;
+      }
       const html = await resp.text();
       body.innerHTML = html;
       wireForm();
@@ -156,9 +162,29 @@
       forceReflow();
       document.dispatchEvent(new Event("inspector:loaded"));
     } catch (err) {
-      body.innerHTML =
-        '<div class="alert alert-danger">' + err.message + "</div>";
+      body.innerHTML = inspectorErrorHtml(0, err.message);
+      forceReflow();
     }
+  }
+
+  // Friendly inspector message for a non-OK fetch. Keeps raw HTTP status pages
+  // out of the panel — an unauthorized teammate sees an explanation, not a 404.
+  function inspectorErrorHtml(status, detail) {
+    let icon = "bi-exclamation-triangle";
+    let msg;
+    if (status === 403) {
+      icon = "bi-lock";
+      msg = "You don't have permission to view this item. Ask its owner or a " +
+            "team admin to share it with you.";
+    } else if (status === 404) {
+      msg = "This item no longer exists — it may have been deleted.";
+    } else {
+      msg = "Couldn't load this item" +
+            (detail ? " (" + detail + ")" : (status ? " (error " + status + ")" : "")) + ".";
+    }
+    return '<div class="text-muted text-center py-5 px-3">' +
+      '<i class="bi ' + icon + ' fs-3 d-block mb-2"></i>' +
+      escapeHtml(msg) + "</div>";
   }
 
   function wireForm() {
