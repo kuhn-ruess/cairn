@@ -40,7 +40,35 @@ def _today_task_query(user, now):
             | Q(plan_date__ne=None, plan_date__lt=next_day)
             | Q(defer_date__ne=None, defer_date__lte=now, status="next")
             | Q(followup_at__ne=None, followup_at__lte=today_end))
-    return qs.filter(cond), today_end, next_day
+    # A future defer point hides the task everywhere, Today included — this is
+    # how the per-task "snooze to noon/evening/tomorrow" quick-action works.
+    not_deferred = Q(defer_date=None) | Q(defer_date__lte=now)
+    return qs.filter(cond & not_deferred), today_end, next_day
+
+
+def is_today_now_task(task, user, now=None) -> bool:
+    """Whether a single in-hand task belongs in the *current* Today plate.
+
+    Mirrors ``_today_task_query``'s membership so callers that already hold a
+    task object (e.g. the snooze endpoint deciding whether to drop the row)
+    don't re-query. Keep in lockstep with the query above and the comprehension
+    in ``tasks.today``.
+    """
+    if task.kind != "task" or task.status in ("done", "dropped", "someday"):
+        return False
+    now = now or datetime.now(timezone.utc)
+    tz = _user_tz(user)
+    today_date = now.astimezone(tz).date()
+    today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    if task.defer_date and task.defer_date > now:
+        return False
+    return bool(
+        (task.due_date and task.due_date <= today_end)
+        or task.flagged
+        or (task.plan_date and task.plan_date.astimezone(tz).date() <= today_date)
+        or (task.defer_date and task.defer_date <= now and task.status == "next")
+        or (task.followup_at and task.followup_at <= today_end)
+    )
 
 
 def today_now(user):

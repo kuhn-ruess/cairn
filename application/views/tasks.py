@@ -758,11 +758,14 @@ def today():
         today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
         filtered = [
             t for t in qs
-            if (t.due_date and t.due_date <= today_end)
-            or t.flagged
-            or (t.plan_date and t.plan_date.date() <= today_date)
-            or (t.defer_date and t.defer_date <= now and t.status == "next")
-            or (t.followup_at and t.followup_at <= today_end)
+            if not (t.defer_date and t.defer_date > now)
+            and (
+                (t.due_date and t.due_date <= today_end)
+                or t.flagged
+                or (t.plan_date and t.plan_date.date() <= today_date)
+                or (t.defer_date and t.defer_date <= now and t.status == "next")
+                or (t.followup_at and t.followup_at <= today_end)
+            )
         ]
         # Flag tasks that earned their spot ONLY through a pending follow-up
         # (no due/flag/plan/defer reason). The list toolbar can hide these.
@@ -2053,6 +2056,68 @@ def unschedule(task_id):
     task.save()
     warnings = _writeback_calendar(task, user) or []
     return jsonify({"ok": True, "warnings": warnings})
+
+
+# Preset times of day for the Today-list quick snooze. Wall-clock in the
+# user's timezone; "tomorrow" is the next day.
+SNOOZE_TARGETS = {
+    "noon": (13, 0),
+    "evening": (19, 0),
+    "tomorrow": (8, 0),
+}
+
+
+@tasks_bp.route("/<task_id>/snooze", methods=["POST"])
+@login_required
+def snooze(task_id):
+    """Quick-defer (or reschedule) a Today task to a preset time of day.
+
+    Body: ``target`` ∈ {noon, evening, tomorrow} and ``mode`` ∈ {hide, move}:
+      * ``hide`` — set ``defer_date`` so the task drops out of Today until the
+        target moment, then resurfaces; its plan/due dates stay untouched.
+      * ``move`` — set ``plan_date`` to the target (a genuine reschedule); any
+        future ``defer_date`` is cleared so the two don't fight.
+
+    ``noon``/``evening`` land today; if that moment has already passed they roll
+    to tomorrow so the task still hides. Returns ``{ok, removed}`` — ``removed``
+    tells the caller to drop the row (it left Today) versus refresh it in place.
+    """
+    from flask import jsonify
+    from datetime import datetime as _dt, time as _t
+    from application.services.today import is_today_now_task
+
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_edited_by(user):
+        abort(404)
+    target = (request.form.get("target") or "").strip()
+    mode = (request.form.get("mode") or "hide").strip()
+    if target not in SNOOZE_TARGETS:
+        return jsonify({"error": "invalid target"}), 400
+    if mode not in ("hide", "move"):
+        return jsonify({"error": "invalid mode"}), 400
+
+    tz = resolve_tz(user)
+    now = datetime.now(timezone.utc)
+    h, m = SNOOZE_TARGETS[target]
+    day = now.astimezone(tz).date()
+    if target == "tomorrow":
+        day = day + timedelta(days=1)
+    when = _dt.combine(day, _t(h, m)).replace(tzinfo=tz)
+    if when <= now:  # same-day target already past → next day
+        when = when + timedelta(days=1)
+
+    if mode == "hide":
+        task.defer_date = when
+    else:  # move
+        task.plan_date = when
+        if task.defer_date and task.defer_date > now:
+            task.defer_date = None
+    task.save()
+    if mode == "move":
+        _writeback_calendar(task, user)
+
+    return jsonify({"ok": True, "removed": not is_today_now_task(task, user, now)})
 
 
 @tasks_bp.route("/plan-create", methods=["POST"])

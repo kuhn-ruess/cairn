@@ -459,6 +459,70 @@
     }).catch(() => flashError("Follow-up failed (network)"));
   });
 
+  // ---- Snooze a Today task to a preset time of day ------------------
+  // "Hide" defers the task (it leaves Today and resurfaces at the target);
+  // "Reschedule" moves its plan date instead. The Hide/Reschedule choice is
+  // remembered across rows in localStorage.
+  const SNOOZE_MODE_KEY = "bktodo:snoozeMode";
+  function snoozeMode() {
+    try {
+      return localStorage.getItem(SNOOZE_MODE_KEY) === "move" ? "move" : "hide";
+    } catch (e) { return "hide"; }
+  }
+  // Reflect the remembered mode whenever a snooze menu opens.
+  document.addEventListener("show.bs.dropdown", (ev) => {
+    const dd = ev.target.closest && ev.target.closest(".snooze-dropdown");
+    if (!dd) return;
+    const mode = snoozeMode();
+    dd.querySelectorAll(".snooze-mode [data-mode]").forEach((b) => {
+      b.classList.toggle("active", b.dataset.mode === mode);
+    });
+  });
+  // Toggle Hide / Reschedule (menu stays open via auto-close="outside").
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".snooze-mode [data-mode]");
+    if (!btn) return;
+    ev.preventDefault();
+    btn.closest(".snooze-mode").querySelectorAll("[data-mode]").forEach((b) => {
+      b.classList.toggle("active", b === btn);
+    });
+    try { localStorage.setItem(SNOOZE_MODE_KEY, btn.dataset.mode); } catch (e) {}
+  });
+  // Pick a target → POST, then drop the row (it left Today) or refresh in place.
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".snooze-target");
+    if (!btn) return;
+    ev.preventDefault();
+    const dd = btn.closest(".snooze-dropdown");
+    const active = dd && dd.querySelector(".snooze-mode .active");
+    const mode = active ? active.dataset.mode : snoozeMode();
+    const row = btn.closest(".task-row");
+    const fd = new FormData();
+    fd.append("csrf_token", csrfToken());
+    fd.append("target", btn.dataset.target);
+    fd.append("mode", mode);
+    const toggle = dd && dd.querySelector('[data-bs-toggle="dropdown"]');
+    if (toggle && window.bootstrap) {
+      window.bootstrap.Dropdown.getOrCreateInstance(toggle).hide();
+    }
+    fetch(`/tasks/${btn.dataset.taskId}/snooze`, {
+      method: "POST",
+      body: fd,
+      credentials: "same-origin",
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+    }).then((resp) => (resp.ok ? resp.json() : null)).then((json) => {
+      if (!json || !json.ok) { flashError("Snooze failed"); return; }
+      if (json.removed && row) {
+        row.classList.add("task-row-leaving");
+        setTimeout(() => { row.remove(); }, 220);
+      } else if (typeof window.bktodoRefreshMain === "function") {
+        window.bktodoRefreshMain();
+      } else {
+        window.location.reload();
+      }
+    }).catch(() => flashError("Snooze failed (network)"));
+  });
+
   async function saveMergedName(input) {
     const name = (input.value || "").trim();
     if (!name || name === input.dataset.lastSaved) return;
