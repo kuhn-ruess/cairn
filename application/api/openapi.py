@@ -103,6 +103,35 @@ def build_openapi_spec() -> dict:
                             "type": "string", "nullable": True,
                             "enum": ["todoist", "zammad", "csv", "jira", None],
                         },
+                        "attachments": {
+                            "type": "array",
+                            "items": {"$ref": "#/components/schemas/Attachment"},
+                            "description": "Files dropped onto the note. Fetch the "
+                                            "binary from each item's `url`.",
+                        },
+                        "note_images": {
+                            "type": "array",
+                            "items": {"$ref": "#/components/schemas/Attachment"},
+                            "description": "Images pasted inline into the note "
+                                            "(no filename). Fetch from `url`.",
+                        },
+                    },
+                },
+                "Attachment": {
+                    "type": "object",
+                    "properties": {
+                        "token": {"type": "string"},
+                        "filename": {
+                            "type": "string", "nullable": True,
+                            "description": "Absent for pasted note_images.",
+                        },
+                        "content_type": {"type": "string"},
+                        "size": {"type": "integer", "description": "Bytes."},
+                        "created_at": {"type": "string", "format": "date-time", "nullable": True},
+                        "url": {
+                            "type": "string",
+                            "description": "GET (token-authenticated) to download the binary.",
+                        },
                     },
                 },
                 "TaskCreate": {
@@ -444,6 +473,28 @@ def build_openapi_spec() -> dict:
                     },
                     "responses": {
                         "201": {"description": "Created"},
+                    },
+                },
+            },
+            "/tasks/{task_id}/attachments/{token}": {
+                "parameters": [
+                    {"name": "task_id", "in": "path", "required": True, "schema": {"type": "string"}},
+                    {"name": "token", "in": "path", "required": True, "schema": {"type": "string"}},
+                ],
+                "get": {
+                    "summary": "Download a task attachment (file or pasted image)",
+                    "tags": ["tasks"],
+                    "description": "Streams the raw bytes of a note file or pasted "
+                                   "image. Tokens come from a task's `attachments[]` "
+                                   "/ `note_images[]`.",
+                    "responses": {
+                        "200": {
+                            "description": "Binary content",
+                            "content": {"application/octet-stream": {
+                                "schema": {"type": "string", "format": "binary"},
+                            }},
+                        },
+                        "404": {"description": "Not found"},
                     },
                 },
             },

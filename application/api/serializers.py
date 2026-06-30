@@ -142,6 +142,33 @@ def task_compact(t) -> dict[str, Any]:
     }
 
 
+def attachment(task_pk, f) -> dict[str, Any]:
+    """A file dragged/pasted onto a task note (``note_files``). The binary is
+    not inlined — clients fetch it from ``url`` (the API download endpoint)."""
+    from flask import url_for
+    return {
+        "token": f.token,
+        "filename": f.filename,
+        "content_type": f.content_type or "application/octet-stream",
+        "size": len(f.data) if f.data else 0,
+        "created_at": iso(f.created_at),
+        "url": url_for("api_v1.get_attachment", task_id=str(task_pk), token=f.token),
+    }
+
+
+def note_image(task_pk, i) -> dict[str, Any]:
+    """A pasted image referenced inline from the note markdown
+    (``note_images``). Same download endpoint as file attachments."""
+    from flask import url_for
+    return {
+        "token": i.token,
+        "content_type": i.content_type or "image/webp",
+        "size": len(i.data) if i.data else 0,
+        "created_at": iso(i.created_at),
+        "url": url_for("api_v1.get_attachment", task_id=str(task_pk), token=i.token),
+    }
+
+
 def task(t) -> dict[str, Any]:
     return {
         "id": str(t.pk),
@@ -178,6 +205,8 @@ def task(t) -> dict[str, Any]:
         "assigned_by": user_brief(t.assigned_by),
         "assigned_at": iso(t.assigned_at),
         "comments": [comment(c) for c in (t.comments or [])],
+        "attachments": [attachment(t.pk, f) for f in (t.note_files or [])],
+        "note_images": [note_image(t.pk, i) for i in (t.note_images or [])],
         "created_at": iso(t.created_at),
         "updated_at": iso(t.updated_at),
         "completed_at": iso(t.completed_at),

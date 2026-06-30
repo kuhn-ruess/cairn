@@ -376,6 +376,31 @@ def add_comment(task_id):
     task.add_comment(user, body)
     return jsonify(ser_task(task)), 201
 
+@api_v1_bp.get("/tasks/<task_id>/attachments/<token>")
+@token_required
+def get_attachment(task_id, token):
+    """Download a file or image attachment stored inline on a task. The token
+    comes from a task's ``attachments[]``/``note_images[]`` (see ser_task) —
+    note_files are matched first, then the pasted note_images."""
+    user = g.current_user
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_viewed_by(user):
+        return _bad_request("not found", 404)
+    if any(f.token == token for f in (task.note_files or [])):
+        # Reuse the web helper so the Content-Disposition / force-download
+        # rules for script-capable types stay in one place.
+        from application.views.tasks import _note_file_response
+        return _note_file_response(task, token)
+    img = next((i for i in (task.note_images or []) if i.token == token), None)
+    if img:
+        from flask import Response
+        return Response(
+            bytes(img.data),
+            mimetype=img.content_type or "image/webp",
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
+    return _bad_request("not found", 404)
+
 def _apply_task_payload(task: Item, data: dict, user) -> None:
     # Block mass-assignment of fields that must only be set by the
     # server (owner, share tokens, gcal event ids, creation time, …).
