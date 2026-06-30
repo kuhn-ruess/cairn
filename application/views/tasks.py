@@ -764,6 +764,18 @@ def today():
             or (t.defer_date and t.defer_date <= now and t.status == "next")
             or (t.followup_at and t.followup_at <= today_end)
         ]
+        # Flag tasks that earned their spot ONLY through a pending follow-up
+        # (no due/flag/plan/defer reason). The list toolbar can hide these.
+        for t in filtered:
+            other = bool(
+                (t.due_date and t.due_date <= today_end)
+                or t.flagged
+                or (t.plan_date and t.plan_date.date() <= today_date)
+                or (t.defer_date and t.defer_date <= now and t.status == "next")
+            )
+            t._followup_only = bool(
+                t.followup_at and t.followup_at <= today_end and not other
+            )
         projects_with_dates = [
             p for p in proj_qs
             if (p.due_date and p.due_date <= today_end)
@@ -786,6 +798,10 @@ def today():
             if _hit(t.due_date) or _hit(t.plan_date) or _hit(t.followup_at)
             or (lower is None and t.flagged)
         ]
+        for t in filtered:
+            other = bool(_hit(t.due_date) or _hit(t.plan_date)
+                         or (lower is None and t.flagged))
+            t._followup_only = bool(_hit(t.followup_at) and not other)
         projects_with_dates = [
             p for p in proj_qs
             if _hit(p.due_date) or _hit(p.plan_date)

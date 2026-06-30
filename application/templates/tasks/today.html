@@ -105,6 +105,11 @@
             title="Hide tasks assigned to someone else">
       <i class="bi bi-person-check"></i> Only mine
     </button>
+
+    <button type="button" id="today-hide-followups" class="btn btn-sm btn-outline-secondary"
+            title="Hide tasks that are only here because a follow-up is due">
+      <i class="bi bi-reply"></i> Hide follow-ups
+    </button>
   {% endif %}
 
   {% if view_mode != 'plan' %}
@@ -614,6 +619,37 @@
   function apply(on) {
     styleEl.textContent = on
       ? `.task-row[data-assigned-to-id]:not([data-assigned-to-id="${meId}"]) { display: none !important; }`
+      : "";
+    btn.classList.toggle("btn-toolbar-on", on);
+    btn.classList.toggle("btn-outline-secondary", !on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+
+  let on = localStorage.getItem(KEY) === "1";
+  apply(on);
+  btn.addEventListener("click", () => {
+    on = !on;
+    localStorage.setItem(KEY, on ? "1" : "0");
+    apply(on);
+  });
+})();
+</script>
+
+<script>
+(function () {
+  // "Hide follow-ups" toggle: client-side, no reload. Hides rows that earned
+  // their spot in Today only because a follow-up is due (data-followup-only,
+  // set by the view). A scoped <style> does the hiding so AJAX-swapped rows
+  // are covered for free. State persists in localStorage.
+  const btn = document.getElementById("today-hide-followups");
+  if (!btn) return;
+  const KEY = "today_hide_followups";
+  const styleEl = document.createElement("style");
+  document.head.appendChild(styleEl);
+
+  function apply(on) {
+    styleEl.textContent = on
+      ? `.task-row[data-followup-only] { display: none !important; }`
       : "";
     btn.classList.toggle("btn-toolbar-on", on);
     btn.classList.toggle("btn-outline-secondary", !on);

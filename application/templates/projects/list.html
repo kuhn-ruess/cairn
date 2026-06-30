@@ -152,23 +152,19 @@
     <i class="bi bi-hourglass-split"></i>
     {{ 'Hide deferred' if show_deferred else 'Show deferred' }}
   </a>
-  <div class="btn-group">
-    <a href="{{ url_for('projects.create') }}" class="btn btn-sm btn-primary"
-       data-inline-create="project">
-      <i class="bi bi-plus-lg"></i> New project
-    </a>
-    <button type="button" class="btn btn-sm btn-primary dropdown-toggle dropdown-toggle-split"
+  <div class="dropdown">
+    <button type="button" class="btn btn-sm btn-primary dropdown-toggle"
             data-bs-toggle="dropdown" aria-expanded="false">
-      <span class="visually-hidden">More</span>
+      <i class="bi bi-plus-lg"></i> New
     </button>
     <ul class="dropdown-menu dropdown-menu-end">
       <li><a class="dropdown-item" href="{{ url_for('projects.create') }}"
              data-inline-create="project">
-        <i class="bi bi-collection"></i> New project
+        <i class="bi bi-collection text-info"></i> Project
       </a></li>
       <li><a class="dropdown-item" href="{{ url_for('projects.create', folder=1) }}"
              data-inline-create="folder">
-        <i class="bi bi-folder2-open text-warning"></i> New folder
+        <i class="bi bi-folder2-open text-warning"></i> Folder
       </a></li>
     </ul>
   </div>

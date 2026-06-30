@@ -260,23 +260,31 @@
     {% endfor %}
   </div>
   <div class="btn-group">
-    <a class="btn btn-primary" href="{{ url_for('tasks.create', project=project.pk) }}"
-       data-inspector-url="{{ url_for('tasks.create', project=project.pk) }}"
-       data-inspector-title="New task in {{ project.name }}">
-      <i class="bi bi-plus-lg"></i> Task
-    </a>
-    <a class="btn btn-outline-secondary"
-       href="{{ url_for('projects.create', section=1, parent=project.pk) }}"
-       data-inspector-url="{{ url_for('projects.create', section=1, parent=project.pk) }}"
-       data-inspector-title="New section in {{ project.name }}">
-      <i class="bi bi-bookmark-plus"></i> Section
-    </a>
-    <a class="btn btn-outline-secondary"
-       href="{{ url_for('projects.create', parent=project.pk) }}"
-       data-inspector-url="{{ url_for('projects.create', parent=project.pk) }}"
-       data-inspector-title="New project in {{ project.name }}">
-      <i class="bi bi-folder-plus"></i> Project
-    </a>
+    <div class="btn-group" role="group">
+      <button type="button" class="btn btn-primary dropdown-toggle"
+              data-bs-toggle="dropdown" aria-expanded="false">
+        <i class="bi bi-plus-lg"></i> New
+      </button>
+      <ul class="dropdown-menu">
+        <li><a class="dropdown-item" href="{{ url_for('tasks.create', project=project.pk) }}"
+               data-inspector-url="{{ url_for('tasks.create', project=project.pk) }}"
+               data-inspector-title="New task in {{ project.name }}">
+          <i class="bi bi-check2-square text-success"></i> Task
+        </a></li>
+        <li><a class="dropdown-item"
+               href="{{ url_for('projects.create', section=1, parent=project.pk) }}"
+               data-inspector-url="{{ url_for('projects.create', section=1, parent=project.pk) }}"
+               data-inspector-title="New section in {{ project.name }}">
+          <i class="bi bi-bookmark-plus"></i> Section
+        </a></li>
+        <li><a class="dropdown-item"
+               href="{{ url_for('projects.create', parent=project.pk) }}"
+               data-inspector-url="{{ url_for('projects.create', parent=project.pk) }}"
+               data-inspector-title="New project in {{ project.name }}">
+          <i class="bi bi-collection text-info"></i> Project
+        </a></li>
+      </ul>
+    </div>
     <button type="button" class="btn btn-outline-secondary"
             data-inspector-url="{{ url_for('projects.edit', project_id=project.pk) }}"
             data-inspector-title="{{ project.name }}"
