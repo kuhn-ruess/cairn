@@ -123,16 +123,18 @@ def register_filters(app):
         from application.models.item import Item as Item
 
         # Container choices for the quick-add and bulk "Move to…" dropdowns.
-        # Folders are organisational only (you can't file a task inside one), so
-        # only projects + sections are offered. Labels carry the FULL folder
-        # breadcrumb (e.g. "Work / Acme / Website"), resolved in-memory in one
-        # query — a bare parent name mislabels anything nested 3+ levels deep.
+        # Only *projects* are offered: folders are organisational (you can't file
+        # a task in one) and sections are an intra-project detail the inspector's
+        # own picker handles — surfacing them here as bare "Folder/Proj/Section"
+        # paths just confused users. Labels carry the FULL folder breadcrumb
+        # (e.g. "Work / Acme / Website"), resolved in-memory in one query — a
+        # bare parent name mislabels anything nested 3+ levels deep.
         user_project_choices = []
         if current_user.is_authenticated:
             user = current_user._get_current_object()
             from application.services.containers import container_choices
             user_project_choices = container_choices(
-                user, selectable_kinds=("project", "section"),
+                user, selectable_kinds=("project",),
                 include_shared=True, active_projects_only=True,
             )
         # Sidebar perspectives — render from the user's custom list.
