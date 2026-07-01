@@ -92,6 +92,20 @@
   function escape(s) {
     return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   }
+  // Local wall-clock "now" as a datetime-local value. The server attaches the
+  // user's tz to naive values, so browser-local time keeps "today" honest.
+  function nowLocalDatetime() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+      + `T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  const planEl = modalEl.querySelector("#quickAddPlan");
+  // Re-apply the "plan for today" prefill (used by the Today view's New task
+  // button) — called on open and after each "Add another" clear.
+  function applyPlanToday() {
+    if (modalEl._planToday && planEl) planEl.value = nowLocalDatetime();
+  }
   input.addEventListener("input", () => { preview(); updateProjectHint(); });
 
   // ----- Assignee autocomplete for the +name token -----
@@ -211,6 +225,7 @@
         input.value = "";
         if (noteEl) noteEl.value = "";
         modalEl.querySelectorAll('input[type="datetime-local"]').forEach((i) => { i.value = ""; });
+        applyPlanToday();
         if (pending && window.PendingAttachments) window.PendingAttachments.clear(pending);
         previewEl.classList.add("d-none");
         input.focus();
@@ -276,6 +291,11 @@
     input.value = "";
     if (noteEl) noteEl.value = "";
     modalEl.querySelectorAll('input[type="datetime-local"]').forEach((i) => { i.value = ""; });
+    // Today view's "New task" carries data-quickadd-plan="today" → pre-plan the
+    // task for today so it stays on Today while still landing in the Inbox.
+    modalEl._planToday = !!(trigger && trigger.dataset
+                            && trigger.dataset.quickaddPlan === "today");
+    applyPlanToday();
     if (pending && window.PendingAttachments) window.PendingAttachments.clear(pending);
     previewEl.classList.add("d-none");
     setTimeout(() => input.focus(), 50);
