@@ -122,18 +122,18 @@ def register_filters(app):
 
         from application.models.item import Item as Item
 
-        projects = []
+        # Container choices for the quick-add and bulk "Move to…" dropdowns.
+        # Folders are organisational only (you can't file a task inside one), so
+        # only projects + sections are offered. Labels carry the FULL folder
+        # breadcrumb (e.g. "Work / Acme / Website"), resolved in-memory in one
+        # query — a bare parent name mislabels anything nested 3+ levels deep.
+        user_project_choices = []
         if current_user.is_authenticated:
             user = current_user._get_current_object()
-            # Folders are organisational only — you can't put tasks inside them;
-            # notes aren't task containers either. Both are excluded so the
-            # quick-add / move-to dropdowns only offer real task containers.
-            projects = list(
-                Item.objects(
-                    (Q(owner=user) | Q(members=user)),
-                    status="active",
-                    kind__nin=["folder", "note"],
-                ).order_by("+name")
+            from application.services.containers import container_choices
+            user_project_choices = container_choices(
+                user, selectable_kinds=("project", "section"),
+                include_shared=True, active_projects_only=True,
             )
         # Sidebar perspectives — render from the user's custom list.
         sidebar_perspectives = []
@@ -228,7 +228,7 @@ def register_filters(app):
         from application import APP_VERSION
         return {
             "now_utc": lambda: datetime.now(timezone.utc),
-            "user_projects": projects,
+            "user_project_choices": user_project_choices,
             "current_focus": current_focus,
             "nav_counts": nav_counts,
             "sidebar_perspectives": sidebar_perspectives,

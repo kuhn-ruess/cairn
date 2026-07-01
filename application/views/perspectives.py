@@ -96,7 +96,7 @@ def _form_context(user):
         # Depth-first (parent→child) order with depth, so the tag pickers can
         # render the hierarchy with indentation instead of a flat list.
         "tag_tree": [{"name": t.name, "depth": d} for d, t in user.tag_tree()],
-        "user_projects": [],  # filled by the global context_processor anyway
+        "user_project_choices": [],  # filled by the global context_processor anyway
     }
 
 def _build_from_form(form_data, user, *, pid) -> CustomPerspective:

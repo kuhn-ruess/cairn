@@ -367,8 +367,8 @@
             </label>
             <select id="quickAddProject" name="project_id" class="form-select form-select-sm w-auto">
               <option value="">Inbox</option>
-              {% for p in user_projects %}
-                <option value="{{ p.pk }}">{% if p.parent %}{{ p.parent.name }} › {% endif %}{{ p.name }}</option>
+              {% for pk, label in user_project_choices %}
+                <option value="{{ pk }}">{{ label }}</option>
               {% endfor %}
             </select>
           </div>
@@ -533,12 +533,10 @@
               data-bs-toggle="dropdown">Move to…</button>
       <ul class="dropdown-menu bulk-move-menu" style="max-height: 320px; overflow-y: auto;">
         <li><a class="dropdown-item bulk-move-item" href="#" data-project-id="">— No project (inbox)</a></li>
-        {% if user_projects %}<li><hr class="dropdown-divider"></li>{% endif %}
-        {% for p in user_projects %}
+        {% if user_project_choices %}<li><hr class="dropdown-divider"></li>{% endif %}
+        {% for pk, label in user_project_choices %}
           <li><a class="dropdown-item bulk-move-item" href="#"
-                 data-project-id="{{ p.pk }}">
-            {% if p.parent %}<span class="text-muted small">{{ p.parent.name }} ›</span> {% endif %}{{ p.name }}
-          </a></li>
+                 data-project-id="{{ pk }}">{{ label }}</a></li>
         {% endfor %}
       </ul>
     </div>
