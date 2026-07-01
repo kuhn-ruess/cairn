@@ -327,7 +327,7 @@
   </aside>
 </div>
 
-{# Simple quick-edit modal for subtasks: assignee + plan dates only. Clicking a
+{# Simple quick-edit modal for subtasks: assignee + tags + plan dates. Clicking a
    subtask title opens this; the ⓘ icon still opens the full inspector. #}
 <div class="modal fade" id="subtask-quick-edit-modal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
@@ -339,10 +339,25 @@
       </div>
       <form class="modal-body" id="subtask-quick-edit-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {# Marker so an empty tag selection still clears tags server-side. #}
+        <input type="hidden" name="tags_submitted" value="1">
         <div class="mb-3">
           <label class="form-label small text-uppercase text-muted" for="sqe-assigned">Assignee</label>
           <select class="form-select form-select-sm" id="sqe-assigned" name="assigned_to">
             {% for value, label in form.assigned_to.choices %}
+              <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small text-uppercase text-muted" for="sqe-tags">Tags</label>
+          {%- set sqe_tag_meta = [] -%}
+          {%- for t in current_user.tags or [] -%}
+            {%- set _ = sqe_tag_meta.append({"name": t.name, "parent": t.parent or "", "excl": t.exclusive_children, "color": t.color}) -%}
+          {%- endfor -%}
+          <select class="form-select form-select-sm" id="sqe-tags" name="tags" multiple size="5"
+                  data-tag-toggle="1" data-tag-meta='{{ sqe_tag_meta|tojson }}'>
+            {% for value, label in form.tags.choices %}
               <option value="{{ value }}">{{ label }}</option>
             {% endfor %}
           </select>
@@ -370,14 +385,29 @@
 </div>
 
 <script>
-/* Subtask quick-edit modal — assignee + defer/due only. Fully delegated on
-   document and re-queries elements by id at fire time, so it survives both the
-   subtask partial's outerHTML refresh and the <main> innerHTML swap
+/* Subtask quick-edit modal — assignee, tags + defer/due only. Fully delegated
+   on document and re-queries elements by id at fire time, so it survives both
+   the subtask partial's outerHTML refresh and the <main> innerHTML swap
    (bktodo:refresh-needed). Falls back to navigation where the modal is absent
    (e.g. the subtask list inside the offcanvas on other pages). */
 (function () {
   const q = (id) => document.getElementById(id);
   let currentRefreshUrl = null;
+
+  // Point the shared tag-toggle widget at THIS subtask's tags: reset the
+  // enhanced select's selection, tear down its rendered widget and let
+  // tag-toggle.js rebuild it (it re-inits on `inspector:loaded`).
+  function loadTags(names) {
+    const sel = q("sqe-tags");
+    if (!sel) return;
+    const widget = sel.nextElementSibling;
+    if (widget && widget.classList.contains("position-relative")) widget.remove();
+    sel.dataset.tagToggleWired = "";
+    sel.style.display = "";
+    const want = new Set(names || []);
+    Array.from(sel.options).forEach((o) => { o.selected = want.has(o.value); });
+    document.dispatchEvent(new Event("inspector:loaded"));
+  }
 
   document.addEventListener("click", (ev) => {
     if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return;  // let new-tab through
@@ -393,6 +423,9 @@
     q("sqe-assigned").value = trigger.dataset.qeAssigned || "";
     q("sqe-due").value = trigger.dataset.qeDue || "";
     q("sqe-defer").value = trigger.dataset.qeDefer || "";
+    let tags = [];
+    try { tags = JSON.parse(trigger.dataset.qeTags || "[]"); } catch (e) {}
+    loadTags(tags);
     const wrap = trigger.closest(".task-subtasks");
     currentRefreshUrl = wrap ? wrap.dataset.refreshUrl : null;
     bootstrap.Modal.getOrCreateInstance(modalEl).show();

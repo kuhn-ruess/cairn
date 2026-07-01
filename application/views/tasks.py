@@ -279,6 +279,52 @@ def _populate_form_choices(form: TaskForm, user: User) -> None:
             choices.append((pk, f"{member} ({team.name})"))
     form.assigned_to.choices = choices
 
+def _apply_tags(task: Item, user: User, raw_names) -> None:
+    """Normalise + apply a list of tag names to ``task``.
+
+    Type-to-create any name the user doesn't have yet (gray default colour,
+    mirroring OmniFocus), enforce exclusive-children groups (at most one child
+    from an exclusive parent), store the final names, and run label-driven
+    status rules. Shared by the full edit form and the subtask quick-edit
+    modal so both behave identically."""
+    from application.models.tag import Tag
+    from application.services.label_rules import apply_label_rules
+    # Tags are stored as a list of names; the multi-select submits names.
+    # Normalise once (strip + cap at the model's 64-char limit) so a
+    # type-created tag and the name stored on the task always match.
+    submitted = [n.strip()[:64] for n in (raw_names or []) if n and n.strip()]
+    # Snapshot the tags already on the task so the label rule below only
+    # fires for tags added in *this* edit. Without this, a status-mapping
+    # tag re-snaps the status on every save and you can never move the
+    # task off that status by hand.
+    previously = set(task.tags or [])
+    final, seen_excl = [], set()
+    by_name = {t.name: t for t in (user.tags or [])}
+    created = False
+    for name in submitted:
+        name = name.strip()
+        if name and name not in by_name and not user.tag_by_name(name):
+            tag = Tag(name=name[:64])
+            user.tags.append(tag)
+            by_name[tag.name] = tag
+            created = True
+    if created:
+        user.save()
+    for name in submitted:
+        tag = by_name.get(name)
+        if tag and tag.parent:
+            parent_tag = by_name.get(tag.parent)
+            if parent_tag and parent_tag.exclusive_children:
+                if tag.parent in seen_excl:
+                    continue  # already picked one from this exclusive group
+                seen_excl.add(tag.parent)
+        final.append(name)
+    task.tags = final
+    # Label-driven status: a tag carrying ``maps_to_status`` snaps the task to
+    # that status (authoritative over any explicit status the form supplied).
+    apply_label_rules(task, user, only_tags=set(final) - previously)
+
+
 def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     from application.services.tz import attach_user_tz
     task.title = form.title.data
@@ -326,51 +372,7 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
         except ValueError:
             # Tampered POST picking a project the assignee doesn't own → Inbox.
             task.set_home_for(user, None)
-    # Tags are stored as a list of names; the multi-select submits names.
-    # Normalise once (strip + cap at the model's 64-char limit) so a
-    # type-created tag and the name stored on the task always match.
-    submitted = [n.strip()[:64] for n in (form.tags.data or []) if n and n.strip()]
-    # Snapshot the tags already on the task so the label rule below only
-    # fires for tags added in *this* edit. Without this, a status-mapping
-    # tag re-snaps the status on every save and you can never move the
-    # task off that status by hand.
-    previously = set(task.tags or [])
-    # Enforce exclusive-children groups: at most one child tag from a
-    # parent flagged as exclusive_children.
-    final, seen_excl = [], set()
-    by_name = {t.name: t for t in (user.tags or [])}
-    # Type-to-create: any submitted name the user doesn't have yet becomes a
-    # new tag (gray default color), mirroring OmniFocus. validate_choice is off
-    # on the field so unknown names reach us here.
-    from application.models.tag import Tag
-    created = False
-    for name in submitted:
-        name = name.strip()
-        if name and name not in by_name and not user.tag_by_name(name):
-            tag = Tag(name=name[:64])
-            user.tags.append(tag)
-            by_name[tag.name] = tag
-            created = True
-    if created:
-        user.save()
-    for name in submitted:
-        tag = by_name.get(name)
-        if tag and tag.parent:
-            parent_tag = by_name.get(tag.parent)
-            if parent_tag and parent_tag.exclusive_children:
-                if tag.parent in seen_excl:
-                    continue  # already picked one from this exclusive group
-                seen_excl.add(tag.parent)
-        final.append(name)
-    task.tags = final
-
-    # Label-driven status: if any of the assigned tags carries a
-    # ``maps_to_status`` setting, snap the task to that status. The
-    # user form supplies an explicit status above, but the label rule
-    # is authoritative — if the user adds "Warte auf Kunde" the task
-    # should become waiting regardless of what the dropdown said.
-    from application.services.label_rules import apply_label_rules
-    apply_label_rules(task, user, only_tags=set(final) - previously)
+    _apply_tags(task, user, form.tags.data)
 
     if form.assigned_to.data:
         from application.services.permissions import resolve_assignable_user
@@ -2105,6 +2107,10 @@ def quick_edit(task_id):
                 task.assign_to(new_assignee, by_user=user)
         else:
             task.assign_to(None)
+    # An empty multi-select sends no ``tags`` key, so a hidden marker signals
+    # the field was present (→ apply, empty = clear all tags).
+    if request.form.get("tags_submitted"):
+        _apply_tags(task, user, request.form.getlist("tags"))
 
     task.save()
     _writeback_calendar(task, user)
@@ -2113,6 +2119,7 @@ def quick_edit(task_id):
         "assigned_to": str(task.assigned_to) if task.assigned_to else None,
         "due_date": task.due_date.isoformat() if task.due_date else None,
         "defer_date": task.defer_date.isoformat() if task.defer_date else None,
+        "tags": list(task.tags or []),
     })
 
 

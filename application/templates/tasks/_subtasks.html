@@ -29,7 +29,8 @@
            data-qe-title="{{ s.title }}"
            data-qe-assigned="{{ s.assigned_to.pk if s.assigned_to else '' }}"
            data-qe-due="{{ s.due_date|dtlocalinput }}"
-           data-qe-defer="{{ s.defer_date|dtlocalinput }}">{{ s.title }}</a>
+           data-qe-defer="{{ s.defer_date|dtlocalinput }}"
+           data-qe-tags='{{ (s.tags or [])|tojson }}'>{{ s.title }}</a>
         <span class="ms-auto d-flex align-items-center gap-2">
           {% if s.priority %}<span class="priority-p{{ s.priority }} small">P{{ s.priority }}</span>{% endif %}
           {% if s.assigned_to and s.assigned_to != current_user %}
