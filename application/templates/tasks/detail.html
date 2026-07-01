@@ -125,67 +125,6 @@
 
 <div class="row g-4">
   <div class="col-lg-8 task-detail-body">
-    <section class="task-detail-section" id="comments" data-collapsible>
-      <h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center">
-        <button type="button" class="btn btn-sm btn-link text-muted p-0 me-1"
-                data-collapse-key="cairn-collapse-comments" title="Show / hide comments">
-          <i class="bi bi-chevron-down"></i>
-        </button>
-        Comments
-        <span class="text-muted ms-1">({{ task.comments|length }})</span>
-        {% if task.comments %}
-        <button type="button" class="btn btn-sm btn-link text-muted p-0 ms-2 comment-sort-toggle"
-                title="Toggle comment order (newest / oldest first)">
-          <i class="bi bi-sort-down"></i>
-        </button>
-        {% endif %}
-      </h2>
-      <div class="comments-body section-collapsible">
-      <div class="task-detail-comments">
-      {% for c in task.comments|reverse %}
-        {% set _idx = task.comments|length - 1 - loop.index0 %}
-        <div class="task-detail-comment {% if c.is_public %}is-public{% endif %}"
-             data-comment-index="{{ _idx }}">
-          <div class="comment-avatar">{{ (c.author_name or '?')[:1]|upper }}</div>
-          <div class="comment-body-wrap">
-            <div class="comment-header">
-              <strong class="comment-author">{{ c.author_name }}</strong>
-              {% if c.is_external %}
-                <span class="badge text-bg-secondary" title="Imported from an external system — not a Cairn user"><i class="bi bi-box-arrow-in-down"></i> external</span>
-              {% endif %}
-              <span class="comment-time">{{ c.created_at|localdt }}</span>
-              <button type="button"
-                      class="comment-visibility-toggle"
-                      data-task-id="{{ task.pk }}"
-                      data-index="{{ _idx }}"
-                      data-public="{{ '1' if c.is_public else '0' }}"
-                      title="Click to toggle internal / public">
-                {% if c.is_public %}
-                  <span class="badge text-bg-success"><i class="bi bi-globe"></i> public</span>
-                {% else %}
-                  <span class="badge text-bg-secondary"><i class="bi bi-lock"></i> internal</span>
-                {% endif %}
-              </button>
-            </div>
-            <div class="comment-text md-body">{{ c.body|markdown }}</div>
-          </div>
-        </div>
-      {% else %}
-        <p class="text-muted small">No comments yet.</p>
-      {% endfor %}
-      </div>
-
-      <form method="post" action="{{ url_for('tasks.comment', task_id=task.pk) }}" class="task-detail-comment-form mt-3">
-        {{ comment_form.hidden_tag() }}
-        {{ comment_form.body(class="form-control form-control-sm mb-2", rows="2", placeholder="Add a comment…") }}
-        <div class="d-flex align-items-center">
-          <small class="text-muted me-auto">New comments are <strong>internal</strong> by default.</small>
-          {{ comment_form.submit(class="btn btn-sm btn-primary") }}
-        </div>
-      </form>
-      </div>{# /.comments-body #}
-    </section>
-
     <section class="task-detail-section task-detail-note" id="note" data-collapsible>
       <div class="d-flex align-items-center mb-2">
         <button type="button" class="btn btn-link btn-sm p-0 me-1 text-muted"
@@ -281,6 +220,69 @@
         {% endfor %}
       </section>
     {% endif %}
+
+    <section class="task-detail-section" id="comments" data-collapsible>
+      <h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center">
+        <button type="button" class="btn btn-sm btn-link text-muted p-0 me-1"
+                data-collapse-key="cairn-collapse-comments" title="Show / hide comments">
+          <i class="bi bi-chevron-down"></i>
+        </button>
+        Comments
+        <span class="text-muted ms-1">({{ task.comments|length }})</span>
+        {% if task.comments %}
+        <button type="button" class="btn btn-sm btn-link text-muted p-0 ms-2 comment-sort-toggle"
+                title="Toggle comment order (newest / oldest first)">
+          <i class="bi bi-sort-down"></i>
+        </button>
+        {% endif %}
+      </h2>
+      <div class="comments-body section-collapsible">
+      {# Add-comment box sits ABOVE the list so it's reachable without scrolling
+         past every comment. #}
+      <form method="post" action="{{ url_for('tasks.comment', task_id=task.pk) }}" class="task-detail-comment-form mb-3">
+        {{ comment_form.hidden_tag() }}
+        {{ comment_form.body(class="form-control form-control-sm mb-2", rows="2", placeholder="Add a comment…") }}
+        <div class="d-flex align-items-center">
+          <small class="text-muted me-auto">New comments are <strong>internal</strong> by default.</small>
+          {{ comment_form.submit(class="btn btn-sm btn-primary") }}
+        </div>
+      </form>
+
+      <div class="task-detail-comments">
+      {% for c in task.comments|reverse %}
+        {% set _idx = task.comments|length - 1 - loop.index0 %}
+        <div class="task-detail-comment {% if c.is_public %}is-public{% endif %}"
+             data-comment-index="{{ _idx }}">
+          <div class="comment-avatar">{{ (c.author_name or '?')[:1]|upper }}</div>
+          <div class="comment-body-wrap">
+            <div class="comment-header">
+              <strong class="comment-author">{{ c.author_name }}</strong>
+              {% if c.is_external %}
+                <span class="badge text-bg-secondary" title="Imported from an external system — not a Cairn user"><i class="bi bi-box-arrow-in-down"></i> external</span>
+              {% endif %}
+              <span class="comment-time">{{ c.created_at|localdt }}</span>
+              <button type="button"
+                      class="comment-visibility-toggle"
+                      data-task-id="{{ task.pk }}"
+                      data-index="{{ _idx }}"
+                      data-public="{{ '1' if c.is_public else '0' }}"
+                      title="Click to toggle internal / public">
+                {% if c.is_public %}
+                  <span class="badge text-bg-success"><i class="bi bi-globe"></i> public</span>
+                {% else %}
+                  <span class="badge text-bg-secondary"><i class="bi bi-lock"></i> internal</span>
+                {% endif %}
+              </button>
+            </div>
+            <div class="comment-text md-body">{{ c.body|markdown }}</div>
+          </div>
+        </div>
+      {% else %}
+        <p class="text-muted small">No comments yet.</p>
+      {% endfor %}
+      </div>
+      </div>{# /.comments-body #}
+    </section>
   </div>
 
   <aside class="col-lg-4">
