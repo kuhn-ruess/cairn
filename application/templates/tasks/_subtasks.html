@@ -31,6 +31,12 @@
            data-qe-due="{{ s.due_date|dtlocalinput }}"
            data-qe-defer="{{ s.defer_date|dtlocalinput }}"
            data-qe-tags='{{ (s.tags or [])|tojson }}'>{{ s.title }}</a>
+        {% for tag_name in (s.tags or []) %}
+          {% set tg = current_user.tag_by_name(tag_name) %}
+          <span class="tag-chip" style="--tag-color: {{ tg.color if tg else '#6c757d' }};">
+            {% if tg and tg.is_context %}@{% endif %}{{ tag_name }}
+          </span>
+        {% endfor %}
         <span class="ms-auto d-flex align-items-center gap-2">
           {% if s.priority %}<span class="priority-p{{ s.priority }} small">P{{ s.priority }}</span>{% endif %}
           {% if s.assigned_to and s.assigned_to != current_user %}
