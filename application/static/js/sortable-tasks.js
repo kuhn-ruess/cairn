@@ -103,7 +103,13 @@
         const overTask = related && related.dataset
           && related.dataset.taskId
           && !(dragSource && related === dragSource);
-        if (!overTask) {
+        // Don't arm the merge highlight inside attribute buckets (priority /
+        // status) — dropping there re-buckets the task, it never merges, so a
+        // "will merge" hint would be a lie (see onEnd).
+        const destAttrBucket = ev.to && ev.to.dataset
+          && (ev.to.dataset.targetPriority !== undefined
+              || ev.to.dataset.targetStatus !== undefined);
+        if (!overTask || destAttrBucket) {
           cancelDwell();
           clearMergeTarget();
           return true;
@@ -123,7 +129,15 @@
         clearMergeTarget();
         cancelDwell();
         dragSource = null;
-        if (target && source && target !== source
+        // In an attribute-grouped list (Today grouped by priority / status),
+        // the destination bucket IS the intent of the drop — re-bucket the
+        // task, never hijack it as a dwell-to-merge. A merge only changes the
+        // task's parent, not its priority/status, so it would leave the task
+        // in its original bucket and look like the drop "snapped back".
+        const destAttrBucket = !!(ev.to && ev.to.dataset
+          && (ev.to.dataset.targetPriority !== undefined
+              || ev.to.dataset.targetStatus !== undefined));
+        if (!destAttrBucket && target && source && target !== source
             && target.dataset.taskId && source.dataset.taskId
             && target.dataset.taskId !== source.dataset.taskId) {
           // Dwelled onto a task row → nest source as its sub-task (the
