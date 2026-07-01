@@ -23,7 +23,9 @@
           <i class="bi {{ 'bi-check-circle-fill text-success' if sd else 'bi-circle' }}"></i>
         </button>
         <a class="subtask-title text-decoration-none {{ 'text-muted' if sd else 'text-body' }}"
-           href="{{ url_for('tasks.detail', task_id=s.pk) }}">{{ s.title }}</a>
+           href="{{ url_for('tasks.detail', task_id=s.pk) }}"
+           data-inspector-url="{{ url_for('tasks.edit', task_id=s.pk) }}"
+           data-inspector-title="{{ s.title }}">{{ s.title }}</a>
         <span class="ms-auto d-flex align-items-center gap-2">
           {% if s.priority %}<span class="priority-p{{ s.priority }} small">P{{ s.priority }}</span>{% endif %}
           {% if s.assigned_to and s.assigned_to != current_user %}
