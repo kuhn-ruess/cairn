@@ -2060,6 +2060,62 @@ def unschedule(task_id):
     return jsonify({"ok": True, "warnings": warnings})
 
 
+@tasks_bp.route("/<task_id>/quick-edit", methods=["POST"])
+@login_required
+def quick_edit(task_id):
+    """Lightweight partial update for the subtask quick-edit modal: assignee
+    plus the plan dates (defer / due). Only the fields present in the body are
+    touched, so this never clobbers the rest of the task the way a full form
+    round-trip would. Returns JSON for the modal to reflect."""
+    from flask import jsonify
+    from datetime import datetime as _dt
+    from application.services.tz import attach_user_tz
+    from application.services.permissions import resolve_assignable_user
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_edited_by(user):
+        abort(404)
+
+    def _parse(name):
+        raw = (request.form.get(name) or "").strip()
+        if not raw:
+            return None
+        try:
+            return attach_user_tz(_dt.fromisoformat(raw), user)
+        except ValueError:
+            return "invalid"
+
+    if "defer_date" in request.form:
+        v = _parse("defer_date")
+        if v == "invalid":
+            return jsonify({"error": "invalid defer_date"}), 400
+        task.defer_date = v
+    if "due_date" in request.form:
+        v = _parse("due_date")
+        if v == "invalid":
+            return jsonify({"error": "invalid due_date"}), 400
+        task.due_date = v
+    if "assigned_to" in request.form:
+        pk = (request.form.get("assigned_to") or "").strip()
+        if pk:
+            new_assignee = resolve_assignable_user(user, pk)
+            # Silently ignore a non-shareable pk — same lenient behaviour as
+            # the full edit form; the select never offers such a pk anyway.
+            if new_assignee and task.assigned_to != new_assignee:
+                task.assign_to(new_assignee, by_user=user)
+        else:
+            task.assign_to(None)
+
+    task.save()
+    _writeback_calendar(task, user)
+    return jsonify({
+        "ok": True,
+        "assigned_to": str(task.assigned_to) if task.assigned_to else None,
+        "due_date": task.due_date.isoformat() if task.due_date else None,
+        "defer_date": task.defer_date.isoformat() if task.defer_date else None,
+    })
+
+
 # Preset times of day for the Today-list quick snooze. Wall-clock in the
 # user's timezone; "tomorrow" is the next day.
 SNOOZE_TARGETS = {

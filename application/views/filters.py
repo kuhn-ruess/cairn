@@ -263,6 +263,23 @@ def register_filters(app):
             pass
         return value.strftime("%Y-%m-%d %H:%M")
 
+    @app.template_filter("dtlocalinput")
+    def dtlocalinput(value):
+        """Format an aware datetime as a user-tz ``datetime-local`` value
+        (``YYYY-MM-DDTHH:MM``) for pre-filling ``<input type="datetime-local">``."""
+        if not value:
+            return ""
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        try:
+            from flask_login import current_user
+            from application.services.tzutil import resolve_tz
+            user = current_user if getattr(current_user, "is_authenticated", False) else None
+            value = value.astimezone(resolve_tz(user))
+        except Exception:
+            pass
+        return value.strftime("%Y-%m-%dT%H:%M")
+
     @app.template_filter("date")
     def date(value):
         if not value:
