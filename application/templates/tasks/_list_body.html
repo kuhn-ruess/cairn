@@ -11,9 +11,10 @@
 <div class="task-list {% if not tasks %}is-empty{% endif %}"
      data-bulk-scope="tasks"
      {% if target_project_id is defined and target_project_id is not none %}data-target-project="{{ target_project_id }}"{% endif %}
-     {% if target_status is defined and target_status is not none %}data-target-status="{{ target_status }}"{% endif %}>
+     {% if target_status is defined and target_status is not none %}data-target-status="{{ target_status }}"{% endif %}
+     {% if target_priority is defined %}data-target-priority="{{ target_priority }}"{% endif %}>
   {% if not tasks %}
-    {% if target_project_id is defined and target_project_id is not none %}
+    {% if (target_project_id is defined and target_project_id is not none) or target_priority is defined %}
       <p class="task-empty-hint text-muted small mb-0">Drop tasks here</p>
     {% else %}
       <p class="text-muted small mb-0">Nothing here.</p>

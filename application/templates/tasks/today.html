@@ -439,11 +439,17 @@
           {% endif %}
         </h3>
       </div>
-      {% if _ts %}
-        {% set tasks = _ts %}{% include "tasks/_list_body.html" %}
+      {% if _ts or grouping == 'priority' %}
+        {% set tasks = _ts %}
+        {# Priority buckets carry a drop target so dragging a task between them
+           re-sets its priority (empty string = the "No priority" bucket). #}
+        {% if grouping == 'priority' %}
+          {% set target_priority = {'P1': '1', 'P2': '2', 'P3': '3', 'P4': '4'}.get(label, '') %}
+        {% endif %}
+        {% include "tasks/_list_body.html" %}
       {% endif %}
       {{ render_project_rows(_ps) }}
-      {% if not _ts and not _ps %}
+      {% if not _ts and not _ps and grouping != 'priority' %}
         <p class="text-muted small mb-0 mt-1 ps-3">No tasks today in this project.</p>
       {% endif %}
     </div>

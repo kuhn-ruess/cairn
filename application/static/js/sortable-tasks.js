@@ -593,6 +593,11 @@
     if (ev.to.dataset.targetStatus !== undefined) {
       fd.append("status", ev.to.dataset.targetStatus);
     }
+    // Dropping between the Today "group by priority" buckets re-sets the
+    // task's priority. Empty string = the "No priority" bucket → clears it.
+    if (ev.to.dataset.targetPriority !== undefined) {
+      fd.append("priority", ev.to.dataset.targetPriority);
+    }
 
     try {
       const resp = await fetch(`/tasks/${taskId}/move`, {

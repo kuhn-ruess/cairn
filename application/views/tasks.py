@@ -851,7 +851,9 @@ def today():
         groups = [("Today", "bi-calendar-day", merged, None)] if merged else []
     else:
         merged = _merge_unique(filtered, projects_with_dates)
-        groups = _group_tasks(merged, grouping)
+        # Priority grouping keeps every level on-screen (even empty ones) so
+        # each is a drop target for drag-to-set-priority.
+        groups = _group_tasks(merged, grouping, keep_empty=(grouping == "priority"))
 
     # Per-project header chips (due/plan dates) — keyed by str(pk) so
     # the template can look them up while iterating ``groups`` in
@@ -2524,6 +2526,23 @@ def move(task_id):
                 if target_status != "done":
                     task.completed_at = None
                 touched = True
+
+    # 3) Apply priority from a priority-tagged drop target (Today grouped by
+    #    priority). Empty string = the "No priority" bucket → clear it. Only an
+    #    explicit, valid value ever writes, so an unparseable payload is a no-op
+    #    rather than silently wiping the task's priority.
+    if "priority" in data:
+        raw_priority = (data.get("priority") or "").strip()
+        new_priority, valid = None, True
+        if raw_priority:
+            try:
+                new_priority = int(raw_priority)
+                valid = new_priority in (1, 2, 3, 4)
+            except (TypeError, ValueError):
+                valid = False
+        if valid and new_priority != task.priority:
+            task.priority = new_priority
+            touched = True
 
     if touched:
         task.save()

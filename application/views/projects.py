@@ -926,7 +926,7 @@ def _bucket_by_section(all_tasks, sections, section_pk_by_task=None):
         out[key][status_bucket(t)].append(t)
     return out
 
-def _group_tasks(tasks, mode):
+def _group_tasks(tasks, mode, keep_empty=False):
     """Return ``(label, icon, [tasks], target_project_id)`` buckets.
 
     ``target_project_id`` is what the drop container exposes via
@@ -934,6 +934,10 @@ def _group_tasks(tasks, mode):
       * a project pk → dropping there sets the task's project to that pk
       * ``None`` → drops only reorder, never reparent (priority / status /
         tag / due / no-grouping)
+
+    ``keep_empty`` keeps every bucket even when it has no tasks — used by the
+    Today "group by priority" view so each priority level stays on-screen as a
+    drop target (drag a task onto an empty P1 to promote it).
     """
     from datetime import datetime, timedelta, timezone
 
@@ -947,7 +951,8 @@ def _group_tasks(tasks, mode):
         for t in tasks:
             key = t.priority if t.priority in buckets else None
             buckets[key].append(t)
-        return [(label, icon, buckets[p], None) for p, label, icon in order if buckets[p]]
+        return [(label, icon, buckets[p], None)
+                for p, label, icon in order if buckets[p] or keep_empty]
 
     if mode == "status":
         order = [
