@@ -183,9 +183,8 @@ class ProjectForm(FlaskForm):
     )
     members = SelectMultipleField("Members (collaboration)", choices=[])
     shared_teams = SelectMultipleField("Share with teams", choices=[])
-    jira_url = StringField(
-        "Jira base URL", validators=[Optional(), Length(max=300)]
-    )
+    # NB: no ``jira_url`` field — the Jira base URL is set only in the CSV
+    # import dialog (projects.import_csv), never via the project inspector.
     submit = SubmitField("Save project")
 
 

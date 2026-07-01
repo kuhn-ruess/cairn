@@ -73,9 +73,9 @@ def _apply(form: ProjectForm, project: Item) -> None:
     project.defer_date = attach_user_tz(form.defer_date.data, user)
     project.due_date = attach_user_tz(form.due_date.data, user)
     project.plan_date = attach_user_tz(form.plan_date.data, user)
-    # Jira base URL for CSV ticket linking. Valid on a project (its own) or a
-    # folder (inherited by every project inside — see effective_jira_url).
-    project.jira_url = (form.jira_url.data or "").strip().rstrip("/")
+    # NB: ``jira_url`` is intentionally NOT set here — it's configured only in
+    # the CSV import dialog (see projects.import_csv), so a normal inspector
+    # save must leave any previously-imported base URL untouched.
     kind = form.kind.data or "project"
     project.kind = kind
     # Parent and members are user-supplied pks — validate against the

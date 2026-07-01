@@ -120,16 +120,6 @@
     </div>
   </div>
 
-  <div class="inspector-section" data-show-for="project,folder">
-    {{ form.jira_url.label(class="form-label small text-uppercase text-muted") }}
-    {{ form.jira_url(class="form-control form-control-sm",
-                     placeholder="https://jira.example.com") }}
-    <div class="form-text">
-      Set on a folder to apply to every project inside it. Imported Jira
-      issue keys then link straight to the ticket.
-    </div>
-  </div>
-
   <div class="inspector-section" data-show-for="project">
     {{ form.members.label(class="form-label small text-uppercase text-muted") }}
     {{ form.members(class="form-select form-select-sm", size="5",
