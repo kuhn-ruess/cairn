@@ -501,9 +501,8 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
   text-decoration: line-through;
   color: var(--gv-gray);
 }
-.task-row.is-next {
-  box-shadow: inset 2px 0 0 var(--gv-aqua);
-}
+/* "Next" (next available task in a sequential project) is signalled by
+   the NEXT chip in the title row — no left-edge accent bar. */
 /* Priority is signalled by the completion-circle tint (below) and the
    priority chip in the title row — no left-edge accent bar, which read
    as visual clutter across a dense list. */
