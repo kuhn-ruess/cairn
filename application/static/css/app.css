@@ -518,10 +518,9 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
 }
 .task-row.blocked .task-title { color: var(--gv-fg4); }
 .task-row.blocked:hover { opacity: .85; }
-/* Sub-task rows — indent + a left accent rail so the nesting reads at a
-   glance and they're easy to tell apart from top-level tasks. */
+/* Sub-task rows — indented so the nesting reads at a glance; no left
+   accent rail (removed as visual clutter). */
 .task-row.subtask {
-  border-left: 2px solid var(--gv-bg3);
   margin-left: 2px;
 }
 .task-row.subtask .task-title { color: var(--gv-fg3); }
