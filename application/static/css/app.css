@@ -1137,12 +1137,17 @@ body.inspector-docked #bulk-bar {
 }
 
 .inspector-form {
-  padding: 1rem 1.1rem 0;
+  padding: .8rem .85rem 0;
   flex: 1 1 auto;
   overflow-y: auto;
   /* Never let an over-wide field (long tag/project label, etc.) spill past the
      panel and drag a horizontal scrollbar onto the whole page. */
   overflow-x: hidden;
+  /* Each section is its own card; the gap does the spacing between them so
+     scanning for the right block is easy (no more one-long-mass column). */
+  display: flex;
+  flex-direction: column;
+  gap: .55rem;
 }
 /* The comments block lives OUTSIDE .inspector-form (kept separate so
    posting a comment doesn't submit the rest of the form), but it
@@ -1152,19 +1157,31 @@ body.inspector-docked #bulk-bar {
   padding: 0 1.1rem 1rem;
   margin-bottom: 0;
 }
+/* A section is a self-contained card: slightly lighter than the panel gutter
+   with a full border, so each block is a discrete, findable unit. Inputs sit
+   on the darker --gv-bg0 inside, giving an inset look that separates
+   controls from their grouping card. */
 .inspector-section {
-  margin-bottom: 1rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--gv-bg2);
+  margin-bottom: 0;
+  padding: .7rem .8rem;
+  background: var(--gv-bg1);
+  border: 1px solid var(--gv-bg2);
+  border-radius: .5rem;
 }
+/* Extra breathing room before the sticky footer. */
 .inspector-section:last-of-type {
-  border-bottom: none;
+  margin-bottom: .85rem;
+}
+/* Highlight the block you're currently editing so you never lose your place. */
+.inspector-section:focus-within {
+  border-color: var(--gv-bg3);
 }
 .inspector-section .form-label {
-  margin-bottom: .25rem;
-  font-size: .7rem;
-  letter-spacing: .08em;
-  color: var(--gv-fg4) !important;
+  margin-bottom: .3rem;
+  font-size: .72rem;
+  letter-spacing: .07em;
+  font-weight: 600;
+  color: var(--gv-fg3) !important;
 }
 /* Two-column field row. Applies both to section-level grids
    (.inspector-section.grid-2) and grids nested inside a section
