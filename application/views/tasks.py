@@ -56,7 +56,6 @@ def _render_empty_task_inspector(user, *, parent_project=None, just_added_title=
     _populate_form_choices(form, user)
     if parent_project is not None:
         form.project.data = str(parent_project.pk)
-        form.status.data = "next"
     form.add_another.data = True
     return render_template(
         "tasks/_inspector.html",
@@ -1580,7 +1579,6 @@ def create():
         project_id = request.args.get("project")
         if project_id:
             form.project.data = project_id
-            form.status.data = "next"
 
     if form.validate_on_submit():
         task = Item(owner=user)
