@@ -504,14 +504,9 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
 .task-row.is-next {
   box-shadow: inset 2px 0 0 var(--gv-aqua);
 }
-/* Priority as a left-edge accent bar — Todoist-style. P4 stays
-   unmarked (it's the default). Declared after .is-next so priority
-   wins for tasks that are also "next" — the NEXT chip in the title
-   row keeps signalling availability. */
-.task-row.task-priority-1 { box-shadow: inset 3px 0 0 var(--gv-red-br); }
-.task-row.task-priority-2 { box-shadow: inset 3px 0 0 var(--gv-orange-br); }
-.task-row.task-priority-3 { box-shadow: inset 3px 0 0 var(--gv-yellow-br); }
-.task-row.task-priority-4 { box-shadow: inset 3px 0 0 var(--gv-bg3); }
+/* Priority is signalled by the completion-circle tint (below) and the
+   priority chip in the title row — no left-edge accent bar, which read
+   as visual clutter across a dense list. */
 /* Tint the empty completion circle to match the priority — picks up
    the row colour the way Todoist does on its checkbox ring. */
 .task-row.task-priority-1 .bi-circle { color: var(--gv-red-br); }
