@@ -1184,7 +1184,10 @@ class Item(Document):
         """Stamp this item reviewed. When called on a container (project/
         folder/section) with ``cascade`` (default), also resets the review
         clock on every descendant task so one pass clears the project and
-        its actions together."""
+        its actions together. The cascade stops at sub-project / folder
+        boundaries: those are opaque, reviewed via their own queue entry, so
+        crossing into them would clear their (maybe override-due) tasks
+        without the user ever having looked at them."""
         now = _utcnow()
         self._stamp_reviewed(now)
         self.save()
@@ -1197,7 +1200,10 @@ class Item(Document):
                     if c.kind == "task":
                         c._stamp_reviewed(now)
                         c.save()
-                    next_frontier.append(c.pk)
+                        next_frontier.append(c.pk)  # descend into sub-tasks
+                    elif c.kind == "section":
+                        next_frontier.append(c.pk)  # transparent grouping
+                    # sub-project / folder: opaque — cleared by their own pass
                 frontier = next_frontier
 
     def __str__(self) -> str:

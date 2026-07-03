@@ -135,9 +135,11 @@ def _next_project(user, now, current_pk, skipped):
 
 def _collect_open_tasks(project, user):
     """Flat, parents-first list of the project's open actions — descending
-    through sections, sub-projects and sub-tasks. Section/sub-project headers
-    are transparent (their tasks render at the surrounding depth); each task
-    carries ``_depth`` for the row template's indentation."""
+    through sections and sub-tasks. Section headers are transparent (their
+    tasks render at the surrounding depth); each task carries ``_depth`` for
+    the row template's indentation. Sub-projects (and folders) are **opaque**:
+    they get their own review-queue entry, so descending into them here would
+    review their tasks twice (once under this project, once under themselves)."""
     children: dict = {}
     frontier = [project.pk]
     seen = set()
@@ -165,9 +167,10 @@ def _collect_open_tasks(project, user):
                 )
                 out.append(c)
                 walk(c.pk, depth + 1)
-            else:
-                # section / sub-project: transparent — descend at same depth.
+            elif c.kind == "section":
+                # section: transparent — its tasks render at this depth.
                 walk(c.pk, depth)
+            # sub-project / folder: opaque — reviewed via their own queue entry.
 
     walk(project.pk, 0)
     return out
