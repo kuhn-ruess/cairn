@@ -8,7 +8,7 @@ stamps the project (and its tasks) and jumps to the next one in the queue.
 from datetime import datetime, timezone
 
 from flask import (
-    Blueprint, abort, flash, redirect, render_template, request, session, url_for,
+    Blueprint, abort, flash, redirect, render_template, session, url_for,
 )
 from flask_login import current_user, login_required
 from mongoengine import Q
@@ -225,9 +225,7 @@ def project_review(project_id):
     # Forward-only next, honouring projects skipped earlier in this pass.
     next_project = _next_project(user, now, project.pk, _skipped())
 
-    due_task_pks, _ = _due_task_pks(user, now)
     tasks = _collect_open_tasks(project, user)
-    due_override = [t for t in tasks if t.pk in due_task_pks]
     # Sidebar shows only the remaining review queue (+ the current project so
     # it stays visible while you're on it). Reviewed projects drop out.
     affected = [str(p.pk) for p in queue]
@@ -237,8 +235,6 @@ def project_review(project_id):
         "review/project.html",
         project=project,
         tasks=tasks,
-        due_task_pks=due_task_pks,
-        due_override=due_override,
         review_due=project.is_review_due(now),
         position=(pos + 1) if pos is not None else None,
         total=len(queue),
@@ -283,16 +279,3 @@ def skip(project_id):
     if nxt is not None:
         return redirect(url_for("review.project_review", project_id=str(nxt.pk)))
     return redirect(url_for("review.index"))
-
-
-@review_bp.route("/task/<task_id>/reviewed", methods=["POST"])
-@login_required
-def task_reviewed(task_id):
-    """Mark a single task reviewed without touching its project — for an
-    overridden task you've checked on its own cadence."""
-    user = current_user._get_current_object()
-    task = Item.objects(pk=task_id).first()
-    if not task or task.owner != user:
-        abort(404)
-    task.mark_reviewed(cascade=False)
-    return redirect(request.referrer or url_for("review.index"))

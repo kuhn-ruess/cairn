@@ -62,23 +62,4 @@
 {% with tasks = tasks, target_status = "open", view_key = "review", show_last_comment = true %}
   {% include "tasks/_list_body.html" %}
 {% endwith %}
-
-{% if due_override %}
-  <h2 class="h6 text-muted mt-4">Own review interval due ({{ due_override|length }})</h2>
-  <p class="small text-muted mb-2">These tasks have their own review cadence and have fallen due. Marking the project reviewed clears them too.</p>
-  <ul class="list-unstyled small review-task-list">
-    {% for t in due_override %}
-      <li class="d-flex align-items-center review-task-due py-1 mb-1">
-        <span class="me-auto">
-          <i class="bi bi-arrow-repeat text-warning"></i>
-          {{ t.title }} <span class="text-muted">— every {{ t.effective_review_interval() }}d</span>
-        </span>
-        <form method="post" action="{{ url_for('review.task_reviewed', task_id=t.pk) }}" class="m-0">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button class="btn btn-sm btn-outline-success py-0"><i class="bi bi-check2"></i> reviewed</button>
-        </form>
-      </li>
-    {% endfor %}
-  </ul>
-{% endif %}
 {% endblock %}
