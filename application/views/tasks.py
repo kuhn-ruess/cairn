@@ -921,8 +921,14 @@ def today():
     # 10:30 do bug fix, 14:00 dentist" without flipping to calendar
     # mode. Skipped for single-day windows (the existing groupings are
     # plenty) and for calendar mode (the timeline already interleaves).
+    #
+    # Only the "none" grouping gets the per-day split — it's the neutral
+    # "just show me each day" view. When the user has explicitly chosen a
+    # grouping (priority / status / tag / project / due), that choice wins
+    # across the whole window: ``groups`` already spans the full range, so
+    # we leave ``daily_buckets`` unset and let the grouped sections render.
     daily_buckets = None
-    if days > 1:
+    if days > 1 and grouping == "none":
         _list_tz = resolve_tz(user)
 
         def _to_user_list(dt):
