@@ -19,8 +19,26 @@ from application.models.item import (
 api_v1_bp = Blueprint("api_v1", __name__, url_prefix="/api/v1")
 
 def _scope():
-    from application.services.permissions import visible_items_q
-    return visible_items_q(g.current_user)
+    """Task-list visibility for the API, mirroring ``Item.can_be_viewed_by``:
+    items owned by / assigned to / directly shared with the user (the flat
+    ``visible_items_q``), PLUS any item filed directly inside a container the
+    user may open (``viewable_container_pks`` — owned, shared, or inherited from
+    a shared ancestor). Without the container branch a member of a shared
+    project saw none of its tasks via the list endpoint, even though single
+    ``GET /tasks/<id>`` allowed them (that path already uses can_be_viewed_by).
+
+    Note: matches on the item's *immediate* parent, so a sub-task nested under a
+    task inside a shared project isn't picked up by the container branch (its
+    parent is a task, not a container); it still lists if directly shared and is
+    always reachable via ``GET /tasks/<id>``."""
+    from bson import ObjectId
+    from application.services.permissions import (
+        visible_items_q, viewable_container_pks)
+    q = visible_items_q(g.current_user)
+    pks = [ObjectId(p) for p in viewable_container_pks(g.current_user)]
+    if pks:
+        q = q | Q(parent__in=pks)
+    return q
 
 def _parse_dt(value):
     if not value:
