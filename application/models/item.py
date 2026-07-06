@@ -162,6 +162,7 @@ class Item(Document):
             "shared_teams",
             "next_review_at",
             "trashed_at",
+            "depends_on",
             ("owner", "kind"),
             ("owner", "status"),
             ("assigned_to", "status"),
@@ -201,6 +202,17 @@ class Item(Document):
     # perspectives, the tree, or completion. Both sides carry the link
     # (see ``relate_to`` / ``unrelate_from``).
     related = ListField(ReferenceField("Item"))
+    # Directed, BLOCKING task dependencies: the tasks that must be completed
+    # before THIS task becomes actionable. Unlike ``related`` (symmetric, no
+    # effect on availability), this is a one-way prerequisite edge that feeds
+    # ``is_blocked`` (see ``_own_block``): a task with any open dependency is
+    # blocked — drops out of Next/Available, greyed in lists — until every
+    # dependency is done/dropped. The edge is stored only on the dependent
+    # side; the reverse ("what does this task block") is derived by query
+    # (``dependents``). Read-time blocking, so completing a dependency frees
+    # its dependents automatically with nothing stored on their side. A cycle
+    # guard on add keeps the graph a DAG (see ``add_dependency``).
+    depends_on = ListField(ReferenceField("Item"))
 
     # common content
     title = StringField(required=True, max_length=500)
@@ -560,6 +572,77 @@ class Item(Document):
                              if isinstance(r, Item) and r.pk != self.pk]
             other.save()
 
+    # ----- task dependencies (directed, blocking) -----
+
+    def dependency_items(self):
+        """All resolved dependency tasks for the inspector (done ones too),
+        skipping dangling refs (target purged → bare DBRef) and trashed
+        targets (reference deref bypasses the ``objects`` manager)."""
+        out = []
+        for d in self.depends_on or []:
+            if not isinstance(d, Item) or d.trashed_at:
+                continue
+            out.append(d)
+        return out
+
+    def blocking_dependencies(self):
+        """Resolved dependency tasks that are still OPEN — the ones currently
+        blocking this task. Short-circuits to ``[]`` with NO query when the
+        task has no dependencies (reads the raw refs from ``_data`` so a plain
+        blocked-check down a list never fires a per-row dereference)."""
+        if not self._data.get("depends_on"):
+            return []
+        return [d for d in self.dependency_items()
+                if d.status not in ("done", "dropped")]
+
+    def dependents(self):
+        """Tasks that depend on THIS one (reverse edge, derived by query).
+        These become available once this task is completed."""
+        return list(Item.objects(depends_on=self, kind="task")
+                    .order_by("+sort_order", "+created_at"))
+
+    def _dependency_cycle_with(self, other) -> bool:
+        """True if making self depend on ``other`` would create a cycle — i.e.
+        ``other`` already (transitively) depends on self. BFS over depends_on
+        edges; depth-capped as a guard. Keeps the dependency graph a DAG so
+        blocking can never deadlock and the graph view stays layerable."""
+        target = self.pk
+        frontier, seen, depth = [other], set(), 0
+        while frontier and depth < 200:
+            nxt = []
+            for node in frontier:
+                if not isinstance(node, Item):
+                    continue
+                if node.pk == target:
+                    return True
+                if node.pk in seen:
+                    continue
+                seen.add(node.pk)
+                nxt.extend(node.depends_on or [])
+            frontier, depth = nxt, depth + 1
+        return False
+
+    def add_dependency(self, other) -> bool:
+        """Make this task depend on ``other`` (one-way, blocking). No-op —
+        returns False — for a self-edge, an existing edge, or one that would
+        create a cycle. Stored only on this side; the reverse is by query."""
+        if other is None or other.pk == self.pk:
+            return False
+        if any(getattr(d, "pk", None) == other.pk for d in self.depends_on or []):
+            return False
+        if self._dependency_cycle_with(other):
+            return False
+        self.depends_on.append(other)
+        self.save()
+        return True
+
+    def remove_dependency(self, other_pk) -> None:
+        """Drop the dependency on ``other_pk`` (also strips any dangling
+        DBRefs left by a purged target)."""
+        self.depends_on = [d for d in self.depends_on or []
+                           if isinstance(d, Item) and str(d.pk) != str(other_pk)]
+        self.save()
+
     def external_url(self, user=None):
         """Deep link to the upstream item this was imported from, or None.
 
@@ -663,6 +746,7 @@ class Item(Document):
           * ``status == "waiting_reply"`` — waiting on someone's reply
           * ``defer_date`` in the future
           * ``followup_at`` in the future
+          * has an unfinished task dependency (``depends_on``)
           * sits in a sequential parent behind an earlier incomplete sibling
         """
         if self.status == "waiting_reply":
@@ -670,6 +754,8 @@ class Item(Document):
         if self.defer_date and self.defer_date > now:
             return True
         if self.followup_at and self.followup_at > now:
+            return True
+        if self.blocking_dependencies():
             return True
         if self.parent and self.parent.project_type == "sequential":
             earlier = (

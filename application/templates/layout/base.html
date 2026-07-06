@@ -241,6 +241,12 @@
           {{ fav.star("org:review", "fav-star-hover") }}
         </li>
         <li class="nav-fav-row d-flex align-items-center">
+          <a class="nav-link py-1 flex-grow-1 d-flex align-items-center" href="{{ url_for('tasks.dependency_graph') }}">
+            <i class="bi bi-diagram-3"></i> <span class="ms-1">Dependency graph</span>
+          </a>
+          {{ fav.star("org:dependency_graph", "fav-star-hover") }}
+        </li>
+        <li class="nav-fav-row d-flex align-items-center">
           <a class="nav-link py-1 flex-grow-1 d-flex align-items-center" href="{{ url_for('trash.index') }}">
             <i class="bi bi-trash"></i> <span class="ms-1">Trash</span>
             {% if nav_counts.get('trash') %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ nav_counts.get('trash') }}</span>{% endif %}
@@ -585,6 +591,8 @@
 <script src="{{ asset('js/inspector.js') }}"></script>
 <script src="{{ asset('js/checklist.js') }}"></script>
 <script src="{{ asset('js/related.js') }}"></script>
+<script src="{{ asset('js/dependencies.js') }}"></script>
+<script src="{{ asset('js/dep-graph.js') }}"></script>
 <script src="{{ asset('js/time-entries.js') }}"></script>
 <script src="{{ asset('js/searchable-select.js') }}"></script>
 <script src="{{ asset('js/tag-toggle.js') }}"></script>

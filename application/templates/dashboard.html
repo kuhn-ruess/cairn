@@ -70,6 +70,17 @@
       </div>
     </a>
   </div>
+  <div class="col-sm-6 col-md-4 col-xl-3">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('tasks.dependency_graph') }}">
+      <div class="card-body d-flex align-items-center gap-3">
+        <i class="bi bi-diagram-3 fs-3 text-primary"></i>
+        <div>
+          <div class="fw-semibold">Dependency graph</div>
+          <div class="small text-muted">See which tasks block which, visually</div>
+        </div>
+      </div>
+    </a>
+  </div>
   {% if current_user.team or current_user.is_team_admin %}
   <div class="col-sm-6 col-md-4 col-xl-3">
     <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('timetracking.index') }}">

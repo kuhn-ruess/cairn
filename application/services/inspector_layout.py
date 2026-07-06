@@ -28,6 +28,7 @@ INSPECTOR_SECTIONS = (
     ("time", "Time tracking"),
     ("subtasks", "Subtasks"),
     ("related", "Related"),
+    ("dependencies", "Dependencies"),
     ("comments", "Comments"),
 )
 

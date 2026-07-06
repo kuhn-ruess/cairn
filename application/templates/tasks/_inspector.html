@@ -274,6 +274,14 @@
   {% endif %}
 {%- endmacro -%}
 
+{%- macro sec_dependencies() -%}
+  {% if task and task.kind == 'task' %}
+    <div class="inspector-section dependencies-block" data-section="dependencies" id="dependencies">
+      {% include "tasks/_dependencies.html" %}
+    </div>
+  {% endif %}
+{%- endmacro -%}
+
 {%- macro sec_subtasks() -%}
   {% if task and task.kind == 'task' %}
     <div class="inspector-section subtasks-block" data-section="subtasks">
@@ -356,7 +364,8 @@
   "repeat": sec_repeat, "review": sec_review,
   "assigned_to": sec_assigned_to, "followup": sec_followup, "flags": sec_flags,
   "checklist": sec_checklist, "time": sec_time,
-  "related": sec_related, "subtasks": sec_subtasks, "comments": sec_comments,
+  "related": sec_related, "dependencies": sec_dependencies,
+  "subtasks": sec_subtasks, "comments": sec_comments,
 } -%}
 
 <form method="post" action="{{ form_action }}" data-inspector-form

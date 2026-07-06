@@ -19,6 +19,7 @@ ORGANIZE_ITEMS = {
     "perspectives": {"label": "Perspectives", "icon": "bi-binoculars", "endpoint": "custom_perspectives.index"},
     "timetracking": {"label": "Time tracking", "icon": "bi-stopwatch", "endpoint": "timetracking.index"},
     "review": {"label": "Review", "icon": "bi-arrow-clockwise", "endpoint": "review.index"},
+    "dependency_graph": {"label": "Dependency graph", "icon": "bi-diagram-3", "endpoint": "tasks.dependency_graph"},
     "trash": {"label": "Trash", "icon": "bi-trash", "endpoint": "trash.index"},
 }
 

@@ -3210,6 +3210,75 @@ def related_to_subtask(task_id, rel_id):
     return _related_response(task)
 
 
+def _dependencies_response(task):
+    """Re-render the dependencies partial for AJAX callers, else redirect back
+    to the detail page (no-JS fallback). Mirrors _related_response."""
+    if request.headers.get("X-Partial") == "1":
+        return render_template("tasks/_dependencies.html", task=task)
+    return redirect(url_for("tasks.detail", task_id=str(task.pk)) + "#dependencies")
+
+
+@tasks_bp.route("/<task_id>/dependencies", methods=["POST"])
+@login_required
+def dependency_add(task_id):
+    """Make this task depend on another task (directed, blocking). The edge is
+    stored only on this task, so viewing the other task is enough — you can
+    wait on a task you can see but don't own. Rejects self-edges and cycles
+    (add_dependency is a no-op for those)."""
+    task = _editable_task_or_404(task_id)
+    user = current_user._get_current_object()
+    dep_id = (request.form.get("depends_on_id") or "").strip()
+    other = Item.objects(pk=dep_id, kind="task").first() if dep_id else None
+    if other and other.pk != task.pk and other.can_be_viewed_by(user):
+        task.add_dependency(other)
+    return _dependencies_response(task)
+
+
+@tasks_bp.route("/<task_id>/dependencies/<dep_id>/remove", methods=["POST"])
+@login_required
+def dependency_remove(task_id, dep_id):
+    """Drop a dependency edge (stored on this side only)."""
+    task = _editable_task_or_404(task_id)
+    task.remove_dependency(dep_id)
+    return _dependencies_response(task)
+
+
+@tasks_bp.route("/graph")
+@login_required
+def dependency_graph():
+    """Workspace-wide dependency graph: every owned task that declares a
+    dependency, plus the tasks they wait on, as a directed acyclic graph.
+    Nodes + edges are serialised to JSON and laid out client-side by
+    dep-graph.js (self-contained SVG, layered left→right)."""
+    user = current_user._get_current_object()
+    # Tasks the user owns that declare at least one dependency (non-empty list).
+    with_deps = list(Item.objects(
+        owner=user, kind="task", depends_on__0__exists=True))
+    node_ids, raw_edges = set(), []
+    for t in with_deps:
+        sid = str(t.pk)
+        node_ids.add(sid)
+        for d in (t._data.get("depends_on") or []):
+            did = getattr(d, "id", None) or getattr(d, "pk", None)
+            if did:
+                raw_edges.append((sid, str(did)))
+                node_ids.add(str(did))
+    # Fetch every node in one query — dependency targets may have no deps of
+    # their own, so they aren't in ``with_deps``. Purged/trashed targets simply
+    # don't come back and their edges get dropped below.
+    docs = {str(d.pk): d for d in Item.objects(pk__in=list(node_ids), kind="task")}
+    nodes = [{
+        "id": nid,
+        "title": d.title,
+        "status": d.status,
+        "blocked": d.is_blocked(),
+        "url": url_for("tasks.detail", task_id=nid),
+    } for nid, d in docs.items()]
+    edges = [{"from": s, "to": t} for (s, t) in raw_edges
+             if s in docs and t in docs]
+    return render_template("tasks/graph.html", nodes=nodes, edges=edges)
+
+
 @tasks_bp.route("/<task_id>/subtasks", methods=["GET", "POST"])
 @login_required
 def subtasks(task_id):

@@ -1,0 +1,48 @@
+{% extends "layout/base.html" %}
+{% block title %}Dependency graph · Cairn{% endblock %}
+{% block content %}
+<div class="dep-graph-page">
+  <div class="d-flex align-items-center mb-3">
+    <h1 class="h3 mb-0 me-auto"><i class="bi bi-diagram-3"></i> Dependency graph</h1>
+    <div class="small text-muted d-flex flex-wrap gap-3 align-items-center">
+      <span><span class="dep-legend-swatch bg-warning"></span> Blocked</span>
+      <span><span class="dep-legend-swatch bg-primary"></span> Next</span>
+      <span><span class="dep-legend-swatch bg-secondary"></span> Open</span>
+      <span><span class="dep-legend-swatch bg-success"></span> Done</span>
+    </div>
+  </div>
+
+  {% if nodes %}
+    <p class="text-muted small mb-3">
+      Arrows point from a prerequisite to the task that waits on it — completing
+      the left task frees the one on the right.
+    </p>
+    <div id="dep-graph" class="dep-graph border rounded bg-body-tertiary"
+         style="overflow: auto; max-height: calc(100vh - 220px);"></div>
+  {% else %}
+    <div class="text-center text-muted py-5">
+      <i class="bi bi-diagram-3 fs-1 d-block mb-2"></i>
+      <p class="mb-1">No task dependencies yet.</p>
+      <p class="small mb-0">
+        Open any task and use the <strong>Depends on</strong> section in the
+        inspector to make it wait on another task.
+      </p>
+    </div>
+  {% endif %}
+
+  <script type="application/json" id="dep-graph-data">
+    {{ {"nodes": nodes, "edges": edges} | tojson }}
+  </script>
+</div>
+
+<style>
+  .dep-legend-swatch {
+    display: inline-block; width: .75rem; height: .75rem;
+    border-radius: 2px; vertical-align: middle; margin-right: .15rem;
+  }
+  .dep-graph svg { display: block; }
+  .dep-node rect { transition: filter .1s ease; cursor: pointer; }
+  .dep-node:hover rect { filter: brightness(1.08); }
+  .dep-node text { pointer-events: none; }
+</style>
+{% endblock %}
