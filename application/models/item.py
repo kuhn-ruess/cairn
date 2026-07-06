@@ -1151,9 +1151,17 @@ class Item(Document):
         return {str(t.pk) for t in teams_of(user)}
 
     def _explicit_share_node(self):
-        """Nearest item up the chain (self first) that defines its OWN share
-        (members or shared_teams), or None if nobody up the chain shares.
-        This is what gives override semantics: the closest share wins."""
+        """Nearest CONTAINER up the chain (self first) that defines its OWN
+        share (members or shared_teams), or None if nobody up the chain shares.
+        This is what gives override semantics: the closest container share wins.
+
+        A ``task``'s own share is deliberately NOT a boundary here: a task's
+        members/shared_teams (e.g. accumulated by delegation, see ``assign_to``)
+        only ADD viewers, they never narrow the enclosing project's share out —
+        so a member of a project sees every task in it, even a delegated or
+        individually-shared one. The additive grant is applied directly in
+        ``can_be_viewed_by``. Sub-projects/sub-folders with their own share DO
+        still narrow (the folder principle)."""
         node, seen = self, set()
         while node is not None:
             pk = str(getattr(node, "pk", "") or "")
@@ -1161,7 +1169,7 @@ class Item(Document):
                 break
             if pk:
                 seen.add(pk)
-            if node.members or node.shared_teams:
+            if node.kind != "task" and (node.members or node.shared_teams):
                 return node
             node = node.parent
         return None
@@ -1193,11 +1201,21 @@ class Item(Document):
             return True
         if self._admin_can_view(user):
             return True
-        # Nearest explicit share wins: walk up to the first item (self, then
-        # ancestors) that defines its own share. A descendant with its own
-        # members/shared_teams therefore OVERRIDES (narrows) what a parent
-        # shared — e.g. a sub-folder shared with one person hides it from the
-        # team the parent was shared with.
+        # An item's OWN share is additive: members/teams set directly on it can
+        # only GRANT access, never narrow. For a task this is the whole effect
+        # of its share — it's checked here (not as a boundary) so a task's own
+        # members don't hide it from the enclosing project's members.
+        if self.members and any(m == user for m in self.members):
+            return True
+        if self.shared_teams:
+            tids = self._user_team_ids(user)
+            if any(str(t.pk) in tids for t in self.shared_teams):
+                return True
+        # Nearest explicit CONTAINER share wins: walk up to the first container
+        # (self, then ancestors) that defines its own share. A descendant
+        # container with its own members/shared_teams OVERRIDES (narrows) what a
+        # parent shared — e.g. a sub-folder shared with one person hides it from
+        # the team the parent was shared with. Tasks are not boundaries (above).
         node = self._explicit_share_node()
         if node is None:
             return False
@@ -1210,16 +1228,30 @@ class Item(Document):
         return False
 
     def effective_viewers(self):
-        """Who can see this item, for display ("wer sieht was"). Returns the
-        nearest explicit-share node's member users + shared teams, and whether
-        that share is inherited from an ancestor (vs set on this item)."""
+        """Who can see this item, for display ("wer sieht was"). Combines the
+        nearest explicit-share CONTAINER node's members/teams (inherited or set
+        on this item) with this item's OWN additive share (a task's own members/
+        teams add viewers on top of the enclosing project's — see
+        ``can_be_viewed_by``). ``inherited`` reflects whether the container
+        share comes from an ancestor rather than this item."""
         node = self._explicit_share_node()
-        if node is None:
+        members = list(node.members or []) if node else []
+        teams = list(node.shared_teams or []) if node else []
+        # Merge this item's own share (deduped) — relevant when the container
+        # boundary is an ancestor but the item itself also shares (e.g. a task).
+        if node is None or node.pk != self.pk:
+            for m in (self.members or []):
+                if all(m != x for x in members):
+                    members.append(m)
+            for t in (self.shared_teams or []):
+                if all(getattr(t, "pk", None) != getattr(x, "pk", None) for x in teams):
+                    teams.append(t)
+        if not members and not teams:
             return {"members": [], "teams": [], "inherited": False, "source": None}
         return {
-            "members": list(node.members or []),
-            "teams": list(node.shared_teams or []),
-            "inherited": (node.pk != self.pk),
+            "members": members,
+            "teams": teams,
+            "inherited": bool(node and node.pk != self.pk),
             "source": node,
         }
 
