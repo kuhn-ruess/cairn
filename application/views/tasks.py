@@ -3270,13 +3270,16 @@ def dependency_graph():
     tasks inside that container's subtree (their prerequisites are still shown
     even if they live outside, so a cross-project edge stays meaningful)."""
     user = current_user._get_current_object()
+    from bson import ObjectId
     from application.services.containers import container_choices
 
     # Scope picker: owned projects/folders, breadcrumb-labelled.
     scope_choices = container_choices(user, selectable_kinds=("project", "folder"))
     scope_id = (request.args.get("scope") or "").strip()
     scope_item = None
-    if scope_id:
+    # A hand-typed / stale ``scope`` may not be a valid ObjectId — treat any
+    # bad or unknown id as "no scope" rather than 500ing.
+    if scope_id and ObjectId.is_valid(scope_id):
         scope_item = Item.objects(pk=scope_id, owner=user,
                                   kind__in=["project", "folder"]).first()
     # Base set: tasks the user owns that declare at least one dependency.
