@@ -2,9 +2,20 @@
 {% block title %}Dependency graph · Cairn{% endblock %}
 {% block content %}
 <div class="dep-graph-page">
-  <div class="d-flex align-items-center mb-3">
+  <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
     <h1 class="h3 mb-0 me-auto"><i class="bi bi-diagram-3"></i> Dependency graph</h1>
-    <div class="small text-muted d-flex flex-wrap gap-3 align-items-center">
+    <form method="get" class="d-flex align-items-center gap-1" id="dep-scope-form">
+      <label for="dep-scope" class="small text-muted mb-0">Scope</label>
+      <select name="scope" id="dep-scope" class="form-select form-select-sm"
+              style="max-width: 20rem;" onchange="this.form.submit()">
+        <option value="" {{ 'selected' if not scope_id else '' }}>All projects</option>
+        {% for pk, label in scope_choices %}
+          <option value="{{ pk }}" {{ 'selected' if scope_id == pk|string else '' }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <noscript><button type="submit" class="btn btn-sm btn-outline-secondary">Apply</button></noscript>
+    </form>
+    <div class="small text-muted d-flex flex-wrap gap-3 align-items-center ms-2">
       <span><span class="dep-legend-swatch bg-warning"></span> Blocked</span>
       <span><span class="dep-legend-swatch bg-primary"></span> Next</span>
       <span><span class="dep-legend-swatch bg-secondary"></span> Open</span>
@@ -22,11 +33,16 @@
   {% else %}
     <div class="text-center text-muted py-5">
       <i class="bi bi-diagram-3 fs-1 d-block mb-2"></i>
-      <p class="mb-1">No task dependencies yet.</p>
-      <p class="small mb-0">
-        Open any task and use the <strong>Depends on</strong> section in the
-        inspector to make it wait on another task.
-      </p>
+      {% if scope_item %}
+        <p class="mb-1">No task dependencies in <strong>{{ scope_item.title }}</strong>.</p>
+        <p class="small mb-0">Pick another scope above, or add a dependency to a task in this project.</p>
+      {% else %}
+        <p class="mb-1">No task dependencies yet.</p>
+        <p class="small mb-0">
+          Open any task and use the <strong>Depends on</strong> section in the
+          inspector to make it wait on another task.
+        </p>
+      {% endif %}
     </div>
   {% endif %}
 

@@ -3243,17 +3243,49 @@ def dependency_remove(task_id, dep_id):
     return _dependencies_response(task)
 
 
+def _graph_subtree_task_pks(root):
+    """Every descendant pk under a project/folder ``root`` (BFS over ``parent``,
+    same pattern as focus_pks). Used to scope the dependency graph to one
+    project/folder — the dependency-declaring tasks are then intersected with
+    this set."""
+    out, frontier = [], [root.pk]
+    while frontier:
+        kids = list(Item.objects(parent__in=frontier).only("pk"))
+        if not kids:
+            break
+        frontier = [k.pk for k in kids]
+        out.extend(frontier)
+    return out
+
+
 @tasks_bp.route("/graph")
 @login_required
 def dependency_graph():
     """Workspace-wide dependency graph: every owned task that declares a
     dependency, plus the tasks they wait on, as a directed acyclic graph.
     Nodes + edges are serialised to JSON and laid out client-side by
-    dep-graph.js (self-contained SVG, layered left→right)."""
+    dep-graph.js (self-contained SVG, layered left→right).
+
+    ``?scope=<project|folder pk>`` narrows the graph to the dependency-declaring
+    tasks inside that container's subtree (their prerequisites are still shown
+    even if they live outside, so a cross-project edge stays meaningful)."""
     user = current_user._get_current_object()
-    # Tasks the user owns that declare at least one dependency (non-empty list).
-    with_deps = list(Item.objects(
-        owner=user, kind="task", depends_on__0__exists=True))
+    from application.services.containers import container_choices
+
+    # Scope picker: owned projects/folders, breadcrumb-labelled.
+    scope_choices = container_choices(user, selectable_kinds=("project", "folder"))
+    scope_id = (request.args.get("scope") or "").strip()
+    scope_item = None
+    if scope_id:
+        scope_item = Item.objects(pk=scope_id, owner=user,
+                                  kind__in=["project", "folder"]).first()
+    # Base set: tasks the user owns that declare at least one dependency.
+    q = Item.objects(owner=user, kind="task", depends_on__0__exists=True)
+    if scope_item is not None:
+        subtree = _graph_subtree_task_pks(scope_item)
+        q = q.filter(pk__in=subtree) if subtree else Item.objects(pk__in=[])
+    with_deps = list(q)
+
     node_ids, raw_edges = set(), []
     for t in with_deps:
         sid = str(t.pk)
@@ -3276,7 +3308,9 @@ def dependency_graph():
     } for nid, d in docs.items()]
     edges = [{"from": s, "to": t} for (s, t) in raw_edges
              if s in docs and t in docs]
-    return render_template("tasks/graph.html", nodes=nodes, edges=edges)
+    return render_template("tasks/graph.html", nodes=nodes, edges=edges,
+                           scope_choices=scope_choices, scope_id=scope_id,
+                           scope_item=scope_item)
 
 
 @tasks_bp.route("/<task_id>/subtasks", methods=["GET", "POST"])
