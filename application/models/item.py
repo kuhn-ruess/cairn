@@ -396,8 +396,54 @@ class Item(Document):
 
     # ---------- helpers ----------
 
+    def _prune_orphan_attachments(self, grace_seconds: int = 300) -> int:
+        """Drop inline note images/files whose token is no longer referenced by
+        any of this item's text (note body + comment bodies), reclaiming the
+        BSON document space. Returns how many blobs were removed.
+
+        A freshly-created blob (younger than ``grace_seconds``) is always kept:
+        the paste endpoint stores the image BEFORE its Markdown link exists in
+        the editor, so a save that races the client inserting the link (paste
+        round-trip / debounced autosave) must not reap it. Called from ``save``
+        only when ``note``/``comments`` changed."""
+        imgs = self.note_images or []
+        files = self.note_files or []
+        if not imgs and not files:
+            return 0
+        haystack = self.note or ""
+        for c in (self.comments or []):
+            haystack += "\n" + (c.body or "")
+        now = _utcnow()
+
+        def keep(blob) -> bool:
+            if blob.token and blob.token in haystack:
+                return True
+            ca = blob.created_at
+            if ca is not None:
+                if ca.tzinfo is None:
+                    ca = ca.replace(tzinfo=timezone.utc)
+                if (now - ca).total_seconds() < grace_seconds:
+                    return True
+            return False
+
+        kept_imgs = [i for i in imgs if keep(i)]
+        kept_files = [f for f in files if keep(f)]
+        removed = (len(imgs) - len(kept_imgs)) + (len(files) - len(kept_files))
+        if removed:
+            self.note_images = kept_imgs
+            self.note_files = kept_files
+        return removed
+
     def save(self, *args, **kwargs):
         self.updated_at = _utcnow()
+        # Reclaim space from inline images/files whose link was removed from the
+        # note/comments. Guarded to the saves that actually change that text so
+        # it never scans on unrelated writes; the grace window inside protects a
+        # just-pasted blob (see _prune_orphan_attachments).
+        if self.id is not None:
+            _changed = self._get_changed_fields()
+            if "note" in _changed or "comments" in _changed:
+                self._prune_orphan_attachments()
         # Stamp completed_at when a task transitions to done/dropped,
         # clear on reopen. Project lifecycle (active/on_hold/completed/
         # dropped) doesn't go through this path.
