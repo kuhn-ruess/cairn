@@ -38,6 +38,11 @@
           </span>
         {% endfor %}
         <span class="ms-auto d-flex align-items-center gap-2">
+          {% if s.due_date %}
+            <span class="small {{ 'text-danger' if s.due_date < now_utc() else 'text-muted' }}" title="Due">
+              <i class="bi bi-calendar-event"></i> {{ s.due_date|relativedate }}
+            </span>
+          {% endif %}
           {% if s.priority %}<span class="priority-p{{ s.priority }} small">P{{ s.priority }}</span>{% endif %}
           {% if s.assigned_to and s.assigned_to != current_user %}
             <span class="badge text-bg-info" title="Assigned to {{ s.assigned_to }}"><i class="bi bi-person"></i> {{ s.assigned_to }}</span>
@@ -57,7 +62,7 @@
      edit form. JS submits on Enter to data-action. #}
   <div class="subtask-add" data-action="{{ url_for('tasks.subtasks', task_id=task.pk) }}">
     <input type="text" class="form-control form-control-sm subtask-add-input"
-           placeholder="Add a subtask… (Enter)" autocomplete="off" maxlength="500">
+           placeholder="Add a subtask… today +name @tag p1 (Enter)" autocomplete="off" maxlength="500">
   </div>
   </div>{# /.section-collapsible #}
 </div>

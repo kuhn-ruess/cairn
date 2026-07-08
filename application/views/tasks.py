@@ -3325,11 +3325,27 @@ def subtasks(task_id):
     callers; a plain POST redirects back to the detail page."""
     task = _editable_task_or_404(task_id)
     if request.method == "POST":
-        title = (request.form.get("title") or "").strip()[:500]
-        if title:
+        raw = (request.form.get("title") or "").strip()[:500]
+        if raw:
+            from application.services.quick_parse import parse_task_text
             user = current_user._get_current_object()
-            Item(owner=user, kind="task", title=title, parent=task,
-                 status="next").save()
+            # Magic words work here just like Todoist-style quick-add:
+            # ``today``/``heute`` & friends → due date, ``+name`` → assignee,
+            # ``@tag`` / ``p1``-``p4`` / ``!``. We deliberately IGNORE any
+            # ``#project`` token (parsed.project) — a subtask must stay
+            # parented to THIS task, not get yanked into another project.
+            parsed = parse_task_text(raw, user)
+            sub = Item(
+                owner=user, kind="task", parent=task, status="next",
+                title=(parsed.title or raw)[:500],
+                tags=[t.name for t in parsed.tags],
+                priority=parsed.priority,
+                due_date=parsed.due_date,
+                flagged=parsed.flagged,
+            )
+            if parsed.assignee:
+                sub.assign_to(parsed.assignee, by_user=user)
+            sub.save()
         if request.headers.get("X-Partial") != "1":
             return redirect(url_for("tasks.detail", task_id=str(task.pk)) + "#subtasks")
     return render_template("tasks/_subtasks.html", task=task)
