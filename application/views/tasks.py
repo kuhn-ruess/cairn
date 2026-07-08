@@ -1610,6 +1610,11 @@ def create():
             # fragment is a fresh empty form without the id.
             resp = Response(html)
             resp.headers["X-Created-Task-Id"] = str(task.pk)
+            # "Open after creating" wins only when the user isn't also
+            # queueing another task — the two are contradictory (one navigates
+            # away, the other keeps the form open for the next entry).
+            if form.open_after_create.data and not form.add_another.data:
+                resp.headers["X-Open-Created-Task"] = "1"
             return resp
         flash("Item created.", "success")
         return redirect(url_for("tasks.detail", task_id=str(task.pk)))

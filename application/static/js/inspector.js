@@ -609,6 +609,9 @@
         // The new task's id, surfaced by the create route (works on add-another
         // too, whose fragment has no id).
         const createdId = resp.headers.get("X-Created-Task-Id");
+        // "Open after creating" checkbox: jump to the new task's detail page
+        // once it's saved (and any held attachments have uploaded).
+        const openCreated = resp.headers.get("X-Open-Created-Task") === "1";
         // Server returns the saved-state inspector fragment. Keep the panel
         // open and just swap the body.
         body.innerHTML = await resp.text();
@@ -624,7 +627,13 @@
           const reForm = body.querySelector("form[data-inspector-form]");
           const stillNew = /\/tasks\/new(\?|$)/.test(
             (reForm && reForm.getAttribute("action")) || "");
-          if (!stillNew) openInspector("/tasks/" + createdId, newTitle);
+          // Skip the inspector reopen when we're about to navigate to the
+          // full detail page (open-after-create) — that would be wasted work.
+          if (!stillNew && !openCreated) openInspector("/tasks/" + createdId, newTitle);
+        }
+        if (openCreated && createdId) {
+          window.location.href = "/tasks/" + createdId;
+          return;
         }
         // Refresh the underlying main content so newly created sections /
         // updated counters / moved tasks are visible immediately, without

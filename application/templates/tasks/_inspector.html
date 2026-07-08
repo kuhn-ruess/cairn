@@ -243,6 +243,10 @@
         {{ form.add_another(class="form-check-input") }}
         {{ form.add_another.label(class="form-check-label small text-muted") }}
       </div>
+      <div class="form-check mt-2">
+        {{ form.open_after_create(class="form-check-input") }}
+        {{ form.open_after_create.label(class="form-check-label small text-muted") }}
+      </div>
     {% endif %}
   </div>
 {%- endmacro -%}

@@ -130,6 +130,7 @@ class TaskForm(FlaskForm):
         "Follow up every (days)", validators=[Optional(), NumberRange(min=1)]
     )
     add_another = BooleanField("Add another after saving")
+    open_after_create = BooleanField("Open the task after creating")
     submit = SubmitField("Save task")
 
 
