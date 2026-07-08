@@ -225,9 +225,15 @@
         e.preventDefault();
         if (current.length) { active = (active - 1 + current.length) % current.length; paintMenu(); }
       } else if (e.key === "Enter") {
+        // Cmd/Ctrl+Enter is the global save chord — let it bubble to the form.
+        if (e.metaKey || e.ctrlKey) return;
+        // Plain Enter in the label box operates on labels only — never let it
+        // bubble to the inspector's form-level Enter=save handler (which would
+        // submit the new-task form and create a stray task while picking a tag).
+        e.preventDefault();
+        e.stopPropagation();
         const item = active >= 0 ? current[active] : null;
         if (item) {
-          e.preventDefault();
           item.create ? createTag(item.value) : add(item.value);
         }
       } else if (e.key === "Backspace" && !input.value) {

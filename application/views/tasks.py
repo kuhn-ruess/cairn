@@ -52,7 +52,10 @@ def _render_empty_task_inspector(user, *, parent_project=None, just_added_title=
     Used after "Add another" so the user can rapid-fire create several
     tasks without leaving the panel.
     """
-    form = TaskForm()
+    # ``formdata=None`` is essential: without it Flask-WTF auto-binds to the
+    # just-submitted ``request.form`` (we're inside the create POST), so the
+    # "fresh" form would echo back the title/fields the user just saved.
+    form = TaskForm(formdata=None)
     _populate_form_choices(form, user)
     if parent_project is not None:
         form.project.data = str(parent_project.pk)
