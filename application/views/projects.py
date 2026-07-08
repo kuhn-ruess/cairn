@@ -515,10 +515,17 @@ def detail(project_id):
     # drop out of the plate just like done tasks do (``?completed=1``
     # opts them back in for review). Folders have no real status, so they
     # always stay.
+    # A sub-project deferred to a future date drops off the plate the same way
+    # it does on the index / sidebar — unless the user opted to see deferred
+    # projects. Folders have no defer semantics, so they always stay.
+    show_deferred = bool(getattr(user, "show_deferred_projects", False))
+    _sub_now = datetime.now(timezone.utc)
     def _sub_query(parent):
         q = Item.objects(parent=parent, kind__in=["project", "folder"])
         if not show_completed:
             q = q.filter(Q(kind="folder") | Q(status__nin=["completed", "dropped"]))
+        if not show_deferred:
+            q = q.filter(Q(kind="folder") | Q(defer_date=None) | Q(defer_date__lte=_sub_now))
         return q.order_by("+sort_order", "+name")
 
     sub_projects_all = list(_sub_query(project))
