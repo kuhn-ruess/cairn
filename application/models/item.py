@@ -146,6 +146,21 @@ class LinkedEvent(EmbeddedDocument):
     url = StringField()              # provider's html link, when there is one
 
 
+class PersonalHome(EmbeddedDocument):
+    """One viewer's PERSONAL filing of a delegated task under a container they
+    own (``None`` container = their Inbox). Keyed by ``user``, so it's fully
+    independent per participant: in a delegation chain (A→B→C) each person who
+    can see the task but not its canonical ``parent`` files it under their own
+    project without touching anyone else's placement or the owner's ``parent``.
+
+    Replaces the single-slot ``assignee_parent``, whose one slot belonged to the
+    current assignee and got wiped on every (re)assign — so B lost their filing
+    the moment they handed the task to C, and a B→C→B round trip couldn't restore
+    it. Per-user entries survive re-assignment and round trips untouched."""
+    user = ReferenceField(User, required=True)
+    container = ReferenceField("Item")
+
+
 class Item(Document):
     meta = {
         "collection": "items",
@@ -159,6 +174,8 @@ class Item(Document):
             "due_date",
             "defer_date",
             "members",
+            "personal_homes.user",
+            "personal_homes.container",
             "shared_teams",
             "next_review_at",
             "trashed_at",
@@ -188,13 +205,15 @@ class Item(Document):
     # ownership & hierarchy
     owner = ReferenceField(User, required=True)
     parent = ReferenceField("Item")
-    # Per-assignee "second home": when a task is delegated to someone who
-    # can't see its ``parent`` project, they may file it under one of THEIR
-    # OWN projects/folders. This never touches ``parent`` (the owner's
-    # canonical placement), so the task stays put for the owner and only the
-    # assignee's views group it here. Always owned by ``assigned_to``; cleared
-    # on un-/re-assign. See ``home_for``.
-    assignee_parent = ReferenceField("Item")
+    # Per-user "second home": when a task is delegated to someone who can't see
+    # its ``parent`` project, they may file it under one of THEIR OWN projects/
+    # folders. This never touches ``parent`` (the owner's canonical placement),
+    # so the task stays put for the owner and only that user's views group it
+    # here. One entry per participant, independent of who is currently assigned —
+    # so a delegation chain (A→B→C) and B→C→B round trips keep every filing
+    # intact. Each entry's container is owned by that entry's ``user``. See
+    # ``home_for`` / ``set_home_for`` / ``PersonalHome``.
+    personal_homes = EmbeddedDocumentListField(PersonalHome)
     sort_order = IntField(default=0)
     # Loose, symmetric "see also" links between items. Purely a reference
     # surfaced in the inspector — deliberately NOT a hierarchy: no query
@@ -1067,18 +1086,58 @@ class Item(Document):
             return 0
         return round(self.checklist_done * 100 / total)
 
+    @staticmethod
+    def _ph_uid(ph) -> str | None:
+        """The user pk (as str) of a ``PersonalHome`` entry, read raw so we
+        never dereference the ``user`` ref while scanning the list."""
+        ref = ph._data.get("user")
+        rid = getattr(ref, "id", None) or getattr(ref, "pk", None)
+        return str(rid) if rid is not None else None
+
+    def _personal_home(self, user):
+        """This item's ``PersonalHome`` entry for ``user`` (a User doc or a raw
+        pk/str), or ``None``. Matched by raw id — no dereference."""
+        uid = str(getattr(user, "pk", user))
+        for ph in self.personal_homes or []:
+            if self._ph_uid(ph) == uid:
+                return ph
+        return None
+
+    def _set_personal_home(self, user, container) -> None:
+        """Upsert (``container`` set) or drop (``container is None``) ``user``'s
+        personal filing. One entry per user."""
+        uid = str(user.pk)
+        homes = [ph for ph in (self.personal_homes or []) if self._ph_uid(ph) != uid]
+        if container is not None:
+            homes.append(PersonalHome(user=user, container=container))
+        self.personal_homes = homes
+
+    def _is_delegated_to(self, user) -> bool:
+        """True when this task is assigned to ``user`` but owned by someone
+        else. Compared by raw id so a list row never dereferences owner/assignee
+        (see CLAUDE.md: minimise DB load per page)."""
+        uid = str(getattr(user, "pk", user))
+        if self.assigned_to_id != uid:
+            return False
+        o = self._data.get("owner")
+        oid = getattr(o, "id", None) or getattr(o, "pk", None)
+        return str(oid) != uid if oid is not None else False
+
     def home_for(self, user):
         """The container this item appears under FOR ``user`` (``None`` = Inbox).
 
-        For a task delegated TO ``user`` (assigned, not owned): their own
-        filing wins (``assignee_parent``); else the canonical ``parent`` only
-        if they can actually see it; else ``None`` so an untriaged delegated
-        task defaults to the assignee's Inbox instead of hiding under the
-        owner's invisible project. The owner (and everyone else) always sees
-        the canonical ``parent``."""
-        if self.assigned_to == user and self.owner != user:
-            if self.assignee_parent is not None:
-                return self.assignee_parent
+        A user's own personal filing wins (``personal_homes`` — a container they
+        own). Otherwise: a task delegated TO them (assigned, not owned) with no
+        filing falls back to the canonical ``parent`` only if they can actually
+        see it, else ``None`` (their Inbox) so an untriaged delegated task
+        doesn't hide under the owner's invisible project. The owner and plain
+        shared-project members always get the canonical ``parent`` (cheap — no
+        visibility walk). Independent per user, so a delegation chain (A→B→C)
+        and B→C→B round trips keep each participant's placement intact."""
+        ph = self._personal_home(user)
+        if ph is not None:
+            return ph.container
+        if self._is_delegated_to(user):
             if self.parent is not None and self.parent.can_be_viewed_by(user):
                 return self.parent
             return None
@@ -1087,43 +1146,82 @@ class Item(Document):
     def set_home_for(self, user, container) -> None:
         """Place this item into ``container`` (``None`` = Inbox) from ``user``'s
         perspective. For a task delegated TO ``user`` (assigned, not owned) this
-        writes their personal ``assignee_parent`` (which must be a container
-        they own) and NEVER the owner's canonical ``parent`` — so it can't
-        vanish from the owner's project. Otherwise it moves the canonical
-        ``parent`` as usual. Raises ``ValueError`` on an invalid target."""
-        if self.assigned_to == user and self.owner != user:
+        writes their PERSONAL filing (``personal_homes`` — a container they own)
+        and NEVER the owner's canonical ``parent`` — so it can't vanish from the
+        owner's project, survives re-assignment, and ``None`` just clears that
+        user's own filing. Everyone else (the owner, plain shared-project
+        members editing a shared tree) moves the canonical ``parent`` as usual.
+        Raises ``ValueError`` on an invalid target."""
+        if self._is_delegated_to(user):
             if container is not None and container.owner != user:
                 raise ValueError("file delegated tasks under your own projects")
-            self.assignee_parent = container
+            self._set_personal_home(user, container)
         else:
             self.parent = container
+
+    def assignee_filing(self):
+        """The container the CURRENT assignee filed this delegated task under
+        (their personal home), or ``None`` — for the owner's list badge that
+        shows 'assignee › their project'. Dereferences the container; callers
+        rendering a list should prefetch ``personal_homes`` containers."""
+        aid = self.assigned_to_id
+        if not aid:
+            return None
+        ph = self._personal_home(aid)
+        return ph.container if ph is not None else None
+
+    def assignee_filing_id(self) -> str:
+        """``assignee_filing`` as a raw pk string with NO dereference (for
+        serializers over a list). Empty string when unfiled/unassigned."""
+        aid = self.assigned_to_id
+        if not aid:
+            return ""
+        ph = self._personal_home(aid)
+        if ph is None:
+            return ""
+        ref = ph._data.get("container")
+        rid = getattr(ref, "id", None) or getattr(ref, "pk", None)
+        return str(rid) if rid is not None else ""
 
     def assign_to(self, new_assignee, *, by_user=None):
         # Assigning a task back to its own owner is the same as unassigning it:
         # the owner already owns it, so there is no delegation to record.
         if new_assignee is not None and new_assignee == self.owner:
             new_assignee = None
+        actor = by_user or self.owner
+        old = self.assigned_to
+        # A non-owner actor who (re)delegates stays in the loop: keep them as a
+        # member so the task doesn't vanish from their lists once ``assigned_to``
+        # moves on. Applies on unassign too (handing a task back keeps you
+        # informed) and — with per-user ``personal_homes`` — keeps their own
+        # filing valid across a round trip. Owners always see it via ``owner``.
+        if (actor is not None and actor != self.owner
+                and not any(m == actor for m in (self.members or []))):
+            self.members = list(self.members or []) + [actor]
+
+        # When the assignee changes, drop the OUTGOING assignee's personal filing
+        # only if they no longer retain access (not owner, not a member) — so a
+        # stale entry can't resurface their now-invisible task in their project.
+        # A re-delegator (just added to members above) keeps their filing, which
+        # is what makes B→C→B round trips lossless.
+        def _prune_home(u):
+            if u is None or u == self.owner:
+                return
+            if any(m == u for m in (self.members or [])):
+                return
+            self._set_personal_home(u, None)
+
         if new_assignee is None:
+            _prune_home(old)
             self.assigned_to = None
             self.assigned_by = None
             self.assigned_at = None
-            # No assignee → their personal filing is meaningless.
-            self.assignee_parent = None
             return
-        old = self.assigned_to
-        # A different assignee inherits no personal filing from the previous one.
         if new_assignee != old:
-            self.assignee_parent = None
+            _prune_home(old)
         self.assigned_to = new_assignee
-        self.assigned_by = by_user or self.owner
+        self.assigned_by = actor
         self.assigned_at = _utcnow()
-        # A non-owner who re-delegates a task they were assigned stays in the
-        # loop: keep them as a member so the task doesn't vanish from their lists
-        # once ``assigned_to`` moves on to someone else. Owners always retain
-        # visibility via ``owner``; members accumulates across a delegation chain.
-        actor = by_user or self.owner
-        if actor != self.owner and not any(m == actor for m in (self.members or [])):
-            self.members = list(self.members or []) + [actor]
         # Inherit tags onto assignee's user.tags.
         if new_assignee != old and self.tags:
             try:

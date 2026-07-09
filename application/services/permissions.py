@@ -303,15 +303,16 @@ def inbox_q(user):
     """Mongo filter (a ``Q``) for the user's Inbox.
 
     Inbox = truly unfiled tasks (``parent=None``) PLUS tasks delegated to the
-    user that they have NOT filed (``assignee_parent=None``) and whose project
-    they cannot see — so an untriaged delegated task lands in the assignee's
-    Inbox by default instead of hiding under the owner's invisible project.
-    Pair with the usual ``_scope(user)`` + ``kind='task'`` + status filters."""
+    user that they have NOT filed (no ``personal_homes`` entry for them) and
+    whose project they cannot see — so an untriaged delegated task lands in the
+    assignee's Inbox by default instead of hiding under the owner's invisible
+    project. Pair with the usual ``_scope(user)`` + ``kind='task'`` + status
+    filters."""
     from bson import ObjectId
     from mongoengine import Q
     vis = [ObjectId(p) for p in viewable_container_pks(user)]
     delegated = (Q(assigned_to=user) & Q(owner__ne=user)
-                 & Q(assignee_parent=None) & Q(parent__ne=None)
+                 & Q(personal_homes__user__ne=user) & Q(parent__ne=None)
                  & Q(parent__nin=vis))
     return Q(parent=None) | delegated
 

@@ -141,7 +141,7 @@ def task_compact(t) -> dict[str, Any]:
         "followup_every_days": t.followup_every_days,
         "waiting_on": t.waiting_on or None,
         "project_id": str(t.project.pk) if t.project else None,
-        "assignee_parent_id": str(t.assignee_parent.pk) if t.assignee_parent else None,
+        "assignee_parent_id": t.assignee_filing_id() or None,
         "related_ids": ref_ids(t._data.get("related")),
         "sort_order": t.sort_order,
         "estimated_minutes": t.estimated_minutes,
@@ -214,7 +214,7 @@ def task(t) -> dict[str, Any]:
         # the parent is another task (a sub-task).
         "project_id": ref_ids([t._data.get("parent")])[0] if t._data.get("parent") else None,
         "parent_id": ref_ids([t._data.get("parent")])[0] if t._data.get("parent") else None,
-        "assignee_parent_id": str(t.assignee_parent.pk) if t.assignee_parent else None,
+        "assignee_parent_id": t.assignee_filing_id() or None,
         "related_ids": ref_ids(t._data.get("related")),
         "checklist": [{"text": c.text, "done": bool(c.done)} for c in (t.checklist or [])],
         "tags": list(t.tags or []),

@@ -24,10 +24,15 @@ def prefetch_refs(items):
 
     item_ids, user_ids = set(), set()
     for t in items:
-        for f in ("parent", "assignee_parent"):
-            praw = t._data.get(f)
-            if praw is not None and not isinstance(praw, Item):
-                item_ids.add(_rawid(praw))
+        praw = t._data.get("parent")
+        if praw is not None and not isinstance(praw, Item):
+            item_ids.add(_rawid(praw))
+        # Personal-filing containers (home_for / assignee_filing) — one entry
+        # per participant, dereferenced when grouping a delegated task.
+        for ph in (t._data.get("personal_homes") or []):
+            craw = ph._data.get("container")
+            if craw is not None and not isinstance(craw, Item):
+                item_ids.add(_rawid(craw))
         for f in ("assigned_to", "assigned_by"):
             uraw = t._data.get(f)
             if uraw is not None and not isinstance(uraw, User):
@@ -37,10 +42,13 @@ def prefetch_refs(items):
     items_by_id = {p.pk: p for p in Item.all_objects(pk__in=list(item_ids))} if item_ids else {}
     users_by_id = {u.pk: u for u in User.objects(pk__in=list(user_ids))} if user_ids else {}
     for t in items:
-        for f in ("parent", "assignee_parent"):
-            praw = t._data.get(f)
-            if praw is not None and not isinstance(praw, Item):
-                t._data[f] = items_by_id.get(_rawid(praw), praw)
+        praw = t._data.get("parent")
+        if praw is not None and not isinstance(praw, Item):
+            t._data["parent"] = items_by_id.get(_rawid(praw), praw)
+        for ph in (t._data.get("personal_homes") or []):
+            craw = ph._data.get("container")
+            if craw is not None and not isinstance(craw, Item):
+                ph._data["container"] = items_by_id.get(_rawid(craw), craw)
         for f in ("assigned_to", "assigned_by"):
             uraw = t._data.get(f)
             if uraw is not None and not isinstance(uraw, User):

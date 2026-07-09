@@ -179,10 +179,11 @@
             {% endif %}
             {# Owner hint: the assignee filed this delegated task under one of
                their own projects. Inert text — the owner can't open it. #}
-            {% if task.assignee_parent and task.owner == current_user and task.assigned_to and task.assigned_to != current_user %}
+            {% set _af = task.assignee_filing() %}
+            {% if _af and task.owner == current_user and task.assigned_to and task.assigned_to != current_user %}
               <span class="badge text-bg-light text-muted"
                     title="Filed by {{ task.assigned_to }} under their own project">
-                <i class="bi bi-folder-symlink"></i> {{ task.assigned_to }} › {{ task.assignee_parent.name }}
+                <i class="bi bi-folder-symlink"></i> {{ task.assigned_to }} › {{ _af.name }}
               </span>
             {% endif %}
             {% if task.status not in ['open', 'next', 'done'] and current_user.show_field('status_badge', view_key=_vk) %}

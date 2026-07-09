@@ -599,13 +599,15 @@ def detail(project_id):
             all_tasks.append(t)
             next_frontier.append(t.pk)
         frontier = next_frontier
-    # Dual-home: tasks delegated to the viewer that they filed under THIS
-    # project (or one of its sections) via ``assignee_parent``. Their canonical
+    # Dual-home: tasks the viewer filed under THIS project (or one of its
+    # sections) via their personal home (``personal_homes``). Their canonical
     # ``parent`` lives in the OWNER's tree, so the BFS above never reaches them
-    # — pull them in explicitly for the assignee's view. ``assignee_parent`` is
-    # always owned by the viewer, so this matches only the viewer's own filing.
-    dh_q = Item.objects(kind="task", assigned_to=user,
-                        assignee_parent__in=project_ids)
+    # — pull them in explicitly for the viewer's view. The ``$elemMatch`` ties
+    # the ``user`` and ``container`` to the SAME entry, and a personal home's
+    # container is always owned by that user, so this matches only the viewer's
+    # own filing (works for any participant, not just the current assignee).
+    dh_q = Item.objects(kind="task", personal_homes__match={
+        "user": user.id, "container__in": project_ids})
     if task_status_filter:
         dh_q = dh_q.filter(status__nin=task_status_filter)
     for t in dh_q.order_by("+sort_order", "+created_at"):

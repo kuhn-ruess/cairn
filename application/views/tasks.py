@@ -2642,7 +2642,7 @@ def move(task_id):
                 "ok": True,
                 "task_id": str(task.pk),
                 "project_id": str(task.project.pk) if task.project else None,
-                "assignee_parent_id": str(task.assignee_parent.pk) if task.assignee_parent else None,
+                "assignee_parent_id": task.assignee_filing_id() or None,
             }
         )
     return redirect(request.referrer or url_for("dashboard.home"))
