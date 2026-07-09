@@ -2853,6 +2853,29 @@ def toggle_comment_visibility(task_id, index):
         return jsonify({"index": index, "is_public": comment.is_public})
     return redirect(request.referrer or url_for("tasks.detail", task_id=task_id))
 
+@tasks_bp.route("/<task_id>/comments/<int:index>/delete", methods=["POST"])
+@login_required
+def delete_comment(task_id, index):
+    """Delete a comment. Its author (the creator) or the task owner only —
+    same permission model as the visibility toggle. Index-based like the
+    toggle; the client re-indexes the remaining rows after removal."""
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_viewed_by(user):
+        abort(404)
+    if not (0 <= index < len(task.comments or [])):
+        abort(404)
+    comment = task.comments[index]
+    if comment.author != user and task.owner != user:
+        abort(403)
+    task.comments.pop(index)
+    task.save()
+    if request.headers.get("X-Inspector-Request") == "1" or request.is_json:
+        from flask import jsonify
+        return jsonify({"ok": True, "index": index})
+    flash("Comment deleted.", "success")
+    return redirect(request.referrer or url_for("tasks.detail", task_id=task_id))
+
 
 def _editable_task_or_404(task_id):
     user = current_user._get_current_object()

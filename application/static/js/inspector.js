@@ -425,6 +425,65 @@
     if (btn) onVisibilityToggle({ preventDefault() {}, currentTarget: btn });
   });
 
+  // Comment delete — author (or task owner) only; the button is only rendered
+  // for them. Same delegation as the visibility toggle so it works inside the
+  // inspector and on the standalone task-detail page.
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".comment-delete-btn");
+    if (btn) onCommentDelete({ preventDefault() {}, currentTarget: btn });
+  });
+
+  async function onCommentDelete(ev) {
+    ev.preventDefault();
+    const btn = ev.currentTarget;
+    if (!window.confirm("Delete this comment?")) return;
+    const { taskId, index } = btn.dataset;
+    const idx = parseInt(index, 10);
+    btn.disabled = true;
+    try {
+      const fd = new FormData();
+      const csrf = document.querySelector('input[name="csrf_token"]');
+      if (csrf) fd.append("csrf_token", csrf.value);
+      const resp = await fetch(`/tasks/${taskId}/comments/${idx}/delete`, {
+        method: "POST", body: fd, headers: { "X-Inspector-Request": "1" },
+      });
+      if (!resp.ok) throw new Error("delete failed: " + resp.status);
+      // Remove the row (inspector uses .comment-item, detail .task-detail-comment)
+      // and re-index everything below it so subsequent operations still target
+      // the right embedded-list position.
+      const row = btn.closest(".comment-item, .task-detail-comment");
+      const scope = row && row.parentElement;
+      if (row) row.remove();
+      if (scope) reindexComments(scope, idx);
+      const counter =
+        (scope && scope.closest("section, .comments-block") || document)
+          .querySelector(".comments-block .badge, #comments .badge, h2 .text-muted");
+      if (counter) {
+        const n = parseInt(counter.textContent.replace(/\D/g, ""), 10);
+        if (!isNaN(n)) counter.textContent = counter.textContent.replace(/\d+/, String(Math.max(0, n - 1)));
+      }
+    } catch (err) {
+      console.error(err);
+      btn.disabled = false;
+    }
+  }
+
+  // After a comment at ``removed`` is deleted, shift every still-rendered row
+  // with a higher index down by one — on the container's data-comment-index and
+  // on its action buttons' data-index.
+  function reindexComments(scope, removed) {
+    scope.querySelectorAll("[data-comment-index]").forEach((row) => {
+      const cur = parseInt(row.dataset.commentIndex, 10);
+      if (isNaN(cur) || cur <= removed) return;
+      const next = cur - 1;
+      row.dataset.commentIndex = String(next);
+      row.querySelectorAll("[data-index]").forEach((b) => {
+        const bi = parseInt(b.dataset.index, 10);
+        if (bi === cur) b.dataset.index = String(next);
+      });
+    });
+  }
+
   // ---- Comment sort order (newest vs oldest first) -----------------------
   // Remembered per browser. The DOM is rendered newest-first (each row keeps
   // its real data-index), so the default needs no reversal — the newest is at
@@ -505,7 +564,11 @@
       `data-task-id="${taskId}" data-index="${c.index}" data-public="${c.is_public ? "1" : "0"}" ` +
       `title="Click to toggle internal / public">` +
       visibilityBadgeHtml(c.is_public) +
-      "</button></div>" +
+      "</button>" +
+      // The current user authored this comment, so they can always delete it.
+      `<button type="button" class="comment-delete-btn btn btn-sm btn-link text-muted p-0 ms-1" ` +
+      `data-task-id="${taskId}" data-index="${c.index}" title="Delete this comment">` +
+      '<i class="bi bi-trash"></i></button></div>' +
       // Use the server-rendered markdown (so pasted images / formatting show
       // immediately); fall back to escaped plain text if it's missing.
       `<div class="comment-text md-body mt-1">${c.body_html || escapeHtml(c.body)}</div>`;

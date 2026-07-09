@@ -35,6 +35,13 @@
                 <span class="badge text-bg-secondary"><i class="bi bi-lock"></i> internal</span>
               {% endif %}
             </button>
+            {% if (c.author and c.author == current_user) or item.owner == current_user %}
+            <button type="button" class="comment-delete-btn btn btn-sm btn-link text-muted p-0 ms-1"
+                    data-task-id="{{ item.pk }}" data-index="{{ _idx }}"
+                    title="Delete this comment">
+              <i class="bi bi-trash"></i>
+            </button>
+            {% endif %}
           </div>
           <div class="comment-text md-body">{{ c.body|markdown }}</div>
         </div>
