@@ -24,6 +24,7 @@ def _utcnow() -> datetime:
 CALENDAR_PROVIDERS = (
     "google",  # OAuth, read/write capable
     "ical",    # public/secret iCal URL, read-only
+    "caldav",  # CalDAV collection (Nextcloud, …), read/write via Basic auth
 )
 
 
@@ -53,6 +54,14 @@ class ExternalCalendar(EmbeddedDocument):
 
     # iCal subscription (ical) — secret/public ICS URL
     ical_url = StringField()
+
+    # CalDAV (caldav) — the calendar COLLECTION URL (e.g. Nextcloud
+    # ``…/remote.php/dav/calendars/<user>/<cal>/``) plus Basic-auth creds. The
+    # password is stored encrypted per-user (``encrypt_for_user``), exactly like
+    # the OAuth tokens above — never in plaintext.
+    caldav_url = StringField()
+    caldav_username = StringField(max_length=255)
+    caldav_password = StringField()
 
     last_synced_at = DateTimeField()
     last_error = StringField()

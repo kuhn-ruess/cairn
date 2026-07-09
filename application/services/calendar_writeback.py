@@ -1,4 +1,4 @@
-"""Push task dates back to the user's chosen Google calendar.
+"""Push task dates back to the user's chosen writable calendar (Google or CalDAV).
 
 Triggered after a task is saved via the form / quick-add / API. For the
 two date fields the user has opted into (``calendar_write_due`` and
@@ -19,6 +19,9 @@ import logging
 
 from application.services.calendar_sync import (
     CalendarError,
+    caldav_create_event,
+    caldav_delete_event,
+    caldav_patch_event,
     google_create_event,
     google_delete_event,
     google_patch_event,
@@ -26,16 +29,38 @@ from application.services.calendar_sync import (
 
 log = logging.getLogger(__name__)
 
+# Providers Cairn can PUSH task dates to. iCal is read-only and never here.
+WRITABLE_PROVIDERS = ("google", "caldav")
+
 
 def _write_calendar(user):
-    """Resolve the user's configured write target. ``None`` if unset."""
+    """Resolve the user's configured write target. ``None`` if unset or the
+    target isn't a writable provider."""
     target_id = user.calendar_write_target
     if not target_id:
         return None
     cal = user.find_calendar(target_id)
-    if cal and cal.provider == "google":
+    if cal and cal.provider in WRITABLE_PROVIDERS:
         return cal
     return None
+
+
+def _create_event(cal, user, **kw):
+    if cal.provider == "caldav":
+        return caldav_create_event(cal, user, **kw)
+    return google_create_event(cal, user, **kw)
+
+
+def _patch_event(cal, user, event_id, **kw):
+    if cal.provider == "caldav":
+        return caldav_patch_event(cal, user, event_id, **kw)
+    return google_patch_event(cal, user, event_id, **kw)
+
+
+def _delete_event(cal, user, event_id):
+    if cal.provider == "caldav":
+        return caldav_delete_event(cal, user, event_id)
+    return google_delete_event(cal, user, event_id)
 
 
 def sync_task_to_calendar(task, user) -> list[str]:
@@ -71,21 +96,21 @@ def sync_task_to_calendar(task, user) -> list[str]:
         title = f"{title_prefix} {task.title}".strip()
         try:
             if when and event_id:
-                google_patch_event(cal, user, event_id,
-                                    title=title, when=when, all_day=False,
-                                    description=_describe(task),
-                                    duration_minutes=duration,
-                                    timezone=tz)
+                _patch_event(cal, user, event_id,
+                             title=title, when=when, all_day=False,
+                             description=_describe(task),
+                             duration_minutes=duration,
+                             timezone=tz)
             elif when and not event_id:
-                created = google_create_event(cal, user,
-                                               title=title, when=when, all_day=False,
-                                               description=_describe(task),
-                                               duration_minutes=duration,
-                                               timezone=tz)
+                created = _create_event(cal, user,
+                                        title=title, when=when, all_day=False,
+                                        description=_describe(task),
+                                        duration_minutes=duration,
+                                        timezone=tz)
                 setattr(task, field_id_attr, created.get("id") or "")
                 id_dirty = True
             elif not when and event_id:
-                google_delete_event(cal, user, event_id)
+                _delete_event(cal, user, event_id)
                 setattr(task, field_id_attr, "")
                 id_dirty = True
             # absent + no id → nothing to do
@@ -121,7 +146,7 @@ def delete_task_calendar_events(task, user) -> None:
         if not event_id:
             continue
         try:
-            google_delete_event(cal, user, event_id)
+            _delete_event(cal, user, event_id)
         except CalendarError as exc:
             log.warning("calendar cleanup failed for task %s (%s): %s",
                         task.pk, attr, exc)

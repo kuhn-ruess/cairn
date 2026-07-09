@@ -151,6 +151,10 @@ def fetch_events(calendar, since: datetime, until: datetime, *, user=None) -> li
             events = _fetch_google(calendar, user, since, until)
         elif calendar.provider == "ical":
             events = _fetch_ical(calendar, since, until)
+        elif calendar.provider == "caldav":
+            if user is None:
+                raise CalendarError("CalDAV calendar fetch needs the owning user.")
+            events = _fetch_caldav(calendar, user, since, until)
         else:
             raise CalendarError(f"Unknown provider: {calendar.provider}")
     except CalendarError as exc:
@@ -431,32 +435,40 @@ def _fetch_ical(calendar, since: datetime, until: datetime) -> list[CalendarEven
     parsed = ICalendar.from_ical(data)
     events: list[CalendarEvent] = []
     for comp in parsed.walk("VEVENT"):
-        start = comp.get("DTSTART")
-        end = comp.get("DTEND") or start
-        if not start:
+        ev = _vevent_to_event(comp, calendar)
+        if ev is None or ev.start > until or ev.end < since:
             continue
-        start_dt = _normalise_ical_dt(start.dt)
-        end_dt = _normalise_ical_dt(end.dt) if end else start_dt
-        all_day = not isinstance(start.dt, datetime)
-        if start_dt > until or end_dt < since:
-            continue
-        events.append(CalendarEvent(
-            uid=str(comp.get("UID", "")),
-            title=str(comp.get("SUMMARY", "(no title)")),
-            start=start_dt,
-            end=end_dt,
-            all_day=all_day,
-            location=str(comp.get("LOCATION", "") or ""),
-            url=str(comp.get("URL", "") or ""),
-            calendar_color=calendar.color,
-            calendar_name=calendar.name,
-            calendar_pk=str(getattr(calendar, "pk_ref", "") or ""),
-        ))
+        events.append(ev)
     calendar.last_synced_at = datetime.now(timezone.utc)
     calendar.last_error = ""
     # Embedded — caller (fetch_events) persists via the parent user.
     events.sort(key=lambda e: e.start)
     return events
+
+
+def _vevent_to_event(comp, calendar) -> "CalendarEvent | None":
+    """Convert one parsed ``VEVENT`` component into a normalised
+    ``CalendarEvent`` (shared by the iCal + CalDAV readers). ``None`` when the
+    component has no usable start."""
+    start = comp.get("DTSTART")
+    if not start:
+        return None
+    end = comp.get("DTEND") or start
+    start_dt = _normalise_ical_dt(start.dt)
+    end_dt = _normalise_ical_dt(end.dt) if end else start_dt
+    all_day = not isinstance(start.dt, datetime)
+    return CalendarEvent(
+        uid=str(comp.get("UID", "")),
+        title=str(comp.get("SUMMARY", "(no title)")),
+        start=start_dt,
+        end=end_dt,
+        all_day=all_day,
+        location=str(comp.get("LOCATION", "") or ""),
+        url=str(comp.get("URL", "") or ""),
+        calendar_color=calendar.color,
+        calendar_name=calendar.name,
+        calendar_pk=str(getattr(calendar, "pk_ref", "") or ""),
+    )
 
 
 def _normalise_ical_dt(value) -> datetime:
@@ -467,6 +479,205 @@ def _normalise_ical_dt(value) -> datetime:
         return value
     # ``date`` (all-day) → midnight UTC
     return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+
+
+# ----- CalDAV (read/write) -------------------------------------------------
+#
+# A CalDAV calendar is a WebDAV collection of ``.ics`` resources. We talk to it
+# with plain ``urllib`` custom-method requests + HTTP Basic auth (the same
+# pattern the Google writers use with ``method="PUT"``), and the ``icalendar``
+# library for VEVENT build/parse. Events are read with a ``calendar-query``
+# REPORT (time-range filtered) and written by PUTting one ``<uid>.ics`` resource
+# per event (create/update) or DELETEing it. The remote event id we persist on
+# the task is simply the resource UID.
+
+CALDAV_NS = "urn:ietf:params:xml:ns:caldav"
+
+_CALDAV_QUERY_BODY = (
+    '<?xml version="1.0" encoding="utf-8"?>'
+    '<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
+    '<d:prop><d:getetag/><c:calendar-data/></d:prop>'
+    '<c:filter><c:comp-filter name="VCALENDAR">'
+    '<c:comp-filter name="VEVENT">'
+    '<c:time-range start="{start}" end="{end}"/>'
+    '</c:comp-filter></c:comp-filter></c:filter>'
+    '</c:calendar-query>'
+)
+
+_CALDAV_PROPFIND_BODY = (
+    '<?xml version="1.0" encoding="utf-8"?>'
+    '<d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">'
+    '<d:prop><d:displayname/><d:resourcetype/><cs:getctag/></d:prop>'
+    '</d:propfind>'
+)
+
+
+def _basic_auth(username: str, password: str) -> str:
+    import base64
+    raw = f"{username or ''}:{password or ''}".encode("utf-8")
+    return "Basic " + base64.b64encode(raw).decode("ascii")
+
+
+def _caldav_auth_header(calendar, user) -> str:
+    from application.services.crypto import decrypt_for_user
+    pw = decrypt_for_user(user, calendar.caldav_password) if calendar.caldav_password else ""
+    return _basic_auth(calendar.caldav_username or "", pw or "")
+
+
+def _caldav_request(method: str, url: str, *, calendar=None, user=None, auth=None,
+                    body: str | None = None, headers: dict | None = None,
+                    allow_codes: tuple = (), timeout: int = 15):
+    """Low-level CalDAV/WebDAV request. Basic auth + SSRF guard. Returns
+    ``(status, text)``. HTTP codes in ``allow_codes`` are returned instead of
+    raising (used so a DELETE of an already-gone resource is a success)."""
+    from application.services.http_safety import UnsafeURLError, validate_outbound_url
+    try:
+        validate_outbound_url(url)
+    except UnsafeURLError as exc:
+        raise CalendarError(f"refusing to reach: {exc}") from exc
+    data = body.encode("utf-8") if isinstance(body, str) else body
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Authorization", auth or _caldav_auth_header(calendar, user))
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.getcode(), resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        if exc.code in allow_codes:
+            return exc.code, ""
+        text = exc.read().decode("utf-8", "replace")[:300]
+        raise CalendarError(f"CalDAV {method} {exc.code}: {text}") from exc
+    except urllib.error.URLError as exc:
+        raise CalendarError(f"network error: {exc}") from exc
+
+
+def _caldav_stamp(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _caldav_href(calendar, uid: str) -> str:
+    base = calendar.caldav_url or ""
+    if not base.endswith("/"):
+        base += "/"
+    return urllib.parse.urljoin(base, urllib.parse.quote(uid) + ".ics")
+
+
+def probe_caldav(url: str, username: str, password: str) -> dict:
+    """Verify a CalDAV collection URL + credentials before saving, and pick up
+    its display name. A ``207 Multi-Status`` (or any 2xx) means the collection
+    is reachable and the credentials are accepted."""
+    status, text = _caldav_request(
+        "PROPFIND", url, auth=_basic_auth(username, password),
+        body=_CALDAV_PROPFIND_BODY,
+        headers={"Depth": "0", "Content-Type": "application/xml; charset=utf-8"},
+    )
+    name = ""
+    try:
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(text)
+        dn = root.find(".//{DAV:}displayname")
+        if dn is not None and dn.text:
+            name = dn.text.strip()
+    except Exception:  # noqa: BLE001 — a missing displayname is non-fatal
+        pass
+    return {"name": name}
+
+
+def _fetch_caldav(calendar, user, since: datetime, until: datetime) -> list[CalendarEvent]:
+    if not calendar.caldav_url:
+        raise CalendarError("No CalDAV URL set.")
+    try:
+        from icalendar import Calendar as ICalendar
+    except ImportError as exc:
+        raise CalendarError("icalendar library not installed") from exc
+    body = _CALDAV_QUERY_BODY.format(start=_caldav_stamp(since), end=_caldav_stamp(until))
+    _status, text = _caldav_request(
+        "REPORT", calendar.caldav_url, calendar=calendar, user=user, body=body,
+        headers={"Depth": "1", "Content-Type": "application/xml; charset=utf-8"},
+    )
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise CalendarError(f"bad CalDAV response: {exc}") from exc
+    events: list[CalendarEvent] = []
+    for node in root.iter(f"{{{CALDAV_NS}}}calendar-data"):
+        raw = (node.text or "").strip()
+        if not raw:
+            continue
+        try:
+            parsed = ICalendar.from_ical(raw)
+        except Exception:  # noqa: BLE001 — skip a single unparseable resource
+            continue
+        for comp in parsed.walk("VEVENT"):
+            ev = _vevent_to_event(comp, calendar)
+            if ev is None or ev.start > until or ev.end < since:
+                continue
+            events.append(ev)
+    calendar.last_synced_at = datetime.now(timezone.utc)
+    calendar.last_error = ""
+    events.sort(key=lambda e: e.start)
+    return events
+
+
+def _caldav_event_ics(uid: str, title: str, when: datetime, all_day: bool,
+                      description: str, duration_minutes: int,
+                      tz_name: str | None) -> str:
+    from icalendar import Calendar as ICalendar, Event as IEvent
+    cal = ICalendar()
+    cal.add("prodid", "-//Cairn//Calendar//EN")
+    cal.add("version", "2.0")
+    ev = IEvent()
+    ev.add("uid", uid)
+    ev.add("summary", title or "")
+    if description:
+        ev.add("description", description)
+    if all_day:
+        ev.add("dtstart", when.date())
+        ev.add("dtend", (when + timedelta(days=1)).date())
+    else:
+        w = when if when.tzinfo is not None else when.replace(tzinfo=timezone.utc)
+        ev.add("dtstart", w)
+        ev.add("dtend", w + timedelta(minutes=max(duration_minutes, 5)))
+    ev.add("dtstamp", datetime.now(timezone.utc))
+    ev.add("last-modified", datetime.now(timezone.utc))
+    cal.add_component(ev)
+    return cal.to_ical().decode("utf-8")
+
+
+def caldav_create_event(calendar, user, *, title: str, when: datetime,
+                        all_day: bool = True, description: str = "",
+                        duration_minutes: int = 30,
+                        timezone: str | None = None) -> dict:
+    """Create an event by PUTting a fresh ``<uid>.ics`` resource. Returns
+    ``{"id": uid}`` so the caller stores the UID like a Google event id."""
+    import uuid
+    uid = f"cairn-{uuid.uuid4().hex}"
+    ics = _caldav_event_ics(uid, title, when, all_day, description,
+                            duration_minutes, timezone)
+    _caldav_request("PUT", _caldav_href(calendar, uid), calendar=calendar, user=user,
+                    body=ics, headers={"Content-Type": "text/calendar; charset=utf-8",
+                                       "If-None-Match": "*"})
+    return {"id": uid}
+
+
+def caldav_patch_event(calendar, user, event_id: str, *, title: str, when: datetime,
+                       all_day: bool = True, description: str = "",
+                       duration_minutes: int = 30,
+                       timezone: str | None = None) -> dict:
+    """Update an event by re-PUTting its ``<uid>.ics`` (same UID = replace)."""
+    ics = _caldav_event_ics(event_id, title, when, all_day, description,
+                            duration_minutes, timezone)
+    _caldav_request("PUT", _caldav_href(calendar, event_id), calendar=calendar, user=user,
+                    body=ics, headers={"Content-Type": "text/calendar; charset=utf-8"})
+    return {"id": event_id}
+
+
+def caldav_delete_event(calendar, user, event_id: str) -> None:
+    """Best-effort delete — 404/410 (already gone) counts as success."""
+    _caldav_request("DELETE", _caldav_href(calendar, event_id), calendar=calendar,
+                    user=user, allow_codes=(404, 410))
 
 
 def _post_form(url: str, data: dict[str, str]) -> dict[str, Any]:

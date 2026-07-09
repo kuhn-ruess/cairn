@@ -35,6 +35,20 @@ class ICalForm(FlaskForm):
     submit = SubmitField("Subscribe")
 
 
+class CalDavForm(FlaskForm):
+    caldav_url = StringField(
+        "Calendar URL", validators=[DataRequired(), URL()],
+        description="The calendar's CalDAV collection URL, e.g. "
+        "https://cloud.example.com/remote.php/dav/calendars/you/personal/",
+    )
+    username = StringField("Username", validators=[DataRequired(), Length(max=255)])
+    password = PasswordField("Password / app token", validators=[DataRequired()])
+    name = StringField("Name (optional)", validators=[Optional(), Length(max=128)])
+    color = StringField("Color", default="#458588")
+    show_in_today = BooleanField("Show events in Today", default=True)
+    submit = SubmitField("Connect")
+
+
 
 
 class TodoistImportForm(FlaskForm):
@@ -692,6 +706,7 @@ def calendars():
         writable=writable,
         google_ready=google_ready,
         ical_form=ICalForm(),
+        caldav_form=CalDavForm(),
     )
 
 
@@ -725,6 +740,48 @@ def calendar_ical_new():
         can_write=False,
     )
     flash(f"Subscribed to “{name}” — {probe.get('event_count', 0)} events read.", "success")
+    return redirect(url_for("settings.calendars"))
+
+
+@settings_bp.route("/calendars/caldav/new", methods=["POST"])
+@login_required
+def calendar_caldav_new():
+    """Verify a CalDAV collection URL + credentials, then save it (read/write).
+
+    The password is encrypted per-user before storage, exactly like the Google
+    OAuth tokens. CalDAV calendars are ``can_write=True`` so they can be picked
+    as the write-back target."""
+    from application.services.calendar_sync import probe_caldav
+    from application.services.crypto import encrypt_for_user
+
+    user = current_user._get_current_object()
+    form = CalDavForm()
+    if not form.validate_on_submit():
+        flash("Please fill in the CalDAV URL, username and password.", "danger")
+        return redirect(url_for("settings.calendars"))
+
+    url = form.caldav_url.data.strip()
+    username = form.username.data.strip()
+    password = form.password.data
+    try:
+        probe = probe_caldav(url, username, password)
+    except CalendarError as exc:
+        flash(f"Couldn't reach that calendar: {exc}", "danger")
+        return redirect(url_for("settings.calendars"))
+
+    name = (form.name.data or "").strip() or probe.get("name") or "CalDAV calendar"
+    color = form.color.data or "#458588"
+    user.add_calendar(
+        provider="caldav",
+        name=name,
+        color=color,
+        show_in_today=form.show_in_today.data,
+        can_write=True,
+        caldav_url=url,
+        caldav_username=username,
+        caldav_password=encrypt_for_user(user, password),
+    )
+    flash(f"Connected to “{name}”.", "success")
     return redirect(url_for("settings.calendars"))
 
 
