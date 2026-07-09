@@ -2876,6 +2876,35 @@ def delete_comment(task_id, index):
     flash("Comment deleted.", "success")
     return redirect(request.referrer or url_for("tasks.detail", task_id=task_id))
 
+@tasks_bp.route("/<task_id>/comments/<int:index>/edit", methods=["POST"])
+@login_required
+def edit_comment(task_id, index):
+    """Edit a comment's body. Its author (the creator) or the task owner only —
+    same permission model as delete/visibility. Returns the re-rendered markdown
+    so the inspector can swap it in without a reload."""
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_viewed_by(user):
+        abort(404)
+    if not (0 <= index < len(task.comments or [])):
+        abort(404)
+    comment = task.comments[index]
+    if comment.author != user and task.owner != user:
+        abort(403)
+    body = (request.form.get("body") or "").strip()
+    if not body:
+        abort(400)
+    comment.body = body
+    task.save()
+    if request.headers.get("X-Inspector-Request") == "1" or request.is_json:
+        from flask import jsonify
+        return jsonify({
+            "ok": True, "index": index, "body": body,
+            "body_html": current_app.jinja_env.filters["markdown"](body),
+        })
+    flash("Comment updated.", "success")
+    return redirect(request.referrer or url_for("tasks.detail", task_id=task_id))
+
 
 def _editable_task_or_404(task_id):
     user = current_user._get_current_object()

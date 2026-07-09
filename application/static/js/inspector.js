@@ -433,6 +433,66 @@
     if (btn) onCommentDelete({ preventDefault() {}, currentTarget: btn });
   });
 
+  // Comment edit — author (or task owner) only; button only rendered for them.
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".comment-edit-btn");
+    if (btn) onCommentEdit({ preventDefault() {}, currentTarget: btn });
+  });
+
+  function onCommentEdit(ev) {
+    ev.preventDefault();
+    const btn = ev.currentTarget;
+    const row = btn.closest(".comment-item, .task-detail-comment");
+    if (!row || row.querySelector(".comment-edit-form")) return; // already open
+    const textEl = row.querySelector(".comment-text");
+    const rawEl = row.querySelector(".comment-raw");
+    if (!textEl) return;
+    const raw = rawEl ? rawEl.textContent : textEl.textContent;
+    const { taskId } = btn.dataset;
+    const form = document.createElement("div");
+    form.className = "comment-edit-form mt-1";
+    form.innerHTML =
+      '<textarea class="form-control form-control-sm mb-1" rows="3"></textarea>' +
+      '<div class="d-flex gap-2">' +
+      '<button type="button" class="btn btn-sm btn-primary comment-edit-save">Save</button>' +
+      '<button type="button" class="btn btn-sm btn-link text-muted comment-edit-cancel">Cancel</button>' +
+      "</div>";
+    const ta = form.querySelector("textarea");
+    ta.value = raw;
+    textEl.classList.add("d-none");
+    textEl.after(form);
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+
+    const close = () => { form.remove(); textEl.classList.remove("d-none"); };
+    form.querySelector(".comment-edit-cancel").addEventListener("click", close);
+    form.querySelector(".comment-edit-save").addEventListener("click", async () => {
+      const value = ta.value.trim();
+      if (!value) { ta.focus(); return; }
+      // Read the index at SAVE time — a concurrent delete re-indexes the button.
+      const index = btn.dataset.index;
+      const saveBtn = form.querySelector(".comment-edit-save");
+      saveBtn.disabled = true;
+      try {
+        const fd = new FormData();
+        const csrf = document.querySelector('input[name="csrf_token"]');
+        if (csrf) fd.append("csrf_token", csrf.value);
+        fd.append("body", value);
+        const resp = await fetch(`/tasks/${taskId}/comments/${index}/edit`, {
+          method: "POST", body: fd, headers: { "X-Inspector-Request": "1" },
+        });
+        if (!resp.ok) throw new Error("edit failed: " + resp.status);
+        const data = await resp.json();
+        textEl.innerHTML = data.body_html || escapeHtml(data.body);
+        if (rawEl) rawEl.textContent = data.body;
+        close();
+      } catch (err) {
+        console.error(err);
+        saveBtn.disabled = false;
+      }
+    });
+  }
+
   async function onCommentDelete(ev) {
     ev.preventDefault();
     const btn = ev.currentTarget;
@@ -565,13 +625,22 @@
       `title="Click to toggle internal / public">` +
       visibilityBadgeHtml(c.is_public) +
       "</button>" +
-      // The current user authored this comment, so they can always delete it.
+      // The current user authored this comment, so they can always edit/delete.
+      `<button type="button" class="comment-edit-btn btn btn-sm btn-link text-muted p-0 ms-1" ` +
+      `data-task-id="${taskId}" data-index="${c.index}" title="Edit this comment">` +
+      '<i class="bi bi-pencil"></i></button>' +
       `<button type="button" class="comment-delete-btn btn btn-sm btn-link text-muted p-0 ms-1" ` +
       `data-task-id="${taskId}" data-index="${c.index}" title="Delete this comment">` +
       '<i class="bi bi-trash"></i></button></div>' +
       // Use the server-rendered markdown (so pasted images / formatting show
       // immediately); fall back to escaped plain text if it's missing.
-      `<div class="comment-text md-body mt-1">${c.body_html || escapeHtml(c.body)}</div>`;
+      `<div class="comment-text md-body mt-1">${c.body_html || escapeHtml(c.body)}</div>` +
+      // Hidden raw markdown so the edit form can prefill the original source.
+      `<div class="comment-raw d-none"></div>`;
+    // Store the raw markdown as text (not innerHTML) so the edit form prefills
+    // the original source rather than the rendered HTML.
+    const rawEl = div.querySelector(".comment-raw");
+    if (rawEl) rawEl.textContent = c.body || "";
     // Comments render newest-first, so a new one goes to the top of the DOM.
     list.insertBefore(div, list.firstChild);
     list.scrollTop = 0;  // keep the freshly added comment in view
