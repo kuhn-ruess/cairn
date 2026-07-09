@@ -112,6 +112,11 @@ class TaskForm(FlaskForm):
         coerce=int,
         validators=[Optional()],
     )
+    # Fixed day of month (1–31) — when set, the task repeats monthly on that
+    # calendar day, overriding the every-N-units / weekday schedules.
+    repeat_monthday = IntegerField(
+        "Repeat on day of month", validators=[Optional(), NumberRange(min=1, max=31)]
+    )
     assigned_to = SelectField("Assign to", choices=[], validators=[Optional()])
     # Blank = inherit the parent project's review cadence; a number overrides
     # (0 = never review). See Item.effective_review_interval.

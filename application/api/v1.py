@@ -515,6 +515,19 @@ def _apply_task_payload(task: Item, data: dict, user) -> None:
         if any(d < 0 or d > 6 for d in days):
             raise ValueError("repeat_weekdays values must be 0 (Mon) .. 6 (Sun)")
         task.repeat_weekdays = days
+    if "repeat_monthday" in data:
+        md = data["repeat_monthday"]
+        if md in (None, "", 0):
+            task.repeat_monthday = None
+        else:
+            try:
+                md = int(md)
+            except (TypeError, ValueError):
+                raise ValueError("repeat_monthday must be an integer 1..31")
+            if not (1 <= md <= 31):
+                raise ValueError("repeat_monthday must be 1..31")
+            task.repeat_monthday = md
+            task.repeat_weekdays = []  # mutually exclusive (see model)
     if "repeat_from_completion" in data:
         task.repeat_from_completion = bool(data["repeat_from_completion"])
     if "is_internal" in data:

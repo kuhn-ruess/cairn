@@ -75,7 +75,11 @@
         {% if task.estimated_minutes %}
           <span><i class="bi bi-stopwatch"></i> {{ task.estimated_minutes }}m</span>
         {% endif %}
-        {% if task.repeat_weekdays %}
+        {% if task.repeat_monthday %}
+          <span><i class="bi bi-arrow-repeat"></i>
+            monthly on the {{ task.repeat_monthday_label }}
+          </span>
+        {% elif task.repeat_weekdays %}
           <span><i class="bi bi-arrow-repeat"></i>
             every {{ task.repeat_weekday_labels|join(', ') }}
           </span>

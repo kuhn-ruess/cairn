@@ -132,7 +132,11 @@
             {% if task.location %}
               <span title="Location"><i class="bi bi-geo-alt"></i> {{ task.location }}</span>
             {% endif %}
-            {% if task.repeat_weekdays %}
+            {% if task.repeat_monthday %}
+              <span class="repeat-chip" title="Repeats monthly on the {{ task.repeat_monthday_label }}">
+                <i class="bi bi-arrow-repeat"></i> {{ task.repeat_monthday_label }}
+              </span>
+            {% elif task.repeat_weekdays %}
               <span class="repeat-chip" title="Repeats every {{ task.repeat_weekday_labels|join(', ') }}">
                 <i class="bi bi-arrow-repeat"></i> {{ task.repeat_weekday_labels|join(', ') }}
               </span>

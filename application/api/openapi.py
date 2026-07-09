@@ -110,6 +110,11 @@ def build_openapi_spec() -> dict:
                             "items": {"type": "integer", "minimum": 0, "maximum": 6},
                             "description": "Weekdays the task repeats on (0=Mon .. 6=Sun).",
                         },
+                        "repeat_monthday": {
+                            "type": "integer", "nullable": True,
+                            "minimum": 1, "maximum": 31,
+                            "description": "Fixed day of month for a monthly repeat (1..31).",
+                        },
                         "repeat_from_completion": {"type": "boolean"},
                         "is_internal": {"type": "boolean"},
                         "assigned_to": {
@@ -213,6 +218,10 @@ def build_openapi_spec() -> dict:
                         "repeat_weekdays": {
                             "type": "array",
                             "items": {"type": "integer", "minimum": 0, "maximum": 6},
+                        },
+                        "repeat_monthday": {
+                            "type": "integer", "nullable": True,
+                            "minimum": 1, "maximum": 31,
                         },
                         "repeat_from_completion": {"type": "boolean"},
                         "is_internal": {"type": "boolean"},

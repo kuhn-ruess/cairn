@@ -164,6 +164,12 @@
         {% endfor %}
       </div>
     </div>
+    <div class="mt-2 d-flex gap-2 align-items-center">
+      <span class="form-text small text-muted mb-0">…or monthly on day:</span>
+      {{ form.repeat_monthday(class="form-control form-control-sm", type="number",
+                              min="1", max="31", placeholder="e.g. 2",
+                              style="max-width: 5rem;") }}
+    </div>
     <div class="form-check mt-2">
       {{ form.repeat_from_completion(class="form-check-input") }}
       {{ form.repeat_from_completion.label(class="form-check-label small") }}

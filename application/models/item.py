@@ -303,6 +303,13 @@ class Item(Document):
     # next occurrence lands on the soonest selected weekday after the anchor,
     # ignoring repeat_every_days/unit. Empty = use the every-N-units schedule.
     repeat_weekdays = ListField(IntField(min_value=0, max_value=6))
+    # Fixed day-of-month recurrence (e.g. "the 2nd of every month"). When set,
+    # the task repeats monthly — every ``repeat_every_days`` months (default 1)
+    # — landing on this calendar day, clamped to the month's length (so 31 lands
+    # on the last day of a short month). Takes precedence over the every-N-units
+    # schedule, like ``repeat_weekdays``; the two are mutually exclusive in the
+    # UI. Empty = not a monthly-on-fixed-day schedule.
+    repeat_monthday = IntField(min_value=1, max_value=31)
     is_internal = BooleanField(default=False)
 
     # ----- follow-up -----
@@ -864,7 +871,7 @@ class Item(Document):
         # them to done, so a recurring task needs the structure captured first
         # to recreate it fresh on the next occurrence.
         recurring = self.kind == "task" and bool(
-            self.repeat_every_days or self.repeat_weekdays
+            self.repeat_every_days or self.repeat_weekdays or self.repeat_monthday
         )
         captured_subtasks = self._capture_subtasks() if recurring else None
         self.status = "done"
@@ -880,7 +887,8 @@ class Item(Document):
         # strips recurrence on the flip).
         if self.kind != "task":
             return None
-        if not self.repeat_every_days and not self.repeat_weekdays:
+        if (not self.repeat_every_days and not self.repeat_weekdays
+                and not self.repeat_monthday):
             self._autocomplete_enclosing_project(by_user)
             return None
         anchor = (
@@ -902,10 +910,22 @@ class Item(Document):
 
         new_due = None
         defer_delta = None
+        # Fixed day-of-month recurrence (e.g. "the 2nd of every month") takes
+        # precedence over both weekday and every-N-units schedules: advance
+        # ``n`` months (default 1) from the anchor and land on the target day,
+        # clamped to the destination month's length so day 31 falls on the last
+        # day of a short month.
+        if self.repeat_monthday and anchor:
+            import calendar as _cal
+            step = n if (n and n > 0) else 1
+            base = anchor + relativedelta(months=step)
+            last = _cal.monthrange(base.year, base.month)[1]
+            new_due = base.replace(day=min(self.repeat_monthday, last))
+            defer_delta = relativedelta(months=step)
         # Specific-weekday recurrence (e.g. every Mon/Wed/Fri) takes
         # precedence over the every-N-units schedule and lands on the next
         # selected weekday strictly after the anchor.
-        if self.repeat_weekdays and anchor:
+        elif self.repeat_weekdays and anchor:
             valid = set(self.repeat_weekdays)
             d = anchor
             for _ in range(7):
@@ -973,6 +993,7 @@ class Item(Document):
             repeat_unit=self.repeat_unit,
             repeat_from_completion=self.repeat_from_completion,
             repeat_weekdays=list(self.repeat_weekdays or []),
+            repeat_monthday=self.repeat_monthday,
             # Carry the checklist over but reset every item to unchecked —
             # a fresh occurrence starts with nothing ticked off.
             checklist=[ChecklistItem(text=ci.text, done=False) for ci in (self.checklist or [])],
@@ -1037,6 +1058,7 @@ class Item(Document):
         # project") the next time it's completed. Drop it on the flip.
         self.repeat_every_days = None
         self.repeat_weekdays = []
+        self.repeat_monthday = None
         self.repeat_from_completion = False
         self.save()
         return True
@@ -1072,6 +1094,16 @@ class Item(Document):
         ``['Mon', 'Wed', 'Fri']``. Empty when no weekday recurrence is set."""
         names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         return [names[d] for d in sorted(self.repeat_weekdays or []) if 0 <= d <= 6]
+
+    @property
+    def repeat_monthday_label(self) -> str:
+        """Ordinal day-of-month for ``repeat_monthday`` (e.g. ``2nd``), or ``""``
+        when no fixed day-of-month recurrence is set."""
+        d = self.repeat_monthday
+        if not d or not (1 <= d <= 31):
+            return ""
+        suffix = "th" if 11 <= d % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(d % 10, "th")
+        return f"{d}{suffix}"
 
     # ----- checklist helpers -----
     @property
