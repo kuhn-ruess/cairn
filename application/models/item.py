@@ -1098,10 +1098,14 @@ class Item(Document):
     @property
     def repeat_monthday_label(self) -> str:
         """Ordinal day-of-month for ``repeat_monthday`` (e.g. ``2nd``), or ``""``
-        when no fixed day-of-month recurrence is set."""
+        when no fixed day-of-month recurrence is set. ``31`` reads as
+        ``last day`` — it always clamps to the month's real length (see
+        ``complete``), so it means "the last day of every month"."""
         d = self.repeat_monthday
         if not d or not (1 <= d <= 31):
             return ""
+        if d == 31:
+            return "last day"
         suffix = "th" if 11 <= d % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(d % 10, "th")
         return f"{d}{suffix}"
 
