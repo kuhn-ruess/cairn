@@ -302,19 +302,25 @@ def locked_container_pks(user) -> set:
 def inbox_q(user):
     """Mongo filter (a ``Q``) for the user's Inbox.
 
-    Inbox = truly unfiled tasks (``parent=None``) PLUS tasks delegated to the
-    user that they have NOT filed (no ``personal_homes`` entry for them) and
-    whose project they cannot see — so an untriaged delegated task lands in the
-    assignee's Inbox by default instead of hiding under the owner's invisible
-    project. Pair with the usual ``_scope(user)`` + ``kind='task'`` + status
-    filters."""
+    Inbox = unfiled tasks that are the user's OWN to triage — they own it, or
+    it's assigned to them — PLUS tasks delegated to the user that they have NOT
+    filed (no ``personal_homes`` entry for them) and whose project they cannot
+    see (so an untriaged delegated task lands in the assignee's Inbox instead of
+    hiding under the owner's invisible project).
+
+    The ``parent=None`` branch is deliberately scoped to owner/assignee: an
+    unfiled task owned by *someone else* belongs in THAT person's Inbox, not in
+    every colleague who can see it via a team share — otherwise a shared,
+    project-less task leaked into every team member's Inbox. Pair with the usual
+    ``_scope(user)`` + ``kind='task'`` + status filters."""
     from bson import ObjectId
     from mongoengine import Q
     vis = [ObjectId(p) for p in viewable_container_pks(user)]
+    own_unfiled = Q(parent=None) & (Q(owner=user) | Q(assigned_to=user))
     delegated = (Q(assigned_to=user) & Q(owner__ne=user)
                  & Q(personal_homes__user__ne=user) & Q(parent__ne=None)
                  & Q(parent__nin=vis))
-    return Q(parent=None) | delegated
+    return own_unfiled | delegated
 
 
 def assignable_users(actor) -> list:
