@@ -4,23 +4,18 @@
    (inspector_section_order, with the pinned title first). Everything lives
    inside ONE <form> — checklist & comments use buttons (data-action) rather
    than nested <form>s, which HTML forbids. #}
-{# Collapsible inspector blocks — chevron at the block's top-right toggles the
-   body (section-collapse.js), remembered per section. Inline so a CSS edit
-   shows without an app.css cache-bust and it applies to the AJAX-injected
-   off-canvas inspector too. #}
-<style>
-  .inspector-section-wrap { position: relative; }
-  .inspector-section-wrap > .inspector-collapse-toggle {
-    position: absolute; top: .3rem; right: .3rem; z-index: 2;
-    border: 0; background: transparent; cursor: pointer;
-    color: var(--bs-secondary-color, #8a8a8a);
-    padding: .1rem .3rem; line-height: 1; border-radius: .25rem;
-  }
-  .inspector-section-wrap > .inspector-collapse-toggle:hover {
-    background: rgba(128,128,128,.15);
-  }
-  .inspector-section-wrap > .section-collapsible > .inspector-section { padding-right: 1.6rem; }
-</style>
+{# Every inspector block is collapsible with a titled header + left chevron,
+   exactly like the subtasks widget (section-collapse.js remembers the state per
+   section). The header macro below is reused by the render loop. #}
+{%- macro block_header(key, label) -%}
+  <h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center">
+    <button type="button" class="btn btn-sm btn-link text-muted p-0 me-1"
+            data-collapse-key="cairn-collapse-insp-{{ key }}" title="Show / hide">
+      <i class="bi bi-chevron-down"></i>
+    </button>
+    {{ label }}
+  </h2>
+{%- endmacro -%}
 {% if just_saved %}
   <div class="inspector-saved-banner"><i class="bi bi-check2-circle"></i> Saved</div>
 {% elif just_added_title %}
@@ -31,7 +26,6 @@
 
 {%- macro sec_note() -%}
   <div class="inspector-section" data-section="note">
-    {{ form.note.label(class="form-label small text-uppercase text-muted") }}
     {{ form.note(class="form-control", rows="3", placeholder="Notes, links, context…") }}
     {# Unsaved new task: hold attachments client-side; inspector.js uploads them
        to the task right after it's created. A saved task uploads inline. #}
@@ -176,7 +170,6 @@
 
 {%- macro sec_location() -%}
   <div class="inspector-section" data-section="location">
-    {{ form.location.label(class="form-label small text-uppercase text-muted") }}
     {{ form.location(class="form-control form-control-sm",
                      placeholder="e.g. REWE, Hauptstraße 1") }}
   </div>
@@ -184,7 +177,6 @@
 
 {%- macro sec_repeat() -%}
   <div class="inspector-section" data-section="repeat">
-    <label class="form-label small text-uppercase text-muted">Repeat</label>
     <div class="d-flex gap-2 align-items-center">
       {{ form.repeat_every_days(class="form-control form-control-sm",
                                  placeholder="0 = off", style="max-width: 5rem;") }}
@@ -282,7 +274,8 @@
 
 {%- macro sec_checklist() -%}
   {% if task %}
-    <div class="inspector-section checklist-block" data-section="checklist" id="checklist">
+    <div class="inspector-section checklist-block" data-section="checklist" id="checklist"
+         data-collapsible>
       {% include "tasks/_checklist.html" %}
     </div>
   {% endif %}
@@ -292,7 +285,7 @@
   {% if task %}
     {% set tt = tt_task_time(task) %}
     {% if tt %}
-      <div class="inspector-section time-block" data-section="time" id="time">
+      <div class="inspector-section time-block" data-section="time" id="time" data-collapsible>
         {% include "timetracking/_task_time.html" %}
       </div>
     {% endif %}
@@ -304,15 +297,18 @@
      .dependencies-block wrappers (with their ids) are kept intact because
      related.js / dependencies.js swap their innerHTML after add/remove. #}
   {% if task %}
-    <div class="inspector-section" data-section="related">
-      <div class="related-block" id="related">
-        {% include "tasks/_related.html" %}
-      </div>
-      {% if task.kind == 'task' %}
-        <div class="dependencies-block mt-3" id="dependencies">
-          {% include "tasks/_dependencies.html" %}
+    <div class="inspector-section" data-section="related" data-collapsible>
+      {{ block_header("related", "Related & Dependencies") }}
+      <div class="section-collapsible">
+        <div class="related-block" id="related">
+          {% include "tasks/_related.html" %}
         </div>
-      {% endif %}
+        {% if task.kind == 'task' %}
+          <div class="dependencies-block mt-3" id="dependencies">
+            {% include "tasks/_dependencies.html" %}
+          </div>
+        {% endif %}
+      </div>
     </div>
   {% endif %}
 {%- endmacro -%}
@@ -464,22 +460,17 @@
        their own column sections, so skip them here to avoid a duplicate.
        Everything else (incl. checklist) shows inline. #}
     {% if key in _section_macros and not (inspector_inline and key in ("comments", "subtasks")) %}
-      {% if key in ("subtasks", "comments") %}
-        {# These bring their own collapse / controls — render as-is. #}
+      {% if key in ("subtasks", "comments", "related", "checklist", "time") %}
+        {# These carry their own titled header + collapse (self-contained
+           includes / macros), so render as-is. #}
         {{ _section_macros[key]() }}
       {% else %}
-        {# Every other block is collapsible, like the subtasks widget: a chevron
-           toggles the body, remembered per section in localStorage
-           (section-collapse.js). Capture the macro output first so an empty
-           section (e.g. checklist/time on create) renders nothing at all. #}
+        {# Field blocks get a uniform titled header + left chevron here. Capture
+           the macro output first so an empty section renders nothing at all. #}
         {% set _content %}{{ _section_macros[key]() }}{% endset %}
         {% if _content.strip() %}
-          <div class="inspector-section-wrap" data-collapsible data-section-key="{{ key }}">
-            <button type="button" class="inspector-collapse-toggle"
-                    data-collapse-key="cairn-collapse-insp-{{ key }}"
-                    title="Collapse / expand" aria-expanded="true">
-              <i class="bi bi-chevron-down"></i>
-            </button>
+          <div class="inspector-section-block" data-collapsible data-section-key="{{ key }}">
+            {{ block_header(key, inspector_section_labels.get(key, key)) }}
             <div class="section-collapsible">{{ _content }}</div>
           </div>
         {% endif %}

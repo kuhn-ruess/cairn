@@ -196,6 +196,8 @@ def register_filters(app):
         # that renders the inspector partial without threading it through
         # each view.
         inspector_section_order = []
+        from application.services.inspector_layout import SECTION_LABELS
+        inspector_section_labels = dict(SECTION_LABELS)
         if current_user.is_authenticated:
             from application.services.inspector_layout import visible_order
             inspector_section_order = visible_order(
@@ -244,6 +246,7 @@ def register_filters(app):
             "task_note_counts_for": lambda items: Item.note_counts_for(items),
             "can_view_container": _can_view_container,
             "inspector_section_order": inspector_section_order,
+            "inspector_section_labels": inspector_section_labels,
             "app_version": APP_VERSION,
         }
 

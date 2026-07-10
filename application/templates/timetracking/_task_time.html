@@ -4,12 +4,17 @@
    inspector wraps everything in one form, so each action is a button carrying
    its endpoint in data-action. #}
 {% if tt %}
-<h2 class="h6 text-muted small text-uppercase mb-2">
+<h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center flex-wrap">
+  <button type="button" class="btn btn-sm btn-link text-muted p-0 me-1"
+          data-collapse-key="cairn-collapse-insp-time" title="Show / hide time tracking">
+    <i class="bi bi-chevron-down"></i>
+  </button>
   Time tracking
-  <span class="text-muted">({{ tt.total_minutes|duration }})</span>
+  <span class="text-muted ms-1">({{ tt.total_minutes|duration }})</span>
   <span class="badge text-bg-light text-muted ms-1" title="Billing project">
     <i class="bi bi-receipt"></i> {{ tt.project.name }}</span>
 </h2>
+<div class="section-collapsible">
 
 <ul class="time-list list-unstyled mb-2">
   {% for e in tt.entries %}
@@ -46,4 +51,5 @@
   </label>
   <button type="button" class="btn btn-sm btn-outline-primary time-add-btn">Log</button>
 </div>
+</div>{# /.section-collapsible #}
 {% endif %}
