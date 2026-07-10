@@ -182,6 +182,7 @@
 {%- endmacro -%}
 
 {%- macro sec_review() -%}
+  {# Review interval + Follow-up together in one block. #}
   {% set _inh = task.parent.effective_review_interval() if (task and task.parent) else None %}
   <div class="inspector-section" data-section="review">
     {{ form.review_interval_days.label(class="form-label small text-uppercase text-muted") }}
@@ -190,29 +191,7 @@
     <div class="form-text small">
       Empty = inherit from project{% if _inh is not none %} (currently {{ _inh }}d){% endif %} · 0 = never review.
     </div>
-  </div>
-{%- endmacro -%}
-
-{%- macro sec_owner() -%}
-  {# Owner (Jira-style, separate from the assignee). Only meaningful on an
-     existing task — the create form owns itself via the current user. #}
-  {% if task %}
-  <div class="inspector-section" data-section="owner">
-    {{ form.owner.label(class="form-label small text-uppercase text-muted") }}
-    {{ form.owner(class="form-select form-select-sm") }}
-  </div>
-  {% endif %}
-{%- endmacro -%}
-
-{%- macro sec_assigned_to() -%}
-  <div class="inspector-section" data-section="assigned_to">
-    {{ form.assigned_to.label(class="form-label small text-uppercase text-muted") }}
-    {{ form.assigned_to(class="form-select form-select-sm") }}
-  </div>
-{%- endmacro -%}
-
-{%- macro sec_followup() -%}
-  <div class="inspector-section" data-section="followup">
+    <hr class="my-3">
     <label class="form-label small text-uppercase text-muted">Follow-up</label>
     {{ form.waiting_on(class="form-control form-control-sm mb-2",
                        placeholder="Who are you waiting on? (e.g. supplier Meyer)") }}
@@ -246,6 +225,21 @@
         <i class="bi bi-clock-history"></i> Last followed up: {{ task.followup_last_at|localdt }}
       </div>
     {% endif %}
+  </div>
+{%- endmacro -%}
+
+{%- macro sec_assigned_to() -%}
+  {# Owner + Assignee together in one block (Jira-style). Owner only shows for
+     an existing task — the create form owns itself via the current user. #}
+  <div class="inspector-section" data-section="assigned_to">
+    {% if task %}
+      <div class="mb-2">
+        {{ form.owner.label(class="form-label small text-uppercase text-muted") }}
+        {{ form.owner(class="form-select form-select-sm") }}
+      </div>
+    {% endif %}
+    {{ form.assigned_to.label(class="form-label small text-uppercase text-muted") }}
+    {{ form.assigned_to(class="form-select form-select-sm") }}
   </div>
 {%- endmacro -%}
 
@@ -292,17 +286,19 @@
 {%- endmacro -%}
 
 {%- macro sec_related() -%}
+  {# Related + Dependencies together in one block. The inner .related-block /
+     .dependencies-block wrappers (with their ids) are kept intact because
+     related.js / dependencies.js swap their innerHTML after add/remove. #}
   {% if task %}
-    <div class="inspector-section related-block" data-section="related" id="related">
-      {% include "tasks/_related.html" %}
-    </div>
-  {% endif %}
-{%- endmacro -%}
-
-{%- macro sec_dependencies() -%}
-  {% if task and task.kind == 'task' %}
-    <div class="inspector-section dependencies-block" data-section="dependencies" id="dependencies">
-      {% include "tasks/_dependencies.html" %}
+    <div class="inspector-section" data-section="related">
+      <div class="related-block" id="related">
+        {% include "tasks/_related.html" %}
+      </div>
+      {% if task.kind == 'task' %}
+        <div class="dependencies-block mt-3" id="dependencies">
+          {% include "tasks/_dependencies.html" %}
+        </div>
+      {% endif %}
     </div>
   {% endif %}
 {%- endmacro -%}
@@ -400,10 +396,9 @@
   "dates": sec_dates, "plan": sec_plan, "priority_estimate": sec_priority_estimate,
   "location": sec_location,
   "repeat": sec_repeat, "review": sec_review,
-  "owner": sec_owner, "assigned_to": sec_assigned_to,
-  "followup": sec_followup, "flags": sec_flags,
+  "assigned_to": sec_assigned_to, "flags": sec_flags,
   "checklist": sec_checklist, "time": sec_time,
-  "related": sec_related, "dependencies": sec_dependencies,
+  "related": sec_related,
   "subtasks": sec_subtasks, "comments": sec_comments,
 } -%}
 
