@@ -4,6 +4,23 @@
    (inspector_section_order, with the pinned title first). Everything lives
    inside ONE <form> — checklist & comments use buttons (data-action) rather
    than nested <form>s, which HTML forbids. #}
+{# Collapsible inspector blocks — chevron at the block's top-right toggles the
+   body (section-collapse.js), remembered per section. Inline so a CSS edit
+   shows without an app.css cache-bust and it applies to the AJAX-injected
+   off-canvas inspector too. #}
+<style>
+  .inspector-section-wrap { position: relative; }
+  .inspector-section-wrap > .inspector-collapse-toggle {
+    position: absolute; top: .3rem; right: .3rem; z-index: 2;
+    border: 0; background: transparent; cursor: pointer;
+    color: var(--bs-secondary-color, #8a8a8a);
+    padding: .1rem .3rem; line-height: 1; border-radius: .25rem;
+  }
+  .inspector-section-wrap > .inspector-collapse-toggle:hover {
+    background: rgba(128,128,128,.15);
+  }
+  .inspector-section-wrap > .section-collapsible > .inspector-section { padding-right: 1.6rem; }
+</style>
 {% if just_saved %}
   <div class="inspector-saved-banner"><i class="bi bi-check2-circle"></i> Saved</div>
 {% elif just_added_title %}
@@ -32,94 +49,114 @@
 {%- endmacro -%}
 
 {%- macro sec_status_project() -%}
-  <div class="inspector-section grid-2" data-section="status_project">
-    <div>
-      {{ form.status.label(class="form-label small text-uppercase text-muted") }}
-      {{ form.status(class="form-select form-select-sm") }}
+  {# Status + Project + Tags together in one block. #}
+  <div class="inspector-section" data-section="status_project">
+    <div class="grid-2">
+      <div>
+        {{ form.status.label(class="form-label small text-uppercase text-muted") }}
+        {{ form.status(class="form-select form-select-sm") }}
+      </div>
+      <div>
+        {{ form.project.label(class="form-label small text-uppercase text-muted") }}
+        {{ form.project(class="form-select form-select-sm",
+                         size="6",
+                         **{"data-searchable-select": "1",
+                            "data-searchable-placeholder": "Search projects…"}) }}
+      </div>
     </div>
-    <div>
-      {{ form.project.label(class="form-label small text-uppercase text-muted") }}
-      {{ form.project(class="form-select form-select-sm",
-                       size="6",
-                       **{"data-searchable-select": "1",
-                          "data-searchable-placeholder": "Search projects…"}) }}
+    <div class="mt-3">
+      {{ form.tags.label(class="form-label small text-uppercase text-muted") }}
+      {%- set tag_meta = [] -%}
+      {%- for t in current_user.tags or [] -%}
+        {%- set _ = tag_meta.append({"name": t.name, "parent": t.parent or "", "excl": t.exclusive_children, "color": t.color}) -%}
+      {%- endfor -%}
+      {{ form.tags(class="form-select form-select-sm", size="5", **{"data-tag-toggle": "1", "data-tag-meta": tag_meta|tojson}) }}
+      <div class="form-text">Type to search or create a label. One tag per exclusive group.</div>
     </div>
-  </div>
-{%- endmacro -%}
-
-{%- macro sec_tags() -%}
-  <div class="inspector-section" data-section="tags">
-    {{ form.tags.label(class="form-label small text-uppercase text-muted") }}
-    {%- set tag_meta = [] -%}
-    {%- for t in current_user.tags or [] -%}
-      {%- set _ = tag_meta.append({"name": t.name, "parent": t.parent or "", "excl": t.exclusive_children, "color": t.color}) -%}
-    {%- endfor -%}
-    {{ form.tags(class="form-select form-select-sm", size="5", **{"data-tag-toggle": "1", "data-tag-meta": tag_meta|tojson}) }}
-    <div class="form-text">Type to search or create a label. One tag per exclusive group.</div>
+    <div class="mt-3">
+      <div class="form-check">
+        {{ form.flagged(class="form-check-input") }}
+        {{ form.flagged.label(class="form-check-label") }}
+      </div>
+      <div class="form-check mt-2">
+        {{ form.is_internal(class="form-check-input") }}
+        {{ form.is_internal.label(class="form-check-label small text-muted") }}
+      </div>
+      {% if not task %}
+        <div class="form-check mt-2">
+          {{ form.add_another(class="form-check-input") }}
+          {{ form.add_another.label(class="form-check-label small text-muted") }}
+        </div>
+        <div class="form-check mt-2">
+          {{ form.open_after_create(class="form-check-input") }}
+          {{ form.open_after_create.label(class="form-check-label small text-muted") }}
+        </div>
+      {% endif %}
+    </div>
   </div>
 {%- endmacro -%}
 
 {%- macro sec_dates() -%}
-  <div class="inspector-section grid-2" data-section="dates">
-    <div>
-      {{ form.defer_date.label(class="form-label small text-uppercase text-muted") }}
-      {{ form.defer_date(class="form-control form-control-sm", id="defer_date") }}
-      <div class="quick-date-row btn-group btn-group-sm mt-1">
-        <button type="button" class="btn btn-outline-secondary"
-                data-quick-date="defer_date" data-set="today">Today</button>
-        <button type="button" class="btn btn-outline-secondary"
-                data-quick-date="defer_date" data-set="tomorrow">Tomorrow</button>
-        <button type="button" class="btn btn-outline-secondary"
-                data-quick-date="defer_date" data-set="add-day" title="Add a day">+1d</button>
-        <button type="button" class="btn btn-outline-secondary"
-                data-quick-date="defer_date" data-set="add-week" title="Add a week">+1w</button>
-        <button type="button" class="btn btn-outline-secondary"
-                data-quick-date="defer_date" data-set="add-month" title="Add a month">+1m</button>
-        <button type="button" class="btn btn-outline-secondary"
-                data-quick-date="defer_date" data-set="clear">×</button>
+  {# Defer + Due + Plan dates together in one block. #}
+  <div class="inspector-section" data-section="dates">
+    <div class="grid-2">
+      <div>
+        {{ form.defer_date.label(class="form-label small text-uppercase text-muted") }}
+        {{ form.defer_date(class="form-control form-control-sm", id="defer_date") }}
+        <div class="quick-date-row btn-group btn-group-sm mt-1">
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="defer_date" data-set="today">Today</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="defer_date" data-set="tomorrow">Tomorrow</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="defer_date" data-set="add-day" title="Add a day">+1d</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="defer_date" data-set="add-week" title="Add a week">+1w</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="defer_date" data-set="add-month" title="Add a month">+1m</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="defer_date" data-set="clear">×</button>
+        </div>
+      </div>
+      <div>
+        {{ form.due_date.label(class="form-label small text-uppercase text-muted") }}
+        {{ form.due_date(class="form-control form-control-sm", id="due_date") }}
+        <div class="quick-date-row btn-group btn-group-sm mt-1">
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="due_date" data-set="today">Today</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="due_date" data-set="tomorrow">Tomorrow</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="due_date" data-set="add-day" title="Add a day">+1d</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="due_date" data-set="add-week" title="Add a week">+1w</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="due_date" data-set="add-month" title="Add a month">+1m</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="due_date" data-set="clear">×</button>
+        </div>
       </div>
     </div>
-    <div>
-      {{ form.due_date.label(class="form-label small text-uppercase text-muted") }}
-      {{ form.due_date(class="form-control form-control-sm", id="due_date") }}
+    <div class="mt-3">
+      {{ form.plan_date.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.plan_date(class="form-control form-control-sm", id="plan_date") }}
       <div class="quick-date-row btn-group btn-group-sm mt-1">
         <button type="button" class="btn btn-outline-secondary"
-                data-quick-date="due_date" data-set="today">Today</button>
+                data-quick-date="plan_date" data-set="today">Today</button>
         <button type="button" class="btn btn-outline-secondary"
-                data-quick-date="due_date" data-set="tomorrow">Tomorrow</button>
+                data-quick-date="plan_date" data-set="tomorrow">Tomorrow</button>
         <button type="button" class="btn btn-outline-secondary"
-                data-quick-date="due_date" data-set="add-day" title="Add a day">+1d</button>
+                data-quick-date="plan_date" data-set="add-day" title="Add a day">+1d</button>
         <button type="button" class="btn btn-outline-secondary"
-                data-quick-date="due_date" data-set="add-week" title="Add a week">+1w</button>
+                data-quick-date="plan_date" data-set="add-week" title="Add a week">+1w</button>
         <button type="button" class="btn btn-outline-secondary"
-                data-quick-date="due_date" data-set="add-month" title="Add a month">+1m</button>
+                data-quick-date="plan_date" data-set="add-month" title="Add a month">+1m</button>
         <button type="button" class="btn btn-outline-secondary"
-                data-quick-date="due_date" data-set="clear">×</button>
+                data-quick-date="plan_date" data-set="clear">×</button>
       </div>
-    </div>
-  </div>
-{%- endmacro -%}
-
-{%- macro sec_plan() -%}
-  <div class="inspector-section" data-section="plan">
-    {{ form.plan_date.label(class="form-label small text-uppercase text-muted") }}
-    {{ form.plan_date(class="form-control form-control-sm", id="plan_date") }}
-    <div class="quick-date-row btn-group btn-group-sm mt-1">
-      <button type="button" class="btn btn-outline-secondary"
-              data-quick-date="plan_date" data-set="today">Today</button>
-      <button type="button" class="btn btn-outline-secondary"
-              data-quick-date="plan_date" data-set="tomorrow">Tomorrow</button>
-      <button type="button" class="btn btn-outline-secondary"
-              data-quick-date="plan_date" data-set="add-day" title="Add a day">+1d</button>
-      <button type="button" class="btn btn-outline-secondary"
-              data-quick-date="plan_date" data-set="add-week" title="Add a week">+1w</button>
-      <button type="button" class="btn btn-outline-secondary"
-              data-quick-date="plan_date" data-set="add-month" title="Add a month">+1m</button>
-      <button type="button" class="btn btn-outline-secondary"
-              data-quick-date="plan_date" data-set="clear">×</button>
-    </div>
-    <div class="form-text small mt-1">
-      When you intend to actually work on it — soft target, doesn't block.
+      <div class="form-text small mt-1">
+        When you intend to actually work on it — soft target, doesn't block.
+      </div>
     </div>
   </div>
 {%- endmacro -%}
@@ -240,29 +277,6 @@
     {% endif %}
     {{ form.assigned_to.label(class="form-label small text-uppercase text-muted") }}
     {{ form.assigned_to(class="form-select form-select-sm") }}
-  </div>
-{%- endmacro -%}
-
-{%- macro sec_flags() -%}
-  <div class="inspector-section" data-section="flags">
-    <div class="form-check">
-      {{ form.flagged(class="form-check-input") }}
-      {{ form.flagged.label(class="form-check-label") }}
-    </div>
-    <div class="form-check mt-2">
-      {{ form.is_internal(class="form-check-input") }}
-      {{ form.is_internal.label(class="form-check-label small text-muted") }}
-    </div>
-    {% if not task %}
-      <div class="form-check mt-2">
-        {{ form.add_another(class="form-check-input") }}
-        {{ form.add_another.label(class="form-check-label small text-muted") }}
-      </div>
-      <div class="form-check mt-2">
-        {{ form.open_after_create(class="form-check-input") }}
-        {{ form.open_after_create.label(class="form-check-label small text-muted") }}
-      </div>
-    {% endif %}
   </div>
 {%- endmacro -%}
 
@@ -392,11 +406,11 @@
 {%- endmacro -%}
 
 {%- set _section_macros = {
-  "note": sec_note, "status_project": sec_status_project, "tags": sec_tags,
-  "dates": sec_dates, "plan": sec_plan, "priority_estimate": sec_priority_estimate,
+  "note": sec_note, "status_project": sec_status_project,
+  "dates": sec_dates, "priority_estimate": sec_priority_estimate,
   "location": sec_location,
   "repeat": sec_repeat, "review": sec_review,
-  "assigned_to": sec_assigned_to, "flags": sec_flags,
+  "assigned_to": sec_assigned_to,
   "checklist": sec_checklist, "time": sec_time,
   "related": sec_related,
   "subtasks": sec_subtasks, "comments": sec_comments,
@@ -450,7 +464,26 @@
        their own column sections, so skip them here to avoid a duplicate.
        Everything else (incl. checklist) shows inline. #}
     {% if key in _section_macros and not (inspector_inline and key in ("comments", "subtasks")) %}
-      {{ _section_macros[key]() }}
+      {% if key in ("subtasks", "comments") %}
+        {# These bring their own collapse / controls — render as-is. #}
+        {{ _section_macros[key]() }}
+      {% else %}
+        {# Every other block is collapsible, like the subtasks widget: a chevron
+           toggles the body, remembered per section in localStorage
+           (section-collapse.js). Capture the macro output first so an empty
+           section (e.g. checklist/time on create) renders nothing at all. #}
+        {% set _content %}{{ _section_macros[key]() }}{% endset %}
+        {% if _content.strip() %}
+          <div class="inspector-section-wrap" data-collapsible data-section-key="{{ key }}">
+            <button type="button" class="inspector-collapse-toggle"
+                    data-collapse-key="cairn-collapse-insp-{{ key }}"
+                    title="Collapse / expand" aria-expanded="true">
+              <i class="bi bi-chevron-down"></i>
+            </button>
+            <div class="section-collapsible">{{ _content }}</div>
+          </div>
+        {% endif %}
+      {% endif %}
     {% endif %}
   {% endfor %}
 </form>

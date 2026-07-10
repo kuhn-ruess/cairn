@@ -13,16 +13,13 @@ are appended, so shipping a new section needs no migration.
 # here — it's pinned at the top of the inspector and can't be moved/hidden.
 INSPECTOR_SECTIONS = (
     ("note", "Note"),
-    ("status_project", "Status & Project"),
-    ("tags", "Tags"),
-    ("dates", "Defer & Due dates"),
-    ("plan", "Plan date"),
+    ("status_project", "Status, Project, Tags & Flags"),
+    ("dates", "Defer, Due & Plan"),
     ("priority_estimate", "Priority & Estimate"),
     ("location", "Location"),
     ("repeat", "Repeat"),
     ("review", "Review & Follow-up"),
     ("assigned_to", "Owner & Assignee"),
-    ("flags", "Flags"),
     ("checklist", "Checklist"),
     ("time", "Time tracking"),
     ("subtasks", "Subtasks"),
