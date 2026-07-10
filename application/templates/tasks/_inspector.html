@@ -25,7 +25,7 @@
 {% endif %}
 
 {%- macro sec_note() -%}
-  <div class="inspector-section" data-section="note">
+  <div class="sec-fields">
     {{ form.note(class="form-control", rows="3", placeholder="Notes, links, context…") }}
     {# Unsaved new task: hold attachments client-side; inspector.js uploads them
        to the task right after it's created. A saved task uploads inline. #}
@@ -44,7 +44,7 @@
 
 {%- macro sec_status_project() -%}
   {# Status + Project + Tags together in one block. #}
-  <div class="inspector-section" data-section="status_project">
+  <div class="sec-fields">
     <div class="grid-2">
       <div>
         {{ form.status.label(class="form-label small text-uppercase text-muted") }}
@@ -92,7 +92,7 @@
 
 {%- macro sec_dates() -%}
   {# Defer + Due + Plan dates together in one block. #}
-  <div class="inspector-section" data-section="dates">
+  <div class="sec-fields">
     <div class="grid-2">
       <div>
         {{ form.defer_date.label(class="form-label small text-uppercase text-muted") }}
@@ -156,7 +156,7 @@
 {%- endmacro -%}
 
 {%- macro sec_priority_estimate() -%}
-  <div class="inspector-section grid-2" data-section="priority_estimate">
+  <div class="grid-2">
     <div>
       {{ form.priority.label(class="form-label small text-uppercase text-muted") }}
       {{ form.priority(class="form-select form-select-sm") }}
@@ -169,14 +169,14 @@
 {%- endmacro -%}
 
 {%- macro sec_location() -%}
-  <div class="inspector-section" data-section="location">
+  <div class="sec-fields">
     {{ form.location(class="form-control form-control-sm",
                      placeholder="e.g. REWE, Hauptstraße 1") }}
   </div>
 {%- endmacro -%}
 
 {%- macro sec_repeat() -%}
-  <div class="inspector-section" data-section="repeat">
+  <div class="sec-fields">
     <div class="d-flex gap-2 align-items-center">
       {{ form.repeat_every_days(class="form-control form-control-sm",
                                  placeholder="0 = off", style="max-width: 5rem;") }}
@@ -213,7 +213,7 @@
 {%- macro sec_review() -%}
   {# Review interval + Follow-up together in one block. #}
   {% set _inh = task.parent.effective_review_interval() if (task and task.parent) else None %}
-  <div class="inspector-section" data-section="review">
+  <div class="sec-fields">
     {{ form.review_interval_days.label(class="form-label small text-uppercase text-muted") }}
     {{ form.review_interval_days(class="form-control form-control-sm",
                                   placeholder="inherit from project") }}
@@ -260,7 +260,7 @@
 {%- macro sec_assigned_to() -%}
   {# Owner + Assignee together in one block (Jira-style). Owner only shows for
      an existing task — the create form owns itself via the current user. #}
-  <div class="inspector-section" data-section="assigned_to">
+  <div class="sec-fields">
     {% if task %}
       <div class="mb-2">
         {{ form.owner.label(class="form-label small text-uppercase text-muted") }}
@@ -469,7 +469,7 @@
            the macro output first so an empty section renders nothing at all. #}
         {% set _content %}{{ _section_macros[key]() }}{% endset %}
         {% if _content.strip() %}
-          <div class="inspector-section-block" data-collapsible data-section-key="{{ key }}">
+          <div class="inspector-section" data-collapsible data-section-key="{{ key }}">
             {{ block_header(key, inspector_section_labels.get(key, key)) }}
             <div class="section-collapsible">{{ _content }}</div>
           </div>
