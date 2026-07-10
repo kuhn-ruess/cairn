@@ -79,6 +79,7 @@ def _build_task_form(task, user):
     form.project.data = str(task.project.pk) if task.project else ""
     form.tags.data = list(task.tags or [])
     form.assigned_to.data = str(task.assigned_to.pk) if task.assigned_to else ""
+    form.owner.data = str(task.owner.pk) if task.owner else ""
     form.priority.data = str(task.priority) if task.priority else ""
     return form
 
@@ -270,7 +271,10 @@ def _populate_form_choices(form: TaskForm, user: User, task: Item | None = None)
     # they're a member of + every team they admin), with the team name in
     # parentheses so duplicates across teams stay distinguishable.
     from application.services.permissions import teams_of, team_members
-    choices = [("", "— unassigned —"), (str(user.pk), f"{user} (me)")]
+    # Shared "people pool" for both the Assignee and the Owner pickers: the
+    # actor, everyone across all their teams, plus the task's current owner +
+    # assignee (so both stay valid selections even without a shared team).
+    people: list = [(str(user.pk), f"{user} (me)")]
     seen = {str(user.pk)}
     for team in teams_of(user):
         for member in team_members(team):
@@ -278,22 +282,22 @@ def _populate_form_choices(form: TaskForm, user: User, task: Item | None = None)
             if pk in seen:
                 continue
             seen.add(pk)
-            choices.append((pk, f"{member} ({team.name})"))
-    # The task's OWNER is always an assign-to option — even when they aren't in
-    # one of the actor's teams — so an assignee can hand a delegated task back to
-    # its owner. Selecting the owner returns the task to them (see _apply_form:
-    # assigning to the owner is an unassign). The current assignee is added too
-    # so the pre-selected value always stays a valid choice.
+            people.append((pk, f"{member} ({team.name})"))
     if task is not None:
-        for u, suffix in ((task.owner, " (owner)"), (task.assigned_to, "")):
+        for u in (task.owner, task.assigned_to):
             if u is None:
                 continue
             pk = str(u.pk)
             if pk in seen:
                 continue
             seen.add(pk)
-            choices.append((pk, f"{u}{suffix}"))
-    form.assigned_to.choices = choices
+            people.append((pk, f"{u}"))
+    # Assignee: the pool plus "unassigned". Selecting the owner hands the task
+    # back to them (see _apply_form: assigning to the owner is an unassign).
+    form.assigned_to.choices = [("", "— unassigned —")] + people
+    # Owner (Jira-style): the same pool, but a task must always have an owner,
+    # so there's no blank option.
+    form.owner.choices = people
 
 def _apply_tags(task: Item, user: User, raw_names) -> None:
     """Normalise + apply a list of tag names to ``task``.
@@ -395,6 +399,28 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
             task.set_home_for(user, None)
     _apply_tags(task, user, form.tags.data)
 
+    # Owner (Jira-style, separate from the assignee). Only an existing task has
+    # an editable owner — the create form owns itself via the current user, and
+    # doesn't render/submit this field.
+    if form.owner.data and task.owner is not None \
+            and form.owner.data != str(task.owner.pk):
+        from application.services.permissions import resolve_assignable_user
+        new_owner = resolve_assignable_user(user, form.owner.data)
+        # The current assignee is always a valid owner, even without a shared team.
+        if (new_owner is None and task.assigned_to is not None
+                and form.owner.data == str(task.assigned_to.pk)):
+            new_owner = task.assigned_to
+        if new_owner is not None and new_owner != task.owner:
+            old_owner = task.owner
+            task.owner = new_owner
+            # Keep the previous owner in the loop so an ownership change never
+            # silently drops their access (they may be neither assignee nor member).
+            if not any(m == old_owner for m in (task.members or [])):
+                task.members = list(task.members or []) + [old_owner]
+            # Owner == assignee is the degenerate "unassigned" state — clear it.
+            if task.assigned_to is not None and task.assigned_to == new_owner:
+                task.assign_to(None, by_user=user)
+
     if form.assigned_to.data:
         from application.services.permissions import resolve_assignable_user
         # Selecting the task's OWNER hands it back to them. The owner already
@@ -460,6 +486,7 @@ def process_inbox(task_id):
         form.project.data = str(task.project.pk) if task.project else ""
         form.tags.data = list(task.tags or [])
         form.assigned_to.data = str(task.assigned_to.pk) if task.assigned_to else ""
+        form.owner.data = str(task.owner.pk) if task.owner else ""
         form.priority.data = str(task.priority) if task.priority else ""
 
     return render_template(
@@ -1707,6 +1734,7 @@ def edit(task_id):
         form.project.data = proj_pk
         form.tags.data = list(task.tags or [])
         form.assigned_to.data = str(task.assigned_to.pk) if task.assigned_to else ""
+        form.owner.data = str(task.owner.pk) if task.owner else ""
         form.priority.data = str(task.priority) if task.priority else ""
 
     if form.validate_on_submit():

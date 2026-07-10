@@ -193,6 +193,17 @@
   </div>
 {%- endmacro -%}
 
+{%- macro sec_owner() -%}
+  {# Owner (Jira-style, separate from the assignee). Only meaningful on an
+     existing task — the create form owns itself via the current user. #}
+  {% if task %}
+  <div class="inspector-section" data-section="owner">
+    {{ form.owner.label(class="form-label small text-uppercase text-muted") }}
+    {{ form.owner(class="form-select form-select-sm") }}
+  </div>
+  {% endif %}
+{%- endmacro -%}
+
 {%- macro sec_assigned_to() -%}
   <div class="inspector-section" data-section="assigned_to">
     {{ form.assigned_to.label(class="form-label small text-uppercase text-muted") }}
@@ -389,7 +400,8 @@
   "dates": sec_dates, "plan": sec_plan, "priority_estimate": sec_priority_estimate,
   "location": sec_location,
   "repeat": sec_repeat, "review": sec_review,
-  "assigned_to": sec_assigned_to, "followup": sec_followup, "flags": sec_flags,
+  "owner": sec_owner, "assigned_to": sec_assigned_to,
+  "followup": sec_followup, "flags": sec_flags,
   "checklist": sec_checklist, "time": sec_time,
   "related": sec_related, "dependencies": sec_dependencies,
   "subtasks": sec_subtasks, "comments": sec_comments,

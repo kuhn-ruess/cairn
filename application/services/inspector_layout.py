@@ -21,6 +21,7 @@ INSPECTOR_SECTIONS = (
     ("location", "Location"),
     ("repeat", "Repeat"),
     ("review", "Review interval"),
+    ("owner", "Owner"),
     ("assigned_to", "Assignee"),
     ("followup", "Follow-up"),
     ("flags", "Flags"),

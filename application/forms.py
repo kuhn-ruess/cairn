@@ -118,6 +118,14 @@ class TaskForm(FlaskForm):
         "Repeat on day of month", validators=[Optional(), NumberRange(min=1, max=31)]
     )
     assigned_to = SelectField("Assign to", choices=[], validators=[Optional()])
+    # Owner (Jira-style, separate from the assignee). Choices are filled per
+    # request; Optional so the create form (which sets the owner to the current
+    # user directly) doesn't need it. ``validate_choice=False`` because the
+    # picker has no blank option, so on the create form (where this field isn't
+    # rendered/submitted) WTForms would otherwise reject the empty value — the
+    # actual owner change is validated in ``_apply_form`` via permissions.
+    owner = SelectField("Owner", choices=[], validators=[Optional()],
+                        validate_choice=False)
     # Blank = inherit the parent project's review cadence; a number overrides
     # (0 = never review). See Item.effective_review_interval.
     review_interval_days = IntegerField(
