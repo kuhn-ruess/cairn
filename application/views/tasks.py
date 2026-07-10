@@ -75,7 +75,7 @@ def _build_task_form(task, user):
     from application.services.tz import localise_form_dates
     form = TaskForm(obj=task)
     localise_form_dates(form, user)
-    _populate_form_choices(form, user)
+    _populate_form_choices(form, user, task)
     form.project.data = str(task.project.pk) if task.project else ""
     form.tags.data = list(task.tags or [])
     form.assigned_to.data = str(task.assigned_to.pk) if task.assigned_to else ""
@@ -249,7 +249,7 @@ def _tag_choices_tree(tags) -> list:
     walk(None, 0)
     return out
 
-def _populate_form_choices(form: TaskForm, user: User) -> None:
+def _populate_form_choices(form: TaskForm, user: User, task: Item | None = None) -> None:
     # The location picker lists projects, folders AND sections — all valid task
     # containers (a task's parent can be any of them). Labels carry the full
     # breadcrumb so a section reads as "🔖  Work / Website / Backlog" and a
@@ -279,6 +279,20 @@ def _populate_form_choices(form: TaskForm, user: User) -> None:
                 continue
             seen.add(pk)
             choices.append((pk, f"{member} ({team.name})"))
+    # The task's OWNER is always an assign-to option — even when they aren't in
+    # one of the actor's teams — so an assignee can hand a delegated task back to
+    # its owner. Selecting the owner returns the task to them (see _apply_form:
+    # assigning to the owner is an unassign). The current assignee is added too
+    # so the pre-selected value always stays a valid choice.
+    if task is not None:
+        for u, suffix in ((task.owner, " (owner)"), (task.assigned_to, "")):
+            if u is None:
+                continue
+            pk = str(u.pk)
+            if pk in seen:
+                continue
+            seen.add(pk)
+            choices.append((pk, f"{u}{suffix}"))
     form.assigned_to.choices = choices
 
 def _apply_tags(task: Item, user: User, raw_names) -> None:
@@ -383,12 +397,20 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
 
     if form.assigned_to.data:
         from application.services.permissions import resolve_assignable_user
-        new_assignee = resolve_assignable_user(user, form.assigned_to.data)
-        if new_assignee and task.assigned_to != new_assignee:
-            task.assign_to(new_assignee, by_user=user)
-        # Silently ignore non-shareable pks — the select choices are
-        # already filtered, so reaching this branch with a bad id means
-        # someone tampered with the POST.
+        # Selecting the task's OWNER hands it back to them. The owner already
+        # owns it, so that's an unassign (Item.assign_to collapses assign-to-owner
+        # to None) — and it works even when the owner isn't in a shared team, so
+        # an assignee can always return a delegated task.
+        if task.owner is not None and form.assigned_to.data == str(task.owner.pk):
+            if task.assigned_to is not None:
+                task.assign_to(None, by_user=user)
+        else:
+            new_assignee = resolve_assignable_user(user, form.assigned_to.data)
+            if new_assignee and task.assigned_to != new_assignee:
+                task.assign_to(new_assignee, by_user=user)
+            # Silently ignore non-shareable pks — the select choices are
+            # already filtered, so reaching this branch with a bad id means
+            # someone tampered with the POST.
     else:
         task.assign_to(None)
 
@@ -431,7 +453,7 @@ def process_inbox(task_id):
     nxt = q[idx + 1] if idx + 1 < len(q) else None
 
     form = TaskForm(obj=task)
-    _populate_form_choices(form, user)
+    _populate_form_choices(form, user, task)
     if request.method == "GET":
         from application.services.tz import localise_form_dates
         localise_form_dates(form, user)
@@ -455,7 +477,7 @@ def process_inbox_save(task_id):
     if not task or not task.can_be_edited_by(user):
         abort(404)
     form = TaskForm()
-    _populate_form_choices(form, user)
+    _populate_form_choices(form, user, task)
     if not form.validate_on_submit():
         flash("Couldn't save — please review the form.", "danger")
         return redirect(url_for("tasks.process_inbox", task_id=task_id))
@@ -1664,7 +1686,7 @@ def edit(task_id):
         abort(404)
 
     form = TaskForm(obj=task)
-    _populate_form_choices(form, user)
+    _populate_form_choices(form, user, task)
 
     if request.method == "GET":
         from application.services.tz import localise_form_dates
