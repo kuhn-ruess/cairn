@@ -38,6 +38,18 @@ def team_admin_required(view):
         return view(*args, **kwargs)
     return wrapper
 
+def premium_required(view):
+    """Gate for premium-only solo features (e.g. habit goals). Anything above
+    ``free`` — see ``User.is_premium`` — passes; free users get 403."""
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        if not current_user.is_authenticated:
+            abort(403)
+        if not current_user.is_premium:
+            abort(403)
+        return view(*args, **kwargs)
+    return wrapper
+
 def team_required(view):
     """Gate for the team time-tracking module: the user must belong to a team
     (as a member or as an admin). Solo free/premium users get 403."""

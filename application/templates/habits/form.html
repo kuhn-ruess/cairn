@@ -1,0 +1,96 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ 'Edit goal' if habit else 'New goal' }} · Cairn{% endblock %}
+{% block content %}
+<div class="mb-3">
+  <a class="text-muted text-decoration-none small" href="{{ url_for('habits.index') }}">
+    <i class="bi bi-arrow-left"></i> Back to habits
+  </a>
+</div>
+
+<h1 class="h3 mb-4">
+  <i class="bi bi-trophy"></i> {{ 'Edit goal' if habit else 'New goal' }}
+</h1>
+
+<form method="post" class="col-lg-7" style="max-width:640px;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="mb-3">
+    <label class="form-label" for="name">Goal name</label>
+    <input type="text" class="form-control" id="name" name="name" required
+           maxlength="200" placeholder="e.g. Training"
+           value="{{ habit.name if habit else '' }}">
+  </div>
+
+  <div class="mb-4" style="max-width:220px;">
+    <label class="form-label" for="period_days">Cycle length (days)</label>
+    <input type="number" class="form-control" id="period_days" name="period_days"
+           min="1" max="365" required
+           value="{{ habit.period_days if habit else 14 }}">
+    <div class="form-text">Counters reset when a cycle ends.</div>
+  </div>
+
+  <label class="form-label">Targets — how many times per cycle</label>
+  <div id="targetRows" class="vstack gap-2 mb-2">
+    {% set rows = habit.targets if habit and habit.targets else [None] %}
+    {% for t in rows %}
+    <div class="input-group habit-target-row">
+      <input type="hidden" name="target_tid" value="{{ t.tid if t else '' }}">
+      <input type="text" class="form-control" name="target_name" maxlength="120"
+             placeholder="e.g. Run" value="{{ t.name if t else '' }}">
+      <span class="input-group-text">×</span>
+      <input type="number" class="form-control" name="target_count" min="1"
+             style="max-width:90px;" value="{{ t.count if t else 1 }}">
+      <button type="button" class="btn btn-outline-danger habit-remove-row" aria-label="Remove target">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+    {% endfor %}
+  </div>
+  <button type="button" class="btn btn-sm btn-outline-secondary mb-4" id="addTargetRow">
+    <i class="bi bi-plus-lg"></i> Add target
+  </button>
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary">
+      {{ 'Save changes' if habit else 'Create goal' }}
+    </button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('habits.index') }}">Cancel</a>
+  </div>
+</form>
+
+<template id="targetRowTemplate">
+  <div class="input-group habit-target-row">
+    <input type="hidden" name="target_tid" value="">
+    <input type="text" class="form-control" name="target_name" maxlength="120" placeholder="e.g. Run">
+    <span class="input-group-text">×</span>
+    <input type="number" class="form-control" name="target_count" min="1" style="max-width:90px;" value="1">
+    <button type="button" class="btn btn-outline-danger habit-remove-row" aria-label="Remove target">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+</template>
+
+<script>
+(function () {
+  "use strict";
+  const rows = document.getElementById("targetRows");
+  const tmpl = document.getElementById("targetRowTemplate");
+  document.getElementById("addTargetRow").addEventListener("click", function () {
+    rows.appendChild(tmpl.content.cloneNode(true));
+    rows.lastElementChild.querySelector('input[name="target_name"]').focus();
+  });
+  rows.addEventListener("click", function (ev) {
+    const btn = ev.target.closest(".habit-remove-row");
+    if (!btn) return;
+    // Keep at least one row so the form is never emptied by accident.
+    if (rows.querySelectorAll(".habit-target-row").length > 1) {
+      btn.closest(".habit-target-row").remove();
+    } else {
+      btn.closest(".habit-target-row").querySelectorAll("input").forEach((i) => {
+        i.value = i.name === "target_count" ? "1" : "";
+      });
+    }
+  });
+})();
+</script>
+{% endblock %}

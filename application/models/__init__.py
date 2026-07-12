@@ -2,6 +2,7 @@
 from application.models.user import User, ApiToken
 from application.models.tag import Tag  # embedded on User
 from application.models.item import Comment, Item
+from application.models.habit import Habit, HabitCheckin, HabitTarget
 from application.models.timetracking import (
     Customer,
     TimeBucket,
@@ -15,6 +16,9 @@ __all__ = [
     "Tag",
     "Item",
     "Comment",
+    "Habit",
+    "HabitTarget",
+    "HabitCheckin",
     "Customer",
     "TimeTrackingProject",
     "TimeBucket",

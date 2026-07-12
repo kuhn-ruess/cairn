@@ -396,6 +396,13 @@ class User(UserMixin, Document):
         return self.level in ("team_admin", "global_admin")
 
     @property
+    def is_premium(self) -> bool:
+        """Entitled to premium features. ``level`` is the recomputed source of
+        truth (see ``billing.recompute_level``): anything above ``free`` — own
+        subscription, comp plan, trial, or a team-covered seat — qualifies."""
+        return (self.level or "free") != "free"
+
+    @property
     def can_share_projects(self) -> bool:
         # Premium-and-up users plus anyone in a team can share within it.
         return self.team is not None or self.is_team_admin
