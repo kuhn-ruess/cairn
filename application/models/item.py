@@ -295,6 +295,13 @@ class Item(Document):
     defer_date = DateTimeField()
     due_date = DateTimeField()
     plan_date = DateTimeField()
+    # Gantt / timeline scheduling window ("Target start" / "Target end"). Kept
+    # independent of ``due_date`` (a hard deadline) and ``defer_date`` (which
+    # hides a task until it passes): these two are pure planning bounds that the
+    # Gantt view lays a bar between. Either can be set alone. See
+    # application/services/gantt.py.
+    start_date = DateTimeField()
+    end_date = DateTimeField()
     estimated_minutes = IntField()
     # Free-text location (e.g. "REWE, Hauptstraße 1"). Round-trips with the
     # iCalendar LOCATION property so a CalDAV client's location reminder

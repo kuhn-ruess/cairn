@@ -27,8 +27,11 @@
 {% set view_label = title %}
 <div class="d-flex align-items-center mb-3 gap-2">
   <h1 class="h4 mb-0 me-auto">{{ title }} <span class="text-muted small">({{ tasks|length }})</span></h1>
+  {% set _gantt_views = ['next','scheduled','flagged','waiting','waiting_reply','followup','someday','completed','forecast'] %}
+  {% set gantt_on = current_user.is_premium and request.args.get('view') == 'gantt' and view_key in _gantt_views %}
   {% if view_key %}
     {% include "tasks/_shared_toggle.html" %}
+    {% if view_key in _gantt_views %}{% include "_gantt_toggle.html" %}{% endif %}
     {% include "tasks/_display_dropdown.html" %}
   {% endif %}
   {% if perspective == "inbox" and tasks %}
@@ -65,5 +68,10 @@
   </div>
 {% endif %}
 
-{% include "tasks/_list_body.html" %}
+{% if gantt_on %}
+  {% set gantt = gantt_context(tasks) %}
+  {% include "_gantt.html" %}
+{% else %}
+  {% include "tasks/_list_body.html" %}
+{% endif %}
 {% endblock %}

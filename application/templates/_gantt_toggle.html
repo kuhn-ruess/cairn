@@ -1,0 +1,12 @@
+{# List ⇆ Gantt segmented toggle. Premium-only. Preserves the current view's
+   filters (view_url keeps every other query param). Requires: gantt_on (bool). #}
+{% if current_user.is_premium %}
+<div class="btn-group btn-group-sm" role="group" aria-label="View mode">
+  <a href="{{ view_url('') }}"
+     class="btn {{ 'btn-toolbar-on' if not gantt_on else 'btn-outline-secondary' }}"
+     title="List view"><i class="bi bi-list-ul"></i></a>
+  <a href="{{ view_url('gantt') }}"
+     class="btn {{ 'btn-toolbar-on' if gantt_on else 'btn-outline-secondary' }}"
+     title="Gantt / timeline view"><i class="bi bi-bar-chart-steps"></i> Gantt</a>
+</div>
+{% endif %}

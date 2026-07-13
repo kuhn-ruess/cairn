@@ -152,6 +152,33 @@
         When you intend to actually work on it — soft target, doesn't block.
       </div>
     </div>
+    {# Gantt scheduling window — start/end shown as a bar in the timeline view. #}
+    <div class="grid-2 mt-3">
+      <div>
+        {{ form.start_date.label(class="form-label small text-uppercase text-muted") }}
+        {{ form.start_date(class="form-control form-control-sm", id="start_date") }}
+        <div class="quick-date-row btn-group btn-group-sm mt-1">
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="start_date" data-set="today">Today</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="start_date" data-set="add-week" title="Add a week">+1w</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="start_date" data-set="clear">×</button>
+        </div>
+      </div>
+      <div>
+        {{ form.end_date.label(class="form-label small text-uppercase text-muted") }}
+        {{ form.end_date(class="form-control form-control-sm", id="end_date") }}
+        <div class="quick-date-row btn-group btn-group-sm mt-1">
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="end_date" data-set="today">Today</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="end_date" data-set="add-week" title="Add a week">+1w</button>
+          <button type="button" class="btn btn-outline-secondary"
+                  data-quick-date="end_date" data-set="clear">×</button>
+        </div>
+      </div>
+    </div>
   </div>
 {%- endmacro -%}
 

@@ -258,6 +258,13 @@
         </button>
       </form>
     {% endfor %}
+    {% if current_user.is_premium %}
+      <a href="{{ url_for('projects.detail', project_id=project.pk, view='gantt') }}"
+         title="Gantt / timeline view"
+         class="btn btn-sm {% if view_mode == 'gantt' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+        <i class="bi bi-bar-chart-steps"></i>
+      </a>
+    {% endif %}
   </div>
   <div class="btn-group">
     <div class="btn-group" role="group">

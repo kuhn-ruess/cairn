@@ -1,0 +1,18 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ project.title }} · Timeline · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2 flex-wrap">
+  <a class="text-decoration-none text-muted small" href="{{ url_for('projects.detail', project_id=project.pk) }}">
+    <i class="bi bi-arrow-left"></i> {{ project.title }}
+  </a>
+  <h1 class="h4 mb-0 me-auto">
+    <i class="bi bi-bar-chart-steps"></i> Timeline
+    <span class="text-muted small">({{ gantt_rows|length }})</span>
+  </h1>
+  {% set gantt_on = true %}
+  {% include "_gantt_toggle.html" %}
+</div>
+
+{% set gantt = gantt_context(gantt_rows) %}
+{% include "_gantt.html" %}
+{% endblock %}

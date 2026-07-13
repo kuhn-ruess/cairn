@@ -375,6 +375,8 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     task.defer_date = attach_user_tz(form.defer_date.data, user)
     task.due_date = attach_user_tz(form.due_date.data, user)
     task.plan_date = attach_user_tz(form.plan_date.data, user)
+    task.start_date = attach_user_tz(form.start_date.data, user)
+    task.end_date = attach_user_tz(form.end_date.data, user)
     task.waiting_on = (form.waiting_on.data or "").strip()
     task.followup_at = attach_user_tz(form.followup_at.data, user)
     task.followup_every_days = form.followup_every_days.data

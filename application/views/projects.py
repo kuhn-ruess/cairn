@@ -73,6 +73,8 @@ def _apply(form: ProjectForm, project: Item) -> None:
     project.defer_date = attach_user_tz(form.defer_date.data, user)
     project.due_date = attach_user_tz(form.due_date.data, user)
     project.plan_date = attach_user_tz(form.plan_date.data, user)
+    project.start_date = attach_user_tz(form.start_date.data, user)
+    project.end_date = attach_user_tz(form.end_date.data, user)
     # NB: ``jira_url`` is intentionally NOT set here — it's configured only in
     # the CSV import dialog (see projects.import_csv), so a normal inspector
     # save must leave any previously-imported base URL untouched.
@@ -475,6 +477,41 @@ def _nest_subtasks(roots, collapsed_pks, show_completed):
         _dfs(r, 0, False)
     return out
 
+
+def _gantt_subtree_rows(project, show_completed):
+    """Ordered rows (any kind) under ``project``, each stamped with
+    ``_gantt_indent`` = depth, for the timeline view. Level-order fetch (one
+    query per depth, not per node) then an in-memory DFS for tree order."""
+    all_desc, frontier, guard = [], [project.pk], 0
+    while frontier and guard < 60:
+        guard += 1
+        kids = list(Item.objects(parent__in=frontier)
+                    .order_by("+sort_order", "+created_at"))
+        if not kids:
+            break
+        if not show_completed:
+            kids = [k for k in kids
+                    if k.status not in ("done", "dropped", "completed")]
+        all_desc.extend(kids)
+        frontier = [k.pk for k in kids]
+
+    by_parent: dict = {}
+    for k in all_desc:
+        pk = k.parent.pk if k.parent else None
+        by_parent.setdefault(pk, []).append(k)
+
+    rows: list = []
+
+    def _walk(pk, depth):
+        for k in by_parent.get(pk, []):
+            k._gantt_indent = depth
+            rows.append(k)
+            _walk(k.pk, depth + 1)
+
+    _walk(project.pk, 0)
+    return rows
+
+
 @projects_bp.route("/<project_id>")
 @login_required
 def detail(project_id):
@@ -496,8 +533,14 @@ def detail(project_id):
         grouping = "project"
     show_completed = request.args.get("completed") == "1"
     view_mode = (request.args.get("view") or project.view_mode or "list").strip()
-    if view_mode not in ("list", "kanban", "calendar"):
+    if view_mode not in ("list", "kanban", "calendar", "gantt"):
         view_mode = "list"
+
+    # Gantt / timeline: a dedicated, lightweight render over the project's whole
+    # subtree (premium only). Skips the heavy list/kanban assembly below.
+    if view_mode == "gantt" and user.is_premium:
+        rows = _gantt_subtree_rows(project, show_completed)
+        return render_template("projects/gantt.html", project=project, gantt_rows=rows)
     # "Project" is the only grouping that keeps the nested section /
     # sub-project structure. Every other list grouping flattens ALL
     # descendant tasks into one place (grouped by the chosen criterion) so

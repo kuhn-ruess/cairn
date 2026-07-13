@@ -1,0 +1,77 @@
+{# Gantt / timeline view. Context: gantt = build_gantt(...) → rows, today_pct,
+   ticks, range_start/end. Rows carry the Item + its start/end + bar geometry.
+   Rendered inside list.html / project detail when ?view=gantt (premium). #}
+<style>
+.gantt-scroll { overflow-x: auto; border: 1px solid var(--bs-border-color); border-radius: .5rem; }
+.gantt { min-width: 960px; font-size: .875rem; }
+.gantt-row { display: grid; grid-template-columns: 540px 1fr; border-top: 1px solid var(--bs-border-color-translucent); }
+.gantt-row:hover { background: var(--bs-tertiary-bg); }
+.gantt-head { position: sticky; top: 0; z-index: 2; background: var(--bs-body-bg);
+  font-size: .75rem; text-transform: uppercase; letter-spacing: .03em; color: var(--bs-secondary-color); }
+.gantt-left { display: grid; grid-template-columns: 1fr 96px 96px 104px; align-items: center;
+  gap: .25rem; padding: .3rem .5rem; min-width: 0; }
+.gantt-left .g-issue { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gantt-left .g-date { color: var(--bs-secondary-color); font-variant-numeric: tabular-nums; }
+.gantt-timeline { position: relative; height: 34px; border-left: 2px solid var(--bs-border-color); }
+.gantt-head .gantt-timeline { height: 26px; }
+.gantt-bar { position: absolute; top: 8px; height: 18px; border-radius: 4px;
+  background: var(--bs-secondary); opacity: .85; }
+.gantt-bar.g-overdue { background: var(--bs-danger); opacity: .8; }
+.gantt-bar.g-point { border-radius: 50%; width: 12px !important; height: 12px; top: 11px; margin-left: -6px; }
+.gantt-today { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--bs-warning); z-index: 1; }
+.gantt-tick { position: absolute; top: 0; bottom: 0; border-left: 1px dashed var(--bs-border-color-translucent); }
+.gantt-tick > span { position: absolute; top: 3px; left: 4px; white-space: nowrap; }
+</style>
+
+{% if not gantt.has_any_dates %}
+<div class="alert alert-info d-flex align-items-center gap-2">
+  <i class="bi bi-info-circle"></i>
+  <div>Nothing to plot yet — set a <strong>Target start</strong> and/or
+  <strong>Target end</strong> on tasks (in the inspector) and they'll appear as bars here.</div>
+</div>
+{% endif %}
+
+<div class="gantt-scroll">
+  <div class="gantt">
+    {# Header #}
+    <div class="gantt-row gantt-head">
+      <div class="gantt-left">
+        <span>Issue</span><span>Target start</span><span>Target end</span><span>Status</span>
+      </div>
+      <div class="gantt-timeline">
+        {% for t in gantt.ticks %}
+          <div class="gantt-tick" style="left: {{ t.pct }}%;"><span>{{ t.label }}</span></div>
+        {% endfor %}
+        {% if gantt.today_pct is not none %}<div class="gantt-today" style="left: {{ gantt.today_pct }}%;"></div>{% endif %}
+      </div>
+    </div>
+
+    {# Rows #}
+    {% for r in gantt.rows %}
+      {% set it = r.item %}
+      <div class="gantt-row">
+        <div class="gantt-left">
+          <span class="g-issue" style="padding-left: {{ r.indent * 1.1 }}rem;">
+            <i class="bi {{ 'bi-folder' if it.kind == 'project' else ('bi-bookmark' if it.kind == 'section' else 'bi-check2-square') }} text-muted"></i>
+            <a class="text-decoration-none text-body"
+               href="{{ url_for('projects.detail', project_id=it.pk) if it.kind in ['project','folder','section'] else url_for('tasks.detail', task_id=it.pk) }}">{{ it.title }}</a>
+          </span>
+          <span class="g-date">{{ r.start.strftime('%b %d, %Y') if r.start else '—' }}</span>
+          <span class="g-date">{{ r.end.strftime('%b %d, %Y') if r.end else '—' }}</span>
+          <span>{% if it.status %}<span class="badge text-bg-light text-uppercase">{{ it.status }}</span>{% endif %}</span>
+        </div>
+        <div class="gantt-timeline">
+          {% for t in gantt.ticks %}
+            <div class="gantt-tick" style="left: {{ t.pct }}%;"></div>
+          {% endfor %}
+          {% if gantt.today_pct is not none %}<div class="gantt-today" style="left: {{ gantt.today_pct }}%;"></div>{% endif %}
+          {% if r.bar %}
+            <div class="gantt-bar {{ 'g-point' if r.bar.point else '' }} {{ 'g-overdue' if r.bar.overdue else '' }}"
+                 style="left: {{ r.bar.left }}%; width: {{ r.bar.width }}%;"
+                 title="{{ it.title }}{% if r.start %} · {{ r.start.strftime('%b %d') }}{% endif %}{% if r.end %} → {{ r.end.strftime('%b %d') }}{% endif %}"></div>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>

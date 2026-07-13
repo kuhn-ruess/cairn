@@ -118,6 +118,25 @@
         <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_plan_date" data-set="clear">×</button>
       </div>
     </div>
+    {# Gantt scheduling window — laid out as a bar in the timeline view. #}
+    <div>
+      {{ form.start_date.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.start_date(class="form-control form-control-sm", id="proj_start_date") }}
+      <div class="quick-date-row btn-group btn-group-sm mt-1">
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_start_date" data-set="today">Today</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_start_date" data-set="add-week" title="Add a week">+1w</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_start_date" data-set="clear">×</button>
+      </div>
+    </div>
+    <div>
+      {{ form.end_date.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.end_date(class="form-control form-control-sm", id="proj_end_date") }}
+      <div class="quick-date-row btn-group btn-group-sm mt-1">
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_end_date" data-set="today">Today</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_end_date" data-set="add-week" title="Add a week">+1w</button>
+        <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_end_date" data-set="clear">×</button>
+      </div>
+    </div>
   </div>
 
   <div class="inspector-section" data-show-for="project">

@@ -44,7 +44,7 @@ def to_user_naive(dt, user):
     return dt.astimezone(user_zone(user)).replace(tzinfo=None)
 
 
-def localise_form_dates(form, user, fields=("defer_date", "due_date", "plan_date", "followup_at")):
+def localise_form_dates(form, user, fields=("defer_date", "due_date", "plan_date", "followup_at", "start_date", "end_date")):
     """Rewrite tz-aware fields on ``form`` to user-tz naive for rendering."""
     for name in fields:
         f = getattr(form, name, None)

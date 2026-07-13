@@ -229,9 +229,30 @@ def register_filters(app):
             from application.services import focus as _focus
             current_focus = _focus.current(current_user._get_current_object())
 
+        def _view_url(view):
+            """Current URL with the ``view`` query param set (or cleared),
+            preserving every other filter + route arg. Powers the List/Gantt
+            toggle on perspective + project pages."""
+            from flask import request, url_for
+            args = request.args.to_dict(flat=True)
+            if view:
+                args["view"] = view
+            else:
+                args.pop("view", None)
+            return url_for(request.endpoint, **(request.view_args or {}), **args)
+
+        def _gantt_context(items):
+            from application.services.gantt import build_gantt
+            from application.services.tzutil import resolve_tz
+            tz = (resolve_tz(current_user._get_current_object())
+                  if current_user.is_authenticated else timezone.utc)
+            return build_gantt(items, tz)
+
         from application import APP_VERSION
         return {
             "now_utc": lambda: datetime.now(timezone.utc),
+            "gantt_context": _gantt_context,
+            "view_url": _view_url,
             "user_project_choices": user_project_choices,
             "current_focus": current_focus,
             "nav_counts": nav_counts,

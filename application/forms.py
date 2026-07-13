@@ -84,6 +84,8 @@ class TaskForm(FlaskForm):
     defer_date = DateTimeLocalField("Defer until", format="%Y-%m-%dT%H:%M", validators=[Optional()])
     due_date = DateTimeLocalField("Due date", format="%Y-%m-%dT%H:%M", validators=[Optional()])
     plan_date = DateTimeLocalField("Plan date", format="%Y-%m-%dT%H:%M", validators=[Optional()])
+    start_date = DateTimeLocalField("Target start", format="%Y-%m-%dT%H:%M", validators=[Optional()])
+    end_date = DateTimeLocalField("Target end", format="%Y-%m-%dT%H:%M", validators=[Optional()])
     estimated_minutes = IntegerField("Estimate (minutes)", validators=[Optional()])
     location = StringField("Location", validators=[Optional(), Length(max=300)])
     repeat_every_days = IntegerField("Repeat every", validators=[Optional()])
@@ -160,6 +162,8 @@ class ProjectForm(FlaskForm):
     defer_date = DateTimeLocalField("Defer until", format="%Y-%m-%dT%H:%M", validators=[Optional()])
     due_date = DateTimeLocalField("Due date", format="%Y-%m-%dT%H:%M", validators=[Optional()])
     plan_date = DateTimeLocalField("Plan date", format="%Y-%m-%dT%H:%M", validators=[Optional()])
+    start_date = DateTimeLocalField("Target start", format="%Y-%m-%dT%H:%M", validators=[Optional()])
+    end_date = DateTimeLocalField("Target end", format="%Y-%m-%dT%H:%M", validators=[Optional()])
     kind = SelectField(
         "Type",
         choices=[
