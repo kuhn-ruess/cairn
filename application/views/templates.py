@@ -169,6 +169,28 @@ def save(item_id):
     return redirect(url_for("templates.edit", item_id=str(item.id)))
 
 
+def _is_ajax() -> bool:
+    return request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+
+def _subitems_response(parent: Item):
+    """Re-render just the sub-items block (for AJAX add/delete), else bounce
+    back to the parent's editor."""
+    if _is_ajax():
+        return render_template("templates/_subitems.html",
+                               item=parent, children=list(_children(parent)))
+    return redirect(url_for("templates.edit", item_id=str(parent.id)))
+
+
+@templates_bp.route("/item/<item_id>/subitems")
+@login_required
+@premium_required
+def subitems(item_id):
+    parent = _node(item_id)
+    return render_template("templates/_subitems.html",
+                           item=parent, children=list(_children(parent)))
+
+
 @templates_bp.route("/item/<item_id>/subtask", methods=["POST"])
 @login_required
 @premium_required
@@ -178,11 +200,10 @@ def add_subtask(item_id):
     # A section is only meaningful inside a project; default to a task.
     kind = "section" if (request.form.get("kind") == "section"
                          and parent.kind == "project") else "task"
-    if not title:
-        return redirect(url_for("templates.edit", item_id=str(parent.id)))
-    Item(owner=_user(), kind=kind, template=True, parent=parent, title=title,
-         status="active" if kind == "section" else "open").save()
-    return redirect(url_for("templates.edit", item_id=str(parent.id)))
+    if title:
+        Item(owner=_user(), kind=kind, template=True, parent=parent, title=title,
+             status="active" if kind == "section" else "open").save()
+    return _subitems_response(parent)
 
 
 @templates_bp.route("/item/<item_id>/move", methods=["POST"])
@@ -216,10 +237,15 @@ def delete(item_id):
     item = _node(item_id)
     parent = item.parent
     _delete_subtree(item)
+    parent_is_tpl = (parent is not None and getattr(parent, "template", False)
+                     and parent.kind in ("task", "project", "section"))
+    # AJAX child-delete from the editor → return the parent's refreshed list.
+    if _is_ajax() and parent_is_tpl:
+        return render_template("templates/_subitems.html",
+                               item=parent, children=list(_children(parent)))
     flash("Deleted.", "success")
     # Back to the editor of the parent template, or the folder navigator.
-    if parent is not None and getattr(parent, "template", False) \
-            and parent.kind in _CREATABLE:
+    if parent_is_tpl and parent.kind in _CREATABLE:
         return redirect(url_for("templates.edit", item_id=str(parent.id)))
     folder = str(parent.id) if (parent and parent.kind == "folder") else ""
     return redirect(url_for("templates.index", folder=folder or None))

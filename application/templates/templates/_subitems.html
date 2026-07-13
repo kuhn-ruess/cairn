@@ -1,0 +1,45 @@
+{# Sub-items of a template task/project — the list + add form. Re-rendered and
+   swapped in place by static/js/templates.js after an add/delete, so pressing
+   Enter never triggers a full-page navigation. Needs: item, children. #}
+<div id="tpl-subitems" data-refresh-url="{{ url_for('templates.subitems', item_id=item.id) }}">
+  {% if children %}
+  <ul class="list-group list-group-flush mb-3">
+    {% for c in children %}
+    <li class="list-group-item d-flex align-items-center gap-2 px-0">
+      <i class="bi {{ 'bi-list-nested' if c.kind == 'section' else ('bi-folder-symlink' if c.kind == 'project' else 'bi-check2-square') }} text-muted"></i>
+      <a class="text-decoration-none text-body me-auto" href="{{ url_for('templates.edit', item_id=c.id) }}">
+        {{ c.title }}
+        {% if c.kind == 'section' %}<span class="badge text-bg-light">section</span>{% endif %}
+      </a>
+      {% if c.checklist %}<span class="small text-muted">{{ c.checklist_done }}/{{ c.checklist|length }}</span>{% endif %}
+      <button type="button" class="btn btn-link btn-sm p-0 text-muted tpl-child-delete"
+              data-action="{{ url_for('templates.delete', item_id=c.id) }}"
+              title="Delete">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-muted small">Nothing here yet.</p>
+  {% endif %}
+
+  <form data-tpl-subtask-form method="post"
+        action="{{ url_for('templates.add_subtask', item_id=item.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="input-group input-group-sm mb-2">
+      <input type="text" class="form-control tpl-subtask-input" name="title" maxlength="500"
+             placeholder="{{ 'Add task or section…' if item.kind == 'project' else 'Add sub-task…' }}"
+             autocomplete="off" required>
+      <button class="btn btn-outline-primary" type="submit"><i class="bi bi-plus-lg"></i></button>
+    </div>
+    {% if item.kind == 'project' %}
+    <div class="btn-group btn-group-sm" role="group">
+      <input type="radio" class="btn-check" name="kind" id="kt" value="task" checked>
+      <label class="btn btn-outline-secondary" for="kt">Task</label>
+      <input type="radio" class="btn-check" name="kind" id="ks" value="section">
+      <label class="btn btn-outline-secondary" for="ks">Section</label>
+    </div>
+    {% endif %}
+  </form>
+</div>

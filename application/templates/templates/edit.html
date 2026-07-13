@@ -91,44 +91,7 @@
       <h2 class="h6 text-muted text-uppercase mb-3">
         {{ 'Contents' if item.kind == 'project' else 'Sub-tasks' }}
       </h2>
-      {% if children %}
-      <ul class="list-group list-group-flush mb-3">
-        {% for c in children %}
-        <li class="list-group-item d-flex align-items-center gap-2 px-0">
-          <i class="bi {{ 'bi-list-nested' if c.kind == 'section' else ('bi-folder-symlink' if c.kind == 'project' else 'bi-check2-square') }} text-muted"></i>
-          <a class="text-decoration-none text-body me-auto" href="{{ url_for('templates.edit', item_id=c.id) }}">
-            {{ c.title }}
-            {% if c.kind == 'section' %}<span class="badge text-bg-light">section</span>{% endif %}
-          </a>
-          {% if c.checklist %}<span class="small text-muted">{{ c.checklist_done }}/{{ c.checklist|length }}</span>{% endif %}
-          <form method="post" action="{{ url_for('templates.delete', item_id=c.id) }}" class="m-0"
-                onsubmit="return confirm('Delete this item and everything under it?');">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-link btn-sm p-0 text-muted" type="submit" title="Delete"><i class="bi bi-x-lg"></i></button>
-          </form>
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <p class="text-muted small">Nothing here yet.</p>
-      {% endif %}
-
-      <form method="post" action="{{ url_for('templates.add_subtask', item_id=item.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div class="input-group input-group-sm mb-2">
-          <input type="text" class="form-control" name="title" maxlength="500"
-                 placeholder="{{ 'Add task or section…' if item.kind == 'project' else 'Add sub-task…' }}" required>
-          <button class="btn btn-outline-primary" type="submit"><i class="bi bi-plus-lg"></i></button>
-        </div>
-        {% if item.kind == 'project' %}
-        <div class="btn-group btn-group-sm" role="group">
-          <input type="radio" class="btn-check" name="kind" id="kt" value="task" checked>
-          <label class="btn btn-outline-secondary" for="kt">Task</label>
-          <input type="radio" class="btn-check" name="kind" id="ks" value="section">
-          <label class="btn btn-outline-secondary" for="ks">Section</label>
-        </div>
-        {% endif %}
-      </form>
+      {% include "templates/_subitems.html" %}
     </div>
 
     {# ---- Move + delete ---- #}
@@ -143,4 +106,5 @@
 </div>
 {# checklist.js is loaded globally (base.html) and delegates on document,
    so the template checklist buttons work with no extra script here. #}
+<script src="{{ asset('js/templates.js') }}"></script>
 {% endblock %}
