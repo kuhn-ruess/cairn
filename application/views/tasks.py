@@ -777,9 +777,16 @@ def today():
     # too, and without it a project would leak into the task plate AND show
     # as its own header — the same item rendered twice. (A recurring task
     # that was turned into a project is exactly such an item.)
+    # Today is a personal action list: scope to tasks the user owns or that are
+    # currently assigned to them (still honouring focus mode). NOT the wide
+    # ``_scope`` — team shares / stale membership after a re-delegation must not
+    # surface a task now owned by AND assigned to someone else. See
+    # own_or_assigned_q / application/services/today.py.
+    from application.services import focus
+    from application.services.permissions import own_or_assigned_q
     qs = (
         Item.objects(
-            _scope(user),
+            focus.restrict(own_or_assigned_q(user), user),
             kind="task",
             status__nin=["done", "dropped", "someday"],
         )

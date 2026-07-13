@@ -150,6 +150,16 @@ def visible_items_q(actor):
             | Q(shared_teams__in=teams_of(actor)))
 
 
+def own_or_assigned_q(actor):
+    """Narrow, PERSONAL scope: items the actor owns or that are currently
+    assigned to them — nothing else. Unlike ``visible_items_q`` this excludes
+    team shares and stale ``members`` entries (a task the actor re-delegated or
+    was only shared into). Use it for "my own action" surfaces like Today, where
+    a task now owned by AND assigned to someone else must not appear."""
+    from mongoengine import Q
+    return Q(owner=actor) | Q(assigned_to=actor)
+
+
 def resolve_visible_item(actor, item_id):
     """Look up an Item by pk and assert the actor may view it.
 
