@@ -205,6 +205,11 @@ class User(UserMixin, Document):
     # calendar) — remembered so the view comes back the way the user left it.
     today_days = IntField(default=1, min_value=1)
     today_view_mode = StringField(default="list")
+    # Perspectives (Today, Next, Flagged, Waiting, …) default to a PERSONAL
+    # scope — only tasks you own or are currently assigned. When this is on, they
+    # also include team-shared / re-delegated tasks you can see but don't own.
+    # Toggled from the perspective toolbar. See own_or_assigned_q / _perspective_scope.
+    perspectives_show_shared = BooleanField(default=False)
     # OmniFocus-style availability: deferred projects (defer_date in the
     # future) are hidden from the project list + sidebar unless this is on.
     show_deferred_projects = BooleanField(default=False)

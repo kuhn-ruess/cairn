@@ -131,8 +131,22 @@ def _scope(user):
     from application.services import focus
     from application.services.permissions import visible_items_q
     # owned / assigned / shared-by-name / team-shared. (members also keeps a
-    # re-delegated task visible to whoever passed it on.)
+    # re-delegated task visible to whoever passed it on.) The WIDE scope —
+    # used by search, quickjump and the inbox. Perspective LISTS use
+    # ``_perspective_scope`` so they can hide shared work by default.
     return focus.restrict(visible_items_q(user), user)
+
+
+def _perspective_scope(user):
+    """Scope for the perspective lists (Today, Next, Flagged, Waiting, …).
+
+    Personal by default (own/assigned) so team-shared and re-delegated tasks
+    don't clutter your action lists; the user opts to include them via the
+    toolbar toggle (``perspectives_show_shared``). Same focus.restrict wrapping
+    as ``_scope`` so Focus mode keeps working."""
+    from application.services import focus
+    from application.services.permissions import perspective_base_q
+    return focus.restrict(perspective_base_q(user), user)
 
 _PASS_KEYS = frozenset(
     {"today", "next", "waiting", "waiting_reply", "someday",
@@ -159,7 +173,9 @@ def sidebar_counts(user, now=None, keys=None) -> dict:
         today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
         horizon = now + timedelta(days=14)
         c = {k: 0 for k in _PASS_KEYS}
-        qs = (Item.objects(_scope(user), kind="task", status__nin=["done", "dropped"])
+        # Badges must match what each perspective list actually shows, so use
+        # the same (toggle-aware) perspective scope.
+        qs = (Item.objects(_perspective_scope(user), kind="task", status__nin=["done", "dropped"])
               .only("status", "flagged", "due_date", "plan_date", "defer_date",
                     "followup_at"))
         for t in qs:
@@ -777,16 +793,15 @@ def today():
     # too, and without it a project would leak into the task plate AND show
     # as its own header — the same item rendered twice. (A recurring task
     # that was turned into a project is exactly such an item.)
-    # Today is a personal action list: scope to tasks the user owns or that are
-    # currently assigned to them (still honouring focus mode). NOT the wide
-    # ``_scope`` — team shares / stale membership after a re-delegation must not
-    # surface a task now owned by AND assigned to someone else. See
-    # own_or_assigned_q / application/services/today.py.
-    from application.services import focus
-    from application.services.permissions import own_or_assigned_q
+    # Today is a personal action list: by default scope to tasks the user owns
+    # or that are currently assigned to them (still honouring focus mode) — NOT
+    # the wide ``_scope``, so team shares / stale membership after a
+    # re-delegation don't surface a task now owned by AND assigned to someone
+    # else. The toolbar toggle opts into showing shared work. See
+    # _perspective_scope / application/services/today.py.
     qs = (
         Item.objects(
-            focus.restrict(own_or_assigned_q(user), user),
+            _perspective_scope(user),
             kind="task",
             status__nin=["done", "dropped", "someday"],
         )
@@ -1380,7 +1395,7 @@ def next_actions():
     can still see what's coming next."""
     user = current_user._get_current_object()
     tasks = _filter_by_project(
-        Item.objects(_scope(user), status="next"), user,
+        Item.objects(_perspective_scope(user), status="next"), user,
     ).order_by("+due_date", "+sort_order")
     return render_template(
         "tasks/list.html", title="Next", perspective="next", tasks=prepare_list(tasks)
@@ -1393,7 +1408,7 @@ def forecast():
     horizon = datetime.now(timezone.utc) + timedelta(days=14)
     tasks = _filter_by_project(
         Item.objects(
-            _scope(user),
+            _perspective_scope(user),
             status__nin=["done", "dropped", "someday"],
             due_date__lte=horizon,
         ),
@@ -1415,7 +1430,7 @@ def scheduled():
     now = datetime.now(timezone.utc)
     tasks = _filter_by_project(
         Item.objects(
-            _scope(user),
+            _perspective_scope(user),
             status__nin=["done", "dropped"],
             defer_date__gt=now,
         ),
@@ -1430,7 +1445,7 @@ def scheduled():
 def waiting():
     user = current_user._get_current_object()
     tasks = _filter_by_project(
-        Item.objects(_scope(user), status="waiting"), user,
+        Item.objects(_perspective_scope(user), status="waiting"), user,
     ).order_by("+due_date")
     return render_template(
         "tasks/list.html", title="Waiting", perspective="waiting", tasks=prepare_list(tasks)
@@ -1444,7 +1459,7 @@ def followup():
     ``waiting`` AND carry a follow-up cadence at the same time."""
     user = current_user._get_current_object()
     tasks = _filter_by_project(
-        Item.objects(_scope(user), kind="task", followup_at__ne=None,
+        Item.objects(_perspective_scope(user), kind="task", followup_at__ne=None,
                      status__nin=["done", "dropped"]),
         user,
     ).order_by("+followup_at")
@@ -1459,7 +1474,7 @@ def waiting_reply():
     """Tasks where you've asked someone and are waiting on their reply."""
     user = current_user._get_current_object()
     tasks = _filter_by_project(
-        Item.objects(_scope(user), status="waiting_reply"), user,
+        Item.objects(_perspective_scope(user), status="waiting_reply"), user,
     ).order_by("+due_date")
     return render_template(
         "tasks/list.html", title="Waiting on reply", perspective="waiting_reply",
@@ -1471,7 +1486,7 @@ def waiting_reply():
 def flagged():
     user = current_user._get_current_object()
     tasks = _filter_by_project(
-        Item.objects(_scope(user), status__nin=["done", "dropped"], flagged=True),
+        Item.objects(_perspective_scope(user), status__nin=["done", "dropped"], flagged=True),
         user,
     ).order_by("+due_date")
     return render_template(
@@ -1483,11 +1498,23 @@ def flagged():
 def someday():
     user = current_user._get_current_object()
     tasks = _filter_by_project(
-        Item.objects(_scope(user), status="someday"), user,
+        Item.objects(_perspective_scope(user), status="someday"), user,
     ).order_by("-updated_at")
     return render_template(
         "tasks/list.html", title="Someday / Maybe", perspective="someday", tasks=prepare_list(tasks)
     )
+
+@tasks_bp.route("/perspectives/show-shared", methods=["POST"])
+@login_required
+def toggle_show_shared():
+    """Flip the per-user 'include shared/team tasks in perspectives' preference,
+    then bounce back to the perspective the toggle was flipped from."""
+    user = current_user._get_current_object()
+    user.perspectives_show_shared = request.form.get("show") == "1"
+    user.save()
+    return redirect(request.form.get("next") or request.referrer
+                    or url_for("dashboard.home"))
+
 
 @tasks_bp.route("/assigned")
 @login_required
@@ -1539,7 +1566,7 @@ def completed():
     except (TypeError, ValueError):
         page = 1
     base = _filter_by_project(
-        Item.objects(_scope(user), status__in=["done", "completed"]), user,
+        Item.objects(_perspective_scope(user), status__in=["done", "completed"]), user,
     ).order_by("-completed_at")
     total = base.count()
     items = prepare_list(base.skip((page - 1) * PAGE_SIZE).limit(PAGE_SIZE))

@@ -99,6 +99,9 @@
       {% endfor %}
     </div>
 
+    {% with view_key='today' %}
+      {% include "tasks/_shared_toggle.html" %}
+    {% endwith %}
     {% with view_key='today', view_label='Today' %}
       {% include "tasks/_display_dropdown.html" %}
     {% endwith %}

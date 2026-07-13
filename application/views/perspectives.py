@@ -19,9 +19,12 @@ from application.models.item import Item
 perspectives_bp = Blueprint("custom_perspectives", __name__, url_prefix="/perspectives")
 
 def _scope(user):
+    # Custom perspectives are personal action lists too — honour the same
+    # "show shared work" toggle as the built-in perspectives (personal by
+    # default). See permissions.perspective_base_q.
     from application.services import focus
-    from application.services.permissions import visible_items_q
-    return focus.restrict(visible_items_q(user), user)
+    from application.services.permissions import perspective_base_q
+    return focus.restrict(perspective_base_q(user), user)
 
 def _find(user, pid):
     for p in user.custom_perspectives or []:

@@ -28,6 +28,7 @@
 <div class="d-flex align-items-center mb-3 gap-2">
   <h1 class="h4 mb-0 me-auto">{{ title }} <span class="text-muted small">({{ tasks|length }})</span></h1>
   {% if view_key %}
+    {% include "tasks/_shared_toggle.html" %}
     {% include "tasks/_display_dropdown.html" %}
   {% endif %}
   {% if perspective == "inbox" and tasks %}

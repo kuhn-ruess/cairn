@@ -1,0 +1,20 @@
+{# Perspective scope toggle: include team-shared / assigned-to-others tasks, or
+   just your own (default). A per-user preference (perspectives_show_shared);
+   flipping it here applies to every perspective. Shown only on the personal
+   perspective lists — not Inbox / Assigned / Delegated, which have their own
+   scope. Requires: view_key. #}
+{% set _shared_toggle_views = [
+  'today','next','scheduled','flagged','waiting','waiting_reply',
+  'followup','someday','completed','forecast'] %}
+{% if view_key in _shared_toggle_views %}
+<form method="post" action="{{ url_for('tasks.toggle_show_shared') }}" class="m-0">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="next" value="{{ request.full_path }}">
+  <input type="hidden" name="show" value="{{ '0' if current_user.perspectives_show_shared else '1' }}">
+  <button type="submit"
+          class="btn btn-sm {{ 'btn-toolbar-on' if current_user.perspectives_show_shared else 'btn-outline-secondary' }}"
+          title="{{ 'Showing tasks shared with you / assigned to others too. Click to show only your own.' if current_user.perspectives_show_shared else 'Showing only your own + assigned-to-you tasks. Click to also include team-shared tasks.' }}">
+    <i class="bi bi-people"></i> Shared{% if current_user.perspectives_show_shared %} · on{% endif %}
+  </button>
+</form>
+{% endif %}

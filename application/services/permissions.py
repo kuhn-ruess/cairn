@@ -160,6 +160,19 @@ def own_or_assigned_q(actor):
     return Q(owner=actor) | Q(assigned_to=actor)
 
 
+def perspective_base_q(user):
+    """Base visibility for perspective LISTS (Today, Next, Flagged, …).
+
+    Personal by default — ``own_or_assigned_q`` — so team-shared and
+    re-delegated tasks don't clutter your action lists. When the user opts in
+    (``perspectives_show_shared``, a toolbar toggle) it widens to the full
+    ``visible_items_q``. Callers still wrap this in ``focus.restrict`` as before.
+    Search / quickjump deliberately keep the wide scope."""
+    if getattr(user, "perspectives_show_shared", False):
+        return visible_items_q(user)
+    return own_or_assigned_q(user)
+
+
 def resolve_visible_item(actor, item_id):
     """Look up an Item by pk and assert the actor may view it.
 

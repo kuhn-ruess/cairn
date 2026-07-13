@@ -18,14 +18,16 @@ def _user_tz(user):
 
 
 def _scope(user):
-    # Today is a PERSONAL action list: only tasks the user owns or that are
-    # currently assigned to them (see own_or_assigned_q). Deliberately narrower
-    # than visible_items_q, which also returns team shares and tasks the user
-    # merely stayed a ``member`` of after re-delegating — those were leaking in:
-    # a task reassigned away, now owned by AND assigned to someone else, kept
-    # surfacing here via stale membership whenever it was flagged / dated today.
-    from application.services.permissions import own_or_assigned_q
-    return own_or_assigned_q(user)
+    # Today is a PERSONAL action list: by default only tasks the user owns or
+    # that are currently assigned to them. Deliberately narrower than
+    # visible_items_q, which also returns team shares and tasks the user merely
+    # stayed a ``member`` of after re-delegating — those were leaking in: a task
+    # reassigned away, now owned by AND assigned to someone else, kept surfacing
+    # here via stale membership whenever it was flagged / dated today. The user
+    # can opt to include shared work via ``perspectives_show_shared``; this must
+    # match tasks._perspective_scope so the page and the dashboard count agree.
+    from application.services.permissions import perspective_base_q
+    return perspective_base_q(user)
 
 
 def _today_task_query(user, now):
