@@ -1646,6 +1646,71 @@ def bulk():
     flash(msg, "success" if count else "warning")
     return redirect(request.referrer or url_for("projects.index"))
 
+# Jira/CSV date cells come in many shapes. ISO ("2026-07-01[THH:MM]") first,
+# then Jira's own export formats (English month abbreviations, locale-safe via
+# an explicit month map so a German-locale server still parses "1/Jul/26"), then
+# a few common numeric layouts. Returns a naive datetime (the caller attaches
+# the user's tz) or None.
+_CSV_MONTHS = {m: i for i, m in enumerate(
+    ["jan", "feb", "mar", "apr", "may", "jun",
+     "jul", "aug", "sep", "oct", "nov", "dec"], start=1)}
+# German abbreviations Jira may emit (Mär/Mai/Okt/Dez).
+_CSV_MONTHS.update({"mär": 3, "mrz": 3, "mai": 5, "okt": 10, "dez": 12})
+
+
+def _parse_csv_date(raw):
+    import re as _re
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    # ISO first — also accept "2026/07/01" by normalising the separators.
+    iso = raw.replace("Z", "+00:00")
+    if len(raw) >= 4 and raw[:4].isdigit():
+        iso = iso.replace("/", "-", 2)
+    try:
+        return datetime.fromisoformat(iso)
+    except ValueError:
+        pass
+    # "1/Jul/26 12:00 AM", "1/Jul/26", "01/Jul/2026" — split on / and spaces.
+    m = _re.match(r"^\s*(\d{1,2})[/\- ]([A-Za-zäöü]{3,})[/\- ](\d{2,4})", raw)
+    if m:
+        day, mon, year = m.group(1), m.group(2).lower()[:3], m.group(3)
+        mnum = _CSV_MONTHS.get(mon)
+        if mnum:
+            y = int(year)
+            if y < 100:
+                y += 2000
+            tm = _re.search(r"(\d{1,2}):(\d{2})\s*([AaPp][Mm])?", raw)
+            hh = mm = 0
+            if tm:
+                hh, mm = int(tm.group(1)), int(tm.group(2))
+                ap = (tm.group(3) or "").lower()
+                if ap == "pm" and hh < 12:
+                    hh += 12
+                elif ap == "am" and hh == 12:
+                    hh = 0
+            try:
+                return datetime(y, mnum, int(day), hh, mm)
+            except ValueError:
+                return None
+    # "Jul 1, 2026"
+    m = _re.match(r"^\s*([A-Za-zäöü]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})", raw)
+    if m:
+        mnum = _CSV_MONTHS.get(m.group(1).lower()[:3])
+        if mnum:
+            try:
+                return datetime(int(m.group(3)), mnum, int(m.group(2)))
+            except ValueError:
+                return None
+    # Numeric fallbacks, locale-independent.
+    for fmt in ("%d.%m.%Y", "%d.%m.%y", "%m/%d/%Y", "%d/%m/%Y", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    return None
+
+
 @projects_bp.route("/<project_id>/import-csv", methods=["GET", "POST"])
 @login_required
 def import_csv(project_id):
@@ -1658,7 +1723,8 @@ def import_csv(project_id):
 
     Recognised columns (header row, case-insensitive):
       title (required), note, status, priority, flagged, due, tags,
-      csv_id.
+      csv_id, and the Gantt window "Target start" / "Target end"
+      (→ start_date / end_date; ISO + Jira date formats accepted).
     """
     import csv as _csv
     from io import StringIO
@@ -1885,19 +1951,25 @@ def import_csv(project_id):
         flagged_val = _row_get(values, "flagged")
         if flagged_val:
             target.flagged = flagged_val.lower() in ("1", "true", "yes", "y")
+        # Dates. CSV cells are wall-clock in the user's local time; attach their
+        # tz so mongoengine doesn't store them as naive UTC and drift everything
+        # by the user's offset. _parse_csv_date tolerates ISO + Jira formats.
+        from application.services.tz import attach_user_tz
         due_val = _row_get(values, "due", "due date", "duedate",
                            "fälligkeitsdatum", "fälligkeit")
-        if due_val:
-            from application.services.tz import attach_user_tz
-            try:
-                # CSV dates are wall-clock in the user's local time;
-                # attach their tz so mongoengine doesn't store them as
-                # naive UTC and drift everything by the user's offset.
-                target.due_date = attach_user_tz(
-                    datetime.fromisoformat(due_val), user,
-                )
-            except ValueError:
-                pass
+        due_dt = _parse_csv_date(due_val)
+        if due_dt:
+            target.due_date = attach_user_tz(due_dt, user)
+        # Gantt window — Jira "Target start" / "Target end" (+ common aliases).
+        start_dt = _parse_csv_date(_row_get(
+            values, "target start", "start date", "start datum",
+            "startdatum", "beginn", "start"))
+        if start_dt:
+            target.start_date = attach_user_tz(start_dt, user)
+        end_dt = _parse_csv_date(_row_get(
+            values, "target end", "end date", "enddatum", "end datum", "ende"))
+        if end_dt:
+            target.end_date = attach_user_tz(end_dt, user)
 
         # Labels: gather across every same-named column, then split each
         # cell on comma in case there are multiple labels per cell.
