@@ -1,0 +1,146 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ item.title }} · Templates · Cairn{% endblock %}
+{% block content %}
+
+{# Breadcrumb: back to the folder navigator, then the template ancestor chain. #}
+<nav class="small mb-3" aria-label="breadcrumb">
+  <a class="text-decoration-none" href="{{ url_for('templates.index', folder=(item.parent.id if item.parent and item.parent.kind == 'folder' else None)) }}">
+    <i class="bi bi-arrow-left"></i> Templates
+  </a>
+  {% for a in ancestors %}
+    <span class="text-muted mx-1">/</span>
+    <a class="text-decoration-none text-muted" href="{{ url_for('templates.edit', item_id=a.id) }}">{{ a.title }}</a>
+  {% endfor %}
+</nav>
+
+<div class="d-flex align-items-center gap-2 mb-4">
+  <i class="bi {{ 'bi-folder-symlink' if item.kind == 'project' else 'bi-check2-square' }} fs-4 text-muted"></i>
+  <h1 class="h3 mb-0 me-auto">{{ item.title }}
+    {% if item.kind == 'project' %}<span class="badge text-bg-light align-middle">project</span>{% endif %}
+  </h1>
+  {% if item.kind in ('task', 'project') %}
+  <form method="post" action="{{ url_for('templates.duplicate', item_id=item.id) }}" class="m-0">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-outline-secondary" type="submit"><i class="bi bi-files"></i> Duplicate</button>
+  </form>
+  <form method="post" action="{{ url_for('templates.use', item_id=item.id) }}" class="m-0">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-success" type="submit"><i class="bi bi-box-arrow-right"></i> Use</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    {# ---- Presets: carried over verbatim when the template is used ---- #}
+    <form method="post" action="{{ url_for('templates.save', item_id=item.id) }}" class="card card-body mb-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="mb-3">
+        <label class="form-label" for="title">Name</label>
+        <input type="text" class="form-control" id="title" name="title"
+               value="{{ item.title }}" maxlength="500" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label" for="note">Note</label>
+        <textarea class="form-control" id="note" name="note" rows="4"
+                  placeholder="Markdown supported.">{{ item.note }}</textarea>
+      </div>
+      <div class="row g-3">
+        <div class="col-sm-6">
+          <label class="form-label" for="tags">Tags <span class="text-muted small">(comma-separated)</span></label>
+          <input type="text" class="form-control" id="tags" name="tags"
+                 list="tplTagList" value="{{ item.tags|join(', ') }}">
+          <datalist id="tplTagList">
+            {% for t in user_tags %}<option value="{{ t }}">{% endfor %}
+          </datalist>
+        </div>
+        <div class="col-sm-3">
+          <label class="form-label" for="priority">Priority</label>
+          <select class="form-select" id="priority" name="priority">
+            <option value="">—</option>
+            {% for p in [1, 2, 3, 4] %}
+              <option value="{{ p }}" {% if item.priority == p %}selected{% endif %}>P{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-sm-3">
+          <label class="form-label" for="estimated_minutes">Est. min</label>
+          <input type="number" class="form-control" id="estimated_minutes"
+                 name="estimated_minutes" min="0" value="{{ item.estimated_minutes or '' }}">
+        </div>
+      </div>
+      <div class="form-check mt-3">
+        <input class="form-check-input" type="checkbox" id="flagged" name="flagged"
+               {% if item.flagged %}checked{% endif %}>
+        <label class="form-check-label" for="flagged">Flagged</label>
+      </div>
+      <div class="mt-3">
+        <button class="btn btn-primary" type="submit">Save</button>
+      </div>
+    </form>
+
+    {# ---- Checklist (generic checklist.js swaps this block) ---- #}
+    <div class="card card-body mb-4" id="checklist">
+      {% with task = item %}{% include "templates/_checklist.html" %}{% endwith %}
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    {# ---- Sub-items ---- #}
+    <div class="card card-body">
+      <h2 class="h6 text-muted text-uppercase mb-3">
+        {{ 'Contents' if item.kind == 'project' else 'Sub-tasks' }}
+      </h2>
+      {% if children %}
+      <ul class="list-group list-group-flush mb-3">
+        {% for c in children %}
+        <li class="list-group-item d-flex align-items-center gap-2 px-0">
+          <i class="bi {{ 'bi-list-nested' if c.kind == 'section' else ('bi-folder-symlink' if c.kind == 'project' else 'bi-check2-square') }} text-muted"></i>
+          <a class="text-decoration-none text-body me-auto" href="{{ url_for('templates.edit', item_id=c.id) }}">
+            {{ c.title }}
+            {% if c.kind == 'section' %}<span class="badge text-bg-light">section</span>{% endif %}
+          </a>
+          {% if c.checklist %}<span class="small text-muted">{{ c.checklist_done }}/{{ c.checklist|length }}</span>{% endif %}
+          <form method="post" action="{{ url_for('templates.delete', item_id=c.id) }}" class="m-0"
+                onsubmit="return confirm('Delete this item and everything under it?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-link btn-sm p-0 text-muted" type="submit" title="Delete"><i class="bi bi-x-lg"></i></button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted small">Nothing here yet.</p>
+      {% endif %}
+
+      <form method="post" action="{{ url_for('templates.add_subtask', item_id=item.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="input-group input-group-sm mb-2">
+          <input type="text" class="form-control" name="title" maxlength="500"
+                 placeholder="{{ 'Add task or section…' if item.kind == 'project' else 'Add sub-task…' }}" required>
+          <button class="btn btn-outline-primary" type="submit"><i class="bi bi-plus-lg"></i></button>
+        </div>
+        {% if item.kind == 'project' %}
+        <div class="btn-group btn-group-sm" role="group">
+          <input type="radio" class="btn-check" name="kind" id="kt" value="task" checked>
+          <label class="btn btn-outline-secondary" for="kt">Task</label>
+          <input type="radio" class="btn-check" name="kind" id="ks" value="section">
+          <label class="btn btn-outline-secondary" for="ks">Section</label>
+        </div>
+        {% endif %}
+      </form>
+    </div>
+
+    {# ---- Move + delete ---- #}
+    <div class="d-flex justify-content-end mt-3">
+      <form method="post" action="{{ url_for('templates.delete', item_id=item.id) }}" class="m-0"
+            onsubmit="return confirm('Delete this template and everything under it?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-outline-danger" type="submit"><i class="bi bi-trash"></i> Delete template</button>
+      </form>
+    </div>
+  </div>
+</div>
+{# checklist.js is loaded globally (base.html) and delegates on document,
+   so the template checklist buttons work with no extra script here. #}
+{% endblock %}

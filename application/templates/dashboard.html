@@ -93,6 +93,17 @@
       </div>
     </a>
   </div>
+  <div class="col-sm-6 col-md-4 col-xl-3">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('templates.index') }}">
+      <div class="card-body d-flex align-items-center gap-3">
+        <i class="bi bi-files fs-3 text-info"></i>
+        <div>
+          <div class="fw-semibold">Templates</div>
+          <div class="small text-muted">Reusable tasks &amp; projects, copy on demand</div>
+        </div>
+      </div>
+    </a>
+  </div>
   {% endif %}
   {% if current_user.team or current_user.is_team_admin %}
   <div class="col-sm-6 col-md-4 col-xl-3">

@@ -182,6 +182,9 @@ class Item(Document):
             "depends_on",
             ("owner", "kind"),
             ("owner", "status"),
+            # Template library items are hidden from every normal list by the
+            # ``objects`` manager; the templates view filters owner+template.
+            ("owner", "template"),
             ("assigned_to", "status"),
             # Today/Plan/forecast filter by owner+kind on a date field.
             ("owner", "kind", "plan_date"),
@@ -215,6 +218,14 @@ class Item(Document):
     # ``home_for`` / ``set_home_for`` / ``PersonalHome``.
     personal_homes = EmbeddedDocumentListField(PersonalHome)
     sort_order = IntField(default=0)
+    # Template-library flag. A ``template`` item (and its whole subtree —
+    # folders/projects/tasks/sub-tasks) lives in the Templates area and is
+    # hidden from EVERY normal list/perspective/navigator by the ``objects``
+    # manager below, exactly like ``trashed_at``. "Using" a template deep-copies
+    # its subtree into real items (template=False) — see
+    # ``application/services/templates.py``. Template folders reuse ``kind``
+    # ``folder``; organisation inside the area is by these folders.
+    template = BooleanField(default=False)
     # Loose, symmetric "see also" links between items. Purely a reference
     # surfaced in the inspector — deliberately NOT a hierarchy: no query
     # anywhere filters/groups by ``related``, so it never affects lists,
@@ -414,7 +425,10 @@ class Item(Document):
     # resolves normally.
     @queryset_manager
     def objects(doc_cls, queryset):
-        return queryset.filter(trashed_at=None)
+        # Hide trashed AND template-library items from every default query, so
+        # the ~30 list/perspective/navigator sites need no changes. The
+        # Templates view uses ``all_objects`` (owner + template=True) instead.
+        return queryset.filter(trashed_at=None, template__ne=True)
 
     @queryset_manager
     def all_objects(doc_cls, queryset):

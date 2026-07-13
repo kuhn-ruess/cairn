@@ -1,0 +1,118 @@
+{% extends "layout/base.html" %}
+{% block title %}Templates · Cairn{% endblock %}
+
+{% macro folder_tree(parent_key) %}
+  {% set kids = by_parent.get(parent_key) %}
+  {% if kids %}
+    <ul class="list-unstyled ms-3 mb-0">
+      {% for f in kids %}
+        <li>
+          <a class="d-inline-flex align-items-center gap-1 text-decoration-none py-1
+                    {% if current and current.id == f.id %}fw-semibold{% else %}text-body{% endif %}"
+             href="{{ url_for('templates.index', folder=f.id) }}">
+            <i class="bi bi-folder2{% if current and current.id == f.id %}-open{% endif %}"></i> {{ f.title }}
+          </a>
+          {{ folder_tree(f.id|string) }}
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <h1 class="h3 mb-0 me-auto"><i class="bi bi-files"></i> Templates</h1>
+</div>
+<p class="text-muted small mb-4" style="max-width:720px;">
+  A private library of reusable tasks and projects — kept out of every list,
+  perspective and search. Build them here with checklists and sub-tasks,
+  organise them in folders, then hit <strong>Use</strong> to copy one into real
+  work: a task lands in your Inbox, a project becomes a new project.
+</p>
+
+<div class="row g-4">
+  {# ---- Folder navigator ---- #}
+  <div class="col-md-4 col-lg-3">
+    <div class="d-flex align-items-center mb-2">
+      <h2 class="h6 text-muted text-uppercase mb-0 me-auto">Folders</h2>
+    </div>
+    <ul class="list-unstyled mb-2">
+      <li>
+        <a class="d-inline-flex align-items-center gap-1 text-decoration-none py-1
+                  {% if not current %}fw-semibold{% else %}text-body{% endif %}"
+           href="{{ url_for('templates.index') }}">
+          <i class="bi bi-house"></i> All templates
+        </a>
+      </li>
+    </ul>
+    {{ folder_tree(None) }}
+
+    <form method="post" action="{{ url_for('templates.create_folder') }}" class="mt-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% if current %}<input type="hidden" name="parent" value="{{ current.id }}">{% endif %}
+      <div class="input-group input-group-sm">
+        <input type="text" class="form-control" name="name" maxlength="200"
+               placeholder="{{ 'New sub-folder' if current else 'New folder' }}">
+        <button class="btn btn-outline-secondary" type="submit"><i class="bi bi-folder-plus"></i></button>
+      </div>
+    </form>
+  </div>
+
+  {# ---- Items in the current folder ---- #}
+  <div class="col-md-8 col-lg-9">
+    <div class="d-flex align-items-center mb-3">
+      <h2 class="h5 mb-0 me-auto">
+        {% if current %}<i class="bi bi-folder2-open"></i> {{ current.title }}
+        {% else %}<i class="bi bi-house"></i> All templates{% endif %}
+      </h2>
+      {% if current %}
+      <form method="post" action="{{ url_for('templates.delete_folder', item_id=current.id) }}"
+            onsubmit="return confirm('Delete this folder and everything inside it?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-outline-danger" type="submit">
+          <i class="bi bi-trash"></i> Delete folder
+        </button>
+      </form>
+      {% endif %}
+    </div>
+
+    <form method="post" action="{{ url_for('templates.create') }}" class="card card-body bg-body-tertiary mb-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% if current %}<input type="hidden" name="folder" value="{{ current.id }}">{% endif %}
+      <div class="d-flex gap-2 flex-wrap">
+        <select name="kind" class="form-select" style="max-width:150px;">
+          <option value="task">Task</option>
+          <option value="project">Project</option>
+        </select>
+        <input type="text" name="title" class="form-control" style="min-width:220px;flex:1;"
+               placeholder="New template name…" maxlength="500" required>
+        <button class="btn btn-primary" type="submit"><i class="bi bi-plus-lg"></i> Create</button>
+      </div>
+    </form>
+
+    {% if items %}
+    <div class="list-group">
+      {% for it in items %}
+      <div class="list-group-item d-flex align-items-center gap-2">
+        <i class="bi {{ 'bi-folder-symlink' if it.kind == 'project' else 'bi-check2-square' }} text-muted"></i>
+        <a class="text-decoration-none text-body fw-medium me-auto" href="{{ url_for('templates.edit', item_id=it.id) }}">
+          {{ it.title }}
+          {% if it.kind == 'project' %}<span class="badge text-bg-light ms-1">project</span>{% endif %}
+          {% if it.flagged %}<i class="bi bi-flag-fill text-warning ms-1"></i>{% endif %}
+        </a>
+        {% if it.checklist %}<span class="small text-muted">{{ it.checklist_done }}/{{ it.checklist|length }}</span>{% endif %}
+        <form method="post" action="{{ url_for('templates.use', item_id=it.id) }}" class="m-0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm btn-success" type="submit" title="Copy into real work">
+            <i class="bi bi-box-arrow-right"></i> Use
+          </button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-muted py-4 text-center">No templates in this folder yet.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

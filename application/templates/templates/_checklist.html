@@ -1,0 +1,46 @@
+{# Template-item checklist — mirrors tasks/_checklist.html but posts to the
+   templates.* endpoints. Re-rendered and swapped in by static/js/checklist.js
+   after every add/toggle/delete (generic: it reads data-action). `task` here
+   is the template Item. #}
+<h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center">
+  <button type="button" class="btn btn-sm btn-link text-muted p-0 me-1"
+          data-collapse-key="cairn-collapse-tpl-checklist" title="Show / hide checklist">
+    <i class="bi bi-chevron-down"></i>
+  </button>
+  Checklist
+  <span class="text-muted ms-1">({{ task.checklist_done }}/{{ task.checklist|length }})</span>
+</h2>
+<div class="section-collapsible">
+{% if task.checklist|length >= 2 %}
+  <div class="progress mb-3" style="height: 6px;" title="{{ task.checklist_progress }}%">
+    <div class="progress-bar bg-success" style="width: {{ task.checklist_progress }}%;"></div>
+  </div>
+{% endif %}
+
+<ul class="task-checklist list-unstyled mb-3">
+  {% for ci in task.checklist %}
+    <li class="d-flex align-items-center gap-2 py-1">
+      <button type="button" class="btn btn-link p-0 checklist-toggle"
+              data-action="{{ url_for('templates.checklist_toggle', item_id=task.pk, index=loop.index0) }}"
+              title="{{ 'Mark undone' if ci.done else 'Mark done' }}">
+        <i class="bi {{ 'bi-check-square-fill text-success' if ci.done else 'bi-square' }} fs-5"></i>
+      </button>
+      <span class="checklist-text {% if ci.done %}text-decoration-line-through text-muted{% endif %}">{{ ci.text }}</span>
+      <button type="button" class="btn btn-link btn-sm p-0 text-muted ms-auto checklist-delete"
+              data-action="{{ url_for('templates.checklist_delete', item_id=task.pk, index=loop.index0) }}"
+              title="Remove item">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </li>
+  {% else %}
+    <li class="text-muted small">No checklist items yet.</li>
+  {% endfor %}
+</ul>
+
+<div class="d-flex gap-2 checklist-add"
+     data-action="{{ url_for('templates.checklist_add', item_id=task.pk) }}">
+  <input type="text" class="form-control form-control-sm checklist-add-input"
+         placeholder="Add a checklist item…" maxlength="500" autocomplete="off">
+  <button type="button" class="btn btn-sm btn-outline-primary checklist-add-btn">Add</button>
+</div>
+</div>{# /.section-collapsible #}
