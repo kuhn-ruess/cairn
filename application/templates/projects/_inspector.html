@@ -118,7 +118,10 @@
         <button type="button" class="btn btn-outline-secondary" data-quick-date="proj_plan_date" data-set="clear">×</button>
       </div>
     </div>
-    {# Gantt scheduling window — laid out as a bar in the timeline view. #}
+  </div>
+
+  {# Gantt scheduling window (Target start / Target end) — its own row. #}
+  <div class="inspector-section grid-2" data-show-for="project,section">
     <div>
       {{ form.start_date.label(class="form-label small text-uppercase text-muted") }}
       {{ form.start_date(class="form-control form-control-sm", id="proj_start_date") }}

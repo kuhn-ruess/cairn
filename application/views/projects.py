@@ -1702,8 +1702,12 @@ def _parse_csv_date(raw):
                 return datetime(int(m.group(3)), mnum, int(m.group(2)))
             except ValueError:
                 return None
-    # Numeric fallbacks, locale-independent.
-    for fmt in ("%d.%m.%Y", "%d.%m.%y", "%m/%d/%Y", "%d/%m/%Y", "%Y-%m-%d %H:%M"):
+    # Numeric fallbacks, locale-independent. Jira's German export uses
+    # "dd.mm.yyyy HH:MM" (e.g. "02.11.2026 00:00"), so the timed variants come
+    # first — otherwise the trailing time makes the date-only formats fail.
+    for fmt in ("%d.%m.%Y %H:%M", "%d.%m.%Y", "%d.%m.%y %H:%M", "%d.%m.%y",
+                "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
+                "%m/%d/%Y %H:%M", "%m/%d/%Y", "%d/%m/%Y"):
         try:
             return datetime.strptime(raw, fmt)
         except ValueError:
@@ -1848,6 +1852,27 @@ def import_csv(project_id):
                     return values[i].strip()
         return ""
 
+    import re as _re_cf
+
+    def _unwrap_header(h):
+        # Jira exports custom fields wrapped: "Benutzerdefinierte Felder (Target
+        # start)" / "Custom field (Target start)". Peel that off so the inner
+        # name (e.g. the Gantt "Target start") is matchable.
+        m = _re_cf.match(
+            r"^(?:benutzerdefinierte felder|custom field)\s*\((.+)\)$", h)
+        return m.group(1).strip() if m else h
+
+    def _row_get_cf(values, *keys):
+        """Like ``_row_get`` but also matches a Jira custom-field-wrapped
+        header. Keys are tried in order (first key = highest priority), so
+        'target start' wins over a looser alias when both are present."""
+        for k in keys:
+            for i, h in enumerate(headers):
+                if i < len(values) and (values[i] or "").strip() \
+                        and (h == k or _unwrap_header(h) == k):
+                    return values[i].strip()
+        return ""
+
     # Index existing items by csv_id — applied in both ``import`` and
     # ``sync`` mode, so re-importing the same file always updates the
     # matching rows instead of creating duplicates. Scope is all of
@@ -1960,14 +1985,16 @@ def import_csv(project_id):
         due_dt = _parse_csv_date(due_val)
         if due_dt:
             target.due_date = attach_user_tz(due_dt, user)
-        # Gantt window — Jira "Target start" / "Target end" (+ common aliases).
-        start_dt = _parse_csv_date(_row_get(
-            values, "target start", "start date", "start datum",
-            "startdatum", "beginn", "start"))
+        # Gantt window — Jira's "Target start" / "Target end". These ship as
+        # custom fields ("Benutzerdefinierte Felder (Target start)"), so use the
+        # wrapper-aware lookup. "target …" is tried first so it wins over the
+        # looser date-column aliases if several are present.
+        start_dt = _parse_csv_date(_row_get_cf(
+            values, "target start", "start date", "startdatum"))
         if start_dt:
             target.start_date = attach_user_tz(start_dt, user)
-        end_dt = _parse_csv_date(_row_get(
-            values, "target end", "end date", "enddatum", "end datum", "ende"))
+        end_dt = _parse_csv_date(_row_get_cf(
+            values, "target end", "end date", "enddatum"))
         if end_dt:
             target.end_date = attach_user_tz(end_dt, user)
 
