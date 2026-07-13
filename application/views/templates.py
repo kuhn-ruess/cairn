@@ -297,7 +297,11 @@ def use(item_id):
 # --------------------------------------------------------------------------
 
 def _checklist_response(item: Item):
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+    # checklist.js (shared, global) posts with the ``X-Partial: 1`` header and
+    # swaps the returned partial in place. Detect THAT header — not
+    # X-Requested-With — otherwise we fall through to the redirect, fetch
+    # follows it, and the whole editor page gets injected into the checklist box.
+    if request.headers.get("X-Partial") == "1":
         return render_template("templates/_checklist.html", task=item)
     return redirect(url_for("templates.edit", item_id=str(item.id)) + "#checklist")
 
