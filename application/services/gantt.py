@@ -64,10 +64,11 @@ def build_gantt(items, tz, now=None):
         range_start, range_end = min(bounds), max(bounds)
     else:
         range_start, range_end = now, now + timedelta(days=30)
-    # Keep today on the canvas, snap to whole days, and pad — a week before the
-    # earliest bar and a month past the latest so there's room to plan ahead.
-    range_start = _day_floor(min(range_start, now), tz) - timedelta(days=7)
-    range_end = _day_floor(max(range_end, now), tz) + timedelta(days=30)
+    # Keep today on the canvas, snap to whole days, and pad generously so there
+    # are months to scroll on either side (a month before the earliest bar /
+    # today, three months past the latest to plan ahead).
+    range_start = _day_floor(min(range_start, now), tz) - timedelta(days=31)
+    range_end = _day_floor(max(range_end, now), tz) + timedelta(days=92)
 
     total_days = max(1.0, _days(range_end, range_start))
 

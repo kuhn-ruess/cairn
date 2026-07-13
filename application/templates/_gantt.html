@@ -36,6 +36,16 @@
 </div>
 {% endif %}
 
+{# Month navigation — scrolls the timeline (the h-scrollbar sits far below on a
+   long list, so these are the practical way to pan across months). #}
+<div class="btn-group btn-group-sm mb-2" role="group" aria-label="Scroll timeline">
+  <button type="button" class="btn btn-outline-secondary" data-gantt-nav="-1" title="Previous month">
+    <i class="bi bi-chevron-left"></i> Month</button>
+  <button type="button" class="btn btn-outline-secondary" data-gantt-nav="today">Today</button>
+  <button type="button" class="btn btn-outline-secondary" data-gantt-nav="1" title="Next month">
+    Month <i class="bi bi-chevron-right"></i></button>
+</div>
+
 <div class="gantt-scroll" id="ganttScroll"
      data-today-px="{{ (gantt.today * ppd)|round|int if gantt.today is not none else '' }}">
   <div class="gantt">
@@ -84,15 +94,25 @@
 
 <script>
 (function () {
-  // Land on "today" by default: scroll the timeline so today sits ~1/4 in,
-  // keeping a little recent past visible on the left.
   var el = document.getElementById("ganttScroll");
   if (!el) return;
-  var px = parseInt(el.dataset.todayPx, 10);
-  if (!isNaN(px)) {
-    requestAnimationFrame(function () {
-      el.scrollLeft = Math.max(0, px - Math.round(el.clientWidth * 0.25));
-    });
+  var PPD = {{ ppd }};
+  var todayPx = parseInt(el.dataset.todayPx, 10);
+
+  function toToday() {
+    if (isNaN(todayPx)) return;
+    el.scrollLeft = Math.max(0, todayPx - Math.round(el.clientWidth * 0.25));
   }
+  // Land on "today" by default (today ~1/4 in, a little recent past visible).
+  requestAnimationFrame(toToday);
+
+  // Month nav buttons scroll the timeline by ~30 days (smoothly).
+  document.querySelectorAll('[data-gantt-nav]').forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var v = btn.dataset.ganttNav;
+      if (v === "today") { el.scrollTo({ left: Math.max(0, (isNaN(todayPx) ? el.scrollLeft : todayPx) - Math.round(el.clientWidth * 0.25)), behavior: "smooth" }); return; }
+      el.scrollBy({ left: parseInt(v, 10) * 30 * PPD, behavior: "smooth" });
+    });
+  });
 })();
 </script>
