@@ -1,14 +1,16 @@
 """Gantt / timeline layout — turn a flat list of items into positioned bars.
 
 Pure computation (no DB): the caller passes the already-filtered items (the
-current view's task set), we work out a padded date range that spans every
-``start_date``/``end_date`` plus today, and return each row with its bar's
-``left``/``width`` as percentages of that range. The template just draws them.
-
-An item may set only one of the two dates — the bar then collapses to a marker
-on that day. Items with neither date still list (in the left table) with no bar.
+current view's task set) and we work out the date range that spans every
+``start_date``/``end_date`` plus today. Positions are returned in **days from
+the range start** — the template multiplies by a fixed pixels-per-day so the
+canvas is wider than the viewport and scrolls horizontally (pan across months),
+and the page scrolls it to "today" on load. An item may set only one of the two
+dates (bar collapses to a marker); items with neither still list, without a bar.
 """
 from datetime import datetime, timedelta, timezone
+
+PX_PER_DAY = 26  # kept in sync with the template's --gantt-ppd
 
 
 def _aware(dt):
@@ -20,23 +22,23 @@ def _aware(dt):
 
 
 def _day_floor(dt, tz):
-    d = dt.astimezone(tz)
-    return d.replace(hour=0, minute=0, second=0, microsecond=0)
+    return dt.astimezone(tz).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def _month_ticks(start, end, tz, pct):
-    """First-of-month gridlines/labels within the range, as (label, pct)."""
+def _days(dt, origin):
+    """Fractional days from ``origin`` to ``dt``."""
+    return (dt - origin).total_seconds() / 86400.0
+
+
+def _month_ticks(start, end, tz, origin):
+    """First-of-month gridlines/labels within the range, as (label, days)."""
     ticks = []
     cur = _day_floor(start, tz).replace(day=1)
-    if cur < _day_floor(start, tz):
-        cur = cur  # keep; may sit just left of range, pct clamps below
     guard = 0
     while cur <= end and guard < 240:
         guard += 1
-        p = pct(cur)
-        if 0 <= p <= 100:
-            ticks.append({"label": cur.strftime("%b %Y"), "pct": p})
-        # advance one month
+        if cur >= start:
+            ticks.append({"label": cur.strftime("%b %Y"), "left": round(_days(cur, origin), 3)})
         y, m = cur.year, cur.month
         cur = cur.replace(year=y + 1, month=1, day=1) if m == 12 \
             else cur.replace(month=m + 1, day=1)
@@ -44,9 +46,8 @@ def _month_ticks(start, end, tz, pct):
 
 
 def build_gantt(items, tz, now=None):
-    """Return the template context for a timeline over ``items`` (an ordered
-    iterable of Item). ``tz`` is the user's tzinfo; ``now`` overrides the clock
-    (tests)."""
+    """Return the template context for a timeline over ``items`` (ordered).
+    ``tz`` is the user's tzinfo; ``now`` overrides the clock (tests)."""
     now = _aware(now) or datetime.now(timezone.utc)
     items = list(items)
 
@@ -60,21 +61,15 @@ def build_gantt(items, tz, now=None):
             bounds.append(e)
 
     if bounds:
-        range_start = min(bounds)
-        range_end = max(bounds)
+        range_start, range_end = min(bounds), max(bounds)
     else:
-        range_start = now
-        range_end = now + timedelta(days=30)
-    # Always keep "today" on the canvas, then snap to whole days + pad.
-    range_start = min(range_start, now)
-    range_end = max(range_end, now)
-    range_start = _day_floor(range_start, tz) - timedelta(days=2)
-    range_end = _day_floor(range_end, tz) + timedelta(days=3)
+        range_start, range_end = now, now + timedelta(days=30)
+    # Keep today on the canvas, snap to whole days, and pad — a week before the
+    # earliest bar and a month past the latest so there's room to plan ahead.
+    range_start = _day_floor(min(range_start, now), tz) - timedelta(days=7)
+    range_end = _day_floor(max(range_end, now), tz) + timedelta(days=30)
 
-    span = (range_end - range_start).total_seconds() or 1.0
-
-    def pct(dt):
-        return max(0.0, min(100.0, (dt - range_start).total_seconds() / span * 100.0))
+    total_days = max(1.0, _days(range_end, range_start))
 
     rows = []
     for it in items:
@@ -85,14 +80,14 @@ def build_gantt(items, tz, now=None):
             bs, be = (s or e), (e or s)
             if be < bs:
                 bs, be = be, bs
-            left = pct(bs)
-            width = max(0.8, pct(be) - left)
+            left = _days(bs, range_start)
+            width = max(0.6, _days(be, range_start) - left)
             bar = {
                 "left": round(left, 3),
                 "width": round(width, 3),
                 "point": s is None or e is None or s == e,
-                "overdue": bool(e and e < now
-                                and getattr(it, "status", "") not in ("done", "dropped", "completed")),
+                "overdue": bool(e and e < now and getattr(it, "status", "")
+                                not in ("done", "dropped", "completed")),
             }
         rows.append({
             "item": it,
@@ -102,12 +97,14 @@ def build_gantt(items, tz, now=None):
             "indent": int(getattr(it, "_gantt_indent", 0) or 0),
         })
 
-    today_pct = pct(now) if range_start <= now <= range_end else None
+    today = round(_days(now, range_start), 3) if range_start <= now <= range_end else None
     return {
         "rows": rows,
-        "today_pct": None if today_pct is None else round(today_pct, 3),
+        "today": today,
+        "total_days": round(total_days, 3),
+        "px_per_day": PX_PER_DAY,
         "range_start": range_start,
         "range_end": range_end,
-        "ticks": _month_ticks(range_start, range_end, tz, pct),
+        "ticks": _month_ticks(range_start, range_end, tz, range_start),
         "has_any_dates": bool(bounds),
     }

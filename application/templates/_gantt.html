@@ -1,26 +1,31 @@
-{# Gantt / timeline view. Context: gantt = build_gantt(...) → rows, today_pct,
-   ticks, range_start/end. Rows carry the Item + its start/end + bar geometry.
-   Rendered inside list.html / project detail when ?view=gantt (premium). #}
+{# Gantt / timeline view. Context: gantt = build_gantt(...). Positions are in
+   DAYS; we multiply by px-per-day so the canvas is wider than the viewport and
+   scrolls horizontally. The left column is frozen (sticky); the page scrolls
+   the timeline to "today" on load. Rendered when ?view=gantt (premium). #}
+{% set ppd = gantt.px_per_day %}
+{% set tl_w = (gantt.total_days * ppd)|round|int %}
 <style>
-.gantt-scroll { overflow-x: auto; border: 1px solid var(--bs-border-color); border-radius: .5rem; }
-.gantt { min-width: 960px; font-size: .875rem; }
-.gantt-row { display: grid; grid-template-columns: 540px 1fr; border-top: 1px solid var(--bs-border-color-translucent); }
-.gantt-row:hover { background: var(--bs-tertiary-bg); }
-.gantt-head { position: sticky; top: 0; z-index: 2; background: var(--bs-body-bg);
-  font-size: .75rem; text-transform: uppercase; letter-spacing: .03em; color: var(--bs-secondary-color); }
-.gantt-left { display: grid; grid-template-columns: 1fr 96px 96px 104px; align-items: center;
-  gap: .25rem; padding: .3rem .5rem; min-width: 0; }
+.gantt-scroll { overflow-x: auto; border: 1px solid var(--bs-border-color); border-radius: .5rem; position: relative; }
+.gantt { width: max-content; font-size: .85rem; }
+.gantt-row { display: grid; grid-template-columns: 520px {{ tl_w }}px; border-top: 1px solid var(--bs-border-color-translucent); }
+.gantt-row:hover .gantt-left, .gantt-row:hover .gantt-timeline { background: var(--bs-tertiary-bg); }
+.gantt-left { position: sticky; left: 0; z-index: 3; background: var(--bs-body-bg);
+  display: grid; grid-template-columns: 1fr 92px 92px 96px; align-items: center; gap: .25rem;
+  padding: .3rem .5rem; min-width: 0; border-right: 1px solid var(--bs-border-color); }
 .gantt-left .g-issue { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gantt-left .g-date { color: var(--bs-secondary-color); font-variant-numeric: tabular-nums; }
-.gantt-timeline { position: relative; height: 34px; border-left: 2px solid var(--bs-border-color); }
+.gantt-left .g-date { color: var(--bs-secondary-color); font-variant-numeric: tabular-nums; font-size: .78rem; }
+.gantt-head { position: sticky; top: 0; z-index: 5; background: var(--bs-body-bg);
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; color: var(--bs-secondary-color); }
+.gantt-head .gantt-left { z-index: 6; }
+.gantt-timeline { position: relative; height: 34px; }
 .gantt-head .gantt-timeline { height: 26px; }
 .gantt-bar { position: absolute; top: 8px; height: 18px; border-radius: 4px;
   background: var(--bs-secondary); opacity: .85; }
 .gantt-bar.g-overdue { background: var(--bs-danger); opacity: .8; }
 .gantt-bar.g-point { border-radius: 50%; width: 12px !important; height: 12px; top: 11px; margin-left: -6px; }
-.gantt-today { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--bs-warning); z-index: 1; }
+.gantt-today { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--bs-warning); z-index: 2; }
 .gantt-tick { position: absolute; top: 0; bottom: 0; border-left: 1px dashed var(--bs-border-color-translucent); }
-.gantt-tick > span { position: absolute; top: 3px; left: 4px; white-space: nowrap; }
+.gantt-tick > span { position: absolute; top: 4px; left: 5px; white-space: nowrap; }
 </style>
 
 {% if not gantt.has_any_dates %}
@@ -31,7 +36,8 @@
 </div>
 {% endif %}
 
-<div class="gantt-scroll">
+<div class="gantt-scroll" id="ganttScroll"
+     data-today-px="{{ (gantt.today * ppd)|round|int if gantt.today is not none else '' }}">
   <div class="gantt">
     {# Header #}
     <div class="gantt-row gantt-head">
@@ -40,9 +46,9 @@
       </div>
       <div class="gantt-timeline">
         {% for t in gantt.ticks %}
-          <div class="gantt-tick" style="left: {{ t.pct }}%;"><span>{{ t.label }}</span></div>
+          <div class="gantt-tick" style="left: {{ (t.left * ppd)|round(1) }}px;"><span>{{ t.label }}</span></div>
         {% endfor %}
-        {% if gantt.today_pct is not none %}<div class="gantt-today" style="left: {{ gantt.today_pct }}%;"></div>{% endif %}
+        {% if gantt.today is not none %}<div class="gantt-today" style="left: {{ (gantt.today * ppd)|round(1) }}px;"></div>{% endif %}
       </div>
     </div>
 
@@ -56,22 +62,37 @@
             <a class="text-decoration-none text-body"
                href="{{ url_for('projects.detail', project_id=it.pk) if it.kind in ['project','folder','section'] else url_for('tasks.detail', task_id=it.pk) }}">{{ it.title }}</a>
           </span>
-          <span class="g-date">{{ r.start.strftime('%b %d, %Y') if r.start else '—' }}</span>
-          <span class="g-date">{{ r.end.strftime('%b %d, %Y') if r.end else '—' }}</span>
+          <span class="g-date">{{ r.start.strftime('%d %b %Y') if r.start else '—' }}</span>
+          <span class="g-date">{{ r.end.strftime('%d %b %Y') if r.end else '—' }}</span>
           <span>{% if it.status %}<span class="badge text-bg-light text-uppercase">{{ it.status }}</span>{% endif %}</span>
         </div>
         <div class="gantt-timeline">
           {% for t in gantt.ticks %}
-            <div class="gantt-tick" style="left: {{ t.pct }}%;"></div>
+            <div class="gantt-tick" style="left: {{ (t.left * ppd)|round(1) }}px;"></div>
           {% endfor %}
-          {% if gantt.today_pct is not none %}<div class="gantt-today" style="left: {{ gantt.today_pct }}%;"></div>{% endif %}
+          {% if gantt.today is not none %}<div class="gantt-today" style="left: {{ (gantt.today * ppd)|round(1) }}px;"></div>{% endif %}
           {% if r.bar %}
             <div class="gantt-bar {{ 'g-point' if r.bar.point else '' }} {{ 'g-overdue' if r.bar.overdue else '' }}"
-                 style="left: {{ r.bar.left }}%; width: {{ r.bar.width }}%;"
-                 title="{{ it.title }}{% if r.start %} · {{ r.start.strftime('%b %d') }}{% endif %}{% if r.end %} → {{ r.end.strftime('%b %d') }}{% endif %}"></div>
+                 style="left: {{ (r.bar.left * ppd)|round(1) }}px; width: {{ (r.bar.width * ppd)|round(1) }}px;"
+                 title="{{ it.title }}{% if r.start %} · {{ r.start.strftime('%d %b') }}{% endif %}{% if r.end %} → {{ r.end.strftime('%d %b') }}{% endif %}"></div>
           {% endif %}
         </div>
       </div>
     {% endfor %}
   </div>
 </div>
+
+<script>
+(function () {
+  // Land on "today" by default: scroll the timeline so today sits ~1/4 in,
+  // keeping a little recent past visible on the left.
+  var el = document.getElementById("ganttScroll");
+  if (!el) return;
+  var px = parseInt(el.dataset.todayPx, 10);
+  if (!isNaN(px)) {
+    requestAnimationFrame(function () {
+      el.scrollLeft = Math.max(0, px - Math.round(el.clientWidth * 0.25));
+    });
+  }
+})();
+</script>
