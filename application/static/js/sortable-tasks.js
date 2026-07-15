@@ -412,7 +412,9 @@
     const form = ev.target.closest("form[data-task-complete-form]");
     if (!form) return;
     ev.preventDefault();
-    const row = form.closest(".task-row");
+    // Also handles the Today plan-view rails (Unplanned / Next actions), whose
+    // pills are .plan-rail-item — completing one drops the pill in place.
+    const row = form.closest(".task-row, .plan-rail-item");
     const wasDone = row && row.classList.contains("done");
     const fd = new FormData(form);
     fetch(form.action, {
