@@ -1,9 +1,30 @@
 """Plain-dict serializers — no extra dependency needed for JSON."""
+import re
 from typing import Any
 
 
 def iso(dt):
     return dt.isoformat() if dt else None
+
+
+# Inline image/file links in note + comment markdown point at the cookie-authed
+# WEB route (``/tasks/<id>/note-image|note-file/<token>``). An API client can't
+# load those, so rewrite them to the token-authed API download endpoint — the
+# same endpoint serves both note_images and note_files. This makes images
+# embedded in the note OR in comments fetchable purely over the API.
+_INLINE_ATTACH_RE = re.compile(
+    r"/tasks/[0-9a-fA-F]{24}/note-(?:image|file)/([A-Za-z0-9_\-]+)")
+
+
+def rewrite_attachment_urls(markdown, task_pk):
+    if not markdown:
+        return markdown
+    from flask import url_for
+    return _INLINE_ATTACH_RE.sub(
+        lambda m: url_for("api_v1.get_attachment",
+                          task_id=str(task_pk), token=m.group(1)),
+        markdown,
+    )
 
 
 def ref_ids(raw) -> list[str]:
@@ -47,7 +68,7 @@ def project(p) -> dict[str, Any]:
     return {
         "id": str(p.pk),
         "name": p.name,
-        "note": p.note,
+        "note": rewrite_attachment_urls(p.note, p.pk),
         "color": p.color or None,
         "kind": p.kind,
         "type": p.project_type,
@@ -71,6 +92,11 @@ def project(p) -> dict[str, Any]:
         "created_at": iso(p.created_at),
         "updated_at": iso(p.updated_at),
         "completed_at": iso(p.completed_at),
+        # Inline attachments/comments — a project note can carry pasted images
+        # too, fetchable via the same /tasks/<id>/attachments/<token> endpoint.
+        "comments": [comment(c, p.pk) for c in (p.comments or [])],
+        "attachments": [attachment(p.pk, f) for f in (p.note_files or [])],
+        "note_images": [note_image(p.pk, i) for i in (p.note_images or [])],
     }
 
 
@@ -103,15 +129,17 @@ def perspective(p) -> dict[str, Any]:
     }
 
 
-def comment(c) -> dict[str, Any]:
+def comment(c, task_pk=None) -> dict[str, Any]:
     # ``author`` is null for comments mirrored in from an external system
     # (e.g. a Zammad ticket reply). ``author_name`` is always a display
     # string and ``is_external`` flags the non-app-user case for clients.
+    # ``body`` has its inline image/file links rewritten to API URLs so a
+    # picture pasted into a comment is fetchable over the API.
     return {
         "author": user_brief(c.author),
         "author_name": c.author_name,
         "is_external": c.is_external,
-        "body": c.body,
+        "body": rewrite_attachment_urls(c.body, task_pk) if task_pk else c.body,
         "created_at": iso(c.created_at),
     }
 
@@ -129,7 +157,7 @@ def task_compact(t) -> dict[str, Any]:
         "id": str(t.pk),
         "kind": t.kind,
         "title": t.title,
-        "note": t.note,
+        "note": rewrite_attachment_urls(t.note, t.pk),
         "status": t.status,
         "flagged": t.flagged,
         "priority": t.priority,
@@ -191,7 +219,7 @@ def task(t) -> dict[str, Any]:
         "id": str(t.pk),
         "kind": t.kind,
         "title": t.title,
-        "note": t.note,
+        "note": rewrite_attachment_urls(t.note, t.pk),
         "color": t.color or None,
         "status": t.status,
         "flagged": t.flagged,
@@ -232,7 +260,7 @@ def task(t) -> dict[str, Any]:
         "assigned_to": user_brief(t.assigned_to),
         "assigned_by": user_brief(t.assigned_by),
         "assigned_at": iso(t.assigned_at),
-        "comments": [comment(c) for c in (t.comments or [])],
+        "comments": [comment(c, t.pk) for c in (t.comments or [])],
         "attachments": [attachment(t.pk, f) for f in (t.note_files or [])],
         "note_images": [note_image(t.pk, i) for i in (t.note_images or [])],
         "created_at": iso(t.created_at),
