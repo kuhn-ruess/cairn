@@ -1375,14 +1375,22 @@ class Item(Document):
             node = node.parent
         return None
 
-    def _admin_can_view(self, user) -> bool:
-        """A team admin sees everything under any subtree shared with a team
-        they manage — a descendant override (shared with specific people) does
-        NOT lock the admin out, unlike a regular member."""
+    def _ancestor_grant(self, user) -> bool:
+        """Walk the ancestor chain for the two grants that a descendant share
+        can NOT narrow away (unlike a regular member, see
+        ``_explicit_share_node``):
+
+        * you OWN an ancestor — owning a task or project means owning
+          everything filed under it, so subtasks someone else created under
+          your task are yours to see, edit and complete;
+        * you MANAGE a team an ancestor is shared with (team admin).
+
+        One traversal for both, since ``can_be_viewed_by`` needs each. Starts
+        at ``self`` — redundant for the owner check (the caller already tested
+        it) but the team-admin check must still see this item's own
+        ``shared_teams``."""
         from application.services.permissions import managed_team_ids
         mids = managed_team_ids(user)
-        if not mids:
-            return False
         node, seen = self, set()
         while node is not None:
             pk = str(getattr(node, "pk", "") or "")
@@ -1390,7 +1398,10 @@ class Item(Document):
                 break
             if pk:
                 seen.add(pk)
-            if node.shared_teams and any(str(t.pk) in mids for t in node.shared_teams):
+            if node.owner == user:
+                return True
+            if mids and node.shared_teams \
+                    and any(str(t.pk) in mids for t in node.shared_teams):
                 return True
             node = node.parent
         return False
@@ -1400,7 +1411,7 @@ class Item(Document):
             return True
         if self.assigned_to == user:
             return True
-        if self._admin_can_view(user):
+        if self._ancestor_grant(user):
             return True
         # An item's OWN share is additive: members/teams set directly on it can
         # only GRANT access, never narrow. For a task this is the whole effect
