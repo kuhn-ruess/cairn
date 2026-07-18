@@ -363,36 +363,54 @@ def _apply_tags(task: Item, user: User, raw_names) -> None:
 
 def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     from application.services.tz import attach_user_tz
+    from application.services.inspector_layout import hidden_sections
+    # The inspector only renders the sections the user kept visible, so a
+    # hidden section's fields never reach the POST — and every assignment
+    # below would then write the form's empty default over live data (an
+    # absent ``project`` clears the parent, an absent ``assigned_to``
+    # unassigns, an absent checkbox unflags). Presence in ``request.form``
+    # can't tell the two apart: a visible-but-unchecked box is absent too.
+    # So skip by section instead. ``title`` is pinned and always rendered.
+    hidden = hidden_sections(user)
+
     task.title = form.title.data
-    task.note = form.note.data or ""
-    task.status = form.status.data
-    task.flagged = form.flagged.data
-    task.is_internal = form.is_internal.data
-    task.priority = int(form.priority.data) if form.priority.data else None
-    # ``datetime-local`` inputs come in as naive wall-clock values in the
-    # user's local time — attach their tz so mongoengine doesn't treat
-    # them as UTC and shift everything by the user's offset.
-    task.defer_date = attach_user_tz(form.defer_date.data, user)
-    task.due_date = attach_user_tz(form.due_date.data, user)
-    task.plan_date = attach_user_tz(form.plan_date.data, user)
-    task.start_date = attach_user_tz(form.start_date.data, user)
-    task.end_date = attach_user_tz(form.end_date.data, user)
-    task.waiting_on = (form.waiting_on.data or "").strip()
-    task.followup_at = attach_user_tz(form.followup_at.data, user)
-    task.followup_every_days = form.followup_every_days.data
-    task.estimated_minutes = form.estimated_minutes.data
-    task.location = (form.location.data or "").strip()
-    task.repeat_every_days = form.repeat_every_days.data
-    task.repeat_unit = form.repeat_unit.data or "day"
-    task.repeat_from_completion = form.repeat_from_completion.data
-    task.repeat_weekdays = sorted(form.repeat_weekdays.data or [])
-    # Fixed day-of-month is mutually exclusive with weekday recurrence in the UI;
-    # a submitted monthday clears any weekday picks so the two can't fight.
-    task.repeat_monthday = form.repeat_monthday.data or None
-    if task.repeat_monthday:
-        task.repeat_weekdays = []
-    # Blank → None → inherit the project's review cadence; a number overrides.
-    task.review_interval_days = form.review_interval_days.data
+    if "note" not in hidden:
+        task.note = form.note.data or ""
+    if "status_project" not in hidden:
+        task.status = form.status.data
+        task.flagged = form.flagged.data
+        task.is_internal = form.is_internal.data
+    if "priority_estimate" not in hidden:
+        task.priority = int(form.priority.data) if form.priority.data else None
+        task.estimated_minutes = form.estimated_minutes.data
+    if "dates" not in hidden:
+        # ``datetime-local`` inputs come in as naive wall-clock values in the
+        # user's local time — attach their tz so mongoengine doesn't treat
+        # them as UTC and shift everything by the user's offset.
+        task.defer_date = attach_user_tz(form.defer_date.data, user)
+        task.due_date = attach_user_tz(form.due_date.data, user)
+        task.plan_date = attach_user_tz(form.plan_date.data, user)
+        task.start_date = attach_user_tz(form.start_date.data, user)
+        task.end_date = attach_user_tz(form.end_date.data, user)
+    if "review" not in hidden:
+        task.waiting_on = (form.waiting_on.data or "").strip()
+        task.followup_at = attach_user_tz(form.followup_at.data, user)
+        task.followup_every_days = form.followup_every_days.data
+        # Blank → None → inherit the project's review cadence; a number overrides.
+        task.review_interval_days = form.review_interval_days.data
+    if "location" not in hidden:
+        task.location = (form.location.data or "").strip()
+    if "repeat" not in hidden:
+        task.repeat_every_days = form.repeat_every_days.data
+        task.repeat_unit = form.repeat_unit.data or "day"
+        task.repeat_from_completion = form.repeat_from_completion.data
+        task.repeat_weekdays = sorted(form.repeat_weekdays.data or [])
+        # Fixed day-of-month is mutually exclusive with weekday recurrence in
+        # the UI; a submitted monthday clears any weekday picks so the two
+        # can't fight.
+        task.repeat_monthday = form.repeat_monthday.data or None
+        if task.repeat_monthday:
+            task.repeat_weekdays = []
     # ``form.project.data`` should be a project pk string from the
     # select. Use the shared visibility helper so a tampered POST can't
     # reparent into a project the user doesn't own/share. Invalid /
@@ -405,17 +423,18 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     # out to a project happens via drag/move, not this form.
     parent_is_task = (task.parent is not None
                       and getattr(task.parent, "kind", None) == "task")
-    if not parent_is_task:
-        from application.services.permissions import resolve_visible_item
-        _dest = resolve_visible_item(user, form.project.data) if form.project.data else None
-        # Role-aware: an assignee triaging a delegated task files it under
-        # THEIR own project (assignee_parent), never the owner's parent.
-        try:
-            task.set_home_for(user, _dest)
-        except ValueError:
-            # Tampered POST picking a project the assignee doesn't own → Inbox.
-            task.set_home_for(user, None)
-    _apply_tags(task, user, form.tags.data)
+    if "status_project" not in hidden:
+        if not parent_is_task:
+            from application.services.permissions import resolve_visible_item
+            _dest = resolve_visible_item(user, form.project.data) if form.project.data else None
+            # Role-aware: an assignee triaging a delegated task files it under
+            # THEIR own project (assignee_parent), never the owner's parent.
+            try:
+                task.set_home_for(user, _dest)
+            except ValueError:
+                # Tampered POST picking a project the assignee doesn't own → Inbox.
+                task.set_home_for(user, None)
+        _apply_tags(task, user, form.tags.data)
 
     # Owner (Jira-style, separate from the assignee). Only an existing task has
     # an editable owner — the create form owns itself via the current user, and
@@ -455,7 +474,9 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
             # Silently ignore non-shareable pks — the select choices are
             # already filtered, so reaching this branch with a bad id means
             # someone tampered with the POST.
-    else:
+    elif "assigned_to" not in hidden:
+        # Empty select = explicit unassign, but only when the user can actually
+        # see the picker — a hidden section must not silently unassign.
         task.assign_to(None)
 
 # ---------- perspectives ----------

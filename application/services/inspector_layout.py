@@ -48,3 +48,12 @@ def resolved_layout(user):
 def visible_order(user):
     """Ordered list of visible section keys, for rendering the inspector."""
     return [k for k, vis in resolved_layout(user) if vis]
+
+
+def hidden_sections(user) -> set:
+    """Section keys the user hid — i.e. the ones the inspector does NOT render,
+    so their fields never reach the POST. ``_apply_form`` skips these instead
+    of writing the form's empty defaults over the task (an absent ``project``
+    would otherwise clear the parent, an absent ``assigned_to`` would unassign,
+    an absent checkbox would unflag)."""
+    return set(SECTION_KEYS) - set(visible_order(user))
