@@ -6,12 +6,24 @@ from urllib.parse import urlparse
 from flask import Blueprint, current_app, flash, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
+from application import limiter
 from application.forms import (
     ForgotPasswordForm, LoginForm, RegisterForm, ResetPasswordForm,
 )
 from application.models.user import User
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
+
+
+def _login_failed(response) -> bool:
+    """Only a failed login consumes the quota.
+
+    A successful login redirects (302); a rejected one re-renders the form
+    (200). So someone who signs in correctly is never throttled, however often
+    they do it, while guessing burns the budget. GETs of the login page render
+    200 too, hence the method check.
+    """
+    return request.method == "POST" and response.status_code == 200
 
 
 def _safe_next_url() -> str:
@@ -38,6 +50,10 @@ def _safe_next_url() -> str:
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
+@limiter.limit(lambda: current_app.config["RATELIMIT_LOGIN"],
+               deduct_when=_login_failed,
+               error_message="Too many failed sign-in attempts. "
+                             "Please wait a few minutes and try again.")
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("dashboard.home"))
@@ -97,6 +113,9 @@ def _unique_username(base: str) -> str:
 
 
 @auth_bp.route("/register", methods=["GET", "POST"])
+@limiter.limit(lambda: current_app.config["RATELIMIT_REGISTER"],
+               methods=["POST"],
+               error_message="Too many sign-up attempts. Please try again later.")
 def register():
     if current_user.is_authenticated:
         return redirect(url_for("dashboard.home"))
@@ -140,6 +159,10 @@ def logout():
 
 
 @auth_bp.route("/forgot-password", methods=["GET", "POST"])
+@limiter.limit(lambda: current_app.config["RATELIMIT_PASSWORD_RESET"],
+               methods=["POST"],
+               error_message="Too many password-reset requests. "
+                             "Please wait before requesting another.")
 def forgot_password():
     """Kick off a password reset.
 
@@ -183,6 +206,8 @@ def forgot_password():
 
 
 @auth_bp.route("/reset-password/<token>", methods=["GET", "POST"])
+@limiter.limit(lambda: current_app.config["RATELIMIT_RESET_CONFIRM"],
+               error_message="Too many attempts. Please request a new reset link.")
 def reset_password(token):
     if current_user.is_authenticated:
         logout_user()

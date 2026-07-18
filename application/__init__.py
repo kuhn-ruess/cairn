@@ -3,13 +3,15 @@ import os
 
 from dotenv import load_dotenv
 from flask import Flask
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_login import LoginManager
 from flask_wtf.csrf import CSRFProtect
 from mongoengine import connect, disconnect
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Public app version — surfaced in the nav footer + the About page.
-APP_VERSION = "1.4.193"
+APP_VERSION = "1.4.194"
 
 # Pull settings out of a local ``.env`` file if one exists. Doesn't override
 # values that are already set in the real environment.
@@ -19,6 +21,19 @@ login_manager = LoginManager()
 login_manager.login_view = "auth.login"
 login_manager.login_message_category = "warning"
 csrf = CSRFProtect()
+
+# Brute-force protection for the credential endpoints (see views/auth.py and
+# views/caldav.py). Storage is Redis so the counters are shared across gunicorn
+# workers *and* across containers — an in-process store would give every worker
+# its own quota, multiplying the real limit by the worker count.
+#
+# Keyed on remote_addr, which is the true client IP because ProxyFix rewrites
+# it from X-Forwarded-For below. Without that this would key every request to
+# the reverse proxy and lock out all users at once.
+#
+# Default-off (``default_limits`` empty): only the endpoints that explicitly
+# opt in are limited, so normal app usage and the REST API are untouched.
+limiter = Limiter(key_func=get_remote_address)
 
 
 def create_app(config_object: str | None = None) -> Flask:
@@ -46,6 +61,7 @@ def create_app(config_object: str | None = None) -> Flask:
     _init_mongo(app)
     login_manager.init_app(app)
     csrf.init_app(app)
+    _init_limiter(app)
 
     from application.models.user import User
 
@@ -139,6 +155,33 @@ def create_app(config_object: str | None = None) -> Flask:
 
 def _default_config() -> str:
     return os.environ.get("BKTODO_CONFIG", "application.config.DevConfig")
+
+
+def _init_limiter(app: Flask) -> None:
+    """Wire the rate limiter, preferring Redis so counters are shared.
+
+    Falls back to in-process counters when Redis isn't reachable rather than
+    refusing to boot: a deployment without a broker (the documented no-broker
+    setup, see the sync-zammad-all CLI) should still start. The fallback is
+    weaker — per-worker quotas — so it says so loudly in the log.
+    """
+    app.config.setdefault("RATELIMIT_HEADERS_ENABLED", True)
+    url = app.config.get("REDIS_URL") or ""
+    storage = "memory://"
+    if url and app.config.get("RATELIMIT_ENABLED", True):
+        try:
+            import redis as _redis
+
+            _redis.Redis.from_url(url, socket_connect_timeout=1).ping()
+            storage = url
+        except Exception as exc:  # noqa: BLE001 — any connection problem
+            app.logger.warning(
+                "Rate limiter: Redis at %s unreachable (%s) — falling back to "
+                "in-process counters, which are per-worker and therefore "
+                "weaker than the configured limits.", url, exc,
+            )
+    app.config["RATELIMIT_STORAGE_URI"] = storage
+    limiter.init_app(app)
 
 
 def _init_mongo(app: Flask) -> None:

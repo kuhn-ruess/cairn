@@ -36,10 +36,24 @@ from mongoengine.errors import ValidationError
 
 from icalendar import Calendar, Event, Todo
 
+from application import limiter
 from application.models.item import Item
 from application.models.user import User
 
 caldav_bp = Blueprint("caldav", __name__)
+
+# Brute-force limit across every CalDAV route. This surface authenticates with
+# HTTP Basic against the user's real account password, is CSRF-exempt by design
+# and needs no session round-trip, which makes it the softest credential-
+# stuffing target in the app.
+#
+# Only 401s are counted: clients poll constantly and a per-request limit would
+# throttle normal syncing. A client sending good credentials is never affected,
+# however chatty it is; one hammering bad ones runs out.
+limiter.limit(
+    lambda: current_app.config["RATELIMIT_CALDAV"],
+    deduct_when=lambda response: response.status_code == 401,
+)(caldav_bp)
 
 _NS = ('xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" '
        'xmlns:CS="http://calendarserver.org/ns/" '

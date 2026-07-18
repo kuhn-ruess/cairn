@@ -21,6 +21,29 @@ class BaseConfig:
     # re-enqueues them. Beat ticks every minute; this spaces the actual syncs.
     ZAMMAD_SYNC_INTERVAL_MIN = 5
 
+    # ---- Brute-force limits on the credential endpoints -------------------
+    # Counted per client IP, and — for the two login paths — only on FAILED
+    # attempts, so a working client is never throttled no matter how often it
+    # authenticates. Values are limits-library strings; override via
+    # BKTODO_RATELIMIT_* to loosen or tighten without a code change.
+    RATELIMIT_ENABLED = True
+    # Web login. Generous enough for a person mistyping a password, far below
+    # what password guessing needs.
+    RATELIMIT_LOGIN = "10 per 15 minutes"
+    # CalDAV Basic auth. Machine-facing and CSRF-exempt, so it's the softest
+    # brute-force target — but Apple clients poll constantly and re-send stale
+    # credentials after a password change, hence a failure-only limit that's
+    # tolerant enough not to lock out a genuinely misconfigured client forever.
+    RATELIMIT_CALDAV = "20 per 15 minutes"
+    # Password-reset mail: limits both mailbombing a victim and reset-token
+    # fishing. Counts every POST, not just failures — sending IS the effect.
+    RATELIMIT_PASSWORD_RESET = "5 per hour"
+    # Reset-token submission — guessing a 256-bit token is hopeless anyway,
+    # this just closes the loop.
+    RATELIMIT_RESET_CONFIRM = "10 per hour"
+    # Signup, against automated account creation.
+    RATELIMIT_REGISTER = "5 per hour"
+
     # IANA timezone name attached to Google Calendar events when the
     # task's datetime is naive (the datetime-local form input has no
     # offset). Set via BKTODO_DEFAULT_TZ in env, e.g. ``Europe/Berlin``.
@@ -83,3 +106,7 @@ class TestConfig(BaseConfig):
     TESTING = True
     MONGO_DB = "bktodo_test"
     WTF_CSRF_ENABLED = False
+    # Off by default so a test run doesn't trip the login limiter and start
+    # failing unrelated assertions with 429s. Flip it on in the test that
+    # actually exercises the limits.
+    RATELIMIT_ENABLED = False
