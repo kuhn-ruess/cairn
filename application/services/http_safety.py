@@ -10,11 +10,19 @@ range. There's still a small TOCTOU window between the resolution we
 check and the resolution urllib does — for an extra-paranoid setup the
 caller could pin the resolved IP, but the time window is short and the
 attacker would need active DNS-rebinding control.
+
+Validating the URL alone is NOT enough, which is why ``safe_urlopen``
+exists and callers must use it instead of ``urllib.request.urlopen``:
+urlopen follows 3xx redirects on its own, so a public host that passes
+the check can answer ``302 Location: http://169.254.169.254/…`` and the
+fetch lands on the internal target anyway. ``safe_urlopen`` runs the same
+validation on every hop.
 """
 from __future__ import annotations
 
 import ipaddress
 import socket
+import urllib.request
 from urllib.parse import urlparse
 
 
@@ -72,3 +80,29 @@ def validate_outbound_url(url: str) -> str:
                 f"address {addr} for host {host} is in a non-routable range"
             )
     return url
+
+
+class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-validate every redirect target before following it."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Raises UnsafeURLError (a ValueError) straight out of urlopen, which
+        # is what the callers already catch alongside URLError.
+        validate_outbound_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_opener = urllib.request.build_opener(_ValidatingRedirectHandler)
+
+
+def safe_urlopen(req, timeout: int = 15):
+    """``urlopen`` for user-supplied URLs: validates the target, then every
+    redirect hop it follows.
+
+    ``req`` may be a URL string or a ``urllib.request.Request``. Use this
+    anywhere the URL came from a user — a bare ``urlopen`` re-opens the SSRF
+    hole through redirects even when the first URL was checked.
+    """
+    url = req.full_url if isinstance(req, urllib.request.Request) else req
+    validate_outbound_url(url)
+    return _opener.open(req, timeout=timeout)

@@ -80,33 +80,45 @@ def _apply(form: ProjectForm, project: Item) -> None:
     # save must leave any previously-imported base URL untouched.
     kind = form.kind.data or "project"
     project.kind = kind
-    # Parent and members are user-supplied pks — validate against the
-    # caller's visibility / share scope so a tampered POST can't graft
-    # the project onto someone else's tree or hand membership to
-    # arbitrary accounts.
-    from application.services.permissions import (
-        resolve_assignable_user, resolve_visible_item,
-    )
-    project.parent = (
-        resolve_visible_item(user, form.parent.data) if form.parent.data else None
-    )
-    if form.members.data:
-        members = []
-        for mid in form.members.data:
-            m = resolve_assignable_user(user, mid)
-            if m:
-                members.append(m)
-        project.members = members
-    else:
-        project.members = []
-    # Team shares — only teams the user actually participates in (a tampered POST
-    # can't share into a stranger's team).
-    from application.services.permissions import teams_of
-    allowed_team_ids = {str(t.pk): t for t in teams_of(user)}
-    project.shared_teams = [
-        allowed_team_ids[tid] for tid in (form.shared_teams.data or [])
-        if tid in allowed_team_ids
-    ]
+    # Placement and sharing belong to the OWNER alone. The route that calls
+    # this only checks ``can_be_edited_by``, which — since it is an alias of
+    # ``can_be_viewed_by`` — is true for every member of the project and every
+    # member of a team it's shared with. Without this guard a mere collaborator
+    # could save the inspector with ``parent`` set to a container of their own,
+    # grafting someone else's project into their tree (and, because owning an
+    # ancestor grants the whole subtree, gaining access to descendants whose
+    # own share deliberately excluded them) — and in the same request strip the
+    # other collaborators and re-share it into their own teams. Every other
+    # placement/sharing route here (move, share_toggle, rename, delete) is
+    # already strictly owner-scoped; this was the one that wasn't.
+    #
+    # The pks are still resolved through the caller's own visibility / share
+    # scope, so even the owner can't graft onto a stranger's tree or hand
+    # membership to an arbitrary account.
+    is_owner = user is not None and (project.owner is None or project.owner == user)
+    if is_owner:
+        from application.services.permissions import (
+            resolve_assignable_user, resolve_visible_item, teams_of,
+        )
+        project.parent = (
+            resolve_visible_item(user, form.parent.data) if form.parent.data else None
+        )
+        if form.members.data:
+            members = []
+            for mid in form.members.data:
+                m = resolve_assignable_user(user, mid)
+                if m:
+                    members.append(m)
+            project.members = members
+        else:
+            project.members = []
+        # Team shares — only teams the user actually participates in (a tampered
+        # POST can't share into a stranger's team).
+        allowed_team_ids = {str(t.pk): t for t in teams_of(user)}
+        project.shared_teams = [
+            allowed_team_ids[tid] for tid in (form.shared_teams.data or [])
+            if tid in allowed_team_ids
+        ]
 
     # Kind-specific cleanup. Sections share the project_type field
     # (they can be sequential too — the per-section blocking logic

@@ -508,9 +508,12 @@
 
 <div class="inspector-footer">
   {% if task and not inspector_inline and task.owner and current_user.is_authenticated
-        and task.owner.id != current_user.id %}
-    {# You can see this task (assignee/member) but someone else owns it.
-       Taking ownership keeps it in your scope even after you reassign it. #}
+        and task.owner.id != current_user.id
+        and task.assigned_to and task.assigned_to.id == current_user.id %}
+    {# This task is assigned to you but someone else owns it. Taking ownership
+       keeps it in your scope even after you reassign it. Assignee-only, to
+       match the route — merely being able to see it (e.g. as a member of the
+       enclosing project) must not let you take it from its owner. #}
     <form method="post" action="{{ url_for('tasks.take_ownership', task_id=task.pk) }}"
           class="m-0" data-inspector-side
           data-confirm="Take ownership of this task? You become the owner and keep access even if you reassign it to someone else.">

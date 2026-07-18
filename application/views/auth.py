@@ -20,6 +20,13 @@ def _safe_next_url() -> str:
     phishing primitive."""
     raw = request.args.get("next") or ""
     if raw:
+        # Backslashes first: urlparse("/\\evil.com") reports no netloc, so the
+        # path-relative branch below would accept it — but browsers normalise
+        # \ to / and resolve it as the protocol-relative //evil.com, landing
+        # the user off-site after a genuine login. ("//evil.com" and
+        # "https://evil.com" are already caught by the netloc check.)
+        if "\\" in raw:
+            return url_for("dashboard.home")
         parsed = urlparse(raw)
         # Allow only path-relative redirects, or absolute URLs whose
         # netloc matches the current request host.

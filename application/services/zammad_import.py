@@ -92,13 +92,15 @@ class ZammadStats:
 def _request(url: str, token: str, *, params: dict | None = None,
              method: str = "GET", body: dict | None = None) -> Any:
     from application.services.http_safety import (
-        UnsafeURLError, validate_outbound_url,
+        UnsafeURLError, safe_urlopen, validate_outbound_url,
     )
     if params:
         url = url + "?" + urllib.parse.urlencode(params)
     # The Zammad instance URL is user-supplied — refuse to fetch from
     # private / loopback / link-local ranges so a tampered profile
     # can't aim our bearer-authenticated request at internal services.
+    # safe_urlopen below re-runs this on every redirect hop too — without that
+    # a public host could 302 our token-bearing request at an internal address.
     try:
         validate_outbound_url(url)
     except UnsafeURLError as exc:
@@ -121,11 +123,15 @@ def _request(url: str, token: str, *, params: dict | None = None,
     for attempt in range(_MAX_RETRIES + 1):
         retry_after = None
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with safe_urlopen(req, timeout=30) as resp:
                 raw = resp.read().decode("utf-8")
                 if not raw:
                     return None
                 return json.loads(raw)
+        except UnsafeURLError as exc:
+            # A redirect aimed somewhere non-routable. Never retried — the
+            # server is choosing the target, so it won't resolve itself.
+            raise ZammadError(f"refusing to follow redirect: {exc}") from exc
         except urllib.error.HTTPError as exc:
             if exc.code not in _RETRY_STATUSES:
                 body = exc.read().decode("utf-8", errors="replace")[:300]

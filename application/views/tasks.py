@@ -1833,11 +1833,23 @@ def take_ownership(task_id):
 
     Owner is part of the visibility scope (owner OR assigned_to), so taking
     ownership lets you keep access even after reassigning the task to a third
-    person. Requires only current view access; refuses if you can't see it."""
+    person.
+
+    Restricted to the ASSIGNEE, and to tasks. View access alone is far too
+    weak: tasks and projects share the ``items`` collection, so without the
+    ``kind`` filter a project pk resolved here just as happily, and any member
+    of a shared project could seize ownership of the project itself — which
+    unlocks the owner-only routes (public share link, delete, unwrap, CSV
+    import) and drops the real owner. Even among tasks, "can see it" includes
+    every member of an enclosing shared project, so it let a bystander take a
+    task out from under its owner."""
     user = current_user._get_current_object()
-    task = Item.objects(pk=task_id).first()
+    task = Item.objects(pk=task_id, kind="task").first()
     if not task or not task.can_be_viewed_by(user):
         abort(404)
+    # The documented purpose is an assignee keeping access across a handoff.
+    if task.assigned_to != user:
+        abort(403)
     if task.owner != user:
         task.owner = user
         task.save()
@@ -2834,7 +2846,18 @@ def bulk():
             return redirect(request.referrer or url_for("dashboard.home"))
         for t in tasks:
             if t.can_be_edited_by(user):
-                t.project = project
+                # Route through set_home_for like every other move path
+                # (tasks.move, _apply_form, the API bulk move): for a task
+                # merely delegated TO this user that writes their personal
+                # filing, never the OWNER's canonical parent. Assigning
+                # ``t.project`` directly wrote ``parent``, which let an
+                # assignee pull a delegated task out of the owner's project
+                # and under their own — taking its subtree with it.
+                try:
+                    t.set_home_for(user, project)
+                except ValueError:
+                    skipped += 1
+                    continue
                 t.save()
                 count += 1
             else:
@@ -3365,7 +3388,14 @@ def related_to_subtask(task_id, rel_id):
     task = _editable_task_or_404(task_id)
     user = current_user._get_current_object()
     other = Item.objects(pk=rel_id, kind="task").first()
-    if other and other.pk != task.pk and other.can_be_edited_by(user):
+    # Owner-only on the task being absorbed. ``can_be_edited_by`` is an alias
+    # of ``can_be_viewed_by``, so it would also accept a task merely delegated
+    # to this user, or one they see through a shared project — reparenting it
+    # under a task of their own moves it out of its owner's tree and, because
+    # owning an ancestor grants the whole subtree, hands over its descendants
+    # too. Nothing here required the two to be genuinely related, so this was
+    # reachable for any editable task.
+    if other and other.pk != task.pk and other.owner == user:
         # Reject cycles: the related task must not be an ancestor of this one.
         cur, depth = task.parent, 0
         is_ancestor = False

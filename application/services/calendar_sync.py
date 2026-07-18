@@ -385,21 +385,19 @@ def _parse_iso(s: str) -> datetime:
 
 
 def _fetch_ical_data(url: str) -> bytes:
-    from application.services.http_safety import (
-        UnsafeURLError, validate_outbound_url,
-    )
-    try:
-        validate_outbound_url(url)
-    except UnsafeURLError as exc:
-        # Don't leak the resolved IP back to the caller — keep the
-        # message generic so it's safe to flash to the user.
-        raise CalendarError(f"refusing to fetch: {exc}") from exc
+    from application.services.http_safety import UnsafeURLError, safe_urlopen
     try:
         req = urllib.request.Request(url, headers={
             "User-Agent": "bktodo/calendar (+https://localhost)",
         })
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        # safe_urlopen validates the URL AND every redirect hop — a bare
+        # urlopen would follow a 302 into an internal address.
+        with safe_urlopen(req, timeout=15) as resp:
             return resp.read()
+    except UnsafeURLError as exc:
+        # Don't leak the resolved IP back to the caller — keep the
+        # message generic so it's safe to flash to the user.
+        raise CalendarError(f"refusing to fetch: {exc}") from exc
     except urllib.error.HTTPError as exc:
         raise CalendarError(f"iCal fetch {exc.code}") from exc
     except urllib.error.URLError as exc:
@@ -530,19 +528,20 @@ def _caldav_request(method: str, url: str, *, calendar=None, user=None, auth=Non
     """Low-level CalDAV/WebDAV request. Basic auth + SSRF guard. Returns
     ``(status, text)``. HTTP codes in ``allow_codes`` are returned instead of
     raising (used so a DELETE of an already-gone resource is a success)."""
-    from application.services.http_safety import UnsafeURLError, validate_outbound_url
-    try:
-        validate_outbound_url(url)
-    except UnsafeURLError as exc:
-        raise CalendarError(f"refusing to reach: {exc}") from exc
+    from application.services.http_safety import UnsafeURLError, safe_urlopen
     data = body.encode("utf-8") if isinstance(body, str) else body
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("Authorization", auth or _caldav_auth_header(calendar, user))
     for k, v in (headers or {}).items():
         req.add_header(k, v)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        # Every redirect hop is re-validated: this path issues PUT/DELETE/
+        # PROPFIND, so a followed 302 would be an arbitrary-method request
+        # against an internal service.
+        with safe_urlopen(req, timeout=timeout) as resp:
             return resp.getcode(), resp.read().decode("utf-8", "replace")
+    except UnsafeURLError as exc:
+        raise CalendarError(f"refusing to reach: {exc}") from exc
     except urllib.error.HTTPError as exc:
         if exc.code in allow_codes:
             return exc.code, ""
