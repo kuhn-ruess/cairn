@@ -61,10 +61,18 @@
   // refresh the list behind it so the change is visible. We *don't* reload
   // immediately on save — that would close the panel.
   let needsReloadOnClose = false;
-  // True once the user has typed into an as-yet-unsaved NEW task form. Guards
-  // against an accidental outside-click discarding the whole task (the panel
-  // would close and the unsaved task be lost). Reset on every (re)render.
+  // True once the user has typed into an as-yet-unsaved NEW task/project form.
+  // Guards every path that would throw the draft away (outside-click, Escape,
+  // the ×/Cancel, opening another item, navigating off). Reset on (re)render.
   let unsavedNewTask = false;
+  // Returns false when the user wants to keep an unsaved draft. Clearing the
+  // flag on "discard" keeps the follow-up hide/open from asking twice.
+  function confirmDiscardDraft() {
+    if (!unsavedNewTask) return true;
+    if (!confirm("Discard this unsaved new item?")) return false;
+    unsavedNewTask = false;
+    return true;
+  }
   panel.addEventListener("show.bs.offcanvas", () => {
     document.body.classList.add("inspector-docked");
   });
@@ -73,6 +81,11 @@
   // compositing layer so WebKit re-paints it in the right place. See forceReflow.
   panel.addEventListener("shown.bs.offcanvas", () => {
     forceReflow();
+  });
+  // Single choke point for every close path (×, Cancel, Escape, programmatic
+  // hide): never drop an unsaved draft without asking.
+  panel.addEventListener("hide.bs.offcanvas", (ev) => {
+    if (!confirmDiscardDraft()) ev.preventDefault();
   });
   panel.addEventListener("hidden.bs.offcanvas", () => {
     document.body.classList.remove("inspector-docked");
@@ -206,7 +219,7 @@
     // resets to false automatically. (The comment box is its own action — don't
     // let typing a comment count as unsaved task data.)
     unsavedNewTask = false;
-    if (form && /\/tasks\/new(\?|$)/.test(form.getAttribute("action") || "")) {
+    if (form && /\/(tasks|projects)\/new(\?|$)/.test(form.getAttribute("action") || "")) {
       form.addEventListener("input", (ev) => {
         if (ev.target && ev.target.name === "comment_body") return;
         unsavedNewTask = true;
@@ -834,6 +847,16 @@
     const trigger = ev.target.closest("[data-inspector-url]");
     if (!trigger) return;
     ev.preventDefault();
+    // Loading another item replaces the panel body — same loss as closing it.
+    if (!confirmDiscardDraft()) return;
     openInspector(trigger.dataset.inspectorUrl, trigger.dataset.inspectorTitle);
+  });
+
+  // Clicking a link behind the panel navigates away and takes the draft with
+  // it — the browser's own prompt is the only guard that works there.
+  window.addEventListener("beforeunload", (ev) => {
+    if (!unsavedNewTask) return;
+    ev.preventDefault();
+    ev.returnValue = "";
   });
 })();
