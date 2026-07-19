@@ -13,6 +13,16 @@ _ALLOWED_DATA_IMG = (
 # A URL carries an explicit scheme when it matches this; schemeless values are
 # relative/internal links (e.g. ``/static/…``) and are always safe.
 _SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:")
+# Schemes that hand off to an OS app instead of navigating the browser. They
+# must survive sanitising (they carry no script risk — the OS opens the app)
+# AND must not get target="_blank", which would leave an empty tab behind.
+# Add new ones here; ``markdown_filter``'s ``protocols`` list mirrors this.
+_HANDOFF_SCHEMES = (
+    "mailto:",
+    "message:",          # Apple Mail message dragged into a note
+    "tel:",
+    "x-devonthink-item:",  # DEVONthink document
+)
 
 
 def _img_attr_ok(tag, name, value):
@@ -28,12 +38,12 @@ def _img_attr_ok(tag, name, value):
 
 
 def _link_target(attrs, new=False):
-    """linkify callback: open links in a new tab, EXCEPT OS-handoff schemes
-    (``mailto:`` / ``message:`` / ``tel:``). Those must navigate in place —
-    opening them in a new tab just hands off to Mail/Phone and leaves an empty
-    tab behind to close. External links also get ``rel`` hardening."""
+    """linkify callback: open links in a new tab, EXCEPT the OS-handoff schemes
+    in ``_HANDOFF_SCHEMES``. Those must navigate in place — opening them in a
+    new tab just hands off to Mail/Phone/DEVONthink and leaves an empty tab
+    behind to close. External links also get ``rel`` hardening."""
     href = attrs.get((None, "href"), "")
-    if href.startswith(("mailto:", "message:", "tel:")):
+    if href.startswith(_HANDOFF_SCHEMES):
         attrs.pop((None, "target"), None)
         attrs.pop((None, "rel"), None)
         return attrs
@@ -49,12 +59,10 @@ def _a_attr_ok(tag, name, value):
         return False
     if not _SCHEME_RE.match(value):
         return True  # relative/internal link
-    # ``message:`` lets an Apple Mail message dragged into a note stay a
-    # clickable link that reopens the mail (no script risk — it just hands
-    # off to the Mail app). ``tel:`` is the same harmless hand-off shape.
-    return value.startswith(
-        ("http://", "https://", "mailto:", "message:", "tel:")
-    )
+    # ``_HANDOFF_SCHEMES`` lets an Apple Mail message or a DEVONthink document
+    # dragged into a note stay a clickable link that reopens it (no script risk
+    # — it just hands off to the app).
+    return value.startswith(("http://", "https://") + _HANDOFF_SCHEMES)
 
 
 def register_filters(app):
@@ -393,7 +401,11 @@ def register_filters(app):
             # only for raster types — ``_img_attr_ok`` / ``_a_attr_ok`` gate
             # everything else so ``a href="data:…"`` (an XSS vector) can't slip
             # through.
-            protocols=["http", "https", "mailto", "data", "message", "tel"],
+            # Mirrors _HANDOFF_SCHEMES (bleach gates href protocols separately
+            # from the _a_attr_ok callback, so both lists must allow a scheme).
+            protocols=["http", "https", "data"] + [
+                s.rstrip(":") for s in _HANDOFF_SCHEMES
+            ],
             strip=True,
         )
         # Auto-link bare URLs / emails that weren't written with Markdown
