@@ -16,13 +16,25 @@ _SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:")
 # Schemes that hand off to an OS app instead of navigating the browser. They
 # must survive sanitising (they carry no script risk — the OS opens the app)
 # AND must not get target="_blank", which would leave an empty tab behind.
-# Add new ones here; ``markdown_filter``'s ``protocols`` list mirrors this.
 _HANDOFF_SCHEMES = (
     "mailto:",
-    "message:",          # Apple Mail message dragged into a note
+    "message:",  # Apple Mail message dragged into a note
     "tel:",
-    "x-devonthink-item:",  # DEVONthink document
 )
+# Plus *any* ``x-…:`` scheme. Desktop apps register their deep links under this
+# convention (x-devonthink-item:, x-things:, x-fantastical:, x-callback-url:, …)
+# and enumerating them would mean a code change per app. The prefix is safe by
+# construction: every scheme a browser can execute script through (javascript:,
+# data:, vbscript:) is a fixed name that does NOT start with ``x-``.
+_X_SCHEME_RE = re.compile(r"^x-[a-zA-Z0-9+.\-]*:")
+# Same, but for pulling the schemes back out of sanitiser-bound HTML — bleach
+# takes ``protocols`` as a fixed list, so we hand it the ones actually present.
+_X_HREF_RE = re.compile(r"""href=["'](x-[a-zA-Z0-9+.\-]*):""", re.I)
+
+
+def _is_handoff(url):
+    """True for a URL that opens an OS app rather than a web page."""
+    return url.startswith(_HANDOFF_SCHEMES) or bool(_X_SCHEME_RE.match(url))
 
 
 def _img_attr_ok(tag, name, value):
@@ -38,12 +50,12 @@ def _img_attr_ok(tag, name, value):
 
 
 def _link_target(attrs, new=False):
-    """linkify callback: open links in a new tab, EXCEPT the OS-handoff schemes
-    in ``_HANDOFF_SCHEMES``. Those must navigate in place — opening them in a
-    new tab just hands off to Mail/Phone/DEVONthink and leaves an empty tab
-    behind to close. External links also get ``rel`` hardening."""
+    """linkify callback: open links in a new tab, EXCEPT OS-handoff schemes
+    (see ``_is_handoff``). Those must navigate in place — opening them in a new
+    tab just hands off to Mail/Phone/DEVONthink and leaves an empty tab behind
+    to close. External links also get ``rel`` hardening."""
     href = attrs.get((None, "href"), "")
-    if href.startswith(_HANDOFF_SCHEMES):
+    if _is_handoff(href):
         attrs.pop((None, "target"), None)
         attrs.pop((None, "rel"), None)
         return attrs
@@ -59,10 +71,10 @@ def _a_attr_ok(tag, name, value):
         return False
     if not _SCHEME_RE.match(value):
         return True  # relative/internal link
-    # ``_HANDOFF_SCHEMES`` lets an Apple Mail message or a DEVONthink document
+    # Hand-off schemes let an Apple Mail message or a DEVONthink document
     # dragged into a note stay a clickable link that reopens it (no script risk
     # — it just hands off to the app).
-    return value.startswith(("http://", "https://") + _HANDOFF_SCHEMES)
+    return value.startswith(("http://", "https://")) or _is_handoff(value)
 
 
 def register_filters(app):
@@ -401,11 +413,13 @@ def register_filters(app):
             # only for raster types — ``_img_attr_ok`` / ``_a_attr_ok`` gate
             # everything else so ``a href="data:…"`` (an XSS vector) can't slip
             # through.
-            # Mirrors _HANDOFF_SCHEMES (bleach gates href protocols separately
-            # from the _a_attr_ok callback, so both lists must allow a scheme).
-            protocols=["http", "https", "data"] + [
-                s.rstrip(":") for s in _HANDOFF_SCHEMES
-            ],
+            # bleach gates href protocols separately from the _a_attr_ok
+            # callback, so both must allow a scheme. ``protocols`` only takes a
+            # fixed list — no wildcard — so scan the HTML for the ``x-…``
+            # schemes it actually contains and allow exactly those.
+            protocols=["http", "https", "data"]
+            + [s.rstrip(":") for s in _HANDOFF_SCHEMES]
+            + sorted({m.lower() for m in _X_HREF_RE.findall(html)}),
             strip=True,
         )
         # Auto-link bare URLs / emails that weren't written with Markdown
