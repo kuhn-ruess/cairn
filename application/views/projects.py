@@ -139,14 +139,19 @@ def _apply(form: ProjectForm, project: Item) -> None:
             project.next_review_at = None
     elif kind == "section":
         project.project_type = form.project_type.data or "parallel"
-        project.status = "active"
+        # Folders/sections have no status field in the inspector; the only way
+        # to close one is the Complete button (projects.complete). Preserve a
+        # closed status here so a later inspector save doesn't silently reopen it.
+        if project.status not in ("completed", "dropped"):
+            project.status = "active"
         project.review_interval_days = 0
         project.next_review_at = None
         project.last_reviewed_at = None
         project.auto_complete_when_done = False
     else:  # folder
         project.project_type = "parallel"
-        project.status = "active"
+        if project.status not in ("completed", "dropped"):
+            project.status = "active"
         project.review_interval_days = 0
         project.next_review_at = None
         project.last_reviewed_at = None
@@ -181,11 +186,16 @@ def index():
         fq & Q(pk__in=list(viewable_container_pks(user))),
         kind__in=["project", "folder"],
     )
-    # Folders have no real status; keep them visible. Projects default
-    # to "active" only so on_hold ("warte auf antwort"), completed, and
+    # A folder is normally statusless-and-visible, but it can now be
+    # explicitly completed/dropped (the Complete button) — hide those like a
+    # closed project. Everything else folder-side stays visible; projects
+    # default to "active" only so on_hold ("warte auf antwort"), completed and
     # dropped don't clutter the overview.
     if not show_inactive:
-        qs = qs.filter(Q(kind="folder") | Q(status="active"))
+        qs = qs.filter(
+            Q(kind="folder", status__nin=["completed", "dropped"])
+            | Q(status="active")
+        )
     # Hide projects deferred to a future date unless explicitly shown.
     now = datetime.now(timezone.utc)
     if not show_deferred:
@@ -1244,12 +1254,17 @@ def edit(project_id):
 @projects_bp.route("/<project_id>/complete", methods=["POST"])
 @login_required
 def complete(project_id):
+    """Toggle a container's completion. Works for projects, folders and
+    sections alike (folders/sections had no way to be closed before) — the
+    only single-click "mark done / reopen" path for containers, since their
+    status doesn't go through the task completion flow."""
     user = current_user._get_current_object()
     project = Item.objects(pk=project_id).first()
     if not project or project.owner != user:
         abort(404)
-    project.status = "completed"
-    project.save()
+    if project.kind not in ("project", "folder", "section"):
+        abort(404)
+    project.set_container_completion(project.status != "completed", by=user)
     return redirect(url_for("projects.detail", project_id=project_id))
 
 @projects_bp.route("/<project_id>/show-blocked", methods=["POST"])
@@ -1621,12 +1636,13 @@ def bulk():
             count += 1
     elif action == "complete":
         for p in projects:
-            p.status = "completed"
-            p.save()
+            p.set_container_completion(True, by=user)
             count += 1
     elif action == "archive":
         for p in projects:
             p.status = "dropped"
+            p.completed_by = user
+            p.completed_via = "user"
             p.save()
             count += 1
     elif action == "set_review":

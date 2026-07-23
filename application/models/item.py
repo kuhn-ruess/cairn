@@ -603,6 +603,27 @@ class Item(Document):
         self.completed_via = via
         self.save()
 
+    def set_container_completion(self, done: bool, *, by=None, via="user"):
+        """Complete or reopen a container (project / folder / section).
+
+        Container lifecycle (active/on_hold/completed/dropped) does NOT go
+        through the task ``save()`` completion path — that only stamps
+        ``kind='task'`` — so record the completion bookkeeping here instead
+        of setting ``status`` by hand. Mirrors ``mark_done`` for tasks and
+        the auto-complete path (``_autocomplete_enclosing_project``)."""
+        if done:
+            self.status = "completed"
+            if not self.completed_at:
+                self.completed_at = _utcnow()
+            self.completed_by = by
+            self.completed_via = via
+        else:
+            self.status = "active"
+            self.completed_at = None
+            self.completed_by = None
+            self.completed_via = None
+        self.save()
+
     def related_items(self):
         """Resolved related items for the inspector: skip dangling refs
         (the other side was purged — mongoengine may leave a bare DBRef)

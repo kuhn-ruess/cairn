@@ -192,6 +192,21 @@
 
 <div class="inspector-footer">
   {% if project %}
+    {% set is_done = project.status in ('completed', 'dropped') %}
+    <form method="post" action="{{ url_for('projects.complete', project_id=project.pk) }}"
+          class="m-0" data-inspector-side
+          data-confirm="{{ 'Reopen this ' ~ project.kind ~ '?' if is_done else 'Mark this ' ~ project.kind ~ ' complete?' }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% if is_done %}
+        <button class="btn btn-sm btn-outline-secondary" title="Reopen — mark active again">
+          <i class="bi bi-arrow-counterclockwise"></i> Reopen
+        </button>
+      {% else %}
+        <button class="btn btn-sm btn-outline-success" title="Mark this {{ project.kind }} complete">
+          <i class="bi bi-check2-circle"></i> Complete
+        </button>
+      {% endif %}
+    </form>
     {% if project.is_section %}
       <form method="post" action="{{ url_for('projects.convert_section_to_project', section_id=project.pk) }}"
             class="m-0" data-inspector-side
