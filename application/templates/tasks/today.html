@@ -31,6 +31,27 @@
   .plan-card-event .event-notes-btn,
   .plan-card-task .event-notes-btn { position: absolute; top: 2px; right: 4px; }
   .plan-allday-chip .event-notes-btn { margin-left: .15rem; }
+
+  /* "Next actions" drop strip — only visible while a next-action pill is
+     being dragged (class toggled on <body> by today-next.js). */
+  .today-next-drop {
+    display: none;
+    align-items: center;
+    gap: .4rem;
+    margin-bottom: .75rem;
+    padding: .6rem .9rem;
+    border: 2px dashed var(--bs-border-color, #ced4da);
+    border-radius: .5rem;
+    color: var(--bs-secondary-color, #6c757d);
+    font-size: .9rem;
+  }
+  body.today-next-dragging .today-next-drop { display: flex; }
+  .today-next-drop.is-over {
+    border-color: var(--bs-primary, #0d6efd);
+    background: rgba(13, 110, 253, .08);
+    color: var(--bs-primary, #0d6efd);
+  }
+  .today-next-item.is-dragging { opacity: .5; }
 </style>
 <div class="d-flex align-items-center mb-2">
   <h1 class="h4 mb-0 me-auto">{{ title }} <span class="text-muted small">({{ tasks|length }})</span></h1>
@@ -166,6 +187,16 @@
   </div>
   {% endif %}
 </div>
+
+{% if view_mode == 'list' and list_next_pool %}
+  {# Drop target for the "Next actions" pool below. Hidden until a next-action
+     pill is being dragged (body.today-next-dragging), so it only appears when
+     you're actually pulling one up into today. #}
+  <div id="today-next-drop" class="today-next-drop">
+    <i class="bi bi-arrow-up-circle"></i>
+    Drop here to add to {% if is_today_now %}today{% else %}{{ start_date.strftime('%-d %b') }}{% endif %}
+  </div>
+{% endif %}
 
 {% macro cal_event_row(ev) %}
   <div class="cal-event" style="border-left-color: {{ ev.calendar_color }};">
@@ -461,6 +492,41 @@
     </div>
   {% endif %}
 {% endfor %}
+
+{% if view_mode == 'list' and list_next_pool %}
+  {# "Next actions" pool — next-marked tasks not already on the plate. Reuses
+     the Plan timeline's rail markup so styling + the complete-form handler
+     come for free; today-next.js wires the drag-up-to-plan-today gesture. #}
+  <section class="plan-rails today-next-rails mt-4" id="today-next"
+           data-date="{{ start_date.isoformat() }}">
+    <div class="plan-rail">
+      <h2 class="plan-rail-head">
+        <i class="bi bi-arrow-right-circle"></i> Next actions
+        <span class="plan-rail-count">{{ list_next_pool|length }}</span>
+      </h2>
+      <div class="plan-rail-hint">Drag a card up into the list to plan it for this day</div>
+      {% for it in list_next_pool %}
+        <div class="plan-rail-item plan-card-task plan-next-item today-next-item{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
+             draggable="true"
+             data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
+             data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
+             data-inspector-title="{{ it.obj.title }}">
+          <form method="post" action="{{ url_for('tasks.complete', task_id=it.obj.pk) }}"
+                class="m-0 plan-rail-check" data-task-complete-form
+                draggable="false" onclick="event.stopPropagation()">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-link p-0" type="submit" title="Complete this task" draggable="false">
+              <i class="bi bi-circle"></i>
+            </button>
+          </form>
+          <i class="bi bi-grip-vertical plan-grip"></i>
+          <a class="plan-rail-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
+          <span class="plan-rail-dur">{{ it.duration_min }}m</span>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
 
 {% if view_mode == 'calendar' %}
 <script>

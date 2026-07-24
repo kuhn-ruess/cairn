@@ -758,6 +758,32 @@ def _assign_columns(items):
     return items
 
 
+def _next_actions_pool(user, now, seen_pks, limit=50):
+    """Actionable ``status="next"`` tasks not already on the day.
+
+    Shared by the Plan timeline and the single-day List view: a bounded,
+    prefetch-warmed slice of the user's next-actions (owned or assigned to
+    them), minus anything already shown (``seen_pks``) and anything blocked
+    by an incomplete dependency/parent. Returns the same pill dicts the
+    templates expect (``obj`` / ``title`` / ``duration_min``).
+    """
+    candidates = list(
+        Item.objects(_scope(user), kind="task", status="next")
+        .filter(Q(assigned_to=None) | Q(assigned_to=user))
+        .order_by("+sort_order", "+due_date").limit(200)
+    )
+    _prefetch_refs(candidates)
+    pool = []
+    for t in candidates:
+        if t.pk in seen_pks or t.is_blocked(now):
+            continue
+        pool.append({"obj": t, "title": t.title,
+                     "duration_min": t.estimated_minutes or 30})
+        if len(pool) >= limit:
+            break
+    return pool
+
+
 @tasks_bp.route("/today")
 @login_required
 def today():
@@ -1244,20 +1270,7 @@ def today():
         # work in by hand without "Plan my day" hoovering it all up.
         seen_pks = ({c["obj"].pk for c in cls["backlog"]}
                     | {it["obj"].pk for it in timed if it["kind"] == "task"})
-        # Materialise a bounded slice + prefetch so the is_blocked() parent
-        # deref below doesn't N+1 (we only need 50 after filtering).
-        next_candidates = list(Item.objects(_scope(user), kind="task", status="next")
-                               .filter(Q(assigned_to=None) | Q(assigned_to=user))
-                               .order_by("+sort_order", "+due_date").limit(200))
-        _prefetch_refs(next_candidates)
-        next_pool = []
-        for t in next_candidates:
-            if t.pk in seen_pks or t.is_blocked(now):
-                continue
-            next_pool.append({"obj": t, "title": t.title,
-                              "duration_min": t.estimated_minutes or 30})
-            if len(next_pool) >= 50:
-                break
+        next_pool = _next_actions_pool(user, now, seen_pks)
         # Deadline markers: tasks in today's plate whose due date lands on
         # this day get a line on the timeline at their due time.
         due_raw = {}  # minute-of-day → [titles]
@@ -1321,9 +1334,18 @@ def today():
             "date": start_date.isoformat(),
         }
 
+    # Single-day List view gets the same draggable "Next actions" pool the
+    # Plan timeline has: next-marked tasks not already on the plate, dragged
+    # up onto the list to plan them for the day being viewed (POST /schedule).
+    list_next_pool = []
+    if view_mode == "list" and days == 1:
+        list_next_pool = _next_actions_pool(
+            user, now, {t.pk for t in filtered})
+
     return render_template(
         "tasks/today.html",
         title=title,
+        list_next_pool=list_next_pool,
         projects_with_dates=projects_with_dates,
         proj_header_info=proj_header_info,
         tasks=filtered,
