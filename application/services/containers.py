@@ -1,9 +1,12 @@
 """Hierarchical container pickers.
 
 Shared by the task inspector ("Project") and the project/folder inspector
-("Inside"): both need a ``<select>`` whose option labels carry the full folder
-breadcrumb (e.g. ``📁  Work / Acme / Website``) instead of a bare name, so a
-project nested several folders deep is unambiguous.
+("Inside"): both need a ``<select>`` whose option labels disambiguate a project
+nested several folders deep. The identifying name leads, with the ancestor
+breadcrumb trailing as muted context (e.g. ``📁  Website — Work / Acme``) — the
+selects are narrow and a native ``<option>`` clips on the RIGHT, so a
+path-first label (``Work / Acme / Website``) hid exactly the part that matters.
+Options sort by that leading name, so scanning/typing finds a project by title.
 
 One query fetches every project/folder/section in scope; ancestor paths resolve
 in-memory through a pk→item map (``.pk`` on a reference reads the DBRef, not the
@@ -55,15 +58,28 @@ def container_choices(user, *, selectable_kinds=("project", "folder"),
     )
     by_id = {str(c.pk): c for c in containers}
 
-    def path_label(c):
-        parts, cur, seen = [], c, set()
+    def ancestor_path(c):
+        """Breadcrumb of c's ancestors (root→parent), leaf excluded."""
+        parts, cur, seen = [], c.parent, {str(c.pk)}
+        cur = by_id.get(str(cur.pk)) if cur else None
         while cur is not None and str(cur.pk) not in seen:
             seen.add(str(cur.pk))
             parts.append(cur.name)
             par = cur.parent
             cur = by_id.get(str(par.pk)) if par else None
         parts.reverse()
-        return f"{_KIND_ICON.get(c.kind, '📁')}  " + " / ".join(parts)
+        return " / ".join(parts)
+
+    def sort_key(c):
+        # Sort by leading name, then ancestor path so same-named siblings stay
+        # grouped by where they live.
+        return (c.name.lower(), ancestor_path(c).lower())
+
+    def path_label(c):
+        icon = _KIND_ICON.get(c.kind, "📁")
+        crumb = ancestor_path(c)
+        label = f"{icon}  {c.name}"
+        return f"{label} — {crumb}" if crumb else label
 
     def offered(c):
         if c.kind not in selectable_kinds:
@@ -74,6 +90,5 @@ def container_choices(user, *, selectable_kinds=("project", "folder"),
             return False
         return True
 
-    selectable = sorted((c for c in containers if offered(c)),
-                        key=lambda c: path_label(c).lower())
+    selectable = sorted((c for c in containers if offered(c)), key=sort_key)
     return [(str(c.pk), path_label(c)) for c in selectable]
