@@ -45,18 +45,18 @@
 {%- macro sec_status_project() -%}
   {# Status + Project + Tags together in one block. #}
   <div class="sec-fields">
-    <div class="grid-2">
-      <div>
-        {{ form.status.label(class="form-label small text-uppercase text-muted") }}
-        {{ form.status(class="form-select form-select-sm") }}
-      </div>
-      <div>
-        {{ form.project.label(class="form-label small text-uppercase text-muted") }}
-        {{ form.project(class="form-select form-select-sm",
-                         size="6",
-                         **{"data-searchable-select": "1",
-                            "data-searchable-placeholder": "Search projects…"}) }}
-      </div>
+    <div>
+      {{ form.status.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.status(class="form-select form-select-sm") }}
+    </div>
+    {# Project spans the full inspector width — a nested breadcrumb path
+       ("Work / Acme / Website") is unreadable clipped into a half grid column. #}
+    <div class="mt-3">
+      {{ form.project.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.project(class="form-select form-select-sm",
+                       size="6",
+                       **{"data-searchable-select": "1",
+                          "data-searchable-placeholder": "Search projects…"}) }}
     </div>
     <div class="mt-3">
       {{ form.tags.label(class="form-label small text-uppercase text-muted") }}
