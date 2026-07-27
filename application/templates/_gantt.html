@@ -9,7 +9,7 @@
 .gantt-scroll.g-dragging { cursor: grabbing; user-select: none; }
 .gantt-scroll.g-dragging a { pointer-events: none; }
 .gantt { width: max-content; font-size: .85rem; }
-.gantt-row { display: grid; grid-template-columns: 520px {{ tl_w }}px; border-top: 1px solid var(--bs-border-color-translucent); }
+.gantt-row { display: grid; grid-template-columns: var(--gantt-left-w, 520px) {{ tl_w }}px; border-top: 1px solid var(--bs-border-color-translucent); }
 .gantt-row:hover .gantt-left, .gantt-row:hover .gantt-timeline { background: var(--bs-tertiary-bg); }
 .gantt-left { position: sticky; left: 0; z-index: 3; background: var(--bs-body-bg);
   display: grid; grid-template-columns: 1fr 92px 92px 96px; align-items: center; gap: .25rem;
@@ -28,6 +28,14 @@
 .gantt-today { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--bs-warning); z-index: 2; }
 .gantt-tick { position: absolute; top: 0; bottom: 0; border-left: 1px dashed var(--bs-border-color-translucent); }
 .gantt-tick > span { position: absolute; top: 4px; left: 5px; white-space: nowrap; }
+/* Drag handle on the header's left/timeline boundary — resizes the name column.
+   The header's .gantt-left is position:sticky, already a containing block for
+   this absolutely-positioned handle — no position:relative needed (it would
+   clobber the sticky). */
+.gantt-col-resizer { position: absolute; top: 0; right: -3px; width: 7px; height: 100%;
+  cursor: col-resize; z-index: 8; touch-action: none; }
+.gantt-col-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; }
+.gantt-col-resizer:hover::after, .gantt-col-resizer.active::after { background: var(--bs-primary); }
 </style>
 
 {% if not gantt.has_any_dates %}
@@ -55,6 +63,7 @@
     <div class="gantt-row gantt-head">
       <div class="gantt-left">
         <span>Issue</span><span>Target start</span><span>Target end</span><span>Status</span>
+        <div class="gantt-col-resizer" id="ganttColResizer" title="Drag to resize the name column"></div>
       </div>
       <div class="gantt-timeline">
         {% for t in gantt.ticks %}
@@ -72,7 +81,9 @@
           <span class="g-issue" style="padding-left: {{ r.indent * 1.1 }}rem;">
             <i class="bi {{ 'bi-folder' if it.kind == 'project' else ('bi-bookmark' if it.kind == 'section' else 'bi-check2-square') }} text-muted"></i>
             <a class="text-decoration-none text-body"
-               href="{{ url_for('projects.detail', project_id=it.pk) if it.kind in ['project','folder','section'] else url_for('tasks.detail', task_id=it.pk) }}">{{ it.title }}</a>
+               href="{{ url_for('projects.detail', project_id=it.pk) if it.kind in ['project','folder','section'] else url_for('tasks.detail', task_id=it.pk) }}"
+               data-inspector-url="{{ url_for('projects.edit', project_id=it.pk) if it.kind in ['project','folder','section'] else url_for('tasks.edit', task_id=it.pk) }}"
+               data-inspector-title="{{ it.title }}">{{ it.title }}</a>
           </span>
           <span class="g-date">{{ r.start.strftime('%d %b %Y') if r.start else '—' }}</span>
           <span class="g-date">{{ r.end.strftime('%d %b %Y') if r.end else '—' }}</span>
@@ -101,6 +112,42 @@
   var PPD = {{ ppd }};
   var todayPx = parseInt(el.dataset.todayPx, 10);
 
+  // Resizable name column — drag the header boundary; width persists per browser.
+  var LEFT_KEY = "cairn:gantt-left-w", MIN_W = 240, MAX_W = 900;
+  function setLeftW(w) {
+    w = Math.max(MIN_W, Math.min(MAX_W, Math.round(w)));
+    el.style.setProperty("--gantt-left-w", w + "px");
+    return w;
+  }
+  try {
+    var savedW = parseInt(localStorage.getItem(LEFT_KEY), 10);
+    if (!isNaN(savedW)) setLeftW(savedW);
+  } catch (e) { /* private mode — keep the CSS default */ }
+  var resizer = document.getElementById("ganttColResizer");
+  if (resizer) {
+    var rz = false, rzStartX = 0, rzStartW = 0;
+    resizer.addEventListener("pointerdown", function (e) {
+      rz = true; rzStartX = e.clientX;
+      var cur = getComputedStyle(el).getPropertyValue("--gantt-left-w").trim();
+      rzStartW = parseInt(cur, 10) || 520;
+      resizer.classList.add("active");
+      resizer.setPointerCapture(e.pointerId);
+      e.preventDefault(); e.stopPropagation();
+    });
+    resizer.addEventListener("pointermove", function (e) {
+      if (!rz) return;
+      setLeftW(rzStartW + (e.clientX - rzStartX));
+    });
+    function endResize(e) {
+      if (!rz) return;
+      rz = false;
+      resizer.classList.remove("active");
+      try { localStorage.setItem(LEFT_KEY, String(setLeftW(rzStartW + (e.clientX - rzStartX)))); } catch (e2) {}
+    }
+    resizer.addEventListener("pointerup", endResize);
+    resizer.addEventListener("pointercancel", endResize);
+  }
+
   function toToday() {
     if (isNaN(todayPx)) return;
     el.scrollLeft = Math.max(0, todayPx - Math.round(el.clientWidth * 0.25));
@@ -113,6 +160,7 @@
   var dragging = false, moved = false, startX = 0, startScroll = 0;
   el.addEventListener("mousedown", function (e) {
     if (e.button !== 0) return;
+    if (e.target.closest(".gantt-col-resizer")) return;  // let the resizer own its drag
     dragging = true; moved = false;
     startX = e.pageX; startScroll = el.scrollLeft;
   });
