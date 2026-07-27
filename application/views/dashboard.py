@@ -37,6 +37,13 @@ def _scope(user):
     from application.services.permissions import visible_items_q
     return focus.restrict(visible_items_q(user), user)
 
+def _perspective_scope(user):
+    # Same narrow scope the Today count and the Next page use, so the home
+    # page's Next preview lists exactly what those perspectives would.
+    from application.services import focus
+    from application.services.permissions import perspective_base_q
+    return focus.restrict(perspective_base_q(user), user)
+
 @dashboard_bp.route("/")
 @login_required
 def home():
@@ -63,7 +70,7 @@ def home():
     # Two separate previews so the home page matches the GTD flow: deal
     # with the inbox (untriaged) first, then look at what's actually next.
     next_actions = list(
-        Item.objects(_scope(user), status="next")
+        Item.objects(_perspective_scope(user), status="next")
         .order_by("+due_date", "-flagged")
         .limit(10)
     )
