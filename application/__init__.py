@@ -11,7 +11,7 @@ from mongoengine import connect, disconnect
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Public app version — surfaced in the nav footer + the About page.
-APP_VERSION = "1.4.202"
+APP_VERSION = "1.4.203"
 
 # Pull settings out of a local ``.env`` file if one exists. Doesn't override
 # values that are already set in the real environment.
