@@ -13,7 +13,7 @@ from application.models.perspective import (
     CustomPerspective, FilterClause,
 )
 
-from application.services.perspective_filter import apply_filter
+from application.services.perspective_filter import _decode_value, apply_filter
 from application.models.item import Item
 
 perspectives_bp = Blueprint("custom_perspectives", __name__, url_prefix="/perspectives")
@@ -166,6 +166,25 @@ def _default_op(field: str) -> str:
 
 # ----- View results ---------------------------------------------------------
 
+def _referenced_statuses(clauses):
+    """Statuses a status clause explicitly selects for (op ``is`` / ``in``).
+
+    Used so the base queryset doesn't pre-hide done/dropped when the user
+    is deliberately filtering for them — selecting the status in the filter
+    should be enough, without also ticking "include completed".
+    """
+    found = set()
+    for c in clauses or []:
+        if c.kind == "group":
+            found |= _referenced_statuses(c.children)
+        elif c.field == "status" and c.op in ("is", "in"):
+            val = _decode_value(c.value)
+            if isinstance(val, list):
+                found.update(str(v) for v in val)
+            elif val is not None:
+                found.add(str(val))
+    return found
+
 @perspectives_bp.route("/<pid>")
 @login_required
 def view(pid):
@@ -176,7 +195,11 @@ def view(pid):
 
     qs = Item.objects(_scope(user))
     if not p.include_completed:
-        qs = qs.filter(status__nin=["done", "dropped"])
+        # Don't pre-hide the closed statuses the filter explicitly selects for,
+        # otherwise a `status is dropped` clause could never match anything.
+        hide = {"done", "dropped"} - _referenced_statuses(p.clauses)
+        if hide:
+            qs = qs.filter(status__nin=list(hide))
 
     candidates = list(qs)
     # Map each tag to {itself + descendants} so a tag clause on a parent
