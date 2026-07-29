@@ -61,7 +61,7 @@ ITEM_WARN_BYTES = 10 * 1024 * 1024      # warn the user past this
 ITEM_MAX_BYTES = 15 * 1024 * 1024       # refuse new attachments past this
 
 ITEM_KINDS = ("task", "project", "section", "folder", "note")
-TASK_STATUS = ("open", "next", "waiting", "waiting_reply",
+TASK_STATUS = ("open", "next", "waiting", "waiting_reply", "review",
                "scheduled", "someday", "done", "dropped")
 PROJECT_TYPES = ("parallel", "sequential", "single_actions")
 PROJECT_STATUS = ("active", "on_hold", "completed", "dropped")

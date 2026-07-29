@@ -169,7 +169,7 @@
     if (t === "status") {
       const sel = document.createElement("select");
       sel.className = "form-select form-select-sm";
-      ["open","next","waiting","scheduled","someday","done","dropped"].forEach(s => {
+      ["open","next","waiting","waiting_reply","review","scheduled","someday","done","dropped"].forEach(s => {
         const o = document.createElement("option");
         o.value = JSON.stringify(s); o.textContent = s;
         if (currentValue === o.value) o.selected = true;

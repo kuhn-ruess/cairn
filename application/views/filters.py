@@ -334,7 +334,7 @@ def register_filters(app):
 
     _STATUS_LABELS = {
         "open": "Open", "next": "Next", "waiting": "Waiting",
-        "waiting_reply": "Waiting on reply",
+        "waiting_reply": "Waiting on reply", "review": "Review",
         "scheduled": "Scheduled", "someday": "Someday", "done": "Done",
         "dropped": "Dropped",
     }

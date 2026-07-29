@@ -18,6 +18,7 @@ STATUS_ORDER = [
     ("next",      "In progress",  "bi-play-circle"),
     ("open",      "Open",         "bi-circle"),
     ("waiting",   "Waiting",      "bi-hourglass-split"),
+    ("review",    "In review",    "bi-eye"),
     ("scheduled", "Scheduled",    "bi-calendar-event"),
     ("someday",   "Later",        "bi-cloud"),
     ("done",      "Done",         "bi-check2-all"),

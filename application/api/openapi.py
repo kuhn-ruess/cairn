@@ -61,8 +61,9 @@ def build_openapi_spec() -> dict:
                         "status": {
                             "type": "string",
                             "enum": [
-                                "open", "next", "waiting", "scheduled",
-                                "someday", "done", "dropped",
+                                "open", "next", "waiting", "waiting_reply",
+                                "review", "scheduled", "someday", "done",
+                                "dropped",
                             ],
                         },
                         "flagged": {"type": "boolean"},
@@ -176,8 +177,9 @@ def build_openapi_spec() -> dict:
                         "status": {
                             "type": "string",
                             "enum": [
-                                "open", "next", "waiting", "scheduled",
-                                "someday", "done", "dropped",
+                                "open", "next", "waiting", "waiting_reply",
+                                "review", "scheduled", "someday", "done",
+                                "dropped",
                             ],
                         },
                         "flagged": {"type": "boolean"},

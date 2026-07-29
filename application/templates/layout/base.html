@@ -536,7 +536,7 @@
       <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle"
               data-bs-toggle="dropdown">Status</button>
       <ul class="dropdown-menu">
-        {% for s in ['open', 'next', 'waiting', 'scheduled', 'someday', 'dropped'] %}
+        {% for s in ['open', 'next', 'waiting', 'review', 'scheduled', 'someday', 'dropped'] %}
           <li><a class="dropdown-item bulk-status-item" href="#" data-status="{{ s }}">{{ s|capitalize }}</a></li>
         {% endfor %}
       </ul>

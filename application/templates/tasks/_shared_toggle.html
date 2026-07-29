@@ -4,7 +4,7 @@
    perspective lists — not Inbox / Assigned / Delegated, which have their own
    scope. Requires: view_key. #}
 {% set _shared_toggle_views = [
-  'today','next','scheduled','flagged','waiting','waiting_reply',
+  'today','next','scheduled','flagged','waiting','waiting_reply','review',
   'followup','someday','completed','forecast'] %}
 {% if view_key in _shared_toggle_views %}
 <form method="post" action="{{ url_for('tasks.toggle_show_shared') }}" class="m-0">

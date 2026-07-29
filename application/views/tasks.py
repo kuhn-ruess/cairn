@@ -149,7 +149,7 @@ def _perspective_scope(user):
     return focus.restrict(perspective_base_q(user), user)
 
 _PASS_KEYS = frozenset(
-    {"today", "next", "waiting", "waiting_reply", "someday",
+    {"today", "next", "waiting", "waiting_reply", "review", "someday",
      "scheduled", "flagged", "forecast", "followup"}
 )
 
@@ -191,6 +191,8 @@ def sidebar_counts(user, now=None, keys=None) -> dict:
                 c["waiting"] += 1
             elif st == "waiting_reply":
                 c["waiting_reply"] += 1
+            elif st == "review":
+                c["review"] += 1
             elif st == "someday":
                 c["someday"] += 1
             if t.defer_date and t.defer_date > now:
@@ -1524,6 +1526,19 @@ def waiting_reply():
     ).order_by("+due_date")
     return render_template(
         "tasks/list.html", title="Waiting on reply", perspective="waiting_reply",
+        tasks=prepare_list(tasks),
+    )
+
+@tasks_bp.route("/review")
+@login_required
+def review():
+    """Tasks parked for review before they can be closed out."""
+    user = current_user._get_current_object()
+    tasks = _filter_by_project(
+        Item.objects(_perspective_scope(user), status="review"), user,
+    ).order_by("+due_date")
+    return render_template(
+        "tasks/list.html", title="Review", perspective="review",
         tasks=prepare_list(tasks),
     )
 
