@@ -2282,6 +2282,42 @@ def quick_edit(task_id):
     })
 
 
+@tasks_bp.route("/<task_id>/quick-plan", methods=["POST"])
+@login_required
+def quick_plan(task_id):
+    """Inspector quick-plan: set ``plan_date`` to today / tomorrow / the day
+    after (all-day, midnight in the user's tz) together with a short
+    ``plan_note``, in one shot — no full form round-trip. ``when=clear`` wipes
+    both. The note renders before the task name in list views. Returns JSON;
+    the client refreshes the list behind the panel."""
+    from flask import jsonify
+    from datetime import datetime as _dt, time as _t, timedelta as _td
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_edited_by(user):
+        abort(404)
+    when = (request.form.get("when") or "").strip()
+    note = (request.form.get("plan_note") or "").strip()[:200]
+    offsets = {"today": 0, "tomorrow": 1, "dayafter": 2}
+    if when == "clear":
+        task.plan_date = None
+        task.plan_note = ""
+    elif when in offsets:
+        tz = resolve_tz(user)
+        day = _dt.now(tz).date() + _td(days=offsets[when])
+        task.plan_date = _dt.combine(day, _t(0, 0)).replace(tzinfo=tz)
+        task.plan_note = note
+    else:
+        return jsonify({"error": "invalid when"}), 400
+    task.save()
+    _writeback_calendar(task, user)
+    return jsonify({
+        "ok": True,
+        "plan_date": task.plan_date.isoformat() if task.plan_date else None,
+        "plan_note": task.plan_note,
+    })
+
+
 # Preset times of day for the Today-list quick snooze. Wall-clock in the
 # user's timezone; "tomorrow" is the next day.
 SNOOZE_TARGETS = {

@@ -482,6 +482,36 @@
     {% endif %}
   </div>
 
+  {% if task and task.pk %}
+    {# Quick-plan: one click sets a plan date + a short comment, saved
+       immediately (no full form Save). The comment renders before the task
+       name in list views. Buttons are type=button so they never submit the
+       form; the standalone handler in inspector.js does the POST. #}
+    <div class="inspector-section" data-section="quick-plan">
+      <label class="form-label small text-uppercase text-muted">Quick plan</label>
+      <div data-quick-plan-block data-task-id="{{ task.pk }}"
+           data-csrf="{{ csrf_token() }}">
+        <input type="text" class="form-control form-control-sm mb-1"
+               data-quick-plan-note maxlength="200"
+               placeholder="Comment — shown before the name in lists"
+               value="{{ task.plan_note or '' }}">
+        <div class="d-flex align-items-center gap-2">
+          <div class="btn-group btn-group-sm">
+            <button type="button" class="btn btn-outline-primary"
+                    data-quick-plan="today">Today</button>
+            <button type="button" class="btn btn-outline-primary"
+                    data-quick-plan="tomorrow">Tomorrow</button>
+            <button type="button" class="btn btn-outline-primary"
+                    data-quick-plan="dayafter">Day after</button>
+            <button type="button" class="btn btn-outline-secondary"
+                    data-quick-plan="clear" title="Clear plan + comment">×</button>
+          </div>
+          <span class="small text-success" data-quick-plan-status hidden></span>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
   {% for key in (inspector_section_order or []) %}
     {# On the detail page (inline inspector) comments + subtasks render in
        their own column sections, so skip them here to avoid a duplicate.

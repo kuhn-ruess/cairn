@@ -63,7 +63,7 @@
           <a class="task-title text-decoration-none text-body"
              href="{{ url_for('tasks.detail', task_id=task.pk) }}">
             {% if task.flagged and current_user.show_field('flag', view_key=_vk) %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
-            {{ task.title }}
+            {% if task.plan_note %}<span class="task-plan-note fw-semibold">{{ task.plan_note }}</span> <span class="text-muted">({{ task.title }})</span>{% else %}{{ task.title }}{% endif %}
           </a>
           <a class="task-inspector-btn" href="{{ url_for('tasks.edit', task_id=task.pk) }}"
              data-inspector-url="{{ url_for('tasks.edit', task_id=task.pk) }}"

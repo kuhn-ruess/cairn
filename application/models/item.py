@@ -295,6 +295,10 @@ class Item(Document):
     defer_date = DateTimeField()
     due_date = DateTimeField()
     plan_date = DateTimeField()
+    # Short quick-plan comment set alongside ``plan_date`` from the inspector's
+    # quick-plan block. Rendered before the task name in list views
+    # ("comment (Task name)") so a planned item reads as an intention.
+    plan_note = StringField(default="", max_length=200)
     # Gantt / timeline scheduling window ("Target start" / "Target end"). Kept
     # independent of ``due_date`` (a hard deadline) and ``defer_date`` (which
     # hides a task until it passes): these two are pure planning bounds that the

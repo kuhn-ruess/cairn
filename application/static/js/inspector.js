@@ -860,3 +860,51 @@
     ev.returnValue = "";
   });
 })();
+
+/* Inspector quick-plan: one click sets plan_date (today/tomorrow/day-after)
+ * plus a short comment, saved immediately via a lightweight endpoint — no full
+ * form Save. Delegated on document (not the offcanvas) so it also drives the
+ * inline inspector on the task-detail page, and survives the body swap that
+ * follows a normal save. */
+(function () {
+  document.addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("[data-quick-plan]");
+    if (!btn) return;
+    const block = btn.closest("[data-quick-plan-block]");
+    if (!block) return;
+    ev.preventDefault();
+    const when = btn.dataset.quickPlan;
+    const noteEl = block.querySelector("[data-quick-plan-note]");
+    const status = block.querySelector("[data-quick-plan-status]");
+    const fd = new FormData();
+    fd.append("csrf_token", block.dataset.csrf || "");
+    fd.append("when", when);
+    fd.append("plan_note", noteEl ? noteEl.value : "");
+    btn.disabled = true;
+    try {
+      const resp = await fetch("/tasks/" + block.dataset.taskId + "/quick-plan", {
+        method: "POST",
+        body: fd,
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      });
+      if (!resp.ok) throw new Error("quick-plan failed: " + resp.status);
+      const data = await resp.json();
+      if (when === "clear" && noteEl) noteEl.value = "";
+      // Keep the inspector's own plan_date field in sync so a subsequent full
+      // Save doesn't clobber what we just set (datetime-local wants YYYY-MM-DDTHH:MM).
+      const planField = document.getElementById("plan_date");
+      if (planField) planField.value = data.plan_date ? data.plan_date.slice(0, 16) : "";
+      if (status) {
+        status.textContent = when === "clear" ? "Cleared" : "Planned ✓";
+        status.hidden = false;
+        setTimeout(() => { status.hidden = true; }, 1500);
+      }
+      // Refresh the list behind the panel so the comment prefix shows at once.
+      document.dispatchEvent(new Event("bktodo:refresh-needed"));
+    } catch (e) {
+      if (status) { status.textContent = "Failed"; status.hidden = false; }
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
