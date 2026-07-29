@@ -221,7 +221,8 @@ def sidebar_counts(user, now=None, keys=None) -> dict:
         from application.services import focus
         c["delegated"] = Item.objects(
             focus.restrict(
-                Q(owner=user) & Q(assigned_to__ne=None) & Q(assigned_to__ne=user),
+                (Q(owner=user) | Q(assigned_by=user))
+                & Q(assigned_to__ne=None) & Q(assigned_to__ne=user),
                 user),
             kind="task", status__nin=["done", "dropped"]).count()
     return c
@@ -1579,15 +1580,21 @@ def assigned_to_me():
 @tasks_bp.route("/delegated")
 @login_required
 def delegated():
-    """Tasks I own but handed off to someone else — the mirror of
-    'Assigned to me'. ``assigned_to__ne=user`` alone would also match
+    """Tasks I handed off to someone else — the mirror of 'Assigned to me'.
+
+    Two ways to have delegated a task: I own it and assigned it away, OR I
+    was the one who assigned it (``assigned_by``) even though someone else
+    owns it — e.g. a task assigned to me that I then re-delegated onward.
+    Without the ``assigned_by`` arm such a task vanishes from my views until
+    it's handed back. ``assigned_to__ne=user`` alone would also match
     unassigned tasks (None != user), so we exclude None explicitly."""
     user = current_user._get_current_object()
     from application.services import focus
     tasks = _filter_by_project(
         Item.objects(
             focus.restrict(
-                Q(owner=user) & Q(assigned_to__ne=None) & Q(assigned_to__ne=user),
+                (Q(owner=user) | Q(assigned_by=user))
+                & Q(assigned_to__ne=None) & Q(assigned_to__ne=user),
                 user),
             status__nin=["done", "dropped"]),
         user,
