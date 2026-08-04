@@ -190,7 +190,11 @@
                 <i class="bi bi-folder-symlink"></i> {{ task.assigned_to }} › {{ _af.name }}
               </span>
             {% endif %}
-            {% if task.status not in ['open', 'next', 'done'] and current_user.show_field('status_badge', view_key=_vk) %}
+            {# In search the list mixes every status across all projects, so the
+               status is load-bearing context — always show it there so you can
+               tell at a glance whether a hit is still open, regardless of the
+               per-view status_badge toggle. #}
+            {% if task.status not in ['open', 'next', 'done'] and (_vk == 'search' or current_user.show_field('status_badge', view_key=_vk)) %}
               <span class="badge text-bg-secondary">{{ task.status|status_label }}</span>
             {% endif %}
             {% if task.comments and current_user.show_field('comments', view_key=_vk) %}
