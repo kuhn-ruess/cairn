@@ -166,10 +166,17 @@ def perspective_base_q(user):
     Personal by default — ``own_or_assigned_q`` — so team-shared and
     re-delegated tasks don't clutter your action lists. When the user opts in
     (``perspectives_show_shared``, a toolbar toggle) it widens to the full
-    ``visible_items_q``. Callers still wrap this in ``focus.restrict`` as before.
-    Search / quickjump deliberately keep the wide scope."""
+    ``visible_items_q`` — BUT still drops orphaned tasks you don't own: an item
+    that's assigned to nobody yet reaches you only via a team/member share (e.g.
+    a ticket you were assigned and then handed back) is nobody's committed action
+    and has no place on a personal action list. Its stale ``plan_date``/``flagged``
+    would otherwise keep dragging it onto your Today. Mirrors the delegated
+    view's ``assigned_to__ne=None`` guard. Callers still wrap this in
+    ``focus.restrict`` as before. Search / quickjump deliberately keep the wide
+    scope (unfiltered ``visible_items_q``)."""
+    from mongoengine import Q
     if getattr(user, "perspectives_show_shared", False):
-        return visible_items_q(user)
+        return visible_items_q(user) & (Q(owner=user) | Q(assigned_to__ne=None))
     return own_or_assigned_q(user)
 
 
