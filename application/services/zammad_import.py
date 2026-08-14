@@ -613,11 +613,14 @@ def _upsert_ticket(
                     existing.completed_at = datetime.now(timezone.utc)
             else:
                 existing.completed_via = None
-        # Tag-driven status rules ("Warte auf Kunde → waiting", etc.)
+        # Tag-driven status rules ("Warte auf Kunde → waiting_reply", etc.)
         # run AFTER the Zammad-state assignment so they win: a tag
         # rule is more specific than the generic state mapping. Skipped
-        # for a kept-scheduled task so the deferral survives the sync.
-        if not keep_scheduled:
+        # for a kept-scheduled task so the deferral survives the sync —
+        # and skipped when Zammad says the ticket is finished, because a
+        # ticket still carrying e.g. "Warte auf Antwort" (→ next) would
+        # otherwise be dragged straight back out of done on every sync.
+        if not keep_scheduled and cairn_status != "done":
             apply_label_rules(existing, user)
         _sync_article_comments(existing, articles, stats, user, me_id)
         # Parent stays put either way: the user might have moved the
@@ -639,7 +642,8 @@ def _upsert_ticket(
             tags=list(new_external),
             external_tags=list(new_external),
         )
-        apply_label_rules(item, user)
+        if cairn_status != "done":       # a closed ticket stays closed
+            apply_label_rules(item, user)
         _sync_article_comments(item, articles, stats, user, me_id)
         item.save()
         stats.tickets_created += 1
