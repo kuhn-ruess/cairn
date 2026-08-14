@@ -16,9 +16,9 @@ Mapping
   (authored by the external sender, deduped by the Zammad article id) so
   ticket updates keep flowing in on re-sync
 * Priority "1 low"/"2 normal"/"3 high" → Cairn P4/P3/P2
-* State "open"/"new"/"pending close" → ``status=next``;
-  "closed"/"merged" → ``status=done`` with ``completed_at`` stamped;
-  other states stay ``open``.
+* State "closed"/"merged"/"pending close" → ``status=done`` with
+  ``completed_at`` stamped; every other state → ``status=open`` (a
+  ticket that leaves "pending close" again reopens its Cairn task).
 * ``ticket.url`` (if Zammad exposes one) is appended to the note as a
   back-link.
 """
@@ -154,8 +154,15 @@ def _request(url: str, token: str, *, params: dict | None = None,
     raise last_err
 
 
-_DONE_STATES = {"closed", "merged"}
-_OPEN_STATES = {"open", "new", "pending close", "pending reminder"}
+# States that mean "finished" in Cairn. "pending close" counts: the agent has
+# done the work and only Zammad's timer is left, so the task shouldn't keep
+# sitting in a perspective. Zammad hands back the state *name*, which is
+# English for the stock states even on a German UI — but installs with renamed
+# states exist, so the German label is accepted too.
+_DONE_STATES = {
+    "closed", "merged",
+    "pending close", "warten auf schließen", "warten auf schliessen",
+}
 
 
 def import_for_user(
@@ -293,7 +300,6 @@ def import_for_user(
         if zid is not None:
             seen_zammad_ids.add(f"zammad:{zid}")
 
-    closed_states = {"closed", "merged"}
     filtered: list[dict] = []
     for raw in tickets:
         # "Assigned to me" needs to cover both sides of a Zammad
@@ -309,12 +315,14 @@ def import_for_user(
                 continue
         if not include_closed:
             state = (raw.get("state") or raw.get("state_name") or "").lower()
-            if state in closed_states:
-                # Don't create NEW tasks for already-closed tickets, but a
-                # ticket we previously imported and that has since been
-                # closed in Zammad MUST still flow through so its Cairn task
-                # gets marked done — otherwise closing in Zammad never
-                # propagates here. Only brand-new closed tickets are skipped.
+            if state in _DONE_STATES:
+                # Don't create NEW tasks for already-closed tickets (incl.
+                # "pending close"), but a ticket we previously imported and
+                # that has since been closed in Zammad MUST still flow through
+                # so its Cairn task gets marked done — otherwise closing in
+                # Zammad never propagates here. Only brand-new closed tickets
+                # are skipped; if such a ticket goes back to open later, the
+                # next sync imports it as a fresh task.
                 zid = raw.get("id")
                 already = (
                     zid is not None
@@ -460,13 +468,12 @@ def _upsert_ticket(
     # Priority is intentionally NOT imported — every Zammad ticket carries a
     # default priority ("2 normal"), which would stamp a Cairn priority on
     # every task. Leave it to the user.
-    state = (raw.get("state") or "").lower()
-    if state in _DONE_STATES:
-        cairn_status = "done"
-    elif state in _OPEN_STATES:
-        cairn_status = "next"
-    else:
-        cairn_status = "open"
+    state = (raw.get("state") or raw.get("state_name") or "").lower()
+    # Anything that isn't finished lands as plain "open" — Zammad tickets are
+    # inbound work, not something the user already committed to as a next
+    # action. Flipping a ticket back out of "pending close" therefore reopens
+    # the Cairn task (save() clears the completion record on that transition).
+    cairn_status = "done" if state in _DONE_STATES else "open"
 
     # Pull the whole article thread once. The first article (the original
     # message) is the task note; every later reply is mirrored in as a
@@ -579,7 +586,7 @@ def _upsert_ticket(
         # A task the user parked as "scheduled" with a plan date is a
         # deliberate deferral ("I'll deal with this on day X"). A sync must
         # leave that status alone — neither the Zammad-state mapping below
-        # nor the tag rules may yank it back to "next". A Zammad *close*
+        # nor the tag rules may yank it back to "open". A Zammad *close*
         # still wins (cairn_status == "done") so a finished ticket doesn't
         # linger forever as a scheduled task.
         keep_scheduled = (

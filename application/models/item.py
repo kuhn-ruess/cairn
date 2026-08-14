@@ -523,7 +523,7 @@ class Item(Document):
             # A task that becomes actionable again (next/open) must not stay
             # hidden behind a pending follow-up: a future ``followup_at`` blocks
             # the task (see ``_own_block``), so e.g. when a customer replies and
-            # a Zammad sync flips ``waiting`` → ``next``, the leftover reminder
+            # a Zammad sync flips ``waiting`` → ``open``, the leftover reminder
             # would keep it invisible. Drop the pending follow-up on that
             # transition (only on the actual status change, so a follow-up set
             # by hand on an already-next task is left alone).

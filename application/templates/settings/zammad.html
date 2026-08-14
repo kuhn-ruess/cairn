@@ -95,7 +95,7 @@
             </li>
           {% endif %}
           {% if stats.filtered_closed %}
-            <li>Excluded because they're closed/merged: {{ stats.filtered_closed }}
+            <li>Excluded because they're closed/merged/pending close: {{ stats.filtered_closed }}
               <span class="text-warning">— tick "Include closed tickets" to import them too</span>
             </li>
           {% endif %}

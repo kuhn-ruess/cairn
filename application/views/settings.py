@@ -73,7 +73,7 @@ class ZammadImportForm(FlaskForm):
     auto_sync = BooleanField("Sync automatically in the background (every few minutes)")
     project = SelectField("Import into project", choices=[], validators=[Optional()])
     assignee_only = BooleanField("Only tickets assigned to me", default=True)
-    include_closed = BooleanField("Include closed tickets")
+    include_closed = BooleanField("Include closed tickets (closed/merged/pending close)")
     dry_run = BooleanField("Dry run (don't write changes)")
     submit = SubmitField("Import")
 
