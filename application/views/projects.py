@@ -622,10 +622,22 @@ def detail(project_id):
         # Each sub-project's direct tasks PLUS their sub-task trees nested
         # beneath, so a task inside a sub-project shows the expand chevron and
         # its (default-collapsed) sub-tasks — they were invisible before.
+        # "Available only" applies here too — these rows are part of the same
+        # page, so a blocked task nested under a sub-project must drop out just
+        # like one directly in the project. Filtering the roots first is enough
+        # for their subtrees (is_blocked cascades to descendants), but a child
+        # can be blocked on its own, so the nested output gets filtered too.
+        _sp_avail_now = (
+            datetime.now(timezone.utc) if project.show_available_only else None
+        )
         for sp in sub_projects_all:
             roots = direct_by_sp.get(sp.pk) or []
-            subproject_children[sp.pk] = _nest_subtasks(
-                roots, collapsed_pks, show_completed)
+            if _sp_avail_now:
+                roots = [t for t in roots if t.is_available(_sp_avail_now)]
+            nested = _nest_subtasks(roots, collapsed_pks, show_completed)
+            if _sp_avail_now:
+                nested = [t for t in nested if t.is_available(_sp_avail_now)]
+            subproject_children[sp.pk] = nested
             # _has_children = has direct kids (kid.parent dereferences to a
             # fresh instance, so writing in the loop above would miss the sp).
             sp._has_children = bool(roots)
