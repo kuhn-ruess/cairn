@@ -500,6 +500,60 @@ def _nest_subtasks(roots, collapsed_pks, show_completed):
     return out
 
 
+def _raw_ref_pk(doc, field="parent"):
+    """The referenced pk WITHOUT dereferencing — reading ``doc.parent`` would
+    fire a query per document."""
+    raw = doc._data.get(field)
+    if raw is None or isinstance(raw, Item):
+        return getattr(raw, "pk", None)
+    # DBRef (.id) / LazyReference (.pk) / a bare ObjectId (itself).
+    return getattr(raw, "id", None) or getattr(raw, "pk", None) or raw
+
+
+def _containers_with_available(roots, status_filter, now):
+    """``roots`` (sub-projects / folders) minus those whose whole subtree
+    holds no available task.
+
+    With "Available only" on, a container row whose every task is deferred /
+    waiting / blocked is just noise — but the check has to span the FULL
+    subtree, not the direct children rendered under the row, so a sub-project
+    whose actionable work sits a level deeper stays put.
+
+    Cost: one query per container-tree level plus one for the tasks. The
+    fetched containers are wired into each other's and their tasks' parent
+    slot, so ``is_available``'s walk up the ancestor chain stays in memory
+    instead of dereferencing per row.
+    """
+    by_pk = {c.pk: c for c in roots}
+    frontier = [c.pk for c in roots]
+    while frontier:
+        kids = list(Item.objects(parent__in=frontier,
+                                 kind__in=["project", "section", "folder"]))
+        frontier = [c.pk for c in kids if c.pk not in by_pk]
+        for c in kids:
+            by_pk.setdefault(c.pk, c)
+    tasks_q = Item.objects(kind="task", parent__in=list(by_pk))
+    if status_filter:
+        tasks_q = tasks_q.filter(status__nin=status_filter)
+    tasks = list(tasks_q)
+    for doc in list(by_pk.values()) + tasks:
+        anc = by_pk.get(_raw_ref_pk(doc))
+        if anc is not None:
+            doc._data["parent"] = anc
+    # Mark each available task's container chain, stopping at the first
+    # already-marked ancestor — every container above it is marked too.
+    has_available: set = set()
+    for t in tasks:
+        if not t.is_available(now):
+            continue
+        pk = _raw_ref_pk(t)
+        while pk is not None and pk not in has_available:
+            has_available.add(pk)
+            node = by_pk.get(pk)
+            pk = _raw_ref_pk(node) if node is not None else None
+    return [c for c in roots if c.pk in has_available]
+
+
 def _gantt_subtree_rows(project, show_completed):
     """Ordered rows (any kind) under ``project``, each stamped with
     ``_gantt_indent`` = depth, for the timeline view. Level-order fetch (one
@@ -596,6 +650,16 @@ def detail(project_id):
     sub_projects_all = list(_sub_query(project))
     for s in sections:
         sub_projects_all.extend(_sub_query(s))
+    # "Available only" prunes the container rows too: a sub-project / folder
+    # with nothing actionable anywhere below it has no place on a filtered
+    # plate. Same status filter the task list uses, so ``?completed=1`` keeps
+    # its meaning here.
+    if project.show_available_only and sub_projects_all:
+        sub_projects_all = _containers_with_available(
+            sub_projects_all,
+            None if show_completed else ["done", "dropped"],
+            datetime.now(timezone.utc),
+        )
     subprojects_by_section: dict = {None: []}
     for s in sections:
         subprojects_by_section[str(s.pk)] = []
