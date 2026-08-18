@@ -512,7 +512,7 @@
     <form method="post" action="{{ url_for('projects.toggle_available_only', project_id=project.pk) }}" class="m-0">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn btn-sm {% if project.show_available_only %}btn-primary{% else %}btn-outline-secondary{% endif %}"
-              type="submit" title="Available only — hide deferred, follow-up-pending and sequentially-blocked tasks">
+              type="submit" title="Available only — hide waiting, someday, deferred, follow-up-pending and sequentially-blocked tasks">
         <i class="bi bi-funnel{{ '-fill' if project.show_available_only else '' }}"></i> Available only
       </button>
     </form>

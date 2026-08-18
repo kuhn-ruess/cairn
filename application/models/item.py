@@ -63,6 +63,12 @@ ITEM_MAX_BYTES = 15 * 1024 * 1024       # refuse new attachments past this
 ITEM_KINDS = ("task", "project", "section", "folder", "note")
 TASK_STATUS = ("open", "next", "waiting", "waiting_reply", "review",
                "scheduled", "someday", "done", "dropped")
+# Statuses that make a task non-actionable by definition: you're waiting on
+# someone else ("waiting" / "waiting_reply") or you've parked it ("someday").
+# They feed ``_own_block`` — so such tasks read as blocked everywhere
+# (available-only filters, Next, plan backlog) and hold their sub-tasks back
+# too. They still show on their own perspectives, which key off status.
+BLOCKED_STATUS = ("waiting", "waiting_reply", "someday")
 PROJECT_TYPES = ("parallel", "sequential", "single_actions")
 PROJECT_STATUS = ("active", "on_hold", "completed", "dropped")
 PRIORITIES = (1, 2, 3, 4)
@@ -861,13 +867,13 @@ class Item(Document):
 
     def _own_block(self, now: datetime) -> bool:
         """This item's OWN blocked state, ignoring ancestors:
-          * ``status == "waiting_reply"`` — waiting on someone's reply
+          * ``status`` in ``BLOCKED_STATUS`` — parked on someone/something else
           * ``defer_date`` in the future
           * ``followup_at`` in the future
           * has an unfinished task dependency (``depends_on``)
           * sits in a sequential parent behind an earlier incomplete sibling
         """
-        if self.status == "waiting_reply":
+        if self.status in BLOCKED_STATUS:
             return True
         if self.defer_date and self.defer_date > now:
             return True
