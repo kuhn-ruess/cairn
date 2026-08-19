@@ -238,16 +238,21 @@
           {# Linked Cairn folders/projects (tasks below them inherit this billing project) #}
           <div class="mt-2 ps-2 border-start">
             {% for it in links_by_project.get(p.id|string, []) %}
+              {% set _info = link_info.get(it.id|string, {}) %}
               <div class="d-flex align-items-center gap-2 small">
-                {# The full path, so it's obvious which "Website" this is. #}
+                {# The full path, so it's obvious which "Website" this is —
+                   and, when it sits outside the team's shared area, whose
+                   private tree the billing project is drawing time out of. #}
                 <span class="me-auto text-truncate"
-                      title="{{ link_labels.get(it.id|string, it.title) }}">
+                      title="{{ _info.path or it.title }}">
                   <i class="bi bi-{{ 'folder' if it.kind == 'folder' else 'collection' }}"></i>
-                  {% set _path = link_labels.get(it.id|string) %}
-                  {% if _path %}
-                    {% set _parts = _path.split('  ', 1)[-1].split(' / ') %}
-                    {% if _parts|length > 1 %}<span class="text-muted">{{ _parts[:-1]|join(' / ') }} / </span>{% endif %}{{ _parts[-1] }}
-                  {% else %}{{ it.title }}{% endif %}
+                  {% set _parts = (_info.path or it.title).split(' / ') %}
+                  {% if _parts|length > 1 %}<span class="text-muted">{{ _parts[:-1]|join(' / ') }} / </span>{% endif %}{{ _parts[-1] }}
+                  {% if not _info.shared %}
+                    <span class="badge text-bg-light text-muted"
+                          title="Private — not shared with {{ team.name }}{{ ', owned by ' ~ _info.owner if _info.owner }}">
+                      <i class="bi bi-lock"></i>{{ ' ' ~ _info.owner if _info.owner }}</span>
+                  {% endif %}
                 </span>
                 <form method="post" action="{{ url_for('timetracking.link_item') }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

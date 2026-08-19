@@ -126,3 +126,84 @@ def resolve_notes_folder(item):
         node = node.parent
         depth += 1
     return None
+
+
+def describe_containers(items, team=None):
+    """Where each container lives, and — when that's a private place — whose.
+
+    ``items`` are containers that may belong to *anyone* (the time-tracking page
+    lists every folder linked to a billing project, and colleagues link their
+    own). For each one, returns ``{path, owner, shared}``:
+
+    * ``path``  — the full breadcrumb, resolved through ancestors that the
+      viewer may not own or even be able to open.
+    * ``shared`` — whether it (or an ancestor) is shared with ``team``. A
+      container that isn't sits in someone's private area, which is exactly when
+      knowing the ``owner`` matters: the billing project draws time out of a
+      place nobody else on the team can see.
+
+    Ancestors are fetched level by level and owners in one go, so the whole
+    description costs a handful of queries no matter how many items come in.
+    ``all_objects`` throughout — a trashed ancestor still has to name the path.
+    """
+    items = list(items or [])
+    if not items:
+        return {}
+
+    known = {str(i.pk): i for i in items}
+    frontier = [i.parent.pk for i in items if i.parent]
+    depth = 0
+    while frontier and depth < 20:
+        missing = [pk for pk in frontier if str(pk) not in known]
+        if not missing:
+            break
+        parents = list(Item.all_objects(pk__in=missing)
+                       .only("pk", "title", "kind", "parent", "owner", "shared_teams"))
+        if not parents:
+            break
+        for p in parents:
+            known[str(p.pk)] = p
+        frontier = [p.parent.pk for p in parents if p.parent]
+        depth += 1
+
+    owner_ids = {getattr(i._data.get("owner"), "pk", None)
+                 or getattr(i._data.get("owner"), "id", None)
+                 for i in known.values() if i._data.get("owner") is not None}
+    owner_ids.discard(None)
+    names = {}
+    if owner_ids:
+        from application.models.user import User
+        names = {str(u.pk): (u.display_name or u.username or "")
+                 for u in User.objects(pk__in=list(owner_ids))
+                 .only("pk", "display_name", "username")}
+
+    team_id = str(team.pk) if team is not None else None
+
+    def ref_id(ref):
+        # Un-dereferenced references come back as raw DBRefs (``.id``), already
+        # loaded ones as Documents (``.pk``). Both mean the same thing here.
+        return str(getattr(ref, "pk", None) or getattr(ref, "id", None) or "")
+
+    def chain(item):
+        out, cur, seen = [], item, set()
+        while cur is not None and str(cur.pk) not in seen:
+            seen.add(str(cur.pk))
+            out.append(cur)
+            par = cur.parent
+            cur = known.get(str(par.pk)) if par else None
+        return out
+
+    described = {}
+    for item in items:
+        line = chain(item)
+        shared = team_id is not None and any(
+            any(ref_id(t) == team_id for t in (c._data.get("shared_teams") or []))
+            for c in line
+        )
+        owner_ref = item._data.get("owner")
+        described[str(item.pk)] = {
+            "path": " / ".join(c.name for c in reversed(line)),
+            "owner": names.get(ref_id(owner_ref), "") if owner_ref is not None else "",
+            "shared": shared,
+        }
+    return described

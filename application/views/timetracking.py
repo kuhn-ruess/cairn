@@ -172,21 +172,25 @@ def index():
         by_customer.setdefault(str(p.customer.id), []).append(p)
 
     linked = list(Item.objects(time_project__in=[p.id for p in projects])
-                  .only("id", "title", "kind", "time_project"))
+                  .only("id", "title", "kind", "parent", "owner", "shared_teams",
+                        "time_project"))
     links_by_project: dict[str, list] = {}
     for it in linked:
         links_by_project.setdefault(str(it.time_project.id), []).append(it)
+    # Colleagues link their own containers too, so this list is not limited to
+    # what the viewer owns: resolve each one's path, and whose private area it
+    # sits in when it isn't shared with the team.
+    from application.services.containers import describe_containers
+    link_info = describe_containers(linked, team=team)
 
     # Containers the user can attach, labelled with their full breadcrumb
     # ("🗂️  Work / Acme / Website") — a bare title doesn't say *which* of the
     # three "Website" projects you are about to bill. Same picker builder the
     # task and project inspectors use. Owner-only, matching what link_item
-    # accepts. The map doubles as the label source for the already-linked list
-    # below, so both read the same way.
+    # accepts.
     user = current_user._get_current_object()
     from application.services.containers import container_choices
     linkable = container_choices(user, selectable_kinds=("project", "folder"))
-    link_labels = dict(linkable)
 
     # Budget vs. actual — one bucket pass for the whole team, then a status per
     # project (None when no budget set).
@@ -205,8 +209,8 @@ def index():
         customers=customers,
         by_customer=by_customer,
         links_by_project=links_by_project,
+        link_info=link_info,
         linkable=linkable,
-        link_labels=link_labels,
         budgets=budgets,
     )
 
