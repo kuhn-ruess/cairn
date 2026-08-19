@@ -24,6 +24,24 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def to_oid(raw):
+    """A request-supplied id → ``ObjectId``, or ``None`` when it isn't one.
+
+    mongoengine raises ``ValidationError`` — a 500 — the moment a query gets a
+    malformed pk, and every id in this module arrives from a form field or a URL
+    segment. (The "Link a folder / project…" placeholder posting an empty
+    ``item_id`` was exactly that.) Funnelling them through here turns a bad id
+    into an ordinary "not found"."""
+    from bson import ObjectId
+    from bson.errors import InvalidId
+    if isinstance(raw, ObjectId):
+        return raw
+    try:
+        return ObjectId((raw or "").strip())
+    except (InvalidId, TypeError, ValueError):
+        return None
+
+
 def local_date(dt, user=None):
     """The *calendar day* ``dt`` belongs to, in ``user``'s timezone.
 
@@ -179,6 +197,7 @@ def source_snapshot(item) -> dict:
 def add_entry(*, project: TimeTrackingProject, user, minutes: int,
               spent_on: datetime, note: str = "", source_item=None,
               source: dict | None = None, external_id: str | None = None,
+              external_ref: str = "", external_url: str = "",
               custom: list | None = None, start_time: str = "",
               end_time: str = "", billable: bool | None = None) -> TimeEntry:
     """Append a time entry to the ``(team, customer, month)`` bucket atomically.
@@ -222,6 +241,8 @@ def add_entry(*, project: TimeTrackingProject, user, minutes: int,
         amount_cents=amount,
         billable=bool(billable),
         external_id=external_id or None,
+        external_ref=external_ref or None,
+        external_url=external_url or None,
     )
 
     # One atomic upsert-and-push: creates the day's bucket on first write, then
@@ -344,6 +365,8 @@ def item_entries(user, item) -> list[dict]:
                 "start_time": e.start_time or "",
                 "end_time": e.end_time or "",
                 "custom": entry_custom(e),
+                "external_ref": e.external_ref or "",
+                "external_url": e.external_url or "",
                 "note": e.note,
                 "locked": e.locked,
                 "billable": e.billable,
@@ -527,6 +550,8 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
                 "start_time": e.start_time or "",
                 "end_time": e.end_time or "",
                 "custom": entry_custom(e),
+                "external_ref": e.external_ref or "",
+                "external_url": e.external_url or "",
             })
     return rows
 
@@ -632,7 +657,10 @@ def public_project_report(project, month: str | None = None):
                 "minutes": e.minutes or 0,
                 "start_time": e.start_time or "",
                 "end_time": e.end_time or "",
-                "note": e.note or "",
+                # The ticket number is useful to the customer; the deep link
+                # behind it points into an internal system, so it stays home.
+                "note": ((f"#{e.external_ref} " if e.external_ref else "")
+                         + (e.note or "")).strip(),
                 "user_name": e.user_name or "",
                 "custom": {c.key: c.value for c in (e.custom or []) if c.value},
             })
@@ -740,9 +768,10 @@ def _actor(user):
 
 def project_for_user(user, project_id: str):
     """Fetch a billing project, but only if the user may log to its team."""
-    if not project_id:
+    pid = to_oid(project_id)
+    if pid is None:
         return None
-    p = TimeTrackingProject.objects(pk=project_id).first()
+    p = TimeTrackingProject.objects(pk=pid).first()
     if p is None or str(p.team.id) not in user_team_ids(user):
         return None
     return p
@@ -941,6 +970,8 @@ def day_sheet(user, day: date) -> dict:
                 "start_time": e.start_time or "",
                 "end_time": e.end_time or "",
                 "custom": entry_custom(e),
+                "external_ref": e.external_ref or "",
+                "external_url": e.external_url or "",
                 "note": e.note or "",
                 "service": e.service or "",
                 "billable": bool(e.billable),
@@ -999,11 +1030,11 @@ def imported_entry_ids(user, item) -> set:
 def import_entries_for_item(*, user, item, rows) -> int:
     """Append externally-tracked time to the billing project ``item`` inherits.
 
-    ``rows`` are dicts of ``{external_id, minutes, spent_on, note}``. Returns
-    how many were actually written: rows whose ``external_id`` is already on
-    the item are skipped, so syncing the same ticket again is a no-op. Does
-    nothing at all when the item's subtree isn't linked to a billing project —
-    that link *is* the opt-in."""
+    ``rows`` are dicts of ``{external_id, minutes, spent_on, note, external_ref,
+    external_url}``. Returns how many were actually written: rows whose
+    ``external_id`` is already on the item are skipped, so syncing the same
+    ticket again is a no-op. Does nothing at all when the item's subtree isn't
+    linked to a billing project — that link *is* the opt-in."""
     if not rows or not has_team(user):
         return 0
     project = resolve_time_project(item)
@@ -1019,10 +1050,56 @@ def import_entries_for_item(*, user, item, rows) -> int:
             continue
         add_entry(project=project, user=user, minutes=minutes,
                   spent_on=r["spent_on"], note=r.get("note", ""),
+                  external_ref=r.get("external_ref", ""),
+                  external_url=r.get("external_url", ""),
                   source=src, external_id=ext, billable=True)
         known.add(ext)
         written += 1
     return written
+
+
+def repair_imported_entries(*, user, item, note: str, external_ref: str = "",
+                            external_url: str = "", dry_run: bool = False) -> int:
+    """Bring entries imported from ``item`` up to today's shape.
+
+    Early imports stored a bare "Zammad #4711" as the description and no deep
+    link. This backfills the ticket's *title* as the description plus the ref
+    and url, for every entry booked against this item that is missing them.
+    Untouched: anything the user has since edited by hand (a description that
+    is no longer the old auto-generated one), and locked entries — billed time
+    is frozen, including its text.
+
+    Idempotent by construction: once an entry carries a url it is skipped, so
+    this can sit in the sync path without writing on every run."""
+    teams = user_teams(user)
+    if not teams:
+        return 0
+    src_id = str(item.pk)
+    old_auto = {f"Zammad #{external_ref}", f"zammad #{external_ref}"} if external_ref else set()
+    fixed = 0
+    for b in TimeBucket.objects(team__in=teams, entries__source_item_id=src_id):
+        for e in b.entries:
+            if (e.source_item_id != src_id or e.status != "active"
+                    or not (e.external_id or "").startswith("zammad:")):
+                continue
+            if e.external_url or e.locked:
+                continue
+            # Only replace a description we generated ourselves.
+            new_note = note if (e.note or "") in old_auto or not e.note else e.note
+            if dry_run:
+                fixed += 1
+                continue
+            res = TimeBucket.objects(
+                pk=b.pk, entries__entry_id=e.entry_id, entries__locked=False,
+            ).update_one(
+                set__entries__S__note=new_note,
+                set__entries__S__external_ref=external_ref or None,
+                set__entries__S__external_url=external_url or None,
+                set__updated_at=_utcnow(),
+            )
+            if res:
+                fixed += 1
+    return fixed
 
 
 # ---------------------------------------------------------------------------
@@ -1134,3 +1211,64 @@ def parse_clock(start: str, end: str):
     if span <= 0 or span > 24 * 60:
         return None
     return span, f"{a // 60:02d}:{a % 60:02d}", f"{b // 60:02d}:{b % 60:02d}"
+
+
+def repair_all_imported_entries(*, user=None, dry_run: bool = False) -> dict:
+    """Sweep the buckets and backfill every imported entry that predates the
+    title + deep link.
+
+    The sync repairs the tickets it still visits; this reaches the rest — time
+    booked on tickets that have since been closed, unlinked or dropped out of
+    the sync scope. Everything needed is reconstructed from the Cairn task the
+    entry points at (its title, ticket number and deep link), so no Zammad
+    round trip is involved. Locked (billed) entries and hand-edited
+    descriptions are left alone."""
+    q = TimeBucket.objects
+    if user is not None:
+        teams = user_teams(user)
+        if not teams:
+            return {"entries": 0, "buckets": 0, "orphans": 0}
+        q = q.filter(team__in=teams)
+
+    fixed = touched = orphans = 0
+    for b in q:
+        pending = [e for e in b.entries
+                   if e.status == "active" and not e.external_url
+                   and (e.external_id or "").startswith("zammad:")
+                   and e.source_item_id and not e.locked]
+        if not pending:
+            continue
+        items = {str(i.pk): i for i in Item.all_objects(
+            pk__in=list({e.source_item_id for e in pending}))}
+        changed = False
+        for e in pending:
+            item = items.get(e.source_item_id)
+            if item is None:  # the task is gone — nothing to reconstruct from
+                orphans += 1
+                continue
+            ref = item.external_ref or ""
+            url = item.external_url() or ""
+            if not url:
+                orphans += 1
+                continue
+            old_auto = {f"Zammad #{ref}", f"zammad #{ref}"} if ref else set()
+            note = (item.title or e.note or "")[:1000] \
+                if ((e.note or "") in old_auto or not e.note) else e.note
+            if dry_run:
+                fixed += 1
+                changed = True
+                continue
+            res = TimeBucket.objects(
+                pk=b.pk, entries__entry_id=e.entry_id, entries__locked=False,
+            ).update_one(
+                set__entries__S__note=note,
+                set__entries__S__external_ref=ref or None,
+                set__entries__S__external_url=url,
+                set__updated_at=_utcnow(),
+            )
+            if res:
+                fixed += 1
+                changed = True
+        if changed:
+            touched += 1
+    return {"entries": fixed, "buckets": touched, "orphans": orphans}

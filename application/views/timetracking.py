@@ -7,6 +7,7 @@ data model and application.services.timetracking for the bucket mechanics.
 from flask import (
     Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for,
 )
+from bson import ObjectId
 from flask_login import current_user, login_required
 
 from datetime import datetime
@@ -16,6 +17,7 @@ from application.models.timetracking import Customer, TimeBucket, TimeTrackingPr
 from application.services.permissions import team_required
 from application.services.timetracking import (
     add_entry,
+    to_oid,
     cancel_entry,
     custom_values,
     day_sheet,
@@ -87,14 +89,14 @@ def set_default_team():
 
 
 def _customer_or_404(cid, team):
-    c = Customer.objects(pk=cid, team=team).first()
+    c = Customer.objects(pk=to_oid(cid) or ObjectId(), team=team).first()
     if not c:
         abort(404)
     return c
 
 
 def _project_or_404(pid, team):
-    p = TimeTrackingProject.objects(pk=pid, team=team).first()
+    p = TimeTrackingProject.objects(pk=to_oid(pid) or ObjectId(), team=team).first()
     if not p:
         abort(404)
     return p
@@ -271,9 +273,10 @@ def _capture_response(user, task=None, fallback=None):
 
 
 def _viewable_task(user, task_id):
-    if not task_id:
+    tid = to_oid(task_id)
+    if tid is None:
         return None
-    task = Item.objects(pk=task_id).first()
+    task = Item.objects(pk=tid).first()
     if not task or not task.can_be_viewed_by(user):
         abort(404)
     return task
@@ -379,7 +382,7 @@ def timer_stop():
     timer = user.running_timer
     task = None
     if timer and timer.source_item_id:
-        task = Item.objects(pk=timer.source_item_id).first()
+        task = _viewable_task(user, timer.source_item_id)
         if task is not None and not task.can_be_viewed_by(user):
             task = None
     entry = stop_timer(user)
@@ -398,7 +401,7 @@ def timer_discard():
     timer = user.running_timer
     task = None
     if timer and timer.source_item_id:
-        task = Item.objects(pk=timer.source_item_id).first()
+        task = _viewable_task(user, timer.source_item_id)
         if task is not None and not task.can_be_viewed_by(user):
             task = None
     discard_timer(user)
@@ -414,7 +417,7 @@ def entry_cancel(bucket_id, entry_id):
     user = current_user._get_current_object()
     # Derive the team from the bucket (the cancel button carries no team) and
     # verify the user belongs to it — works regardless of which team is "current".
-    bucket = TimeBucket.objects(pk=bucket_id).first()
+    bucket = TimeBucket.objects(pk=to_oid(bucket_id) or ObjectId()).first()
     if not bucket:
         abort(404)
     team = bucket.team
@@ -428,7 +431,7 @@ def entry_cancel(bucket_id, entry_id):
     cancel_entry(bucket=bucket, entry_id=entry_id, user=user)
     task = None
     if entry.source_item_id:
-        task = Item.objects(pk=entry.source_item_id).first()
+        task = Item.objects(pk=to_oid(entry.source_item_id) or ObjectId()).first()
     return _capture_response(user, task)
 
 
@@ -439,7 +442,7 @@ def entry_edit(bucket_id, entry_id):
     """Correct a logged entry — duration, date, note, billable — until it is
     billed. mite allows the same; the money is recomputed from the frozen rate."""
     user = current_user._get_current_object()
-    bucket = TimeBucket.objects(pk=bucket_id).first()
+    bucket = TimeBucket.objects(pk=to_oid(bucket_id) or ObjectId()).first()
     if not bucket:
         abort(404)
     team = bucket.team
@@ -468,7 +471,7 @@ def entry_edit(bucket_id, entry_id):
                billable=request.form.get("billable") != "0")
     task = None
     if entry.source_item_id:
-        task = Item.objects(pk=entry.source_item_id).first()
+        task = Item.objects(pk=to_oid(entry.source_item_id) or ObjectId()).first()
     return _capture_response(user, task)
 
 
@@ -639,7 +642,8 @@ def report_csv():
             r.get("service", ""), r["user_name"], r["minutes"],
             f"{r['minutes'] / 60:.2f}",
             "yes" if r["billable"] else "no", "yes" if r["locked"] else "no",
-            f"{(r['amount_cents'] or 0) / 100:.2f}", r["note"],
+            f"{(r['amount_cents'] or 0) / 100:.2f}",
+            (f"#{r['external_ref']} " if r.get("external_ref") else "") + r["note"],
             "; ".join(f"{c['label']}: {c['value']}" for c in r.get("custom", [])),
         ])
     return Response(buf.getvalue(), mimetype="text/csv", headers={
@@ -843,17 +847,25 @@ def project_share(pid):
 # Linking a Cairn folder/project to a billing project
 # ---------------------------------------------------------------------------
 
-@timetracking_bp.route("/link", methods=["POST"])
+@timetracking_bp.route("/link", methods=["GET", "POST"])
 @login_required
 @team_required
 def link_item():
     """Bind a Cairn folder/project to a billing project (or clear the link).
 
     Tasks below the linked container inherit the billing project automatically
-    (see services.timetracking.resolve_time_project)."""
+    (see services.timetracking.resolve_time_project). GET is not a form — it
+    only exists so the URL isn't a dead end when someone lands on it."""
     team = _team()
     user = current_user._get_current_object()
-    item = Item.objects(pk=request.form.get("item_id"), owner=user,
+    if request.method == "GET":
+        return redirect(url_for("timetracking.index", team=team.pk))
+    item_id = to_oid(request.form.get("item_id"))
+    if item_id is None:
+        # The picker's placeholder option — nothing was chosen.
+        flash("Pick a folder or project to link.", "warning")
+        return redirect(url_for("timetracking.index", team=team.pk))
+    item = Item.objects(pk=item_id, owner=user,
                         kind__in=["project", "folder"]).first()
     if not item:
         abort(404)
