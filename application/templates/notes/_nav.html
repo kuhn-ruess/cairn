@@ -4,7 +4,14 @@
    Inline styles ship with the partial so CSS edits never hit the app.css
    cache-bust dance. #}
 <style>
-  .notes-wrap { display: flex; gap: 1rem; align-items: flex-start; }
+  /* Fill the main area — viewport minus the navbar and .app-main's py-3, the
+     same measure the app layout uses. Without it the columns were only as tall
+     as their content, so on a short note the dividers stopped a third of the
+     way down and the page looked cut off. */
+  .notes-wrap {
+    display: flex; gap: 1rem; align-items: stretch;
+    min-height: calc(100vh - var(--nav-height, 56px) - 2rem);
+  }
   .notes-nav {
     flex: 0 0 220px; width: 220px; align-self: stretch;
     border-right: 1px solid var(--bs-border-color); padding-right: .75rem;
@@ -74,7 +81,8 @@
     .notes-list-col { position: static; max-height: 60vh; }
   }
   @media (max-width: 768px) {
-    .notes-wrap { flex-direction: column; }
+    /* Stacked on a phone, the viewport height would only add dead space. */
+    .notes-wrap { flex-direction: column; min-height: 0; }
     .notes-list-col { flex-basis: auto; width: 100%; border-right: 0;
                  border-bottom: 1px solid var(--bs-border-color);
                  padding-right: 0; padding-bottom: .75rem; }
