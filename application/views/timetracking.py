@@ -17,12 +17,15 @@ from application.services.permissions import team_required
 from application.services.timetracking import (
     add_entry,
     cancel_entry,
+    custom_values,
     day_sheet,
     default_project_id,
     discard_timer,
     edit_entry,
     may_edit_entry,
+    parse_clock,
     parse_duration,
+    parse_project_fields,
     pickable_projects,
     project_for_user,
     start_timer,
@@ -119,6 +122,24 @@ def _parse_budget(form):
     return value, base + ("_per_month" if recurring else "")
 
 
+def _field_rows(form):
+    """The custom-field editor's parallel lists → rows for parse_project_fields.
+
+    Every row posts all five inputs, so the lists line up. A row with a blank
+    label is how a field gets removed."""
+    keys = form.getlist("cf_key")
+    labels = form.getlist("cf_label")
+    types = form.getlist("cf_type")
+    defaults = form.getlist("cf_default")
+    options = form.getlist("cf_options")
+
+    def at(seq, i):
+        return seq[i] if i < len(seq) else ""
+
+    return [(at(keys, i), labels[i], at(types, i), at(defaults, i), at(options, i))
+            for i in range(len(labels))]
+
+
 def _parse_rate_cents(raw: str):
     """Parse a euro amount ('85', '85.50', '85,50') into integer cents.
     Empty/invalid → None (no rate = hours only)."""
@@ -206,6 +227,20 @@ def _spent_on(raw, user):
     return datetime(d.year, d.month, d.day, 12, 0, tzinfo=zone)
 
 
+def _booking(form, project):
+    """The parts of a booking that every capture path shares.
+
+    Returns ``(minutes, start_time, end_time, custom)``. Clock times win when
+    both are given — that is the user explicitly choosing to book "09:00–10:30"
+    instead of "1h30m", and the duration is then derived from them."""
+    clock = parse_clock(form.get("start_time"), form.get("end_time"))
+    if clock:
+        minutes, start, end = clock
+    else:
+        minutes, start, end = parse_duration(form.get("duration") or ""), "", ""
+    return minutes, start, end, custom_values(project, form.get)
+
+
 def _ajax_payload(user, task=None):
     """The JSON the capture endpoints answer with: always the navbar chip, plus
     whichever block the caller is showing (``X-Partial: task`` / ``day``)."""
@@ -265,16 +300,18 @@ def log(task_id):
     user = current_user._get_current_object()
     task = _viewable_task(user, task_id)
     project = _resolve_project(user, task, request.form.get("project_id"))
-    minutes = parse_duration(request.form.get("duration") or "")
-    if project is not None and minutes:
-        add_entry(
-            project=project, user=user, minutes=minutes,
-            spent_on=_spent_on(request.form.get("spent_on"), user),
-            note=request.form.get("note") or "", source_item=task,
-            billable=request.form.get("billable") != "0",
-        )
-        user.tt_last_project = str(project.id)
-        user.save()
+    if project is not None:
+        minutes, start, end, custom = _booking(request.form, project)
+        if minutes:
+            add_entry(
+                project=project, user=user, minutes=minutes,
+                spent_on=_spent_on(request.form.get("spent_on"), user),
+                start_time=start, end_time=end, custom=custom,
+                note=request.form.get("note") or "", source_item=task,
+                billable=request.form.get("billable") != "0",
+            )
+            user.tt_last_project = str(project.id)
+            user.save()
     return _capture_response(user, task)
 
 
@@ -285,18 +322,22 @@ def day_log():
     """Quick-add a manual entry from the day sheet (no task involved)."""
     user = current_user._get_current_object()
     project = _resolve_project(user, None, request.form.get("project_id"))
-    minutes = parse_duration(request.form.get("duration") or "")
-    if project is not None and minutes:
-        add_entry(
-            project=project, user=user, minutes=minutes,
-            spent_on=_spent_on(request.form.get("spent_on"), user),
-            note=request.form.get("note") or "",
-            billable=request.form.get("billable") != "0",
-        )
-        user.tt_last_project = str(project.id)
-        user.save()
-    elif not minutes:
-        flash("Enter a duration like 1h30m, 1:30 or 90.", "warning")
+    minutes = None
+    if project is not None:
+        minutes, start, end, custom = _booking(request.form, project)
+        if minutes:
+            add_entry(
+                project=project, user=user, minutes=minutes,
+                spent_on=_spent_on(request.form.get("spent_on"), user),
+                start_time=start, end_time=end, custom=custom,
+                note=request.form.get("note") or "",
+                billable=request.form.get("billable") != "0",
+            )
+            user.tt_last_project = str(project.id)
+            user.save()
+    if not minutes:
+        flash("Enter a duration (1h30m, 1:30, 90) or a start and end time.",
+              "warning")
     return _capture_response(user)
 
 
@@ -321,6 +362,10 @@ def timer_start():
         return _capture_response(user, task)
     start_timer(user, project=project, source_item=task,
                 note=request.form.get("note") or "",
+                # Kept as raw {key: value}; resolved against the project's
+                # definitions when the clock stops.
+                custom={c["key"]: c["value"]
+                        for c in custom_values(project, request.form.get)},
                 billable=request.form.get("billable") != "0")
     return _capture_response(user, task)
 
@@ -403,7 +448,13 @@ def entry_edit(bucket_id, entry_id):
     entry = next((e for e in bucket.entries if e.entry_id == entry_id), None)
     if not may_edit_entry(user, team, entry):
         abort(403)
-    minutes = parse_duration(request.form.get("duration") or "")
+    project = project_for_user(user, entry.project_id)
+    if project is not None:
+        minutes, start, end, custom = _booking(request.form, project)
+    else:  # project since deleted — the entry is still correctable
+        minutes = parse_duration(request.form.get("duration") or "")
+        start = end = ""
+        custom = None
     spent_on = (_spent_on(request.form.get("spent_on"), user)
                 if request.form.get("spent_on") else None)
     # A cleared note arrives as whitespace (an empty field would be dropped in
@@ -412,7 +463,8 @@ def entry_edit(bucket_id, entry_id):
     if note is not None and not note.strip():
         note = ""
     edit_entry(bucket=bucket, entry_id=entry_id, user=user, minutes=minutes,
-               spent_on=spent_on, note=note,
+               spent_on=spent_on, note=note, custom=custom,
+               start_time=start, end_time=end,
                billable=request.form.get("billable") != "0")
     task = None
     if entry.source_item_id:
@@ -575,15 +627,20 @@ def report_csv():
     data = _grouped_report(team, f)
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["Date", "Customer", "Project", "Service", "User", "Minutes",
-                "Hours", "Billable", "Billed", "Amount (EUR)", "Note"])
+    # Custom fields differ per project, so they share one column rather than
+    # sprouting a sparse column per field across the whole team's export.
+    w.writerow(["Date", "Start", "End", "Customer", "Project", "Service", "User",
+                "Minutes", "Hours", "Billable", "Billed", "Amount (EUR)",
+                "Note", "Fields"])
     for r in sorted(data["rows"], key=lambda r: r["spent_on"]):
         w.writerow([
-            r["spent_on"].isoformat(), r["customer"], r["project"],
+            r["spent_on"].isoformat(), r.get("start_time", ""),
+            r.get("end_time", ""), r["customer"], r["project"],
             r.get("service", ""), r["user_name"], r["minutes"],
             f"{r['minutes'] / 60:.2f}",
             "yes" if r["billable"] else "no", "yes" if r["locked"] else "no",
             f"{(r['amount_cents'] or 0) / 100:.2f}", r["note"],
+            "; ".join(f"{c['label']}: {c['value']}" for c in r.get("custom", [])),
         ])
     return Response(buf.getvalue(), mimetype="text/csv", headers={
         "Content-Disposition":
@@ -735,6 +792,7 @@ def project_create():
         note=(request.form.get("note") or "").strip(),
         hourly_rate_cents=_parse_rate_cents(request.form.get("hourly_rate")),
         budget_value=budget_value, budget_type=budget_type,
+        custom_fields=parse_project_fields(_field_rows(request.form)),
     ).save()
     flash(f"Project “{name}” created.", "success")
     return redirect(url_for("timetracking.index", team=team.pk))
@@ -752,6 +810,7 @@ def project_edit(pid):
     p.note = (request.form.get("note") or "").strip()
     p.hourly_rate_cents = _parse_rate_cents(request.form.get("hourly_rate"))
     p.budget_value, p.budget_type = _parse_budget(request.form)
+    p.custom_fields = parse_project_fields(_field_rows(request.form))
     p.archived = request.form.get("archived") == "1"
     p.save()
     flash("Project updated.", "success")

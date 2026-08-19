@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from mongoengine import (
     BooleanField,
     DateTimeField,
+    DictField,
     EmbeddedDocument,
     StringField,
 )
@@ -42,6 +43,10 @@ class RunningTimer(EmbeddedDocument):
     started_at = DateTimeField(default=_utcnow)
     note = StringField(default="")
     billable = BooleanField(default=True)
+    # Values for the project's custom fields, as ``{key: value}``. Plain strings
+    # rather than snapshots: the labels are read off the project when the timer
+    # is stopped, which is also when a field deleted mid-run correctly drops out.
+    custom = DictField()
 
     source_item_id = StringField()
     source_kind = StringField()

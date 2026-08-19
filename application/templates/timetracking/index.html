@@ -105,6 +105,12 @@
             <span class="me-auto">
               <strong>{{ p.name }}</strong>
               {% if p.archived %}<span class="badge text-bg-secondary ms-1">archived</span>{% endif %}
+              {% for f in p.custom_fields %}
+                <span class="badge text-bg-light text-muted"
+                      title="{{ 'Choices: ' ~ f.options|join(', ') if f.field_type == 'select' else 'Free text' }}">
+                  <i class="bi bi-{{ 'menu-button-wide' if f.field_type == 'select' else 'input-cursor-text' }}"></i>
+                  {{ f.label }}</span>
+              {% endfor %}
               <span class="small text-muted ms-1">
                 {{ p.hourly_rate_cents|eur }}{% if p.hourly_rate_cents %} / h{% endif %}
               </span>
@@ -136,7 +142,47 @@
                 </div>
                 <input type="text" name="note" value="{{ p.note }}" placeholder="Note"
                        class="form-control form-control-sm">
-                <label class="form-check small">
+
+                {# ---- Custom fields asked for on every booking ----
+                   One row per field plus a blank one to add the next. Clearing
+                   a label deletes that field (its values stay on the entries
+                   that already carry them). #}
+                <div class="text-muted small mt-2">
+                  <i class="bi bi-input-cursor-text"></i> Extra fields asked when booking time
+                </div>
+                {% for f in p.custom_fields %}
+                  <div class="d-flex gap-1 align-items-center">
+                    <input type="hidden" name="cf_key" value="{{ f.key }}">
+                    <input type="text" name="cf_label" value="{{ f.label }}"
+                           class="form-control form-control-sm" style="max-width:130px;"
+                           title="Clear the label to remove this field">
+                    <select name="cf_type" class="form-select form-select-sm" style="max-width:100px;">
+                      <option value="text" {% if f.field_type != 'select' %}selected{% endif %}>text</option>
+                      <option value="select" {% if f.field_type == 'select' %}selected{% endif %}>dropdown</option>
+                    </select>
+                    <input type="text" name="cf_default" value="{{ f.default }}"
+                           placeholder="Default" class="form-control form-control-sm"
+                           style="max-width:110px;">
+                    <input type="text" name="cf_options" value="{{ f.options|join(', ') }}"
+                           placeholder="Choices, comma separated"
+                           class="form-control form-control-sm">
+                  </div>
+                {% endfor %}
+                <div class="d-flex gap-1 align-items-center">
+                  <input type="hidden" name="cf_key" value="">
+                  <input type="text" name="cf_label" value="" placeholder="New field"
+                         class="form-control form-control-sm" style="max-width:130px;">
+                  <select name="cf_type" class="form-select form-select-sm" style="max-width:100px;">
+                    <option value="text">text</option>
+                    <option value="select">dropdown</option>
+                  </select>
+                  <input type="text" name="cf_default" placeholder="Default"
+                         class="form-control form-control-sm" style="max-width:110px;">
+                  <input type="text" name="cf_options" placeholder="Choices, comma separated"
+                         class="form-control form-control-sm">
+                </div>
+
+                <label class="form-check small mt-2">
                   <input type="checkbox" name="archived" value="1" class="form-check-input"
                          {% if p.archived %}checked{% endif %}> archived
                 </label>

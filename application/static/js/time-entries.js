@@ -101,6 +101,85 @@
     });
   }
 
+  // ---- custom fields -------------------------------------------------------
+  // Each <option> carries its project's field definitions, so switching the
+  // project re-asks for the right things without a round trip. Values are
+  // submitted as cf_<key>, which is what the server reads them back as.
+  function renderCustomFields(scope) {
+    (scope || document).querySelectorAll(".time-add").forEach((add) => {
+      const box = add.querySelector(".tt-custom-fields");
+      const sel = add.querySelector(".time-add-project");
+      if (!box) return;
+      let fields = [];
+      const opt = sel && sel.selectedOptions[0];
+      if (opt && opt.dataset.fields) {
+        try { fields = JSON.parse(opt.dataset.fields); } catch (e) { fields = []; }
+      }
+      // Keep what the user already typed when the list is rebuilt for the
+      // same project (a re-render after logging must not eat a half-filled
+      // field), but drop it when the project — and so the fields — changed.
+      const previous = {};
+      box.querySelectorAll(".tt-cf").forEach((el) => { previous[el.dataset.key] = el.value; });
+      const sameProject = box.dataset.project === (sel ? sel.value : "");
+      box.dataset.project = sel ? sel.value : "";
+      box.innerHTML = "";
+      fields.forEach((f) => {
+        const value = sameProject && previous[f.key] !== undefined
+          ? previous[f.key] : (f.default || "");
+        let el;
+        if (f.type === "select") {
+          el = document.createElement("select");
+          el.className = "form-select form-select-sm tt-cf";
+          el.style.maxWidth = "11rem";
+          const blank = document.createElement("option");
+          blank.value = "";
+          blank.textContent = f.label + " —";
+          el.appendChild(blank);
+          (f.options || []).forEach((o) => {
+            const op = document.createElement("option");
+            op.value = o;
+            op.textContent = o;
+            el.appendChild(op);
+          });
+          el.value = value;
+        } else {
+          el = document.createElement("input");
+          el.type = "text";
+          el.className = "form-control form-control-sm tt-cf";
+          el.style.maxWidth = "11rem";
+          el.placeholder = f.label;
+          el.value = value;
+        }
+        el.dataset.key = f.key;
+        el.title = f.label;
+        box.appendChild(el);
+      });
+    });
+  }
+
+  // ---- duration vs. start/end ----------------------------------------------
+  // Which one you book with is a habit, not a per-entry decision, so the choice
+  // is remembered across pages and reloads.
+  const CLOCK_KEY = "cairn-tt-clock";
+  function applyClockMode(scope) {
+    const on = localStorage.getItem(CLOCK_KEY) === "1";
+    (scope || document).querySelectorAll(".time-add").forEach((add) => {
+      const dur = add.querySelector(".time-add-duration");
+      const clock = add.querySelector(".time-add-clock");
+      if (!dur || !clock) return;
+      dur.classList.toggle("d-none", on);
+      clock.classList.toggle("d-none", !on);
+      clock.classList.toggle("d-flex", on);
+      const btn = add.querySelector(".tt-clock-toggle");
+      if (btn) {
+        btn.classList.toggle("btn-outline-secondary", !on);
+        btn.classList.toggle("btn-secondary", on);
+        btn.title = on ? "Book a duration instead"
+                       : "Book start and end time instead of a duration";
+      }
+    });
+  }
+
   function ensureDefaultDate(scope) {
     (scope || document).querySelectorAll('.time-add-date[type="date"]').forEach((inp) => {
       if (!inp.value) inp.value = new Date().toISOString().slice(0, 10);
@@ -109,10 +188,20 @@
 
   ensureDefaultDate();
   startTicking();
+  renderCustomFields();
+  applyClockMode();
   // The off-canvas inspector injects its body after load, and <main> swaps
-  // wholesale — re-arm both on any DOM change.
-  new MutationObserver(() => { ensureDefaultDate(); startTicking(); })
-    .observe(document.body, { childList: true, subtree: true });
+  // wholesale — re-arm everything on any DOM change.
+  new MutationObserver(() => {
+    ensureDefaultDate();
+    startTicking();
+    renderCustomFields();
+    applyClockMode();
+  }).observe(document.body, { childList: true, subtree: true });
+
+  document.addEventListener("change", (ev) => {
+    if (ev.target.closest(".time-add-project")) renderCustomFields();
+  });
 
   // ---- manual logging ------------------------------------------------------
   function addFields(add) {
@@ -121,19 +210,34 @@
       return el ? el.value.trim() : "";
     };
     const billable = add.querySelector(".time-add-billable");
-    return {
-      duration: val(".time-add-duration"),
+    const clock = add.querySelector(".time-add-clock");
+    const byClock = clock && !clock.classList.contains("d-none");
+    const fields = {
+      duration: byClock ? "" : val(".time-add-duration"),
+      start_time: byClock ? val(".time-add-start") : "",
+      end_time: byClock ? val(".time-add-end") : "",
       spent_on: val(".time-add-date"),
       note: val(".time-add-note"),
       project_id: val(".time-add-project"),
       billable: billable && !billable.checked ? "0" : "1",
     };
+    add.querySelectorAll(".tt-cf").forEach((el) => {
+      fields["cf_" + el.dataset.key] = el.value.trim();
+    });
+    return fields;
   }
 
   async function logTime(add, ctx) {
-    const dur = add.querySelector(".time-add-duration");
-    if (!dur || !dur.value.trim()) { if (dur) dur.focus(); return; }
-    await post(add.dataset.action, addFields(add), ctx);
+    const fields = addFields(add);
+    if (!fields.duration && !(fields.start_time && fields.end_time)) {
+      // Nothing to book yet — put the cursor in whichever input is showing.
+      const clock = add.querySelector(".time-add-clock");
+      const byClock = clock && !clock.classList.contains("d-none");
+      const first = add.querySelector(byClock ? ".time-add-start" : ".time-add-duration");
+      if (first) first.focus();
+      return;
+    }
+    await post(add.dataset.action, fields, ctx);
     const next = (ctx.block || document).querySelector(".time-add-duration");
     if (next) next.focus();
   }
@@ -150,6 +254,11 @@
       note: btn.dataset.note !== undefined ? btn.dataset.note
         : (add ? (add.querySelector(".time-add-note") || {}).value : "") || "",
     };
+    if (add) {
+      add.querySelectorAll(".tt-cf").forEach((el) => {
+        fields["cf_" + el.dataset.key] = el.value.trim();
+      });
+    }
     const data = await post(btn.dataset.action, fields, ctx);
     if (data && data.needs_project) askForProject(btn, ctx, data);
   }
@@ -217,6 +326,18 @@
       return;
     }
 
+    const clockToggle = t.closest(".tt-clock-toggle");
+    if (clockToggle) {
+      ev.preventDefault();
+      const on = localStorage.getItem(CLOCK_KEY) === "1";
+      localStorage.setItem(CLOCK_KEY, on ? "0" : "1");
+      applyClockMode();
+      const add = clockToggle.closest(".time-add");
+      const focus = add && add.querySelector(on ? ".time-add-duration" : ".time-add-start");
+      if (focus) focus.focus();
+      return;
+    }
+
     const editToggle = t.closest(".tt-edit-toggle");
     if (editToggle) {
       ev.preventDefault();
@@ -235,12 +356,20 @@
       ev.preventDefault();
       const form = save.closest(".tt-edit");
       const billable = form.querySelector(".tt-edit-billable");
-      post(form.dataset.action, {
+      const startEl = form.querySelector(".tt-edit-start");
+      const endEl = form.querySelector(".tt-edit-end");
+      const payload = {
         duration: form.querySelector(".tt-edit-duration").value.trim(),
+        start_time: startEl ? startEl.value : "",
+        end_time: endEl ? endEl.value : "",
         spent_on: form.querySelector(".tt-edit-date").value,
         note: form.querySelector(".tt-edit-note").value.trim() || " ",
         billable: billable && !billable.checked ? "0" : "1",
-      }, contextFor(save)).catch(() => {});
+      };
+      form.querySelectorAll(".tt-edit-cf").forEach((el) => {
+        payload["cf_" + el.dataset.key] = el.value.trim();
+      });
+      post(form.dataset.action, payload, contextFor(save)).catch(() => {});
       return;
     }
 
@@ -256,7 +385,8 @@
   document.addEventListener("keydown", (ev) => {
     if (ev.key !== "Enter") return;
     const input = ev.target.closest(
-      ".time-add-duration, .time-add-date, .time-add-note, .time-add-project"
+      ".time-add-duration, .time-add-date, .time-add-note, .time-add-project, " +
+      ".time-add-start, .time-add-end, .tt-cf"
     );
     if (input) {
       ev.preventDefault();
@@ -264,7 +394,9 @@
       logTime(add, contextFor(input)).catch(() => {});
       return;
     }
-    const edit = ev.target.closest(".tt-edit-duration, .tt-edit-note, .tt-edit-date");
+    const edit = ev.target.closest(
+      ".tt-edit-duration, .tt-edit-note, .tt-edit-date, .tt-edit-start, " +
+      ".tt-edit-end, .tt-edit-cf");
     if (edit) {
       ev.preventDefault();
       const save = edit.closest(".tt-edit").querySelector(".tt-edit-save");

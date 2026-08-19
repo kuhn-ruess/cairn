@@ -9,26 +9,29 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
   <style>
-    .public-wrap { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+    /* Wider than the other public pages: this one is a table, and a project
+       with a few custom fields needs the room. */
+    .public-wrap { max-width: 1040px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
     .public-title { font-weight: 600; letter-spacing: -.01em; margin: 0; }
     .public-sub { color: var(--gv-fg4); font-size: .85rem; margin-top: .25rem; }
-    .public-section { margin-top: 2rem; }
-    .public-section h2 { font-size: .8rem; text-transform: uppercase;
-                         letter-spacing: .06em; color: var(--gv-fg4);
-                         margin: 0 0 .5rem; display: flex; align-items: baseline; }
-    .public-section h2 .mins { margin-left: auto; color: var(--gv-fg2);
-                               font-variant-numeric: tabular-nums; }
-    .public-row { display: flex; gap: .9rem; padding: .45rem .25rem;
-                  border-bottom: 1px solid var(--gv-bg1); font-size: .9rem; }
-    .public-row .date { color: var(--gv-fg4); width: 6.5rem; flex: none;
-                        font-variant-numeric: tabular-nums; }
-    .public-row .dur { width: 4.5rem; flex: none; font-weight: 500;
-                       font-variant-numeric: tabular-nums; }
-    .public-row .note { color: var(--gv-fg2); }
     .public-total { display: flex; align-items: baseline; gap: .75rem;
-                    margin: 1.5rem 0; }
+                    margin: 1.5rem 0 1rem; }
     .public-total .big { font-size: 1.6rem; font-weight: 600;
                          font-variant-numeric: tabular-nums; }
+    .public-bar { display: flex; gap: .5rem; flex-wrap: wrap;
+                  align-items: center; margin-bottom: 1rem; }
+    /* The table scrolls on its own so the page never scrolls sideways. */
+    .public-table-wrap { overflow-x: auto; }
+    table.public-table { width: 100%; font-size: .88rem; border-collapse: collapse; }
+    .public-table th { text-align: left; font-weight: 500; color: var(--gv-fg4);
+                       font-size: .72rem; text-transform: uppercase;
+                       letter-spacing: .06em; padding: .35rem .6rem .35rem 0;
+                       border-bottom: 1px solid var(--gv-bg2); white-space: nowrap; }
+    .public-table td { padding: .45rem .6rem .45rem 0; vertical-align: top;
+                       border-bottom: 1px solid var(--gv-bg1); }
+    .public-table .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .public-table tfoot td { border-bottom: none; font-weight: 600;
+                             padding-top: .7rem; }
     .public-footer { text-align: center; color: var(--gv-fg4);
                      font-size: .75rem; margin-top: 3rem; }
   </style>
@@ -40,23 +43,66 @@
 
   <div class="public-total">
     <span class="big">{{ total_minutes|duration }}</span>
-    <span class="text-muted">total</span>
+    <span class="text-muted">
+      {% if month %}in {{ months|selectattr('key', 'equalto', month)|map(attribute='label')|first }}{% else %}total{% endif %}
+    </span>
   </div>
 
-  {% for mo in months %}
-    <div class="public-section">
-      <h2>{{ mo.label }} <span class="mins">{{ mo.minutes|duration }}</span></h2>
-      {% for e in mo.entries %}
-        <div class="public-row">
-          <span class="date">{{ e.date.isoformat() }}</span>
-          <span class="dur">{{ e.minutes|duration }}</span>
-          <span class="note">{{ e.note }}</span>
-        </div>
-      {% endfor %}
-    </div>
+  <div class="public-bar">
+    {# Month filter — plain links, so the view is shareable and bookmarkable. #}
+    <a class="btn btn-sm {{ 'btn-primary' if not month else 'btn-outline-secondary' }}"
+       href="{{ url_for('public.project_time', token=token) }}">All</a>
+    {% for mo in months %}
+      <a class="btn btn-sm {{ 'btn-primary' if month == mo.key else 'btn-outline-secondary' }}"
+         href="{{ url_for('public.project_time', token=token, month=mo.key) }}">
+        {{ mo.label }} <span class="text-muted">· {{ mo.minutes|duration }}</span>
+      </a>
+    {% endfor %}
+    <a class="btn btn-sm btn-outline-secondary ms-auto"
+       href="{{ url_for('public.project_time_export', token=token, month=month or None) }}">
+      <i class="bi bi-file-earmark-spreadsheet"></i> Excel / CSV
+    </a>
+  </div>
+
+  {% if not rows %}
+    <p class="text-muted">No time logged{% if month %} in this month{% endif %}.</p>
   {% else %}
-    <p class="text-muted">No time logged yet.</p>
-  {% endfor %}
+    <div class="public-table-wrap">
+      <table class="public-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            {% if has_times %}<th>From</th><th>To</th>{% endif %}
+            <th>Hours</th>
+            <th>Description</th>
+            {% for c in columns %}<th>{{ c.label }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+            <tr>
+              <td class="num">{{ r.date.strftime('%d.%m.%Y') }}</td>
+              {% if has_times %}
+                <td class="num">{{ r.start_time }}</td>
+                <td class="num">{{ r.end_time }}</td>
+              {% endif %}
+              <td class="num">{{ r.minutes|duration }}</td>
+              <td>{{ r.note }}</td>
+              {% for c in columns %}<td>{{ r.custom.get(c.key, '') }}</td>{% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td class="num">Total</td>
+            {% if has_times %}<td></td><td></td>{% endif %}
+            <td class="num">{{ total_minutes|duration }}</td>
+            <td colspan="{{ 1 + columns|length }}"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  {% endif %}
 
   <div class="public-footer">
     Shared via Cairn · hours only

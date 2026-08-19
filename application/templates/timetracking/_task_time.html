@@ -1,3 +1,4 @@
+{% import "timetracking/_capture_macros.html" as cap %}
 {# Task time tracking — re-rendered server-side and swapped in via
    time-entries.js after every log / start / stop / cancel. Shown for every
    team user: when the task's subtree isn't linked to a billing project the
@@ -59,6 +60,8 @@
     <li class="d-flex align-items-center gap-2 py-1">
       <span class="badge text-bg-light text-muted">{{ e.spent_on|date }}</span>
       <strong>{{ e.minutes|duration }}</strong>
+      {% if e.start_time %}<span class="small text-muted font-monospace">{{ e.start_time }}–{{ e.end_time }}</span>{% endif %}
+      {% for c in e.custom %}<span class="badge text-bg-light text-muted" title="{{ c.label }}">{{ c.value }}</span>{% endfor %}
       {% if not e.billable %}<span class="badge text-bg-secondary" title="Non-billable">n/b</span>{% endif %}
       {% if e.note %}<span class="text-muted text-truncate" title="{{ e.note }}">{{ e.note }}</span>{% endif %}
       {% if e.user_name %}<span class="small text-muted">· {{ e.user_name }}</span>{% endif %}
@@ -78,28 +81,15 @@
 {# ---- Manual entry ---- #}
 <div class="time-add d-flex gap-2 flex-wrap align-items-center"
      data-action="{{ url_for('timetracking.log', task_id=task.pk) }}">
-  {% if not tt.project or tt.projects|length > 1 %}
-    <select class="form-select form-select-sm time-add-project" style="max-width: 14rem;"
-            title="Billing project">
-      {% set ns = namespace(cur='') %}
-      {% for p in tt.projects %}
-        {% if p.customer != ns.cur %}
-          {% if not loop.first %}</optgroup>{% endif %}
-          {% set ns.cur = p.customer %}
-          <optgroup label="{{ p.customer }}">
-        {% endif %}
-        <option value="{{ p.id }}" {% if p.id == tt.default_project_id %}selected{% endif %}>{{ p.name }}</option>
-        {% if loop.last %}</optgroup>{% endif %}
-      {% endfor %}
-    </select>
-  {% endif %}
-  <input type="text" class="form-control form-control-sm time-add-duration"
-         style="max-width: 6.5rem;" placeholder="e.g. 1h30m" autocomplete="off"
-         title="90 · 1:30 · 1h30m · 1.5h">
+  {# Always rendered: the picker is what makes logging from an unlinked task
+     possible, and it carries the project's custom-field definitions. #}
+  {{ cap.project_select(tt.projects, tt.default_project_id) }}
+  {{ cap.duration_or_clock() }}
   <input type="date" class="form-control form-control-sm time-add-date"
          style="max-width: 9.5rem;">
   <input type="text" class="form-control form-control-sm time-add-note"
          placeholder="Note (optional)" autocomplete="off" maxlength="200">
+  {{ cap.custom_fields() }}
   <label class="form-check form-check-inline m-0 small" title="Billable">
     <input type="checkbox" class="form-check-input time-add-billable" checked> billable
   </label>

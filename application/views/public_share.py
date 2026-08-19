@@ -6,7 +6,7 @@ revealed only to the project owner via the project detail page.
 """
 from collections import OrderedDict
 
-from flask import Blueprint, abort, render_template
+from flask import Blueprint, abort, render_template, request
 from application.models.item import Item
 
 public_bp = Blueprint("public", __name__, url_prefix="/p")
@@ -104,8 +104,65 @@ def project_time(token):
         share_token=token, share_enabled=True).first()
     if not proj:
         abort(404)
-    data = public_project_report(proj)
-    return render_template("public/project_time.html", project=proj, **data)
+    month = (request.args.get("month") or "").strip()
+    data = public_project_report(proj, month if len(month) == 7 else None)
+    return render_template("public/project_time.html", project=proj,
+                           token=token, **data)
+
+
+@public_bp.route("/time/<token>.csv")
+def project_time_export(token):
+    """The same time sheet as a spreadsheet download.
+
+    UTF-8 with a BOM and semicolon-separated, which is what Excel opens
+    correctly on a double-click in a German locale — no add-on, no import
+    wizard. Honours the month filter, so "export what I'm looking at" holds."""
+    import csv
+    import io
+    from flask import Response
+    from application.models.timetracking import TimeTrackingProject
+    from application.services.timetracking import public_project_report
+
+    proj = TimeTrackingProject.objects(
+        share_token=token, share_enabled=True).first()
+    if not proj:
+        abort(404)
+    month = (request.args.get("month") or "").strip()
+    data = public_project_report(proj, month if len(month) == 7 else None)
+
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    header = ["Datum"]
+    if data["has_times"]:
+        header += ["Von", "Bis"]
+    header += ["Stunden", "Beschreibung"]
+    header += [c["label"] for c in data["columns"]]
+    w.writerow(header)
+    for r in data["rows"]:
+        row = [r["date"].strftime("%d.%m.%Y")]
+        if data["has_times"]:
+            row += [r["start_time"], r["end_time"]]
+        # Excel reads "1,50" as a number in a German locale; "1.50" would be text.
+        row += [f"{r['minutes'] / 60:.2f}".replace(".", ","), r["note"]]
+        row += [r["custom"].get(c["key"], "") for c in data["columns"]]
+        w.writerow(row)
+    w.writerow([])
+    total = ["Summe"] + ([""] * 2 if data["has_times"] else [])
+    total += [f"{data['total_minutes'] / 60:.2f}".replace(".", ",")]
+    w.writerow(total)
+
+    stamp = month if month else "gesamt"
+    return Response(
+        "\ufeff" + buf.getvalue(),
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition":
+                 f"attachment; filename=zeiten-{_slug(proj.name)}-{stamp}.csv"},
+    )
+
+
+def _slug(name: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9]+", "-", (name or "projekt").lower()).strip("-") or "projekt"
 
 
 @public_bp.route("/<token>/t/<task_id>")

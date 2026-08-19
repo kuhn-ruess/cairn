@@ -37,6 +37,7 @@ from mongoengine import (
     EmbeddedDocument,
     EmbeddedDocumentListField,
     IntField,
+    ListField,
     ReferenceField,
     StringField,
 )
@@ -66,6 +67,28 @@ class Customer(Document):
 
     def __str__(self) -> str:
         return self.name
+
+
+class TimeProjectField(EmbeddedDocument):
+    """One extra thing a project wants recorded with every booking.
+
+    Defined per billing project by whoever manages the team, and asked for
+    wherever time is captured. Two kinds, which is all the shapes real billing
+    notes take: free ``text`` (with an optional default that is pre-filled), and
+    a ``select`` whose choices the manager fixes — so "Ticket-Nr." stays free
+    while "Abrechnungsart" can't be spelled three different ways.
+
+    ``key`` is a slug derived from the label once and then kept: renaming a
+    field must not orphan the values already booked under it."""
+
+    key = StringField(required=True, max_length=60)
+    label = StringField(required=True, max_length=100)
+    field_type = StringField(choices=("text", "select"), default="text")
+    default = StringField(default="", max_length=200)
+    options = ListField(StringField(max_length=200))
+
+    def __str__(self) -> str:
+        return self.label
 
 
 class TimeTrackingProject(Document):
@@ -101,6 +124,10 @@ class TimeTrackingProject(Document):
     # Customer.external_id.
     external_id = StringField()
 
+    # Extra fields asked for when booking time on this project (see
+    # TimeProjectField). Empty for a project that just wants hours and a note.
+    custom_fields = EmbeddedDocumentListField(TimeProjectField)
+
     # Customer share link (read-only, hours only).
     share_enabled = BooleanField(default=False)
     share_token = StringField(unique=True, sparse=True)
@@ -113,6 +140,19 @@ class TimeTrackingProject(Document):
 
     def __str__(self) -> str:
         return self.name
+
+
+class TimeEntryValue(EmbeddedDocument):
+    """A custom field's value on one booking — key, and the label *as it read
+    when the time was booked*.
+
+    The label is snapshotted with the value for the same reason every other
+    field here is: a report, a CSV or the customer's share link must stay
+    readable after the project's field was renamed or removed."""
+
+    key = StringField(required=True, max_length=60)
+    label = StringField(default="", max_length=100)
+    value = StringField(default="", max_length=500)
 
 
 class TimeEntry(EmbeddedDocument):
@@ -138,6 +178,13 @@ class TimeEntry(EmbeddedDocument):
 
     minutes = IntField(required=True, min_value=1)
     spent_on = DateTimeField(default=_utcnow)  # date the work happened, tz-aware
+    # Optionally *when* on that day the work happened, as wall-clock "HH:MM" in
+    # the logger's own timezone. Booking by clock time is an alternative to
+    # typing a duration (``minutes`` is then derived and stays authoritative);
+    # the stopwatch fills both in by itself. Empty when only a duration was
+    # given — which stays the normal case.
+    start_time = StringField(max_length=5)
+    end_time = StringField(max_length=5)
     note = StringField(default="")
     # mite calls this a "Leistung": what kind of work this was. Cairn has no
     # service entity — the label is carried along so imported history keeps its
@@ -157,6 +204,10 @@ class TimeEntry(EmbeddedDocument):
     # re-sync idempotent (an entry already carrying the id is never appended a
     # second time) and marks the entry as externally owned.
     external_id = StringField()
+
+    # Values for the project's custom fields, snapshotted with their labels
+    # (see TimeEntryValue).
+    custom = EmbeddedDocumentListField(TimeEntryValue)
 
     # Money frozen at capture time (internal only — never shown on the customer
     # share link). ``amount_cents`` is null when non-billable or no rate.

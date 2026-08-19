@@ -1,3 +1,4 @@
+{% import "timetracking/_capture_macros.html" as cap %}
 {# The day sheet's body — swapped in place by time-entries.js after every
    log / start / stop / edit / cancel, so corrections never pile up browser
    history. Everything here comes from services.timetracking.day_sheet (one
@@ -39,26 +40,13 @@
        data-action="{{ url_for('timetracking.day_log') }}"
        data-timer-action="{{ url_for('timetracking.timer_start') }}">
     {% if d.projects %}
-      <select class="form-select form-select-sm time-add-project" style="max-width: 18rem;"
-              title="Billing project">
-        {% set ns = namespace(cur='') %}
-        {% for p in d.projects %}
-          {% if p.customer != ns.cur %}
-            {% if not loop.first %}</optgroup>{% endif %}
-            {% set ns.cur = p.customer %}
-            <optgroup label="{{ p.customer }}">
-          {% endif %}
-          <option value="{{ p.id }}" {% if p.id == d.default_project_id %}selected{% endif %}>{{ p.name }}</option>
-          {% if loop.last %}</optgroup>{% endif %}
-        {% endfor %}
-      </select>
-      <input type="text" class="form-control form-control-sm time-add-duration"
-             style="max-width: 7rem;" placeholder="1h30m" autocomplete="off"
-             title="90 · 1:30 · 1h30m · 1.5h">
+      {{ cap.project_select(d.projects, d.default_project_id, "flex-grow-0") }}
+      {{ cap.duration_or_clock() }}
       <input type="hidden" class="time-add-date" value="{{ d.day.isoformat() }}">
       <input type="text" class="form-control form-control-sm time-add-note"
              placeholder="What did you work on?" autocomplete="off" maxlength="200"
              style="min-width: 12rem; flex: 1 1 12rem;">
+      {{ cap.custom_fields() }}
       <label class="form-check form-check-inline m-0 small" title="Billable">
         <input type="checkbox" class="form-check-input time-add-billable" checked> billable
       </label>
@@ -87,9 +75,17 @@
           <span class="badge text-bg-light text-muted text-truncate" style="max-width: 18rem;"
                 title="{{ e.customer }} › {{ e.project }}">
             <i class="bi bi-receipt"></i> {{ e.customer }} › {{ e.project }}</span>
+          {% if e.start_time %}
+            <span class="text-muted small font-monospace" title="Start – end">
+              {{ e.start_time }}–{{ e.end_time }}</span>
+          {% endif %}
           <span class="flex-grow-1 text-truncate">
             {% if e.service %}<span class="badge text-bg-light text-muted"
               title="Service (imported from mite)">{{ e.service }}</span>{% endif %}
+            {% for c in e.custom %}
+              <span class="badge text-bg-light text-muted"
+                    title="{{ c.label }}">{{ c.label }}: {{ c.value }}</span>
+            {% endfor %}
             {{ e.note or '—' }}
             {% if e.source_item_id %}
               <a class="small text-decoration-none ms-1"
@@ -120,11 +116,34 @@
                data-action="{{ url_for('timetracking.entry_edit', bucket_id=e.bucket_id, entry_id=e.entry_id) }}">
             <input type="text" class="form-control form-control-sm tt-edit-duration"
                    style="max-width: 7rem;" value="{{ e.minutes }}" title="Duration">
+            <input type="time" class="form-control form-control-sm tt-edit-start"
+                   style="max-width: 7rem;" value="{{ e.start_time }}" title="Start (optional)">
+            <input type="time" class="form-control form-control-sm tt-edit-end"
+                   style="max-width: 7rem;" value="{{ e.end_time }}" title="End (optional)">
             <input type="date" class="form-control form-control-sm tt-edit-date"
                    style="max-width: 9.5rem;" value="{{ d.day.isoformat() }}">
             <input type="text" class="form-control form-control-sm tt-edit-note"
                    style="min-width: 12rem; flex: 1 1 12rem;" value="{{ e.note }}"
                    maxlength="200" placeholder="Note">
+            {# The project's fields, prefilled with what this entry carries. #}
+            {% set _defs = d.fields_by_project.get(e.project_id, []) %}
+            {% for f in _defs %}
+              {% set _v = (e.custom | selectattr('key', 'equalto', f.key)
+                                    | map(attribute='value') | first) or f.default %}
+              {% if f.type == 'select' %}
+                <select class="form-select form-select-sm tt-edit-cf" data-key="{{ f.key }}"
+                        style="max-width: 11rem;" title="{{ f.label }}">
+                  <option value="">{{ f.label }} —</option>
+                  {% for o in f.options %}
+                    <option value="{{ o }}" {% if o == _v %}selected{% endif %}>{{ o }}</option>
+                  {% endfor %}
+                </select>
+              {% else %}
+                <input type="text" class="form-control form-control-sm tt-edit-cf"
+                       data-key="{{ f.key }}" style="max-width: 11rem;"
+                       placeholder="{{ f.label }}" title="{{ f.label }}" value="{{ _v }}">
+              {% endif %}
+            {% endfor %}
             <label class="form-check form-check-inline m-0 small">
               <input type="checkbox" class="form-check-input tt-edit-billable"
                      {% if e.billable %}checked{% endif %}> billable

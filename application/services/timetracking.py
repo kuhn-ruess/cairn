@@ -14,6 +14,8 @@ from application.models.timetracking import (
     Customer,
     TimeBucket,
     TimeEntry,
+    TimeEntryValue,
+    TimeProjectField,
     TimeTrackingProject,
 )
 
@@ -177,7 +179,8 @@ def source_snapshot(item) -> dict:
 def add_entry(*, project: TimeTrackingProject, user, minutes: int,
               spent_on: datetime, note: str = "", source_item=None,
               source: dict | None = None, external_id: str | None = None,
-              billable: bool | None = None) -> TimeEntry:
+              custom: list | None = None, start_time: str = "",
+              end_time: str = "", billable: bool | None = None) -> TimeEntry:
     """Append a time entry to the ``(team, customer, month)`` bucket atomically.
 
     Freezes the project's current rate + computed amount onto the entry, and
@@ -208,6 +211,9 @@ def add_entry(*, project: TimeTrackingProject, user, minutes: int,
         user_name=getattr(actor, "display_name", None) or getattr(actor, "username", "") or "",
         minutes=minutes,
         spent_on=spent_on,
+        start_time=start_time or None,
+        end_time=end_time or None,
+        custom=[TimeEntryValue(**c) for c in (custom or [])],
         note=(note or "")[:1000],
         source_item_id=src_id,
         source_kind=src_kind,
@@ -269,7 +275,8 @@ def pickable_projects(user) -> list[dict]:
         return []
     raw = list(TimeTrackingProject.objects(
         team__in=teams, archived__ne=True
-    ).only("name", "customer", "team", "hourly_rate_cents").as_pymongo())
+    ).only("name", "customer", "team", "hourly_rate_cents",
+           "custom_fields").as_pymongo())
     if not raw:
         return []
     names = {c.id: c.name for c in Customer.objects(
@@ -281,6 +288,13 @@ def pickable_projects(user) -> list[dict]:
         "customer": names.get(r["customer"], "—"),
         "team_id": str(r["team"]),
         "hourly_rate_cents": r.get("hourly_rate_cents"),
+        # Field definitions travel with the picker so the capture form can ask
+        # for them the moment a project is selected, without another round trip.
+        "fields": [{"key": f.get("key"), "label": f.get("label"),
+                    "type": f.get("field_type") or "text",
+                    "default": f.get("default") or "",
+                    "options": list(f.get("options") or [])}
+                   for f in (r.get("custom_fields") or [])],
     } for r in raw]
     rows.sort(key=lambda r: (r["customer"].lower(), r["name"].lower()))
     return rows
@@ -327,6 +341,9 @@ def item_entries(user, item) -> list[dict]:
                 "bucket_id": str(b.id),
                 "minutes": e.minutes,
                 "spent_on": local_date(e.spent_on, user),
+                "start_time": e.start_time or "",
+                "end_time": e.end_time or "",
+                "custom": entry_custom(e),
                 "note": e.note,
                 "locked": e.locked,
                 "billable": e.billable,
@@ -507,6 +524,9 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
                 "locked": bool(e.locked),
                 "note": e.note or "",
                 "service": e.service or "",
+                "start_time": e.start_time or "",
+                "end_time": e.end_time or "",
+                "custom": entry_custom(e),
             })
     return rows
 
@@ -583,32 +603,58 @@ def delete_customer(customer) -> dict:
             "entries": n_entries, "unlinked": unlinked}
 
 
-def public_project_report(project):
-    """Read-only hours for the customer share link — months → entries, hours
-    only (never rates or amounts). Deref-free over the buckets."""
+def public_project_report(project, month: str | None = None):
+    """Read-only time sheet for the customer share link.
+
+    Hours, clock times, notes and the project's custom fields — never rates or
+    amounts, which is the whole point of the link. Returns one flat, sorted
+    ``rows`` list for the table plus the month index that drives the filter, so
+    the page and the export render from exactly the same data.
+
+    ``month`` is ``"YYYY-MM"``; anything else (or ``None``) means every month."""
     buckets = TimeBucket.objects(team=project.team, customer=project.customer)
     pid = str(project.id)
-    months = {}
-    total = 0
+    rows, months, total = [], {}, 0
     for b in buckets:
         for e in b.entries:
             if e.project_id != pid or e.status != "active":
                 continue
-            total += e.minutes or 0
             dd = local_date(e.spent_on)
             key = f"{dd.year:04d}-{dd.month:02d}"
-            mo = months.setdefault(key, {
-                "key": key, "label": dd.strftime("%B %Y"),
-                "minutes": 0, "entries": []})
+            mo = months.setdefault(key, {"key": key, "label": dd.strftime("%B %Y"),
+                                         "minutes": 0})
             mo["minutes"] += e.minutes or 0
-            mo["entries"].append({"date": dd, "minutes": e.minutes or 0,
-                                  "note": e.note or ""})
-    out = []
-    for key in sorted(months, reverse=True):
-        mo = months[key]
-        mo["entries"].sort(key=lambda r: r["date"], reverse=True)
-        out.append(mo)
-    return {"months": out, "total_minutes": total}
+            if month and key != month:
+                continue
+            total += e.minutes or 0
+            rows.append({
+                "date": dd,
+                "minutes": e.minutes or 0,
+                "start_time": e.start_time or "",
+                "end_time": e.end_time or "",
+                "note": e.note or "",
+                "user_name": e.user_name or "",
+                "custom": {c.key: c.value for c in (e.custom or []) if c.value},
+            })
+    rows.sort(key=lambda r: (r["date"], r["start_time"]), reverse=True)
+    # Columns come from the project's current definition, plus any key that only
+    # exists on older entries (a field since removed still has to be printable).
+    columns = [{"key": f.key, "label": f.label}
+               for f in (project.custom_fields or [])]
+    seen = {c["key"] for c in columns}
+    for r in rows:
+        for k in r["custom"]:
+            if k not in seen:
+                seen.add(k)
+                columns.append({"key": k, "label": k.replace("_", " ").title()})
+    return {
+        "rows": rows,
+        "columns": columns,
+        "total_minutes": total,
+        "months": [months[k] for k in sorted(months, reverse=True)],
+        "month": month or "",
+        "has_times": any(r["start_time"] for r in rows),
+    }
 
 
 def can_bill(user, team) -> bool:
@@ -703,7 +749,7 @@ def project_for_user(user, project_id: str):
 
 
 def start_timer(user, *, project, source_item=None, note: str = "",
-                billable: bool = True):
+                custom: dict | None = None, billable: bool = True):
     """Start the stopwatch on ``project``. Returns ``(timer, stopped_entry)``.
 
     Only one timer may run: an already-running one is *stopped and logged*
@@ -720,6 +766,7 @@ def start_timer(user, *, project, source_item=None, note: str = "",
         started_at=_utcnow(),
         note=(note or "")[:1000],
         billable=bool(billable),
+        custom=dict(custom or {}),
         **src,
     )
     actor.running_timer = timer
@@ -745,9 +792,17 @@ def stop_timer(user):
         started = timer.started_at
         if started.tzinfo is None:
             started = started.replace(tzinfo=timezone.utc)
+        # The stopwatch knows exactly when it ran — record that as the
+        # entry's clock times, for free.
+        zone = user_zone(actor)
+        local_start = started.astimezone(zone)
+        local_end = _utcnow().astimezone(zone)
         entry = add_entry(
             project=project, user=actor, minutes=timer.elapsed_minutes(),
-            spent_on=started.astimezone(user_zone(actor)),
+            spent_on=local_start,
+            start_time=local_start.strftime("%H:%M"),
+            end_time=local_end.strftime("%H:%M"),
+            custom=timer_custom_values(project, timer.custom),
             note=timer.note, billable=timer.billable,
             source={
                 "source_item_id": timer.source_item_id,
@@ -785,7 +840,8 @@ def may_edit_entry(user, team, entry) -> bool:
 
 
 def edit_entry(*, bucket: TimeBucket, entry_id: str, user, minutes=None,
-               spent_on=None, note=None, billable=None) -> bool:
+               spent_on=None, note=None, billable=None, custom=None,
+               start_time=None, end_time=None) -> bool:
     """Update a logged entry in place (duration / date / note / billable).
 
     Money is recomputed from the rate frozen on the entry, so editing never
@@ -801,6 +857,10 @@ def edit_entry(*, bucket: TimeBucket, entry_id: str, user, minutes=None,
     new_spent = spent_on or entry.spent_on
     new_note = entry.note if note is None else (note or "")[:1000]
     new_billable = entry.billable if billable is None else bool(billable)
+    new_start = entry.start_time if start_time is None else (start_time or None)
+    new_end = entry.end_time if end_time is None else (end_time or None)
+    new_custom = ([TimeEntryValue(**c) for c in custom] if custom is not None
+                  else list(entry.custom or []))
 
     # Moved to another day → re-file into that day's bucket instead of
     # corrupting this one. Append-only, so that means cancel here, add there.
@@ -812,6 +872,9 @@ def edit_entry(*, bucket: TimeBucket, entry_id: str, user, minutes=None,
             return False
         add_entry(project=project, user=user, minutes=new_minutes,
                   spent_on=new_spent, note=new_note, billable=new_billable,
+                  start_time=new_start or "", end_time=new_end or "",
+                  custom=[{"key": c.key, "label": c.label, "value": c.value}
+                          for c in new_custom],
                   source={"source_item_id": entry.source_item_id,
                           "source_kind": entry.source_kind,
                           "source_label": entry.source_label})
@@ -826,6 +889,9 @@ def edit_entry(*, bucket: TimeBucket, entry_id: str, user, minutes=None,
         set__entries__S__spent_on=new_spent,
         set__entries__S__note=new_note,
         set__entries__S__billable=new_billable,
+        set__entries__S__start_time=new_start,
+        set__entries__S__end_time=new_end,
+        set__entries__S__custom=new_custom,
         set__entries__S__amount_cents=amount,
         inc__total_minutes=new_minutes - (entry.minutes or 0),
         set__updated_at=_utcnow(),
@@ -872,6 +938,9 @@ def day_sheet(user, day: date) -> dict:
                 "project_id": e.project_id,
                 "project": e.project_name,
                 "minutes": e.minutes or 0,
+                "start_time": e.start_time or "",
+                "end_time": e.end_time or "",
+                "custom": entry_custom(e),
                 "note": e.note or "",
                 "service": e.service or "",
                 "billable": bool(e.billable),
@@ -883,6 +952,7 @@ def day_sheet(user, day: date) -> dict:
                 "created_at": e.created_at,
             })
     entries.sort(key=lambda r: r["created_at"] or _utcnow())
+    projects = pickable_projects(actor)
     total = sum(r["minutes"] for r in entries)
     billable = sum(r["minutes"] for r in entries if r["billable"])
     return {
@@ -896,7 +966,10 @@ def day_sheet(user, day: date) -> dict:
         "week": [{"date": d, "minutes": week[d], "is_day": d == day}
                  for d in week_days],
         "week_minutes": sum(week.values()),
-        "projects": pickable_projects(actor),
+        "projects": projects,
+        # Field definitions keyed by project, so an entry's edit form can ask
+        # for exactly what that project wants without a lookup per row.
+        "fields_by_project": {p["id"]: p["fields"] for p in projects},
         "default_project_id": default_project_id(actor, None),
         "timer": getattr(actor, "running_timer", None),
     }
@@ -950,3 +1023,114 @@ def import_entries_for_item(*, user, item, rows) -> int:
         known.add(ext)
         written += 1
     return written
+
+
+# ---------------------------------------------------------------------------
+# Custom fields: definition on the project, values on the entry
+# ---------------------------------------------------------------------------
+
+def field_key(label: str, taken: set) -> str:
+    """A stable slug for a field label, unique within the project."""
+    import re
+    base = re.sub(r"[^a-z0-9]+", "_", (label or "").lower()).strip("_")[:50]
+    base = base or "field"
+    key = base
+    n = 2
+    while key in taken:
+        key = f"{base}_{n}"
+        n += 1
+    return key
+
+
+def parse_project_fields(rows) -> list:
+    """Build a project's field definitions from the editor's parallel lists.
+
+    ``rows`` is an iterable of ``(key, label, field_type, default, options)``
+    strings, one per row of the form. A row whose label is blank is dropped —
+    that is how a field is removed. An existing ``key`` is preserved so renaming
+    a label never orphans the values already booked under it."""
+    out, taken = [], set()
+    for key, label, field_type, default, options in rows:
+        label = (label or "").strip()[:100]
+        if not label:
+            continue
+        key = (key or "").strip()[:60] or field_key(label, taken)
+        if key in taken:  # a tampered/duplicated row must not shadow another
+            key = field_key(label, taken)
+        taken.add(key)
+        field_type = "select" if field_type == "select" else "text"
+        choices = [o.strip()[:200] for o in (options or "").split(",") if o.strip()]
+        if field_type == "select" and not choices:
+            # A dropdown with nothing to choose from is a text field.
+            field_type = "text"
+        out.append(TimeProjectField(
+            key=key, label=label, field_type=field_type,
+            default=(default or "").strip()[:200],
+            options=choices,
+        ))
+    return out
+
+
+def custom_values(project, get, prefix: str = "cf_") -> list[dict]:
+    """Read a project's custom-field values out of a submitted form.
+
+    ``get`` is the form's ``get``. Anything the form didn't carry falls back to
+    the field's default, so a one-click capture path (the play button on a task
+    row) still books complete data. A ``select`` value that isn't one of the
+    choices is refused and falls back to the default — the dropdown exists to
+    keep those values clean."""
+    out = []
+    for f in (project.custom_fields or []):
+        raw = (get(prefix + f.key) or "").strip()[:500]
+        if f.field_type == "select" and raw not in (f.options or []):
+            raw = f.default if f.default in (f.options or []) else ""
+        elif not raw:
+            raw = f.default or ""
+        out.append({"key": f.key, "label": f.label, "value": raw})
+    return out
+
+
+def timer_custom_values(project, stored: dict | None) -> list[dict]:
+    """The values a running timer collected → entry snapshots.
+
+    Resolved against the project's *current* definitions at stop time, so a
+    field deleted while the clock ran simply drops out and a renamed one is
+    snapshotted under its new label."""
+    stored = stored or {}
+    return custom_values(project, lambda k: stored.get(k[3:] if k.startswith("cf_") else k))
+
+
+def entry_custom(entry) -> list[dict]:
+    """An entry's values as plain dicts — deref-free rows for the templates."""
+    return [{"key": c.key, "label": c.label, "value": c.value}
+            for c in (entry.custom or []) if c.value]
+
+
+# ---------------------------------------------------------------------------
+# Booking by clock time instead of duration
+# ---------------------------------------------------------------------------
+
+def parse_clock(start: str, end: str):
+    """``("09:00", "10:30")`` → ``(90, "09:00", "10:30")``, else ``None``.
+
+    Both ends must be real wall-clock times. An end before the start is read as
+    crossing midnight rather than as an error — night work is real, and the
+    alternative is refusing a booking the user clearly meant."""
+    import re
+
+    def _minutes(raw):
+        m = re.fullmatch(r"\s*(\d{1,2})[:.]?([0-5]\d)\s*", raw or "")
+        if not m:
+            return None
+        h, mi = int(m.group(1)), int(m.group(2))
+        return h * 60 + mi if h < 24 else None
+
+    a, b = _minutes(start), _minutes(end)
+    if a is None or b is None:
+        return None
+    span = b - a
+    if span <= 0:
+        span += 24 * 60
+    if span <= 0 or span > 24 * 60:
+        return None
+    return span, f"{a // 60:02d}:{a % 60:02d}", f"{b // 60:02d}:{b % 60:02d}"

@@ -192,6 +192,8 @@
                         {% if e.locked %}<i class="bi bi-lock text-muted" title="Billed"></i> {% endif %}
                         {% if not e.billable %}<span class="badge text-bg-secondary">n/b</span> {% endif %}
                         {% if e.service %}<span class="badge text-bg-light text-muted">{{ e.service }}</span> {% endif %}
+                        {% if e.start_time %}<span class="text-muted font-monospace">{{ e.start_time }}–{{ e.end_time }}</span> {% endif %}
+                        {% for c in e.custom %}<span class="badge text-bg-light text-muted">{{ c.label }}: {{ c.value }}</span> {% endfor %}
                         {{ e.note }}
                       </td>
                       <td class="small text-success text-end" style="width:6rem;">{{ e.amount_cents|eur }}</td>
