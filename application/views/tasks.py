@@ -1026,14 +1026,24 @@ def today():
     # How many notes are linked to each visible event — one query for the
     # whole day (never per-event in the template). Drives the badge on the
     # "notes for this event" button in the calendar/plan/list views.
+    # The same pass also collects each note's "## Briefing" section, so an
+    # event can carry its prep text inline without opening the note (see
+    # application/services/briefing.py).
     event_note_counts = {}
+    event_briefings = {}
     uids = list({ev.uid for ev in events if ev.uid})
     if uids:
+        from application.services.briefing import extract_briefing
         for n in Item.objects(owner=user, kind="note",
-                              linked_events__uid__in=uids).only("linked_events"):
+                              linked_events__uid__in=uids).only("linked_events", "note"):
+            brief = extract_briefing(n.note or "")
             for le in (n.linked_events or []):
                 if le.uid in uids:
                     event_note_counts[le.uid] = event_note_counts.get(le.uid, 0) + 1
+                    if brief:
+                        event_briefings.setdefault(le.uid, []).append(brief)
+        # Two notes briefing the same event → both, in one block.
+        event_briefings = {u: "\n\n".join(b) for u, b in event_briefings.items()}
 
     # How many linked NOTES each shown task has, for its note button badge
     # (one batched query — see Item.note_counts_for).
@@ -1371,6 +1381,7 @@ def today():
         timeline=timeline,
         plan_data=plan_data,
         event_note_counts=event_note_counts,
+        event_briefings=event_briefings,
         task_note_counts=task_note_counts,
     )
 

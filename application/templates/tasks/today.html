@@ -200,16 +200,21 @@
 
 {% macro cal_event_row(ev) %}
   <div class="cal-event" style="border-left-color: {{ ev.calendar_color }};">
-    <span class="cal-event-time">
-      {% if ev.all_day %}all day{% else %}{{ ev.start|localdt }} – {{ ev.end|localdt }}{% endif %}
-    </span>
-    <span class="cal-event-title">
-      {% if ev.url %}<a href="{{ ev.url }}" target="_blank" rel="noopener">{{ ev.title }}</a>
-      {% else %}{{ ev.title }}{% endif %}
-    </span>
-    {% if ev.location %}<span class="cal-event-loc"><i class="bi bi-geo-alt"></i> {{ ev.location }}</span>{% endif %}
-    <span class="cal-event-cal" style="color: {{ ev.calendar_color }};">{{ ev.calendar_name }}</span>
-    {% if ev.uid %}{{ event_note_btn(ev, event_note_counts.get(ev.uid, 0)) }}{% endif %}
+    <div class="cal-event-main">
+      <span class="cal-event-time">
+        {% if ev.all_day %}all day{% else %}{{ ev.start|localdt }} – {{ ev.end|localdt }}{% endif %}
+      </span>
+      <span class="cal-event-title">
+        {% if ev.url %}<a href="{{ ev.url }}" target="_blank" rel="noopener">{{ ev.title }}</a>
+        {% else %}{{ ev.title }}{% endif %}
+      </span>
+      {% if ev.location %}<span class="cal-event-loc"><i class="bi bi-geo-alt"></i> {{ ev.location }}</span>{% endif %}
+      <span class="cal-event-cal" style="color: {{ ev.calendar_color }};">{{ ev.calendar_name }}</span>
+      {% if ev.uid %}{{ event_note_btn(ev, event_note_counts.get(ev.uid, 0)) }}{% endif %}
+    </div>
+    {# "## Briefing" section of a linked note — prep for this event #}
+    {% set brief = event_briefings.get(ev.uid) if ev.uid else None %}
+    {% if brief %}<div class="cal-event-brief md-body">{{ brief|markdown }}</div>{% endif %}
   </div>
 {% endmacro %}
 

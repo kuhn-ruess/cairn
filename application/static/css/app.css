@@ -581,14 +581,26 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
 .calendar-events { display: flex; flex-direction: column; gap: .3rem; }
 .cal-event {
   display: flex;
-  align-items: center;
-  gap: .65rem;
+  flex-direction: column;
+  gap: .3rem;
   padding: .4rem .6rem;
   background: var(--gv-bg0-soft);
   border: 1px solid var(--gv-bg2);
   border-left: 4px solid var(--gv-aqua);
   border-radius: .35rem;
   font-size: .85rem;
+}
+.cal-event-main { display: flex; align-items: center; gap: .65rem; }
+/* "## Briefing" of a linked note, inline under the event row */
+.cal-event-brief {
+  font-size: .78rem;
+  color: var(--gv-fg2);
+  padding-left: calc(120px + .65rem);
+  border-top: 1px dashed var(--gv-bg2);
+  padding-top: .3rem;
+}
+@media (max-width: 640px) {
+  .cal-event-brief { padding-left: 0; }
 }
 .cal-event-time {
   color: var(--gv-fg4);
@@ -2556,6 +2568,10 @@ body.ps-resizing * {
 .plan-card-meta {
   font-size: .68rem; color: var(--gv-fg4);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.plan-card-brief {
+  font-size: .68rem; color: var(--gv-fg2);
+  margin-top: .15rem; overflow: hidden;
 }
 .plan-card-event {
   background: linear-gradient(180deg,

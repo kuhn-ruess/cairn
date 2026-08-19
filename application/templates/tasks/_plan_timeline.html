@@ -110,6 +110,9 @@
                   {% else %}{{ it.title }}{% endif %}
                 </div>
                 <div class="plan-card-meta">{{ tspan }}{% if it.obj.location %} · <i class="bi bi-geo-alt"></i> {{ it.obj.location }}{% endif %}</div>
+                {# "## Briefing" of a linked note; clipped by the card height #}
+                {% set brief = event_briefings.get(it.obj.uid) if it.obj.uid else None %}
+                {% if brief %}<div class="plan-card-brief md-body">{{ brief|markdown }}</div>{% endif %}
               </div>
               {% if it.obj.uid %}{{ event_note_btn(it.obj, event_note_counts.get(it.obj.uid, 0)) }}{% endif %}
             </div>

@@ -527,8 +527,12 @@ def new_for_event():
     snap = _linked_event_from_form()
     if not snap.uid:
         return jsonify({"error": "missing event id"}), 400
+    # Seed the briefing skeleton: whatever the user writes under this
+    # heading shows up inline on the event in the Today view (see
+    # application/services/briefing.py).
     note = Item(owner=user, kind="note",
-                title=snap.title or "Untitled note", note="")
+                title=snap.title or "Untitled note",
+                note="## Briefing\n\n")
     note.linked_events.append(snap)
     note.save()
     return jsonify({
