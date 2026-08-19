@@ -10,7 +10,8 @@
     <i class="bi bi-stopwatch"></i>
     <span class="tt-timer-elapsed font-monospace">0:00:00</span>
     <a class="text-white text-decoration-none text-truncate d-none d-lg-inline"
-       style="max-width: 12rem;" href="{{ url_for('timetracking.day') }}">
+       style="max-width: 16rem;" href="{{ url_for('timetracking.day') }}">
+      {% if timer.customer_name %}{{ timer.customer_name }} ›{% endif %}
       {{ timer.source_label or timer.project_name }}
     </a>
     <button type="button" class="btn btn-sm btn-light py-0 px-1 lh-1 tt-timer-stop"

@@ -371,12 +371,16 @@ def item_entries(user, item) -> list[dict]:
     src_id = str(item.pk)
     rows = []
     for b in TimeBucket.objects(team__in=teams, entries__source_item_id=src_id):
+        cust_name = None   # dereferenced once per bucket, never per entry
         for e in b.entries:
             if e.source_item_id != src_id or e.status != "active":
                 continue
+            if cust_name is None:
+                cust_name = b.customer.name if b.customer else ""
             rows.append({
                 "entry_id": e.entry_id,
                 "bucket_id": str(b.id),
+                "customer": cust_name,
                 "minutes": e.minutes,
                 "spent_on": local_date(e.spent_on, user),
                 "start_time": e.start_time or "",
@@ -411,8 +415,15 @@ def task_time_context(user, item):
     projects = pickable_projects(user)
     rows = item_entries(user, item)
     timer = getattr(user, "running_timer", None)
+    # The inherited project's customer, read off the picker data rather than
+    # dereferenced again.
+    inherited_customer = ""
+    if inherited is not None:
+        inherited_customer = next(
+            (p["customer"] for p in projects if p["id"] == str(inherited.id)), "")
     return {
         "project": inherited,
+        "project_customer": inherited_customer,
         "projects": projects,
         "default_project_id": default_project_id(user, item, projects),
         "total_minutes": sum(r["minutes"] or 0 for r in rows),
@@ -751,6 +762,29 @@ def set_locked(*, team, user, items, locked: bool) -> int:
     return changed
 
 
+def restore_entry(*, bucket: TimeBucket, entry_id: str, user) -> bool:
+    """Un-cancel an entry — the way back from a mis-click.
+
+    Nothing was ever deleted (entries are append-only, cancelling only flips
+    ``status``), so this is simply the reverse move: flip it back and put its
+    minutes back into the bucket's cached total. Refuses on a locked entry and
+    on one that isn't cancelled, so a double-submit can't inflate the total."""
+    entry = next((e for e in bucket.entries
+                  if e.entry_id == entry_id and e.status == "cancelled"), None)
+    if entry is None or entry.locked:
+        return False
+    res = TimeBucket.objects(
+        pk=bucket.pk, entries__entry_id=entry_id, entries__status="cancelled",
+    ).update_one(
+        set__entries__S__status="active",
+        set__entries__S__cancelled_at=None,
+        set__entries__S__cancelled_by=None,
+        inc__total_minutes=(entry.minutes or 0),
+        set__updated_at=_utcnow(),
+    )
+    return bool(res)
+
+
 def cancel_entry(*, bucket: TimeBucket, entry_id: str, user) -> bool:
     """Soft-cancel an entry: never removed, just flipped to ``cancelled``.
 
@@ -875,14 +909,20 @@ def discard_timer(user) -> bool:
 # Editing an entry (mite lets you fix a logged entry until it is billed)
 # ---------------------------------------------------------------------------
 
-def may_edit_entry(user, team, entry) -> bool:
-    """The person who logged it, or a team manager/biller — never once locked."""
+def may_touch_entry(user, team, entry, *, status="active") -> bool:
+    """Who may change an entry in ``status``: the person who logged it, or a
+    team manager/biller. Never once locked — billed time is frozen."""
     actor = _actor(user)
-    if entry is None or entry.locked or entry.status != "active":
+    if entry is None or entry.locked or entry.status != status:
         return False
     return (entry.user_id == str(actor.id)
             or team.is_managed_by(actor)
             or actor in (team.billers or []))
+
+
+def may_edit_entry(user, team, entry) -> bool:
+    """The person who logged it, or a team manager/biller — never once locked."""
+    return may_touch_entry(user, team, entry)
 
 
 def edit_entry(*, bucket: TimeBucket, entry_id: str, user, minutes=None,
@@ -964,13 +1004,24 @@ def day_sheet(user, day: date) -> dict:
     lo, hi = day_range_q(week_days[0], week_days[-1])
     uid = str(actor.id)
     week = {d: 0 for d in week_days}
-    entries = []
+    entries, removed = [], []
     for b in TimeBucket.objects(team__in=teams, period__gte=lo, period__lte=hi):
         cust_name = None
         for e in b.entries:
-            if e.status != "active" or e.user_id != uid:
+            if e.user_id != uid or e.status not in ("active", "cancelled"):
                 continue
             dd = local_date(e.spent_on, actor)
+            if e.status == "cancelled":
+                # Cancelled time is kept forever, so the day it belongs to is
+                # also the place to take it back.
+                if dd == day and not e.locked:
+                    removed.append({
+                        "entry_id": e.entry_id, "bucket_id": str(b.id),
+                        "minutes": e.minutes or 0, "note": e.note or "",
+                        "project": e.project_name,
+                        "cancelled_at": e.cancelled_at,
+                    })
+                continue
             if dd in week:
                 week[dd] += e.minutes or 0
             if dd != day:
@@ -1000,6 +1051,7 @@ def day_sheet(user, day: date) -> dict:
                 "created_at": e.created_at,
             })
     entries.sort(key=lambda r: r["created_at"] or _utcnow())
+    removed.sort(key=lambda r: r["cancelled_at"] or _utcnow(), reverse=True)
     projects = pickable_projects(actor)
     total = sum(r["minutes"] for r in entries)
     billable = sum(r["minutes"] for r in entries if r["billable"])
@@ -1012,6 +1064,7 @@ def day_sheet(user, day: date) -> dict:
         "prev_day": day - timedelta(days=1),
         "next_day": day + timedelta(days=1),
         "entries": entries,
+        "removed": removed,
         "total_minutes": total,
         "billable_minutes": billable,
         "amount_cents": sum(r["amount_cents"] or 0 for r in entries),

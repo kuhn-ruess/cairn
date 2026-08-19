@@ -5,19 +5,16 @@
    picked — no round trip, and the same markup works in both places. #}
 
 {%- macro project_select(projects, selected, cls="") -%}
+  {# "Kunde › Projekt" in the option itself, not just as an <optgroup> label:
+     a closed select shows only the option, and while you are booking, *which
+     customer* is the half you must not get wrong. The list is already sorted
+     customer-first, so it still reads grouped. #}
   <select class="form-select form-select-sm time-add-project {{ cls }}"
-          title="Billing project">
-    {% set ns = namespace(cur='') %}
+          title="Customer and billing project">
     {% for p in projects %}
-      {% if p.customer != ns.cur %}
-        {% if not loop.first %}</optgroup>{% endif %}
-        {% set ns.cur = p.customer %}
-        <optgroup label="{{ p.customer }}">
-      {% endif %}
       <option value="{{ p.id }}" {% if p.id == selected %}selected{% endif %}
               data-mode="{{ p.mode }}"
-              data-fields="{{ p.fields|tojson|forceescape }}">{{ p.name }}</option>
-      {% if loop.last %}</optgroup>{% endif %}
+              data-fields="{{ p.fields|tojson|forceescape }}">{{ p.customer }} › {{ p.name }}</option>
     {% endfor %}
   </select>
 {%- endmacro -%}

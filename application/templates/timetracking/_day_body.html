@@ -65,9 +65,10 @@
 </div>
 
 {# ---- The day's entries ---- #}
-{% if not d.entries %}
+{% if not d.entries and not d.removed %}
   <p class="text-muted">Nothing logged on this day.</p>
 {% else %}
+  {% if not d.entries %}<p class="text-muted">Nothing logged on this day.</p>{% endif %}
   <div class="list-group mb-3">
     {% for e in d.entries %}
       <div class="list-group-item py-2">
@@ -165,6 +166,29 @@
       </div>
     {% endfor %}
   </div>
+
+  {% if d.removed %}
+    {# Cancelled time is never actually deleted, so the day it belongs to is
+       where you take it back. #}
+    <details class="mb-3">
+      <summary class="small text-muted" style="cursor:pointer;">
+        <i class="bi bi-arrow-counterclockwise"></i>
+        Removed on this day ({{ d.removed|length }})
+      </summary>
+      <div class="list-group mt-1">
+        {% for e in d.removed %}
+          <div class="list-group-item py-1 d-flex align-items-center gap-2 small text-muted">
+            <span class="badge text-bg-light text-muted">{{ e.project }}</span>
+            <span class="flex-grow-1 text-truncate text-decoration-line-through">{{ e.note or '—' }}</span>
+            <strong class="font-monospace">{{ e.minutes|duration }}</strong>
+            <button type="button" class="btn btn-sm btn-link p-0 time-restore"
+                    data-action="{{ url_for('timetracking.entry_restore', bucket_id=e.bucket_id, entry_id=e.entry_id) }}"
+                    title="Put this entry back">restore</button>
+          </div>
+        {% endfor %}
+      </div>
+    </details>
+  {% endif %}
 
   <div class="d-flex gap-3 justify-content-end small text-muted">
     <span>Billable <strong>{{ d.billable_minutes|duration }}</strong></span>

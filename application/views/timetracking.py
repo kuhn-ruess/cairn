@@ -25,6 +25,8 @@ from application.services.timetracking import (
     discard_timer,
     edit_entry,
     may_edit_entry,
+    may_touch_entry,
+    restore_entry,
     parse_clock,
     parse_duration,
     parse_project_fields,
@@ -440,6 +442,29 @@ def entry_cancel(bucket_id, entry_id):
     if not may_edit_entry(user, team, entry):
         abort(403)
     cancel_entry(bucket=bucket, entry_id=entry_id, user=user)
+    task = None
+    if entry.source_item_id:
+        task = Item.objects(pk=to_oid(entry.source_item_id) or ObjectId()).first()
+    return _capture_response(user, task)
+
+
+@timetracking_bp.route("/entry/<bucket_id>/<entry_id>/restore", methods=["POST"])
+@login_required
+@team_required
+def entry_restore(bucket_id, entry_id):
+    """Take back a cancelled entry. Nothing was ever deleted, so this is just
+    the reverse of the ✕ — same right as cancelling it in the first place."""
+    user = current_user._get_current_object()
+    bucket = TimeBucket.objects(pk=to_oid(bucket_id) or ObjectId()).first()
+    if not bucket:
+        abort(404)
+    team = bucket.team
+    if str(team.id) not in _team_ids(user):
+        abort(403)
+    entry = next((e for e in bucket.entries if e.entry_id == entry_id), None)
+    if not may_touch_entry(user, team, entry, status="cancelled"):
+        abort(403)
+    restore_entry(bucket=bucket, entry_id=entry_id, user=user)
     task = None
     if entry.source_item_id:
         task = Item.objects(pk=to_oid(entry.source_item_id) or ObjectId()).first()

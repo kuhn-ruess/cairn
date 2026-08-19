@@ -443,6 +443,13 @@
       return;
     }
 
+    const restore = t.closest(".time-restore");
+    if (restore) {
+      ev.preventDefault();
+      post(restore.dataset.action, {}, contextFor(restore)).catch(() => {});
+      return;
+    }
+
     const rm = t.closest(".time-delete");
     if (rm) {
       ev.preventDefault();
