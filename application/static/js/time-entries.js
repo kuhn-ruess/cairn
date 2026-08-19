@@ -207,17 +207,35 @@
     });
   }
 
-  ensureDefaultDate();
-  startTicking();
-  renderCustomFields();
-  applyClockMode();
-  // The off-canvas inspector injects its body after load, and <main> swaps
-  // wholesale — re-arm everything on any DOM change.
-  new MutationObserver(() => {
-    ensureDefaultDate();
-    startTicking();
-    renderCustomFields();
-    applyClockMode();
+  function arm(scope) {
+    ensureDefaultDate(scope);
+    startTicking(scope);
+    renderCustomFields(scope);
+    applyClockMode(scope);
+  }
+  arm();
+
+  // The off-canvas inspector injects its body after load and <main> is swapped
+  // wholesale, so newly inserted capture markup has to be armed.
+  //
+  // This MUST only react to *our* markup appearing. Two of the four steps write
+  // to the DOM themselves — the clock rewrites its own text once a second, and
+  // the custom-field box is rebuilt — so a callback that re-armed on any
+  // mutation re-triggered itself forever and locked the tab up. Matching on
+  // added elements keeps that from happening: the ticking clock only ever adds
+  // a text node, and the inputs we generate match nothing here.
+  const ARM_SELECTOR = ".time-add, .tt-timer-elapsed, .time-block, #time, #tt-day, #tt-chip";
+  let queued = false;
+  new MutationObserver((records) => {
+    if (queued) return;
+    const relevant = records.some((r) =>
+      Array.prototype.some.call(r.addedNodes, (n) =>
+        n.nodeType === 1 &&
+        ((n.matches && n.matches(ARM_SELECTOR)) ||
+         (n.querySelector && n.querySelector(ARM_SELECTOR)))));
+    if (!relevant) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; arm(); });
   }).observe(document.body, { childList: true, subtree: true });
 
   document.addEventListener("change", (ev) => {
