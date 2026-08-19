@@ -183,14 +183,37 @@ def _target_part(team, customer, period: str) -> int:
     return newest.part or 1
 
 
-def source_snapshot(item) -> dict:
-    """The soft backlink we keep for a Cairn item: ids + a name snapshot."""
+def ref_label(ref: str) -> str:
+    """How a ticket reference is written: ``#4711`` for a number, ``CHMK-417``
+    for a key that already reads as one. Zammad hands out numbers, Jira keys."""
+    ref = (ref or "").strip()
+    if not ref:
+        return ""
+    return f"#{ref}" if ref.isdigit() else ref
+
+
+def source_snapshot(item, user=None) -> dict:
+    """The soft backlink we keep for a Cairn item: ids, a name snapshot, and
+    the upstream ticket it came from.
+
+    The reference travels with the entry rather than being looked up later,
+    because the task may be gone by the time a report is drawn — and because
+    ``external_url`` needs the *logging* user's integration config, which a
+    later reader might not share. Works for every importer that fills it
+    (Zammad numbers, Jira issue keys, Todoist), since resolving the deep link
+    is the model's job, not this module's."""
     if item is None:
         return {}
+    try:
+        url = item.external_url(user) or ""
+    except Exception:      # a half-configured integration must not block a log
+        url = ""
     return {
         "source_item_id": str(item.pk),
         "source_kind": item.kind,
         "source_label": (item.title or "")[:200],
+        "external_ref": (item.external_ref or "")[:60],
+        "external_url": url,
     }
 
 
@@ -218,10 +241,14 @@ def add_entry(*, project: TimeTrackingProject, user, minutes: int,
     if billable and rate:
         amount = round(rate * minutes / 60)
 
-    src = source or source_snapshot(source_item)
+    src = source or source_snapshot(source_item, user)
     src_id = src.get("source_item_id")
     src_kind = src.get("source_kind")
     label = src.get("source_label", "")
+    # An explicit reference wins (the Zammad sync knows the exact booking);
+    # otherwise take whatever the task carries.
+    external_ref = external_ref or src.get("external_ref", "")
+    external_url = external_url or src.get("external_url", "")
 
     # Whose time this is. Normally the person logging it; an importer passes an
     # ``actor`` snapshot instead, because the booking may belong to a colleague
@@ -704,7 +731,7 @@ def public_project_report(project, month: str | None = None):
                 # The ticket number is useful to the customer; the deep link
                 # behind it points into an internal system, so it stays home.
                 # The task's title joins it when the project asks for it.
-                "note": ((f"#{e.external_ref} " if e.external_ref else "")
+                "note": ((ref_label(e.external_ref) + " " if e.external_ref else "")
                          + described(e.note, e.source_label,
                                      project.show_source)).strip(),
                 "user_name": e.user_name or "",
@@ -855,7 +882,7 @@ def start_timer(user, *, project, source_item=None, note: str = "",
     from application.models.timetracking import RunningTimer
     actor = _actor(user)
     stopped = stop_timer(actor)
-    src = source_snapshot(source_item)
+    src = source_snapshot(source_item, actor)
     timer = RunningTimer(
         project_id=str(project.id),
         project_name=project.name,
@@ -902,6 +929,8 @@ def stop_timer(user):
             end_time=local_end.strftime("%H:%M"),
             custom=timer_custom_values(project, timer.custom),
             note=timer.note, billable=timer.billable,
+            external_ref=timer.external_ref or "",
+            external_url=timer.external_url or "",
             source={
                 "source_item_id": timer.source_item_id,
                 "source_kind": timer.source_kind,

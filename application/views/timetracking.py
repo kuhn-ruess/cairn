@@ -17,6 +17,7 @@ from application.models.timetracking import Customer, TimeBucket, TimeTrackingPr
 from application.services.permissions import team_required
 from application.services.timetracking import (
     add_entry,
+    ref_label,
     to_oid,
     cancel_entry,
     custom_values,
@@ -679,7 +680,7 @@ def report_csv():
             f"{r['minutes'] / 60:.2f}",
             "yes" if r["billable"] else "no", "yes" if r["locked"] else "no",
             f"{(r['amount_cents'] or 0) / 100:.2f}",
-            (f"#{r['external_ref']} " if r.get("external_ref") else "")
+            (ref_label(r["external_ref"]) + " " if r.get("external_ref") else "")
             + r.get("description", r["note"]),
             "; ".join(f"{c['label']}: {c['value']}" for c in r.get("custom", [])),
         ])

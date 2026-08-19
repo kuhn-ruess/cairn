@@ -66,9 +66,11 @@
       {% if e.start_time %}<span class="small text-muted font-monospace">{{ e.start_time }}–{{ e.end_time }}</span>{% endif %}
       {% for c in e.custom %}<span class="badge text-bg-light text-muted" title="{{ c.label }}">{{ c.value }}</span>{% endfor %}
       {% if not e.billable %}<span class="badge text-bg-secondary" title="Non-billable">n/b</span>{% endif %}
-      {% if e.external_ref and e.external_url %}
-        <a href="{{ e.external_url }}" target="_blank" rel="noopener"
-           class="small text-decoration-none" title="Open the ticket">#{{ e.external_ref }}</a>
+      {% if e.external_ref %}
+        {% if e.external_url %}
+          <a href="{{ e.external_url }}" target="_blank" rel="noopener"
+             class="small text-decoration-none" title="Open the ticket">{{ e.external_ref|ticketref }}</a>
+        {% else %}<span class="small text-muted">{{ e.external_ref|ticketref }}</span>{% endif %}
       {% endif %}
       {% if e.note %}<span class="text-muted text-truncate" title="{{ e.note }}">{{ e.note }}</span>{% endif %}
       {% if e.customer %}<span class="small text-muted">· {{ e.customer }} › {{ e.project_name }}</span>{% endif %}

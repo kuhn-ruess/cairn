@@ -51,6 +51,11 @@ class RunningTimer(EmbeddedDocument):
     source_item_id = StringField()
     source_kind = StringField()
     source_label = StringField(default="")
+    # The upstream ticket the source task came from (Zammad number, Jira key,
+    # …) and its deep link, so stopping the clock books the same reference a
+    # manual log would.
+    external_ref = StringField()
+    external_url = StringField()
 
     def elapsed_seconds(self) -> int:
         started = self.started_at

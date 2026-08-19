@@ -416,6 +416,13 @@ def register_filters(app):
 
     app.jinja_env.globals["linked_notes_folder"] = linked_notes_folder
 
+    @app.template_filter("ticketref")
+    def ticketref(value):
+        """A ticket reference as it is normally written: ``#4711`` (Zammad),
+        ``CHMK-417`` (Jira). Keeps every view from re-deciding."""
+        from application.services.timetracking import ref_label
+        return ref_label(value)
+
     @app.template_filter("eur")
     def eur(cents):
         """Integer cents → ``1.234,50 €`` (German formatting). ``None`` → ``—``."""

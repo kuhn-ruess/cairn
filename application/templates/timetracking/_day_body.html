@@ -90,8 +90,8 @@
             {% if e.external_ref %}
               {% if e.external_url %}
                 <a href="{{ e.external_url }}" target="_blank" rel="noopener"
-                   class="text-decoration-none" title="Open the ticket">#{{ e.external_ref }}</a>
-              {% else %}<span class="text-muted">#{{ e.external_ref }}</span>{% endif %}
+                   class="text-decoration-none" title="Open the ticket">{{ e.external_ref|ticketref }}</a>
+              {% else %}<span class="text-muted">{{ e.external_ref|ticketref }}</span>{% endif %}
             {% endif %}
             {{ e.note or '—' }}
             {% if e.source_item_id %}
