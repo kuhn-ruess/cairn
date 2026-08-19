@@ -47,8 +47,11 @@
         </button>
         <ul class="dropdown-menu dropdown-menu-end">
           {% for t in all_teams %}
+            {# Stay on the page you're on — including one with parameters in its
+               URL (a customer's page has a <cid>), which is why the current
+               view's args are carried along. Without them url_for raises. #}
             <li><a class="dropdown-item {% if t == team %}active{% endif %}"
-                   href="{{ url_for(request.endpoint, team=t.pk|string) }}">
+                   href="{{ url_for(request.endpoint, **dict(request.view_args or {}, team=t.pk|string)) }}">
               {% if current_user.tt_default_team == t.pk|string %}<i class="bi bi-pin-angle-fill"></i>{% endif %}
               {{ t.name }}</a></li>
           {% endfor %}
