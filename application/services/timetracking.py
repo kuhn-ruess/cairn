@@ -1484,25 +1484,37 @@ def backfill_entry_references(*, user=None, dry_run: bool = False) -> dict:
     they would have come from anyway. Works for every source the model can build
     a link for (Zammad, Jira, Todoist), not just what an importer wrote.
 
+    **Billed entries get their reference too.** A reference says what the work
+    was, not what it cost — withholding it from exactly the entries an invoice
+    is built from defeats the point. Their *text* is still frozen: the
+    description rewrite below only ever touches unlocked entries.
+
     Entries imported from Zammad additionally get the ticket's title as their
     description, if they still carry the bare "Zammad #4711" the first version of
     that import wrote (or nothing at all). A description you have edited is left
-    alone, and so is anything billed.
+    alone.
 
-    Idempotent: an entry that already has a reference is skipped, so this can be
-    re-run and costs nothing the second time."""
+    The counts explain themselves: ``no_source`` are entries booked without a
+    task behind them (the day sheet's quick-add), which can never have a
+    reference; ``no_ref`` are tasks that carry none; ``gone`` are entries whose
+    task has since been deleted. Idempotent."""
     q = TimeBucket.objects
     if user is not None:
         teams = user_teams(user)
         if not teams:
-            return {"entries": 0, "buckets": 0, "orphans": 0}
+            return {"entries": 0, "buckets": 0, "no_source": 0, "no_ref": 0, "gone": 0}
         q = q.filter(team__in=teams)
 
-    fixed = touched = orphans = 0
+    out = {"entries": 0, "buckets": 0, "no_source": 0, "no_ref": 0, "gone": 0}
     for b in q:
-        pending = [e for e in b.entries
-                   if e.status == "active" and not e.locked
-                   and e.source_item_id and not e.external_ref]
+        pending = []
+        for e in b.entries:
+            if e.status != "active" or e.external_ref:
+                continue
+            if not e.source_item_id:
+                out["no_source"] += 1     # booked without a task behind it
+                continue
+            pending.append(e)
         if not pending:
             continue
         items = {str(i.pk): i for i in Item.all_objects(
@@ -1510,39 +1522,40 @@ def backfill_entry_references(*, user=None, dry_run: bool = False) -> dict:
         changed = False
         for e in pending:
             item = items.get(e.source_item_id)
-            if item is None:  # the task is gone — nothing to reconstruct from
-                orphans += 1
+            if item is None:
+                out["gone"] += 1
                 continue
             ref = (item.external_ref or "").strip()
             try:
                 url = item.external_url() or ""
             except Exception:
                 url = ""
+            if not ref and not url:
+                out["no_ref"] += 1        # the task carries no ticket either
+                continue
             update = {}
             if ref:
                 update["set__entries__S__external_ref"] = ref
             if url:
                 update["set__entries__S__external_url"] = url
             # The first Zammad import wrote its own description; replace that
-            # (and only that) with the ticket's title.
-            if (e.external_id or "").startswith("zammad:"):
+            # (and only that) with the ticket's title — never on billed time,
+            # whose text an invoice may already quote.
+            if not e.locked and (e.external_id or "").startswith("zammad:"):
                 old_auto = {f"Zammad #{ref}", f"zammad #{ref}"} if ref else set()
                 if (e.note or "") in old_auto or not e.note:
                     title = (item.title or "")[:1000]
                     if title and title != e.note:
                         update["set__entries__S__note"] = title
-            if not update:
-                orphans += 1
-                continue
             if dry_run:
-                fixed += 1
+                out["entries"] += 1
                 changed = True
                 continue
             if TimeBucket.objects(
-                pk=b.pk, entries__entry_id=e.entry_id, entries__locked=False,
+                pk=b.pk, entries__entry_id=e.entry_id,
             ).update_one(set__updated_at=_utcnow(), **update):
-                fixed += 1
+                out["entries"] += 1
                 changed = True
         if changed:
-            touched += 1
-    return {"entries": fixed, "buckets": touched, "orphans": orphans}
+            out["buckets"] += 1
+    return out

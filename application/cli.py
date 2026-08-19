@@ -201,9 +201,13 @@ def fix_time_references(username, dry_run):
     res = backfill_entry_references(user=user, dry_run=dry_run)
     click.echo(f"{'would fix' if dry_run else 'fixed'} {res['entries']} entr"
                f"{'y' if res['entries'] == 1 else 'ies'} in {res['buckets']} bucket(s)")
-    if res["orphans"]:
-        click.echo(f"{res['orphans']} left as-is (no reference to take, or the "
-                   f"source task is gone)")
+    # Say why the rest was left alone — "it only fixed one" is otherwise
+    # impossible to tell apart from a bug.
+    for key, why in (("no_source", "booked without a task (no reference exists)"),
+                     ("no_ref", "their task carries no ticket reference"),
+                     ("gone", "their task has been deleted")):
+        if res.get(key):
+            click.echo(f"  {res[key]} skipped — {why}")
 
 
 @cairn_cli.command("split-time-buckets")
