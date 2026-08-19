@@ -242,6 +242,19 @@ def _spent_on(raw, user):
     return datetime(d.year, d.month, d.day, 12, 0, tzinfo=zone)
 
 
+def _note_for(form, task):
+    """The description to store — falling back to the task's own title.
+
+    Time logged from a task is *about* that task, and the description is the
+    only thing that reaches a report or the customer's sheet (the backlink to
+    the task doesn't). An empty note there produced a row that said nothing, so
+    the title stands in unless something better was typed."""
+    note = (form.get("note") or "").strip()
+    if note:
+        return note[:1000]
+    return ((task.title or "") if task is not None else "")[:1000]
+
+
 def _booking(form, project):
     """The parts of a booking that every capture path shares.
 
@@ -323,7 +336,7 @@ def log(task_id):
                 project=project, user=user, minutes=minutes,
                 spent_on=_spent_on(request.form.get("spent_on"), user),
                 start_time=start, end_time=end, custom=custom,
-                note=request.form.get("note") or "", source_item=task,
+                note=_note_for(request.form, task), source_item=task,
                 billable=request.form.get("billable") != "0",
             )
             user.tt_last_project = str(project.id)
@@ -377,7 +390,9 @@ def timer_start():
               else "Create a customer and a billing project first.", "warning")
         return _capture_response(user, task)
     start_timer(user, project=project, source_item=task,
-                note=request.form.get("note") or "",
+                # Carried on the timer, so stopping it books the same
+                # description a manual log from that task would.
+                note=_note_for(request.form, task),
                 # Kept as raw {key: value}; resolved against the project's
                 # definitions when the clock stops.
                 custom={c["key"]: c["value"]
