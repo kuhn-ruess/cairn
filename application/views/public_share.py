@@ -135,7 +135,7 @@ def project_time_export(token):
     header = ["Datum"]
     if data["has_times"]:
         header += ["Von", "Bis"]
-    header += ["Stunden", "Beschreibung"]
+    header += ["Stunden", "Bearbeiter", "Beschreibung"]
     header += [c["label"] for c in data["columns"]]
     w.writerow(header)
     for r in data["rows"]:
@@ -143,12 +143,14 @@ def project_time_export(token):
         if data["has_times"]:
             row += [r["start_time"], r["end_time"]]
         # Excel reads "1,50" as a number in a German locale; "1.50" would be text.
-        row += [f"{r['minutes'] / 60:.2f}".replace(".", ","), r["note"]]
+        row += [f"{r['minutes'] / 60:.2f}".replace(".", ","), r["user_name"],
+                r["note"]]
         row += [r["custom"].get(c["key"], "") for c in data["columns"]]
         w.writerow(row)
     w.writerow([])
     total = ["Summe"] + ([""] * 2 if data["has_times"] else [])
     total += [f"{data['total_minutes'] / 60:.2f}".replace(".", ",")]
+    total += [""]  # keep the sum under the Stunden column
     w.writerow(total)
 
     stamp = month if month else "gesamt"

@@ -198,6 +198,7 @@ def add_entry(*, project: TimeTrackingProject, user, minutes: int,
               spent_on: datetime, note: str = "", source_item=None,
               source: dict | None = None, external_id: str | None = None,
               external_ref: str = "", external_url: str = "",
+              actor: dict | None = None,
               custom: list | None = None, start_time: str = "",
               end_time: str = "", billable: bool | None = None) -> TimeEntry:
     """Append a time entry to the ``(team, customer, month)`` bucket atomically.
@@ -222,12 +223,27 @@ def add_entry(*, project: TimeTrackingProject, user, minutes: int,
     src_kind = src.get("source_kind")
     label = src.get("source_label", "")
 
-    actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
+    # Whose time this is. Normally the person logging it; an importer passes an
+    # ``actor`` snapshot instead, because the booking may belong to a colleague
+    # (see the Zammad sync) and the *author* is what the report and the
+    # customer's sheet show.
+    who = user._get_current_object() if hasattr(user, "_get_current_object") else user
+    if actor is not None:
+        # An importer that supplies an actor owns the attribution outright —
+        # including "this agent has no Cairn account" (id None, name kept).
+        # Falling back to the syncing user there would quietly file a
+        # colleague's hours under them.
+        author_id = actor.get("user_id") or None
+        author_name = actor.get("user_name") or ""
+    else:
+        author_id = str(who.id) if who else None
+        author_name = (getattr(who, "display_name", None)
+                       or getattr(who, "username", "") or "")
     entry = TimeEntry(
         project_id=str(project.id),
         project_name=project.name,
-        user_id=str(actor.id) if actor else None,
-        user_name=getattr(actor, "display_name", None) or getattr(actor, "username", "") or "",
+        user_id=author_id,
+        user_name=author_name,
         minutes=minutes,
         spent_on=spent_on,
         start_time=start_time or None,
@@ -987,8 +1003,12 @@ def day_sheet(user, day: date) -> dict:
     projects = pickable_projects(actor)
     total = sum(r["minutes"] for r in entries)
     billable = sum(r["minutes"] for r in entries if r["billable"])
+    # Where the day's last clock-booked entry ended — the natural start for the
+    # next one, so a day booked by the clock chains without retyping.
+    ends = sorted(r["end_time"] for r in entries if r.get("end_time"))
     return {
         "day": day,
+        "suggest_start": ends[-1] if ends else "",
         "prev_day": day - timedelta(days=1),
         "next_day": day + timedelta(days=1),
         "entries": entries,
@@ -1028,40 +1048,77 @@ def imported_entry_ids(user, item) -> set:
     return out
 
 
-def import_entries_for_item(*, user, item, rows) -> int:
-    """Append externally-tracked time to the billing project ``item`` inherits.
+def sync_external_entries(*, user, item, rows) -> tuple[int, int]:
+    """Mirror an external system's time for ``item``. Returns ``(added, fixed)``.
 
-    ``rows`` are dicts of ``{external_id, minutes, spent_on, note, external_ref,
-    external_url}``. Returns how many were actually written: rows whose
-    ``external_id`` is already on the item are skipped, so syncing the same
-    ticket again is a no-op. Does nothing at all when the item's subtree isn't
-    linked to a billing project — that link *is* the opt-in."""
+    Each row is ``{external_id, minutes, spent_on, note, external_ref,
+    external_url, user_id, user_name}``. Rows the team already has are not
+    appended again — dedup is by ``external_id`` across the **whole team**, not
+    just this item, because two people syncing the same ticket keep their own
+    Cairn task for it and would otherwise book the same hour twice.
+
+    A row the team already has is instead *corrected*: description, ticket
+    number, deep link and — the point of the exercise — who the time belongs
+    to. That is what repairs entries imported before any of this existed, and
+    keeps attribution right if someone's account is matched up later. Locked
+    (billed) entries are never touched.
+
+    Does nothing at all when the item's subtree isn't linked to a billing
+    project — that link *is* the opt-in."""
     if not rows or not has_team(user):
-        return 0
+        return 0, 0
     project = resolve_time_project(item)
     if project is None or str(project.team.id) not in user_team_ids(user):
-        return 0
-    known = imported_entry_ids(user, item)
-    written = 0
+        return 0, 0
+    team = project.team
+
+    wanted = {r["external_id"]: r for r in rows if r.get("external_id")}
+    if not wanted:
+        return 0, 0
+
+    # One indexed lookup for everything this team already knows of these ids.
+    seen = {}
+    for b in TimeBucket.objects(team=team,
+                                entries__external_id__in=list(wanted)):
+        for e in b.entries:
+            if e.external_id in wanted and e.status == "active":
+                seen[e.external_id] = (b, e)
+
+    added = fixed = 0
     src = source_snapshot(item)
-    for r in rows:
-        ext = r.get("external_id")
+    for ext, r in wanted.items():
         minutes = int(r.get("minutes") or 0)
-        if not ext or ext in known or minutes < 1:
+        if minutes < 1:
             continue
-        add_entry(project=project, user=user, minutes=minutes,
-                  spent_on=r["spent_on"], note=r.get("note", ""),
-                  external_ref=r.get("external_ref", ""),
-                  external_url=r.get("external_url", ""),
-                  source=src, external_id=ext, billable=True)
-        known.add(ext)
-        written += 1
-    return written
+        hit = seen.get(ext)
+        if hit is None:
+            add_entry(project=project, user=user, minutes=minutes,
+                      spent_on=r["spent_on"], note=r.get("note", ""),
+                      external_ref=r.get("external_ref", ""),
+                      external_url=r.get("external_url", ""),
+                      actor={"user_id": r.get("user_id") or None,
+                             "user_name": r.get("user_name") or ""},
+                      source=src, external_id=ext, billable=True)
+            added += 1
+            continue
+        bucket, entry = hit
+        if entry.locked:
+            continue
+        changes = _external_corrections(entry, r)
+        if changes and TimeBucket.objects(
+            pk=bucket.pk, entries__entry_id=entry.entry_id, entries__locked=False,
+        ).update_one(set__updated_at=_utcnow(), **changes):
+            fixed += 1
+    return added, fixed
 
 
 def repair_imported_entries(*, user, item, note: str, external_ref: str = "",
                             external_url: str = "", dry_run: bool = False) -> int:
     """Bring entries imported from ``item`` up to today's shape.
+
+    The complement to :func:`sync_external_entries`, which corrects whatever the
+    source system still returns: this reaches the rest — a booking deleted in
+    Zammad leaves a Cairn entry that no fetch will ever mention again.
 
     Early imports stored a bare "Zammad #4711" as the description and no deep
     link. This backfills the ticket's *title* as the description plus the ref
@@ -1101,6 +1158,33 @@ def repair_imported_entries(*, user, item, note: str, external_ref: str = "",
             if res:
                 fixed += 1
     return fixed
+
+
+def _external_corrections(entry, row) -> dict:
+    """What an imported entry is missing or has wrong, as a positional update.
+
+    Deliberately narrow: the fields the source system owns. A description the
+    user has rewritten is left alone (only the old auto-generated form, or an
+    empty one, is replaced), because their words are better than the ticket's."""
+    ref = row.get("external_ref") or ""
+    old_auto = {f"Zammad #{ref}", f"zammad #{ref}"} if ref else set()
+    changes = {}
+    note = row.get("note") or ""
+    if note and ((entry.note or "") in old_auto or not entry.note):
+        if entry.note != note:
+            changes["set__entries__S__note"] = note
+    if ref and entry.external_ref != ref:
+        changes["set__entries__S__external_ref"] = ref
+    url = row.get("external_url") or ""
+    if url and entry.external_url != url:
+        changes["set__entries__S__external_url"] = url
+    # Attribution: only ever *towards* a known Cairn user, never away from one.
+    uid, uname = row.get("user_id") or "", row.get("user_name") or ""
+    if uid and entry.user_id != uid:
+        changes["set__entries__S__user_id"] = uid
+    if uname and entry.user_name != uname and (uid or not entry.user_id):
+        changes["set__entries__S__user_name"] = uname
+    return changes
 
 
 # ---------------------------------------------------------------------------

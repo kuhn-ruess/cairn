@@ -130,7 +130,11 @@
         if (f.type === "select") {
           el = document.createElement("select");
           el.className = "form-select form-select-sm tt-cf";
-          el.style.maxWidth = "11rem";
+          // A dropdown is as wide as its choices need; a free-text field is
+          // where you actually type, so it takes the room that's left.
+          el.style.flex = "0 1 auto";
+          el.style.minWidth = "8rem";
+          el.style.maxWidth = "14rem";
           const blank = document.createElement("option");
           blank.value = "";
           blank.textContent = f.label + " —";
@@ -146,7 +150,8 @@
           el = document.createElement("input");
           el.type = "text";
           el.className = "form-control form-control-sm tt-cf";
-          el.style.maxWidth = "11rem";
+          el.style.flex = "1 1 10rem";
+          el.style.minWidth = "7rem";
           el.placeholder = f.label;
           el.value = value;
         }
@@ -194,6 +199,16 @@
                        : "Book start and end time instead of a duration";
       }
     });
+  }
+
+  // Fill a clock field with the time right now — the common case when you
+  // start or finish something and reach for the form.
+  function stampNow(input) {
+    if (!input) return;
+    const d = new Date();
+    input.value = `${String(d.getHours()).padStart(2, "0")}:` +
+                  `${String(d.getMinutes()).padStart(2, "0")}`;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
   function currentProject(add) {
@@ -368,6 +383,16 @@
       return;
     }
 
+    const now = t.closest(".tt-now");
+    if (now) {
+      ev.preventDefault();
+      const add = now.closest(".time-add") || now.closest(".tt-edit");
+      const target = now.dataset.target === "end" ? ".time-add-end, .tt-edit-end"
+                                                  : ".time-add-start, .tt-edit-start";
+      stampNow(add && add.querySelector(target));
+      return;
+    }
+
     const clockToggle = t.closest(".tt-clock-toggle");
     if (clockToggle) {
       ev.preventDefault();
@@ -421,6 +446,10 @@
     const rm = t.closest(".time-delete");
     if (rm) {
       ev.preventDefault();
+      // Booked time is worth a question — it vanishes from the sheet with one
+      // stray click otherwise, and the row says nothing about how much.
+      const what = rm.dataset.confirm || "Remove this time entry?";
+      if (!confirm(what)) return;
       post(rm.dataset.action, {}, contextFor(rm)).catch(() => {});
     }
   });

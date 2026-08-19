@@ -23,16 +23,23 @@
 {%- endmacro -%}
 
 {# Duration, or a start/end pair — the toggle swaps which one is submitted. #}
-{%- macro duration_or_clock() -%}
+{%- macro duration_or_clock(suggest_start="") -%}
   <input type="text" class="form-control form-control-sm time-add-duration"
          style="max-width: 6.5rem;" placeholder="1h30m" autocomplete="off"
          title="90 · 1:30 · 1h30m · 1.5h">
+  {# The start is pre-filled with where the last entry of the day ended, so a
+     day booked by the clock chains without retyping. Each field also has a
+     "now" button, which is how most of these get filled in the first place. #}
   <span class="time-add-clock d-none align-items-center gap-1">
     <input type="time" class="form-control form-control-sm time-add-start"
-           style="max-width: 7rem;" title="Start">
+           style="max-width: 7rem;" title="Start" value="{{ suggest_start }}">
+    <button type="button" class="btn btn-sm btn-outline-secondary tt-now px-1"
+            data-target="start" title="Start = now"><i class="bi bi-clock"></i></button>
     <span class="text-muted">–</span>
     <input type="time" class="form-control form-control-sm time-add-end"
            style="max-width: 7rem;" title="End">
+    <button type="button" class="btn btn-sm btn-outline-secondary tt-now px-1"
+            data-target="end" title="End = now"><i class="bi bi-clock"></i></button>
   </span>
   <button type="button" class="btn btn-sm btn-outline-secondary tt-clock-toggle"
           title="Book start and end time instead of a duration">
@@ -42,5 +49,6 @@
 
 {# Filled by time-entries.js from the selected project's definitions. #}
 {%- macro custom_fields() -%}
-  <span class="tt-custom-fields d-flex gap-1 flex-wrap align-items-center"></span>
+  <span class="tt-custom-fields d-flex gap-1 flex-wrap align-items-center flex-grow-1"
+        style="min-width: 8rem;"></span>
 {%- endmacro -%}

@@ -74,6 +74,7 @@
             <th>Date</th>
             {% if has_times %}<th>From</th><th>To</th>{% endif %}
             <th>Hours</th>
+            <th>Who</th>
             <th>Description</th>
             {% for c in columns %}<th>{{ c.label }}</th>{% endfor %}
           </tr>
@@ -87,6 +88,7 @@
                 <td class="num">{{ r.end_time }}</td>
               {% endif %}
               <td class="num">{{ r.minutes|duration }}</td>
+              <td>{{ r.user_name }}</td>
               <td>{{ r.note }}</td>
               {% for c in columns %}<td>{{ r.custom.get(c.key, '') }}</td>{% endfor %}
             </tr>
@@ -97,7 +99,7 @@
             <td class="num">Total</td>
             {% if has_times %}<td></td><td></td>{% endif %}
             <td class="num">{{ total_minutes|duration }}</td>
-            <td colspan="{{ 1 + columns|length }}"></td>
+            <td colspan="{{ 2 + columns|length }}"></td>
           </tr>
         </tfoot>
       </table>

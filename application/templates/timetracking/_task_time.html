@@ -74,6 +74,7 @@
       {% else %}
         <button type="button" class="btn btn-link btn-sm p-0 text-muted ms-auto time-delete"
                 data-action="{{ url_for('timetracking.entry_cancel', bucket_id=e.bucket_id, entry_id=e.entry_id) }}"
+                data-confirm="Remove {{ e.minutes|duration }} on {{ e.spent_on|date }}{% if e.note %} — {{ e.note|truncate(60) }}{% endif %}?"
                 title="Cancel entry"><i class="bi bi-x-lg"></i></button>
       {% endif %}
     </li>
