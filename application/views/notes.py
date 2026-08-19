@@ -18,6 +18,7 @@ from flask import (
     Blueprint, Response, abort, current_app, flash, jsonify, redirect,
     render_template, request, url_for,
 )
+from bson import ObjectId
 from flask_login import current_user, login_required
 from mongoengine import Q
 
@@ -300,13 +301,25 @@ def detail(note_id):
         # Reverse of Item.notes_folder — the project(s)/folder(s) that jump
         # here, so the link is walkable in both directions (one indexed query).
         linked_from = list(Item.objects(notes_folder=item)
-                           .only("pk", "title", "kind"))
+                           .only("pk", "title", "kind", "parent", "owner",
+                                 "shared_teams"))
+        # …and the containers this folder could be attached to, so the link can
+        # be made from here too. It reads as a property of the notes folder
+        # ("these projects use me"), and looking for it only on the project side
+        # is exactly how it gets missed.
+        from application.services.containers import (
+            container_choices, describe_containers,
+        )
+        linkable = container_choices(user, selectable_kinds=("project", "folder"))
+        linked_paths = describe_containers(linked_from)
         return render_template(
             "notes/folder.html",
             note=item,
             folder=item,
             children=children,
             linked_from=linked_from,
+            linked_paths=linked_paths,
+            linkable=linkable,
             tree=tree,
             tag_filter_choices=_tag_filter_choices(user, tree),
             can_edit=item.can_be_edited_by(user),
@@ -620,6 +633,35 @@ def share(note_id):
 
 
 # ---------- item links: tasks + projects (symmetric, via Item.related) ----------
+
+@notes_bp.route("/<note_id>/link-project", methods=["POST"])
+@login_required
+def link_project(note_id):
+    """Attach a task project/folder to this notes folder (or detach one).
+
+    The same link as the project inspector's "Notes folder" picker, from the
+    other end: everything under the chosen container gets a Notes button
+    pointing here. Stored once, on the container — the notes side is a reverse
+    query, so the two can never disagree.
+    """
+    folder = _note_or_404(note_id, kinds=("folder",))
+    user = current_user._get_current_object()
+    from application.services.timetracking import to_oid
+    target = Item.objects(pk=to_oid(request.form.get("item_id")) or ObjectId(),
+                          owner=user, kind__in=["project", "folder"],
+                          folder_domain__ne="notes").first()
+    if not target:
+        flash("Pick a project or folder to link.", "warning")
+        return redirect(url_for("notes.detail", note_id=str(folder.pk)))
+    if request.form.get("action") == "unlink":
+        target.notes_folder = None
+        flash(f"“{target.title}” no longer opens these notes.", "info")
+    else:
+        target.notes_folder = folder
+        flash(f"“{target.title}” now opens these notes.", "success")
+    target.save()
+    return redirect(url_for("notes.detail", note_id=str(folder.pk)))
+
 
 @notes_bp.route("/<note_id>/link-item", methods=["POST"])
 @login_required

@@ -160,43 +160,66 @@
                 </div>
 
                 {# ---- Custom fields asked for on every booking ----
-                   One row per field plus a blank one to add the next. Clearing
-                   a label deletes that field (its values stay on the entries
-                   that already carry them). #}
+                   Rows are added and removed right here (time-fields.js); the
+                   form only carries what is on screen when you save, so a
+                   removed row *is* a removed field. The five inputs of a row
+                   always travel together, which is what keeps the server's
+                   parallel lists aligned. #}
                 <div class="text-muted small mt-2">
                   <i class="bi bi-input-cursor-text"></i> Extra fields asked when booking time
                 </div>
-                {% for f in p.custom_fields %}
-                  <div class="d-flex gap-1 align-items-center">
-                    <input type="hidden" name="cf_key" value="{{ f.key }}">
-                    <input type="text" name="cf_label" value="{{ f.label }}"
-                           class="form-control form-control-sm" style="max-width:130px;"
-                           title="Clear the label to remove this field">
-                    <select name="cf_type" class="form-select form-select-sm" style="max-width:100px;">
-                      <option value="text" {% if f.field_type != 'select' %}selected{% endif %}>text</option>
-                      <option value="select" {% if f.field_type == 'select' %}selected{% endif %}>dropdown</option>
-                    </select>
-                    <input type="text" name="cf_default" value="{{ f.default }}"
-                           placeholder="Default" class="form-control form-control-sm"
-                           style="max-width:110px;">
-                    <input type="text" name="cf_options" value="{{ f.options|join(', ') }}"
-                           placeholder="Choices, comma separated"
-                           class="form-control form-control-sm">
-                  </div>
-                {% endfor %}
-                <div class="d-flex gap-1 align-items-center">
-                  <input type="hidden" name="cf_key" value="">
-                  <input type="text" name="cf_label" value="" placeholder="New field"
-                         class="form-control form-control-sm" style="max-width:130px;">
-                  <select name="cf_type" class="form-select form-select-sm" style="max-width:100px;">
-                    <option value="text">text</option>
-                    <option value="select">dropdown</option>
-                  </select>
-                  <input type="text" name="cf_default" placeholder="Default"
-                         class="form-control form-control-sm" style="max-width:110px;">
-                  <input type="text" name="cf_options" placeholder="Choices, comma separated"
-                         class="form-control form-control-sm">
+                <div class="cf-rows d-flex flex-column gap-1">
+                  {% for f in p.custom_fields %}
+                    <div class="cf-row d-flex gap-1 align-items-start">
+                      <input type="hidden" name="cf_key" value="{{ f.key }}">
+                      <input type="text" name="cf_label" value="{{ f.label }}"
+                             placeholder="Field name" class="form-control form-control-sm"
+                             style="max-width:130px;">
+                      <select name="cf_type" class="form-select form-select-sm cf-type"
+                              style="max-width:105px;">
+                        <option value="text" {% if f.field_type != 'select' %}selected{% endif %}>text</option>
+                        <option value="select" {% if f.field_type == 'select' %}selected{% endif %}>dropdown</option>
+                      </select>
+                      <input type="text" name="cf_default" value="{{ f.default }}"
+                             placeholder="Default" class="form-control form-control-sm cf-default"
+                             style="max-width:110px;"
+                             list="cf-opts-{{ f.key }}">
+                      <datalist id="cf-opts-{{ f.key }}">
+                        {% for o in f.options %}<option value="{{ o }}"></option>{% endfor %}
+                      </datalist>
+                      <textarea name="cf_options" rows="{{ [f.options|length, 2]|max }}"
+                                class="form-control form-control-sm cf-options {{ 'd-none' if f.field_type != 'select' }}"
+                                placeholder="One choice per line">{{ f.options|join('\n') }}</textarea>
+                      <button type="button" class="btn btn-sm btn-link text-danger p-0 px-1 cf-remove"
+                              title="Remove this field"><i class="bi bi-x-lg"></i></button>
+                    </div>
+                  {% endfor %}
                 </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary align-self-start cf-add">
+                  <i class="bi bi-plus-lg"></i> Add field
+                </button>
+
+                {# The blank row every "Add field" clones. Inside <template>, so
+                   its inputs are never submitted. #}
+                <template class="cf-template">
+                  <div class="cf-row d-flex gap-1 align-items-start">
+                    <input type="hidden" name="cf_key" value="">
+                    <input type="text" name="cf_label" value="" placeholder="Field name"
+                           class="form-control form-control-sm" style="max-width:130px;">
+                    <select name="cf_type" class="form-select form-select-sm cf-type"
+                            style="max-width:105px;">
+                      <option value="text">text</option>
+                      <option value="select">dropdown</option>
+                    </select>
+                    <input type="text" name="cf_default" placeholder="Default"
+                           class="form-control form-control-sm cf-default" style="max-width:110px;">
+                    <textarea name="cf_options" rows="2"
+                              class="form-control form-control-sm cf-options d-none"
+                              placeholder="One choice per line"></textarea>
+                    <button type="button" class="btn btn-sm btn-link text-danger p-0 px-1 cf-remove"
+                            title="Remove this field"><i class="bi bi-x-lg"></i></button>
+                  </div>
+                </template>
 
                 <label class="form-check small mt-2">
                   <input type="checkbox" name="archived" value="1" class="form-check-input"

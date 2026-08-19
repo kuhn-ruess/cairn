@@ -1120,6 +1120,23 @@ def field_key(label: str, taken: set) -> str:
     return key
 
 
+def parse_options(raw: str) -> list:
+    """A dropdown's choices, typed one per line.
+
+    Commas still work — that is how they used to be entered, and a pasted list
+    tends to arrive that way — but only when there are no line breaks, so a
+    choice like "Beratung, vor Ort" survives being typed on its own line."""
+    text = raw or ""
+    parts = text.splitlines() if "\n" in text else text.split(",")
+    seen, out = set(), []
+    for p in parts:
+        p = p.strip()[:200]
+        if p and p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
 def parse_project_fields(rows) -> list:
     """Build a project's field definitions from the editor's parallel lists.
 
@@ -1137,14 +1154,18 @@ def parse_project_fields(rows) -> list:
             key = field_key(label, taken)
         taken.add(key)
         field_type = "select" if field_type == "select" else "text"
-        choices = [o.strip()[:200] for o in (options or "").split(",") if o.strip()]
+        choices = parse_options(options)
         if field_type == "select" and not choices:
             # A dropdown with nothing to choose from is a text field.
             field_type = "text"
+        value = (default or "").strip()[:200]
+        if field_type == "select" and value not in choices:
+            # A default that isn't one of the choices could never apply — don't
+            # store a setting that silently does nothing.
+            value = ""
         out.append(TimeProjectField(
             key=key, label=label, field_type=field_type,
-            default=(default or "").strip()[:200],
-            options=choices,
+            default=value, options=choices,
         ))
     return out
 

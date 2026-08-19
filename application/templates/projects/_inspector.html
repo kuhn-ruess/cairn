@@ -146,6 +146,9 @@
      below: time logged on them bills to the chosen billing project, and their
      "Notes" button jumps into the chosen notes folder. #}
   <div class="inspector-section" data-show-for="project,folder">
+    <div class="form-label small text-uppercase text-muted mb-2">
+      <i class="bi bi-link-45deg"></i> Links
+    </div>
     {% if form.time_project.choices|length > 1 %}
       {{ form.time_project.label(class="form-label small text-uppercase text-muted") }}
       {{ form.time_project(class="form-select form-select-sm") }}
