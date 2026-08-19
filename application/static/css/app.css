@@ -2816,3 +2816,21 @@ body.ps-resizing * {
 .time-list li > .text-truncate,
 .time-list li > span.text-muted.text-truncate { min-width: 0; }
 
+
+/* ---- Billing project rows (time tracking → customers & projects) --------
+   The whole row is the disclosure's summary, so the default triangle is
+   replaced by a chevron that lines up with the text, and the row highlights on
+   hover to say it opens. */
+.tt-project > summary { list-style: none; }
+.tt-project > summary::-webkit-details-marker { display: none; }
+.tt-project > summary::before {
+  content: "\F285";                     /* bi-chevron-right */
+  font-family: "bootstrap-icons";
+  font-size: .8em;
+  color: var(--bs-secondary-color);
+  transition: transform .15s ease;
+  display: inline-block;
+}
+.tt-project[open] > summary::before { content: "\F282"; }  /* bi-chevron-down */
+.tt-project > summary:hover { background: var(--bs-tertiary-bg); }
+

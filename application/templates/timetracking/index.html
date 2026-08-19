@@ -45,7 +45,13 @@
     <ul class="list-group list-group-flush">
       {% for p in by_customer.get(c.id|string, []) %}
         <li class="list-group-item">
-          <div class="d-flex align-items-center gap-2">
+          {# The row *is* the toggle: clicking it opens the editor below at the
+             card's full width. It used to sit in the right-hand half of a flex
+             row, which left a one-line column on the left and squeezed every
+             field into the other half. #}
+          <details class="tt-project">
+            <summary class="d-flex align-items-center gap-2 flex-wrap"
+                     style="cursor:pointer;">
             <span class="me-auto">
               <strong>{{ p.name }}</strong>
               {% if p.archived %}<span class="badge text-bg-secondary ms-1">archived</span>{% endif %}
@@ -63,12 +69,17 @@
                 {{ p.hourly_rate_cents|eur }}{% if p.hourly_rate_cents %} / h{% endif %}
               </span>
             </span>
-            <details>
-              <summary class="small text-muted" style="cursor:pointer;">edit</summary>
-              <form method="post" action="{{ url_for('timetracking.project_edit', pid=p.id) }}"
-                    class="d-flex flex-column gap-2 mt-2 w-100">
+              <span class="small text-muted"><i class="bi bi-pencil"></i> edit</span>
+            </summary>
+
+            <div class="pt-3">
+              <form method="post" action="{{ url_for('timetracking.project_edit', pid=p.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="team" value="{{ team.pk }}">
+              {# Two columns: what the project *is* on the left, what it asks
+                 for when booking on the right. #}
+              <div class="row g-3">
+              <div class="col-12 col-xl-5 d-flex flex-column gap-2">
                 <input type="text" name="name" value="{{ p.name }}" class="form-control form-control-sm">
                 <input type="text" name="hourly_rate" value="{{ '%.2f'|format(p.hourly_rate_cents/100) if p.hourly_rate_cents else '' }}"
                        placeholder="Hourly rate (€)" class="form-control form-control-sm">
@@ -113,6 +124,8 @@
                   </select>
                 </div>
 
+              </div>
+              <div class="col-12 col-xl-7">
                 {# ---- Custom fields asked for on every booking ----
                    Rows are added and removed right here (time-fields.js); the
                    form only carries what is on screen when you save, so a
@@ -183,11 +196,15 @@
                   </div>
                 </template>
 
-                <label class="form-check small mt-2">
-                  <input type="checkbox" name="archived" value="1" class="form-check-input"
-                         {% if p.archived %}checked{% endif %}> archived
-                </label>
-                <button class="btn btn-sm btn-outline-secondary align-self-start">Save</button>
+              </div>
+              </div>
+                <div class="d-flex align-items-center gap-3 mt-3">
+                  <button class="btn btn-sm btn-primary">Save</button>
+                  <label class="form-check small m-0">
+                    <input type="checkbox" name="archived" value="1" class="form-check-input"
+                           {% if p.archived %}checked{% endif %}> archived
+                  </label>
+                </div>
               </form>
 
               {# Danger zone: wiping a project's time is the one destructive
@@ -218,9 +235,10 @@
                 </details>
               {% endif %}
               <hr class="my-2">
+              <hr class="my-3">
               {% include "timetracking/_project_share.html" %}
-            </details>
-          </div>
+            </div>
+          </details>
 
           {% set bs = budgets.get(p.id|string) %}
           {% if bs %}
