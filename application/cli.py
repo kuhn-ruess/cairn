@@ -175,31 +175,35 @@ def import_mite(username, account, key, team_id, date_from, date_to,
         click.echo(f"  … and {len(stats.errors) - 20} more")
 
 
-@cairn_cli.command("fix-zammad-time-entries")
+@cairn_cli.command("fix-time-references")
 @click.option("--user", "username", help="Only one user's teams (by username).")
 @click.option("--dry-run", is_flag=True, help="Report only, don't write.")
-def fix_zammad_time_entries(username, dry_run):
-    """Backfill time imported from Zammad with the ticket title and deep link.
+def fix_time_references(username, dry_run):
+    """Give already-booked time the ticket reference it never captured.
 
-    The first version of the Zammad time import wrote a bare "Zammad #4711" as
-    the description and kept no link. Newer syncs write the ticket's title plus
-    the number and its url, and repair the tickets they still touch; this
-    reaches everything else. Reconstructed from the Cairn task each entry points
-    at — no Zammad access needed. Billed (locked) entries and descriptions you
-    have edited yourself are left alone. Idempotent.
+    References are taken from the task when time is logged, so anything booked
+    before that showed no ticket — on the report, and on the customer's sheet.
+    This fills them in from the Cairn task each entry points at, for every
+    source the deep link can be built for (Zammad, Jira, Todoist). Time imported
+    from Zammad also gets the ticket's title as its description, where it still
+    carries the bare "Zammad #4711" the first version of that import wrote.
+
+    Descriptions you have edited yourself and billed (locked) entries are left
+    alone. Needs no access to Zammad or Jira. Idempotent.
     """
-    from application.services.timetracking import repair_all_imported_entries
+    from application.services.timetracking import backfill_entry_references
 
     user = None
     if username:
         user = User.objects(username=username).first()
         if not user:
             raise click.ClickException(f"user '{username}' not found")
-    res = repair_all_imported_entries(user=user, dry_run=dry_run)
+    res = backfill_entry_references(user=user, dry_run=dry_run)
     click.echo(f"{'would fix' if dry_run else 'fixed'} {res['entries']} entr"
                f"{'y' if res['entries'] == 1 else 'ies'} in {res['buckets']} bucket(s)")
     if res["orphans"]:
-        click.echo(f"{res['orphans']} left as-is (source task or Zammad URL gone)")
+        click.echo(f"{res['orphans']} left as-is (no reference to take, or the "
+                   f"source task is gone)")
 
 
 @cairn_cli.command("split-time-buckets")

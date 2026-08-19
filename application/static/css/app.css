@@ -2785,3 +2785,34 @@ body.ps-resizing * {
 .event-notes-panel .enp-empty {
   padding: .5rem .6rem; font-size: .82rem; color: var(--bs-secondary-color, #6c757d);
 }
+
+
+/* ---- Time capture rows -------------------------------------------------
+   The same markup is used in the day sheet (page width) and in the task
+   inspector (460px). A flex item's default min-width is `auto`, so a <select>
+   sized by its longest option ("Kunde A › Support") refuses to shrink and
+   pushes the row straight out of the panel. Everything here is allowed to
+   shrink and capped at the container, so the row wraps instead of overflowing.
+   The inline max-widths on individual controls stay: they only cap how *wide*
+   a field may get, never how narrow it may become. */
+.time-add,
+.tt-edit,
+.time-list li,
+.tt-custom-fields { min-width: 0; }
+.time-add > *,
+.tt-edit > *,
+.tt-custom-fields > * { max-width: 100%; }
+.time-add input,
+.time-add select,
+.tt-edit input,
+.tt-edit select,
+.tt-custom-fields input,
+.tt-custom-fields select { min-width: 0; }
+/* The project picker is the widest control by far — let it take the row it
+   needs rather than squeezing the others out. */
+.time-block .time-add .time-add-project,
+.time-block .time-add .tt-custom-fields { flex: 1 1 100%; }
+/* Logged entries: the note gives way before the badges and the duration. */
+.time-list li > .text-truncate,
+.time-list li > span.text-muted.text-truncate { min-width: 0; }
+

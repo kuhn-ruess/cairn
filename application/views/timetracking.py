@@ -203,6 +203,10 @@ def index():
     consumption = team_consumption(team, f"{today.year:04d}-{today.month:02d}")
     budgets = {str(p.id): budget_status(p, consumption.get(str(p.id)))
                for p in projects}
+    # What a reset would destroy, from the same consumption pass — no query per
+    # project just to label a danger-zone button.
+    logged = {str(p.id): consumption.get(str(p.id), {}).get("minutes", 0)
+              for p in projects}
 
     return render_template(
         "timetracking/index.html",
@@ -214,6 +218,7 @@ def index():
         links_by_project=links_by_project,
         link_info=link_info,
         linkable=linkable,
+        logged=logged,
         budgets=budgets,
     )
 
@@ -861,6 +866,39 @@ def project_edit(pid):
     p.archived = request.form.get("archived") == "1"
     p.save()
     flash("Project updated.", "success")
+    return redirect(url_for("timetracking.index", team=team.pk))
+
+
+@timetracking_bp.route("/projects/<pid>/purge", methods=["POST"])
+@login_required
+@team_required
+def project_purge(pid):
+    """Delete every time entry on a billing project — the reset for a project
+    that was set up wrong or used for a trial.
+
+    Guarded three ways, because it destroys billing history: only a team manager
+    may do it, the project's exact name has to be typed to confirm, and the
+    result says how much went (including how much of it was already billed)."""
+    from application.services.timetracking import purge_project_entries
+
+    team = _team()
+    user = current_user._get_current_object()
+    if not team.is_managed_by(user):
+        abort(403)
+    p = _project_or_404(pid, team)
+    if (request.form.get("confirm") or "").strip() != p.name:
+        flash(f"Type the project name exactly (“{p.name}”) to reset it — "
+              "nothing was deleted.", "warning")
+        return redirect(url_for("timetracking.index", team=team.pk))
+    stats = purge_project_entries(p)
+    if stats["entries"]:
+        flash(f"Reset “{p.name}”: {stats['entries']} entr"
+              f"{'y' if stats['entries'] == 1 else 'ies'} deleted "
+              f"({stats['minutes'] // 60}h {stats['minutes'] % 60}m"
+              + (f", {stats['locked']} of them already billed" if stats["locked"] else "")
+              + "). The project itself is untouched.", "success")
+    else:
+        flash(f"“{p.name}” had no time logged on it.", "info")
     return redirect(url_for("timetracking.index", team=team.pk))
 
 

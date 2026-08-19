@@ -211,6 +211,34 @@
                 </label>
                 <button class="btn btn-sm btn-outline-secondary align-self-start">Save</button>
               </form>
+
+              {# Danger zone: wiping a project's time is the one destructive
+                 thing here, so it is manager-only, needs the project's name
+                 typed out, and says up front what it would destroy. #}
+              {% if can_manage %}
+                {% set _mins = logged.get(p.id|string, 0) %}
+                <details class="mt-2">
+                  <summary class="small text-danger" style="cursor:pointer;">
+                    <i class="bi bi-exclamation-triangle"></i> Reset logged time
+                  </summary>
+                  <form method="post" class="d-flex gap-1 mt-2 align-items-center flex-wrap"
+                        action="{{ url_for('timetracking.project_purge', pid=p.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="team" value="{{ team.pk }}">
+                    <span class="small text-muted">
+                      Deletes <strong>all</strong> time booked on this project{% if _mins %}
+                      ({{ _mins|duration }}, billed entries included){% endif %} —
+                      irreversible. The project, its rate and its links stay.
+                    </span>
+                    <input type="text" name="confirm" class="form-control form-control-sm"
+                           style="max-width: 16rem;" autocomplete="off"
+                           placeholder="Type “{{ p.name }}” to confirm">
+                    <button class="btn btn-sm btn-outline-danger"
+                            onclick="return confirm('Delete all time logged on “{{ p.name }}”? This cannot be undone.');">
+                      Reset</button>
+                  </form>
+                </details>
+              {% endif %}
               <hr class="my-2">
               {% include "timetracking/_project_share.html" %}
             </details>

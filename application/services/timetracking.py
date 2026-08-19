@@ -667,6 +667,61 @@ def budget_status(project, consumption: dict | None):
     }
 
 
+def purge_project_entries(project) -> dict:
+    """Delete **every** time entry booked on ``project``. Irreversible.
+
+    The deliberate exception to the module's append-only rule, and the reason it
+    is guarded in the view: a project that was set up wrong, imported twice or
+    used for a trial has to be resettable without dragging its history along
+    forever. Cancelled entries go too — a reset that leaves ghosts behind isn't
+    one — and so do billed ones, which is exactly why the count of those is
+    reported back before anyone confirms.
+
+    Only entries of this project are removed; the buckets keep everyone else's
+    time for the same customer and day, with their totals corrected."""
+    pid = str(project.id)
+    stats = {"entries": 0, "locked": 0, "minutes": 0, "buckets": 0}
+    for b in TimeBucket.objects(team=project.team, customer=project.customer,
+                                entries__project_id=pid):
+        keep, dropped = [], []
+        for e in b.entries:
+            (dropped if e.project_id == pid else keep).append(e)
+        if not dropped:
+            continue
+        stats["entries"] += len(dropped)
+        stats["locked"] += sum(1 for e in dropped if e.locked)
+        stats["minutes"] += sum(e.minutes or 0 for e in dropped
+                                if e.status == "active")
+        stats["buckets"] += 1
+        if keep:
+            b.entries = keep
+            b.entry_count = len(keep)
+            b.total_minutes = sum(e.minutes or 0 for e in keep
+                                  if e.status == "active")
+            b.updated_at = _utcnow()
+            b.save()
+        else:
+            b.delete()   # nothing left for that customer on that day
+    return stats
+
+
+def project_entry_summary(project) -> dict:
+    """How much time hangs off ``project`` — what a reset would destroy."""
+    pid = str(project.id)
+    out = {"entries": 0, "locked": 0, "minutes": 0}
+    for b in TimeBucket.objects(team=project.team, customer=project.customer,
+                                entries__project_id=pid).only("entries"):
+        for e in b.entries:
+            if e.project_id != pid:
+                continue
+            out["entries"] += 1
+            if e.locked:
+                out["locked"] += 1
+            if e.status == "active":
+                out["minutes"] += e.minutes or 0
+    return out
+
+
 def delete_customer(customer) -> dict:
     """Hard-delete a customer and **all** its history: every billing project,
     every monthly bucket (with all logged entries), and the GTD links pointing
@@ -1419,16 +1474,23 @@ def parse_clock(start: str, end: str):
     return span, f"{a // 60:02d}:{a % 60:02d}", f"{b // 60:02d}:{b % 60:02d}"
 
 
-def repair_all_imported_entries(*, user=None, dry_run: bool = False) -> dict:
-    """Sweep the buckets and backfill every imported entry that predates the
-    title + deep link.
+def backfill_entry_references(*, user=None, dry_run: bool = False) -> dict:
+    """Give already-booked time the ticket reference it never captured.
 
-    The sync repairs the tickets it still visits; this reaches the rest — time
-    booked on tickets that have since been closed, unlinked or dropped out of
-    the sync scope. Everything needed is reconstructed from the Cairn task the
-    entry points at (its title, ticket number and deep link), so no Zammad
-    round trip is involved. Locked (billed) entries and hand-edited
-    descriptions are left alone."""
+    References (the number, the deep link) are taken from the task at the moment
+    time is logged — so everything booked before that existed shows no ticket at
+    all, and the customer's sheet has nothing to print. This walks the buckets
+    and fills them in from the Cairn task each entry points at, which is where
+    they would have come from anyway. Works for every source the model can build
+    a link for (Zammad, Jira, Todoist), not just what an importer wrote.
+
+    Entries imported from Zammad additionally get the ticket's title as their
+    description, if they still carry the bare "Zammad #4711" the first version of
+    that import wrote (or nothing at all). A description you have edited is left
+    alone, and so is anything billed.
+
+    Idempotent: an entry that already has a reference is skipped, so this can be
+    re-run and costs nothing the second time."""
     q = TimeBucket.objects
     if user is not None:
         teams = user_teams(user)
@@ -1439,9 +1501,8 @@ def repair_all_imported_entries(*, user=None, dry_run: bool = False) -> dict:
     fixed = touched = orphans = 0
     for b in q:
         pending = [e for e in b.entries
-                   if e.status == "active" and not e.external_url
-                   and (e.external_id or "").startswith("zammad:")
-                   and e.source_item_id and not e.locked]
+                   if e.status == "active" and not e.locked
+                   and e.source_item_id and not e.external_ref]
         if not pending:
             continue
         items = {str(i.pk): i for i in Item.all_objects(
@@ -1452,27 +1513,34 @@ def repair_all_imported_entries(*, user=None, dry_run: bool = False) -> dict:
             if item is None:  # the task is gone — nothing to reconstruct from
                 orphans += 1
                 continue
-            ref = item.external_ref or ""
-            url = item.external_url() or ""
-            if not url:
+            ref = (item.external_ref or "").strip()
+            try:
+                url = item.external_url() or ""
+            except Exception:
+                url = ""
+            update = {}
+            if ref:
+                update["set__entries__S__external_ref"] = ref
+            if url:
+                update["set__entries__S__external_url"] = url
+            # The first Zammad import wrote its own description; replace that
+            # (and only that) with the ticket's title.
+            if (e.external_id or "").startswith("zammad:"):
+                old_auto = {f"Zammad #{ref}", f"zammad #{ref}"} if ref else set()
+                if (e.note or "") in old_auto or not e.note:
+                    title = (item.title or "")[:1000]
+                    if title and title != e.note:
+                        update["set__entries__S__note"] = title
+            if not update:
                 orphans += 1
                 continue
-            old_auto = {f"Zammad #{ref}", f"zammad #{ref}"} if ref else set()
-            note = (item.title or e.note or "")[:1000] \
-                if ((e.note or "") in old_auto or not e.note) else e.note
             if dry_run:
                 fixed += 1
                 changed = True
                 continue
-            res = TimeBucket.objects(
+            if TimeBucket.objects(
                 pk=b.pk, entries__entry_id=e.entry_id, entries__locked=False,
-            ).update_one(
-                set__entries__S__note=note,
-                set__entries__S__external_ref=ref or None,
-                set__entries__S__external_url=url,
-                set__updated_at=_utcnow(),
-            )
-            if res:
+            ).update_one(set__updated_at=_utcnow(), **update):
                 fixed += 1
                 changed = True
         if changed:
