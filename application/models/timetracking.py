@@ -204,6 +204,13 @@ class TimeEntry(EmbeddedDocument):
     # re-sync idempotent (an entry already carrying the id is never appended a
     # second time) and marks the entry as externally owned.
     external_id = StringField()
+    # How the *source* of the work is shown and reached: the ticket number the
+    # user knows it by, and a deep link to it. Snapshotted like everything else
+    # here, so a report never has to dereference the task (which may be gone) to
+    # print "#4711" as a link. Never shown on the customer share link, which
+    # only ever gets the number as text.
+    external_ref = StringField()
+    external_url = StringField()
 
     # Values for the project's custom fields, snapshotted with their labels
     # (see TimeEntryValue).

@@ -175,6 +175,33 @@ def import_mite(username, account, key, team_id, date_from, date_to,
         click.echo(f"  … and {len(stats.errors) - 20} more")
 
 
+@cairn_cli.command("fix-zammad-time-entries")
+@click.option("--user", "username", help="Only one user's teams (by username).")
+@click.option("--dry-run", is_flag=True, help="Report only, don't write.")
+def fix_zammad_time_entries(username, dry_run):
+    """Backfill time imported from Zammad with the ticket title and deep link.
+
+    The first version of the Zammad time import wrote a bare "Zammad #4711" as
+    the description and kept no link. Newer syncs write the ticket's title plus
+    the number and its url, and repair the tickets they still touch; this
+    reaches everything else. Reconstructed from the Cairn task each entry points
+    at — no Zammad access needed. Billed (locked) entries and descriptions you
+    have edited yourself are left alone. Idempotent.
+    """
+    from application.services.timetracking import repair_all_imported_entries
+
+    user = None
+    if username:
+        user = User.objects(username=username).first()
+        if not user:
+            raise click.ClickException(f"user '{username}' not found")
+    res = repair_all_imported_entries(user=user, dry_run=dry_run)
+    click.echo(f"{'would fix' if dry_run else 'fixed'} {res['entries']} entr"
+               f"{'y' if res['entries'] == 1 else 'ies'} in {res['buckets']} bucket(s)")
+    if res["orphans"]:
+        click.echo(f"{res['orphans']} left as-is (source task or Zammad URL gone)")
+
+
 @cairn_cli.command("split-time-buckets")
 @click.option("--dry-run", is_flag=True, help="Report only, don't write.")
 def split_time_buckets(dry_run):

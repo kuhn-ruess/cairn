@@ -64,6 +64,7 @@ class ZammadStats:
     tickets_dropped: int = 0  # orphans closed (status=done) during reconcile
     comments_imported: int = 0  # ticket replies mirrored in as comments
     time_entries_imported: int = 0  # Zammad time accounting → Cairn time entries
+    time_entries_repaired: int = 0  # older imports backfilled with title + link
     me_id: Any = None
     fetched_via: str = ""
     errors: list[str] = field(default_factory=list)
@@ -84,6 +85,7 @@ class ZammadStats:
             "tickets_dropped": self.tickets_dropped,
             "comments_imported": self.comments_imported,
             "time_entries_imported": self.time_entries_imported,
+            "time_entries_repaired": self.time_entries_repaired,
             "me_id": self.me_id,
             "fetched_via": self.fetched_via,
             "errors": list(self.errors),
@@ -700,13 +702,24 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
     ``time_unit`` is minutes, and each booking's ``id`` keeps the import
     idempotent across re-syncs."""
     from application.services.timetracking import (
-        has_team, import_entries_for_item, resolve_time_project,
+        has_team, import_entries_for_item, repair_imported_entries,
+        resolve_time_project,
     )
     if not getattr(user, "zammad_import_time", True) or not has_team(user):
         return
     # Cheap gate first: no billing link → no API call at all.
     if resolve_time_project(item) is None:
         return
+    # The description is the ticket's own title (what the work was about) —
+    # the number and its deep link ride along as their own fields, so reports
+    # can render "#4711" as a link without parsing the text.
+    web_url = base.replace("/api/v1", "") + f"/#ticket/zoom/{zid}"
+    ticket_note = (item.title or f"Zammad #{znum}")[:1000]
+    # Entries imported before that carried a bare "Zammad #4711" and no link —
+    # bring them up to the same shape while we are here (no-op once done).
+    stats.time_entries_repaired += repair_imported_entries(
+        user=user, item=item, note=ticket_note,
+        external_ref=znum, external_url=web_url)
     rows = []
     for raw in _fetch_time_accounting(base, token, zid, stats):
         if me_id is not None and raw.get("created_by_id") not in (me_id, None):
@@ -725,7 +738,9 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
             "external_id": f"zammad:{raw.get('id')}",
             "minutes": minutes,
             "spent_on": _article_dt(raw).astimezone(user_zone(user)),
-            "note": f"Zammad #{znum}",
+            "note": ticket_note,
+            "external_ref": znum,
+            "external_url": web_url,
         })
     if rows:
         stats.time_entries_imported += import_entries_for_item(
