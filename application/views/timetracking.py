@@ -619,6 +619,9 @@ def import_mite():
         except ValueError:
             return None
 
+    # "projects" = just the current structure, no time history — the normal
+    # way to start on Cairn while the old hours stay in mite.
+    projects_only = request.form.get("scope") == "projects"
     try:
         stats = import_for_user(
             user,
@@ -627,19 +630,25 @@ def import_mite():
             team=team,
             date_from=_day(request.form.get("from")),
             date_to=_day(request.form.get("to")),
+            with_entries=not projects_only,
+            include_archived=not projects_only,
             dry_run=request.form.get("dry_run") == "1",
         )
     except MiteError as exc:
         flash(str(exc), "danger")
         return redirect(url_for("timetracking.index", team=team.pk))
 
-    flash(
-        f"{'Dry run — nothing written. Would import' if stats.dry_run else 'Imported'}: "
-        f"{stats.customers_created} new customer(s), "
-        f"{stats.projects_created} new project(s), "
-        f"{stats.entries_imported} time entr{'y' if stats.entries_imported == 1 else 'ies'}"
-        + (f" ({stats.entries_skipped} already there)" if stats.entries_skipped else "")
-        + ".", "success")
+    summary = (f"{stats.customers_created} new customer(s), "
+               f"{stats.projects_created} new project(s)")
+    if stats.with_entries:
+        summary += (f", {stats.entries_imported} time "
+                    f"entr{'y' if stats.entries_imported == 1 else 'ies'}")
+        if stats.entries_skipped:
+            summary += f" ({stats.entries_skipped} already there)"
+    else:
+        summary += " — current projects only, no time imported"
+    flash(f"{'Dry run — nothing written. Would import' if stats.dry_run else 'Imported'}: "
+          f"{summary}.", "success")
     if stats.unmatched_users:
         flash("No Cairn account for these mite users — their entries keep the "
               "mite name: " + ", ".join(sorted(set(stats.unmatched_users))), "info")

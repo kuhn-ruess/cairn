@@ -24,6 +24,14 @@ Mapping
   author. Unmatched authors keep their mite name as the snapshot and simply
   have no Cairn account behind them, which every read path already tolerates.
 
+Scope
+-----
+A run can bring over the structure only (``with_entries=False``) and limit
+itself to what is still active in mite (``include_archived=False``) — the usual
+"set Cairn up from my mite account, keep the history where it is" move. Because
+everything is matched by mite id, that run can be repeated, or later widened to
+a full import, without creating anything twice.
+
 Idempotency
 -----------
 Customers and projects carry ``external_id = "mite:<id>"``; entries carry it on
@@ -74,6 +82,10 @@ class MiteStats:
     users_matched: int = 0
     unmatched_users: list = field(default_factory=list)
     dry_run: bool = False
+    # What the run was asked to do — echoed back so the caller's summary can
+    # say "no time entries were requested" instead of implying there were none.
+    with_entries: bool = True
+    include_archived: bool = True
     errors: list = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -88,6 +100,8 @@ class MiteStats:
             "users_matched": self.users_matched,
             "unmatched_users": list(self.unmatched_users),
             "dry_run": self.dry_run,
+            "with_entries": self.with_entries,
+            "include_archived": self.include_archived,
             "errors": list(self.errors),
         }
 
@@ -233,13 +247,14 @@ def _match_users(client: MiteClient, stats: MiteStats) -> dict:
     return out
 
 
-def _import_customers(client, team, stats, dry_run) -> dict:
+def _import_customers(client, team, stats, dry_run, include_archived=True) -> dict:
     """mite customer id → Cairn :class:`Customer` (created or refreshed)."""
     rows = list(client.get("/customers.json"))
-    try:
-        rows += list(client.get("/customers/archived.json"))
-    except MiteError as exc:
-        stats.errors.append(f"archived customers: {exc}")
+    if include_archived:
+        try:
+            rows += list(client.get("/customers/archived.json"))
+        except MiteError as exc:
+            stats.errors.append(f"archived customers: {exc}")
 
     existing = {c.external_id: c for c in Customer.objects(team=team)
                 if c.external_id}
@@ -264,13 +279,20 @@ def _import_customers(client, team, stats, dry_run) -> dict:
     return out
 
 
-def _import_projects(client, team, customers, stats, dry_run) -> dict:
-    """mite project id → Cairn :class:`TimeTrackingProject`."""
+def _import_projects(client, team, customers, stats, dry_run,
+                     include_archived=True) -> dict:
+    """mite project id → Cairn :class:`TimeTrackingProject`.
+
+    With ``include_archived=False`` the archived ones are simply not fetched:
+    anything already imported keeps whatever state it has here (nothing is
+    removed or un-archived), so widening to a full import later still lands
+    correctly."""
     rows = list(client.get("/projects.json"))
-    try:
-        rows += list(client.get("/projects/archived.json"))
-    except MiteError as exc:
-        stats.errors.append(f"archived projects: {exc}")
+    if include_archived:
+        try:
+            rows += list(client.get("/projects/archived.json"))
+        except MiteError as exc:
+            stats.errors.append(f"archived projects: {exc}")
 
     existing = {p.external_id: p for p in TimeTrackingProject.objects(team=team)
                 if p.external_id}
@@ -358,21 +380,34 @@ def _write_day(team, customer, period: str, entries: list) -> None:
 
 def import_for_user(user, *, account: str, api_key: str, team,
                     date_from: date | None = None, date_to: date | None = None,
+                    with_entries: bool = True, include_archived: bool = True,
                     dry_run: bool = False) -> MiteStats:
     """Import a mite account into ``team``. Returns what happened.
 
-    ``date_from`` / ``date_to`` bound the time entries (customers and projects
-    always come across in full — they are the structure the entries hang off).
+    ``date_from`` / ``date_to`` bound the time entries. ``with_entries=False``
+    brings the structure over on its own — the usual way to *start* using
+    Cairn: set up the customers and projects from mite, then log new time here
+    while the old history stays in mite. ``include_archived=False`` limits that
+    to what is still current. Both are re-runnable: matching is by mite id, so
+    a structure-only run can later be followed by a full one (or by another
+    structure run that picks up renames and new projects) without duplicating
+    anything.
+
     ``dry_run`` touches nothing and reports what a real run would do."""
     from application.services.tz import user_zone
 
-    stats = MiteStats(dry_run=dry_run)
+    stats = MiteStats(dry_run=dry_run, with_entries=with_entries,
+                      include_archived=include_archived)
     client = MiteClient(account, api_key)
     zone = user_zone(user)
 
-    users = _match_users(client, stats)
-    customers = _import_customers(client, team, stats, dry_run)
-    projects = _import_projects(client, team, customers, stats, dry_run)
+    # Users are only needed to attribute time entries.
+    users = _match_users(client, stats) if with_entries else {}
+    customers = _import_customers(client, team, stats, dry_run, include_archived)
+    projects = _import_projects(client, team, customers, stats, dry_run,
+                                include_archived)
+    if not with_entries:
+        return stats
 
     params: dict = {}
     if date_from:

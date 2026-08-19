@@ -95,13 +95,25 @@ def drop_legacy_time_entries():
                                         "user's tracking default).")
 @click.option("--from", "date_from", help="Only entries from this day (YYYY-MM-DD).")
 @click.option("--to", "date_to", help="Only entries up to this day (YYYY-MM-DD).")
+@click.option("--projects-only", is_flag=True,
+              help="Only the current customers/projects — no time entries "
+                   "(implies --no-include-archived).")
+@click.option("--include-archived/--no-include-archived", default=None,
+              help="Also import archived customers/projects "
+                   "(default: yes, unless --projects-only).")
 @click.option("--dry-run", is_flag=True, help="Report only, don't write.")
-def import_mite(username, account, key, team_id, date_from, date_to, dry_run):
+def import_mite(username, account, key, team_id, date_from, date_to,
+                projects_only, include_archived, dry_run):
     """Import a mite.de account (customers, projects, time entries) into a team.
 
     Idempotent: everything imported carries its mite id, so re-running updates
     names/rates and appends only entries that aren't there yet — run it once for
     the history and again right before switching over.
+
+    With --projects-only it brings just the structure across, which is the
+    normal way to start: set the customers and projects up here, keep logging
+    new time in Cairn, and leave the old history in mite. That run is repeatable
+    too, and a full import later still fits on top.
     """
     from datetime import date as _date
     from application.services.mite_import import MiteError, import_for_user
@@ -133,6 +145,11 @@ def import_mite(username, account, key, team_id, date_from, date_to, dry_run):
         stats = import_for_user(
             user, account=account, api_key=key, team=team,
             date_from=_day(date_from, "from"), date_to=_day(date_to, "to"),
+            with_entries=not projects_only,
+            # Unspecified follows the mode: a "current projects" run has no use
+            # for archived ones, a full import wants everything.
+            include_archived=(not projects_only if include_archived is None
+                              else include_archived),
             dry_run=dry_run,
         )
     except MiteError as exc:
@@ -142,9 +159,13 @@ def import_mite(username, account, key, team_id, date_from, date_to, dry_run):
     click.echo(f"customers: {stats.customers_created} created, "
                f"{stats.customers_updated} updated")
     click.echo(f"projects:  {stats.projects_created} created, "
-               f"{stats.projects_updated} updated")
-    click.echo(f"entries:   {stats.entries_imported} imported, "
-               f"{stats.entries_skipped} skipped, {stats.entries_fetched} fetched")
+               f"{stats.projects_updated} updated"
+               f"{'' if stats.include_archived else '  (current only)'}")
+    if stats.with_entries:
+        click.echo(f"entries:   {stats.entries_imported} imported, "
+                   f"{stats.entries_skipped} skipped, {stats.entries_fetched} fetched")
+    else:
+        click.echo("entries:   none requested (--projects-only)")
     if stats.unmatched_users:
         click.echo("mite users with no Cairn account (their name is kept on the "
                    "entries): " + ", ".join(sorted(set(stats.unmatched_users))))

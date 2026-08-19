@@ -246,9 +246,11 @@
     <div class="card-body">
       <h2 class="h6 mb-2"><i class="bi bi-box-arrow-in-down"></i> Import from mite</h2>
       <p class="small text-muted mb-2">
-        Pulls customers, projects (with rates and budgets) and the time history
-        into <strong>{{ team.name }}</strong>. Repeatable — everything carries its
-        mite id, so a second run updates what changed and adds only new entries.
+        Pulls customers and projects (with rates and budgets) into
+        <strong>{{ team.name }}</strong> — and, if you ask for it, the whole time
+        history. Repeatable either way: everything carries its mite id, so a
+        second run updates what changed and adds only what is new, and a
+        projects-only run can be widened to a full import later.
         The API key is used for this request only and never stored.
       </p>
       <form method="post" action="{{ url_for('timetracking.import_mite') }}"
@@ -268,9 +270,17 @@
                  title="mite → Mein Konto → API-Schlüssel">
         </div>
         <div>
+          <label class="form-label small text-muted mb-0">Scope</label>
+          <select name="scope" class="form-select form-select-sm" style="max-width: 15rem;">
+            <option value="projects">Current projects only — no time</option>
+            <option value="all">Everything, incl. time history</option>
+          </select>
+        </div>
+        <div>
           <label class="form-label small text-muted mb-0">From</label>
           <input type="date" name="from" class="form-control form-control-sm"
-                 style="max-width: 9.5rem;" title="Only import entries from this day on">
+                 style="max-width: 9.5rem;"
+                 title="Only import entries from this day on (full imports only)">
         </div>
         <label class="form-check form-check-inline m-0 small">
           <input type="checkbox" class="form-check-input" name="dry_run" value="1" checked>
