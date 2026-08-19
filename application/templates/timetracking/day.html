@@ -1,0 +1,30 @@
+{% extends "layout/base.html" %}
+{% block title %}Time — {{ d.day.strftime('%d.%m.%Y') }}{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+  <h1 class="h4 mb-0 me-auto"><i class="bi bi-stopwatch"></i> Time</h1>
+  <div class="btn-group btn-group-sm">
+    <a class="btn btn-outline-secondary"
+       href="{{ url_for('timetracking.day', d=d.prev_day.isoformat()) }}"
+       title="Previous day"><i class="bi bi-chevron-left"></i></a>
+    <a class="btn btn-outline-secondary {{ 'active' if d.day == today }}"
+       href="{{ url_for('timetracking.day') }}">Today</a>
+    <a class="btn btn-outline-secondary"
+       href="{{ url_for('timetracking.day', d=d.next_day.isoformat()) }}"
+       title="Next day"><i class="bi bi-chevron-right"></i></a>
+  </div>
+  <form method="get" action="{{ url_for('timetracking.day') }}" class="m-0">
+    <input type="date" name="d" value="{{ d.day.isoformat() }}"
+           class="form-control form-control-sm" style="max-width: 10rem;"
+           onchange="this.form.submit()">
+  </form>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('timetracking.report') }}">
+    <i class="bi bi-table"></i> Report</a>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('timetracking.index') }}">
+    <i class="bi bi-person-vcard"></i> Customers &amp; projects</a>
+</div>
+
+<h2 class="h5 mb-3">{{ d.day.strftime('%A, %d.%m.%Y') }}</h2>
+
+{% include "timetracking/_day_body.html" %}
+{% endblock %}

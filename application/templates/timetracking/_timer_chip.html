@@ -1,0 +1,21 @@
+{# Navbar stopwatch chip — rendered from current_user.running_timer (embedded,
+   so it costs no query) and re-rendered server-side after every start/stop.
+   The elapsed value ticks client-side from data-elapsed (seconds measured on
+   the *server*), which keeps the display right no matter how far the browser
+   clock has drifted. #}
+{% if timer %}
+  <span class="tt-timer-chip badge rounded-pill text-bg-danger d-inline-flex align-items-center gap-2 py-1 px-2"
+        data-elapsed="{{ timer.elapsed_seconds() }}"
+        title="Running since {{ timer.started_at|localdt }} — {{ timer.customer_name }} › {{ timer.project_name }}{% if timer.source_label %} · {{ timer.source_label }}{% endif %}">
+    <i class="bi bi-stopwatch"></i>
+    <span class="tt-timer-elapsed font-monospace">0:00:00</span>
+    <a class="text-white text-decoration-none text-truncate d-none d-lg-inline"
+       style="max-width: 12rem;" href="{{ url_for('timetracking.day') }}">
+      {{ timer.source_label or timer.project_name }}
+    </a>
+    <button type="button" class="btn btn-sm btn-light py-0 px-1 lh-1 tt-timer-stop"
+            title="Stop and log"><i class="bi bi-stop-fill"></i></button>
+    <button type="button" class="btn-close btn-close-white ms-1 tt-timer-discard"
+            style="font-size:.55rem;" title="Discard without logging"></button>
+  </span>
+{% endif %}

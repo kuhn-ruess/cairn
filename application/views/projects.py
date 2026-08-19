@@ -15,6 +15,8 @@ def _render_project_inspector(project, user, *, just_saved=False):
     form.members.data = [str(m.pk) for m in (project.members or [])]
     form.shared_teams.data = [str(t.pk) for t in (project.shared_teams or [])]
     form.kind.data = _kind_of(project)
+    form.notes_folder.data = str(project.notes_folder.pk) if project.notes_folder else ""
+    form.time_project.data = str(project.time_project.pk) if project.time_project else ""
     return render_template(
         "projects/_inspector.html",
         form=form,
@@ -63,6 +65,14 @@ def _populate_choices(form: ProjectForm, user: User, current: Item | None = None
     # Share with a whole team (inherited by children, overridable on a child).
     form.shared_teams.choices = [(str(t.pk), t.name) for t in teams_of(user)]
 
+    # Cross-module links (both optional, both inherited by the whole subtree).
+    from application.services.containers import notes_folder_choices
+    form.notes_folder.choices = [("", "— none —")] + notes_folder_choices(user)
+    from application.services.timetracking import has_team, pickable_projects
+    form.time_project.choices = [("", "— none —")] + (
+        [(p["id"], f"{p['customer']} › {p['name']}") for p in pickable_projects(user)]
+        if has_team(user) else [])
+
 def _apply(form: ProjectForm, project: Item) -> None:
     from application.services.tz import attach_user_tz
     user = current_user._get_current_object() if current_user.is_authenticated else None
@@ -80,6 +90,17 @@ def _apply(form: ProjectForm, project: Item) -> None:
     # save must leave any previously-imported base URL untouched.
     kind = form.kind.data or "project"
     project.kind = kind
+    # Cross-module links. Both are re-resolved through the saver's own scope, so
+    # a tampered POST can't bind to a stranger's notes folder or billing project.
+    if hasattr(form, "notes_folder"):
+        from application.services.permissions import resolve_visible_item
+        nf = resolve_visible_item(user, form.notes_folder.data) if form.notes_folder.data else None
+        project.notes_folder = nf if (nf and nf.kind == "folder"
+                                      and nf.folder_domain == "notes") else None
+    if hasattr(form, "time_project"):
+        from application.services.timetracking import project_for_user
+        project.time_project = (project_for_user(user, form.time_project.data)
+                                if form.time_project.data else None)
     # Placement and sharing belong to the OWNER alone. The route that calls
     # this only checks ``can_be_edited_by``, which — since it is an alias of
     # ``can_be_viewed_by`` — is true for every member of the project and every
@@ -1312,6 +1333,8 @@ def edit(project_id):
         # field defaults to "project" and a save would silently flip a
         # section into a regular project.
         form.kind.data = _kind_of(project)
+        form.notes_folder.data = str(project.notes_folder.pk) if project.notes_folder else ""
+        form.time_project.data = str(project.time_project.pk) if project.time_project else ""
     if form.validate_on_submit():
         _apply(form, project)
         project.save()

@@ -297,11 +297,16 @@ def detail(note_id):
         for c in children:
             if c.kind == "note":
                 c._preview = _note_preview(c.note)
+        # Reverse of Item.notes_folder — the project(s)/folder(s) that jump
+        # here, so the link is walkable in both directions (one indexed query).
+        linked_from = list(Item.objects(notes_folder=item)
+                           .only("pk", "title", "kind"))
         return render_template(
             "notes/folder.html",
             note=item,
             folder=item,
             children=children,
+            linked_from=linked_from,
             tree=tree,
             tag_filter_choices=_tag_filter_choices(user, tree),
             can_edit=item.can_be_edited_by(user),

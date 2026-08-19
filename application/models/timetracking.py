@@ -8,9 +8,14 @@ Design constraints (decided with the user):
   removed — it carries a ``status ∈ {active, cancelled}`` and is soft-cancelled
   in place (with who/when). ``locked`` entries (billed) are frozen entirely.
 * **Few documents.** Entries are *not* one-doc-each. They are bucketed: one
-  :class:`TimeBucket` per ``(team, customer, month)`` holds every entry for that
-  customer in that month, appended via an atomic ``$push``. A customer with a
-  year of activity is ~12 documents, not thousands.
+  :class:`TimeBucket` per ``(team, customer, day)`` holds every entry logged for
+  that customer on that day — by *everyone* — appended via an atomic ``$push``.
+  A document that would grow unwieldy is not allowed to: once a bucket reaches
+  ``MAX_ENTRIES_PER_BUCKET`` the next write opens ``part=2`` for the same day
+  (then 3, …), so a document can never approach MongoDB's 16 MB ceiling. Every
+  read path (day sheet, report, share link, backlink lookup) queries by day
+  range and merges the parts, so the split is invisible above the service
+  layer.
 
 Hierarchy of the billing entities (mite-shaped):
 
@@ -36,6 +41,7 @@ from mongoengine import (
     StringField,
 )
 
+from application.models.timer import RunningTimer  # noqa: F401  (re-export)
 from application.models.user import User
 
 
@@ -134,6 +140,12 @@ class TimeEntry(EmbeddedDocument):
     source_kind = StringField()  # task / project, for the backlink url
     source_label = StringField(default="")
 
+    # Identity of the record this entry was imported from, e.g.
+    # ``zammad:<time_accounting_id>``. Set only for imported time; it makes a
+    # re-sync idempotent (an entry already carrying the id is never appended a
+    # second time) and marks the entry as externally owned.
+    external_id = StringField()
+
     # Money frozen at capture time (internal only — never shown on the customer
     # share link). ``amount_cents`` is null when non-billable or no rate.
     hourly_rate_cents = IntField(min_value=0)
@@ -157,29 +169,52 @@ class TimeEntry(EmbeddedDocument):
         return self.status == "active"
 
 
-class TimeBucket(Document):
-    """One document per ``(team, customer, period)`` holding many entries.
+# How many entries one bucket document may hold before the next write starts a
+# new part for the same day. A time entry is a few hundred bytes, so 500 keeps a
+# document at ~200 KB — two orders of magnitude below MongoDB's 16 MB document
+# limit, with room for very long notes.
+MAX_ENTRIES_PER_BUCKET = 500
 
-    ``period`` is ``"YYYY-MM"`` (derived from each entry's ``spent_on``).
-    ``total_minutes`` caches the sum of *active* minutes so listing a customer's
-    months doesn't have to unpack the entries."""
+
+class TimeBucket(Document):
+    """One document per ``(team, customer, day, part)`` holding many entries.
+
+    ``period`` is the day the work happened, ``"YYYY-MM-DD"`` in the logging
+    user's timezone. Everyone who books time on that customer that day appends
+    into the *same* document — that is the point of the bucket.
+
+    ``part`` exists only as an overflow valve: it is ``1`` for virtually every
+    bucket, and only a day busy enough to pass ``MAX_ENTRIES_PER_BUCKET`` ever
+    opens a ``2``. Readers must therefore never assume one document per day —
+    always iterate whatever the day-range query returns (the services do).
+
+    ``total_minutes`` caches the sum of *active* minutes and ``entry_count`` the
+    number of stored entries (including cancelled ones — it guards document
+    size, not the report)."""
 
     meta = {
         "collection": "tt_buckets",
         "indexes": [
-            {"fields": ["team", "customer", "period"], "unique": True},
+            {"fields": ["team", "customer", "period", "part"], "unique": True},
+            # Day-range scans: the day sheet and every report filter on these.
+            ("team", "period"),
+            # Backlink lookup: "all time logged on this task" (inspector).
+            "entries.source_item_id",
         ],
     }
 
     team = ReferenceField("Team", required=True)
     customer = ReferenceField(Customer, required=True)
-    period = StringField(required=True)  # "YYYY-MM"
+    period = StringField(required=True)  # "YYYY-MM-DD"
+    part = IntField(default=1, min_value=1)
 
     total_minutes = IntField(default=0)
+    entry_count = IntField(default=0)
     entries = EmbeddedDocumentListField(TimeEntry)
 
     created_at = DateTimeField(default=_utcnow)
     updated_at = DateTimeField(default=_utcnow)
 
     def __str__(self) -> str:
-        return f"{self.customer} {self.period}"
+        suffix = f" #{self.part}" if (self.part or 1) > 1 else ""
+        return f"{self.customer} {self.period}{suffix}"

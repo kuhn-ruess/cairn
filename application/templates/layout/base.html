@@ -95,6 +95,17 @@
     </div>
     {% endif %}
 
+    {# Running stopwatch — rendered from current_user.running_timer (embedded,
+       no query). The container stays in the DOM even when idle so the JS can
+       swap the chip in the moment a timer starts anywhere on the page. #}
+    {% if current_user.team or current_user.is_team_admin %}
+      {% set timer = current_user.running_timer %}
+      <div class="me-3" id="tt-chip">{% include "timetracking/_timer_chip.html" %}</div>
+      <script>window.TT = {start: "{{ url_for('timetracking.timer_start') }}",
+                           stop: "{{ url_for('timetracking.timer_stop') }}",
+                           discard: "{{ url_for('timetracking.timer_discard') }}"};</script>
+    {% endif %}
+
     {# Notification bell — renders from the embedded list already on
        current_user, so no extra query. JS marks all read when it opens. #}
     {% set _unread = current_user.unread_notification_count %}
@@ -239,7 +250,7 @@
         {% endif %}
         {% if current_user.team or current_user.is_team_admin %}
         <li class="nav-fav-row d-flex align-items-center">
-          <a class="nav-link py-1 flex-grow-1" href="{{ url_for('timetracking.index') }}"><i class="bi bi-stopwatch"></i> Time tracking</a>
+          <a class="nav-link py-1 flex-grow-1" href="{{ url_for('timetracking.day') }}"><i class="bi bi-stopwatch"></i> Time tracking</a>
           {{ fav.star("org:timetracking", "fav-star-hover") }}
         </li>
         {% endif %}
@@ -716,7 +727,8 @@
         alert("Zammad sync failed: " + (data.error || resp.status));
       } else {
         const s = data.stats || {};
-        const summary = `Zammad sync done — tickets ${s.tickets_created || 0}+/${s.tickets_updated || 0}~`;
+        const summary = `Zammad sync done — tickets ${s.tickets_created || 0}+/${s.tickets_updated || 0}~`
+          + (s.time_entries_imported ? `, time ${s.time_entries_imported}+` : "");
         const flash = document.createElement("div");
         flash.className = "alert alert-success position-fixed top-0 start-50 translate-middle-x mt-3 shadow";
         flash.style.zIndex = 2000;

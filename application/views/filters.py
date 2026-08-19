@@ -402,6 +402,20 @@ def register_filters(app):
 
     app.jinja_env.globals["tt_task_time"] = tt_task_time
 
+    def linked_notes_folder(item):
+        """The notes folder an item belongs to (own link or inherited from an
+        ancestor), or None — powers the "Notes" jump button on task/project
+        pages. A Jinja global for the same reason as ``tt_task_time``: the
+        detail templates need it outside any view's context. Never call it
+        inside a list loop; it walks ancestors."""
+        from application.services.containers import resolve_notes_folder
+        try:
+            return resolve_notes_folder(item)
+        except Exception:
+            return None
+
+    app.jinja_env.globals["linked_notes_folder"] = linked_notes_folder
+
     @app.template_filter("eur")
     def eur(cents):
         """Integer cents → ``1.234,50 €`` (German formatting). ``None`` → ``—``."""

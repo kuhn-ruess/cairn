@@ -142,6 +142,33 @@
     </div>
   </div>
 
+  {# Cross-module links. Whatever is set here is inherited by every task
+     below: time logged on them bills to the chosen billing project, and their
+     "Notes" button jumps into the chosen notes folder. #}
+  <div class="inspector-section" data-show-for="project,folder">
+    {% if form.time_project.choices|length > 1 %}
+      {{ form.time_project.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.time_project(class="form-select form-select-sm") }}
+      <div class="form-text">
+        Time logged on tasks in here bills to this project.
+        {% if project and project.time_project %}
+          <a href="{{ url_for('timetracking.day') }}">Track time</a>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {{ form.notes_folder.label(class="form-label small text-uppercase text-muted mt-3") }}
+    {{ form.notes_folder(class="form-select form-select-sm",
+                         **{"data-searchable-select": "1",
+                            "data-searchable-placeholder": "Search notes folders…"}) }}
+    <div class="form-text">
+      Adds a Notes button to this project and every task inside it.
+      {% if project and project.notes_folder %}
+        <a href="{{ url_for('notes.detail', note_id=project.notes_folder.pk) }}">Open notes</a>
+      {% endif %}
+    </div>
+  </div>
+
   <div class="inspector-section" data-show-for="project">
     {{ form.members.label(class="form-label small text-uppercase text-muted") }}
     {{ form.members(class="form-select form-select-sm", size="5",

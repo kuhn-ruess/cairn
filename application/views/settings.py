@@ -74,6 +74,9 @@ class ZammadImportForm(FlaskForm):
     project = SelectField("Import into project", choices=[], validators=[Optional()])
     assignee_only = BooleanField("Only tickets assigned to me", default=True)
     include_closed = BooleanField("Include closed tickets (closed/merged/pending close)")
+    import_time = BooleanField(
+        "Import my booked ticket time into time tracking "
+        "(only for projects linked to a billing project)", default=True)
     dry_run = BooleanField("Dry run (don't write changes)")
     submit = SubmitField("Import")
 
@@ -615,6 +618,7 @@ def zammad():
         form.project.data = user.zammad_sync_project or ""
         form.assignee_only.data = bool(user.zammad_assignee_only)
         form.include_closed.data = bool(user.zammad_include_closed)
+        form.import_time.data = bool(user.zammad_import_time)
 
     if form.validate_on_submit():
         url = (form.url.data or "").strip() or user.zammad_url
@@ -626,6 +630,9 @@ def zammad():
         target_project = None
         if form.project.data:
             target_project = Item.objects(pk=form.project.data, owner=user).first()
+        # Apply the time-import choice to this very run (it is persisted below
+        # once the sync succeeded).
+        user.zammad_import_time = bool(form.import_time.data)
         try:
             stats = zammad_import_for_user(
                 user, url, token,
@@ -652,6 +659,7 @@ def zammad():
             user.zammad_sync_project = form.project.data or ""
             user.zammad_assignee_only = bool(form.assignee_only.data)
             user.zammad_include_closed = bool(form.include_closed.data)
+            user.zammad_import_time = bool(form.import_time.data)
             user.save()
             if form.auto_sync.data and not (user.zammad_url and user.zammad_token):
                 flash("Auto-sync needs saved credentials — tick "

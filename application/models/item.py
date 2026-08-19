@@ -200,6 +200,8 @@ class Item(Document):
             ("owner", "kind", "parent"),
             # Reverse lookup: notes linked to a calendar event (day/plan view).
             ("owner", "kind", "linked_events.uid"),
+            # Reverse lookup: which projects/folders point at a notes folder.
+            "notes_folder",
         ],
         "ordering": ["+sort_order", "+created_at"],
     }
@@ -437,6 +439,15 @@ class Item(Document):
     # application.services.timetracking.resolve_time_project). Stored as a string
     # ref so the dependency points one way (timetracking → item, never back).
     time_project = ReferenceField("TimeTrackingProject")
+
+    # Notes link. On a project/folder this points at a folder in the *notes*
+    # tree (``kind="folder"``, ``folder_domain="notes"``), so everything below
+    # gets a one-click jump into its notes — tasks inherit it by climbing
+    # parents, exactly like ``time_project``
+    # (application.services.containers.resolve_notes_folder). One direction
+    # only: the notes side is found with a reverse query, so there is no pair
+    # of links that can drift apart.
+    notes_folder = ReferenceField("Item")
 
     # calendar write-back
     gcal_due_event_id = StringField()

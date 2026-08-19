@@ -1,0 +1,144 @@
+{# The day sheet's body — swapped in place by time-entries.js after every
+   log / start / stop / edit / cancel, so corrections never pile up browser
+   history. Everything here comes from services.timetracking.day_sheet (one
+   bucket query); the template never dereferences anything. #}
+<div id="tt-day" data-day="{{ d.day.isoformat() }}">
+
+{# ---- Week at a glance ---- #}
+<div class="btn-group btn-group-sm w-100 mb-3 tt-week" role="group">
+  {% for w in d.week %}
+    <a class="btn {{ 'btn-primary' if w.is_day else 'btn-outline-secondary' }} d-flex flex-column py-1"
+       href="{{ url_for('timetracking.day', d=w.date.isoformat()) }}">
+      <span class="small">{{ w.date.strftime('%a %d.%m.') }}</span>
+      <span class="fw-semibold">{{ w.minutes|duration if w.minutes else '–' }}</span>
+    </a>
+  {% endfor %}
+</div>
+
+{# ---- Running stopwatch ---- #}
+{% if d.timer %}
+  <div class="alert alert-danger d-flex align-items-center gap-2 py-2 mb-3">
+    <i class="bi bi-stopwatch"></i>
+    <span class="tt-timer-elapsed font-monospace fw-semibold"
+          data-elapsed="{{ d.timer.elapsed_seconds() }}">0:00:00</span>
+    <span class="me-auto text-truncate">
+      {{ d.timer.customer_name }} › {{ d.timer.project_name }}
+      {% if d.timer.source_label %}<span class="text-muted">· {{ d.timer.source_label }}</span>{% endif %}
+      {% if d.timer.note %}<span class="text-muted">· {{ d.timer.note }}</span>{% endif %}
+    </span>
+    <button type="button" class="btn btn-sm btn-danger tt-timer-stop">
+      <i class="bi bi-stop-fill"></i> Stop &amp; log</button>
+    <button type="button" class="btn btn-sm btn-outline-danger tt-timer-discard"
+            title="Discard without logging"><i class="bi bi-trash"></i></button>
+  </div>
+{% endif %}
+
+{# ---- Capture row: type a duration, or start the stopwatch ---- #}
+<div class="card mb-3">
+  <div class="card-body py-2 time-add d-flex gap-2 flex-wrap align-items-center"
+       data-action="{{ url_for('timetracking.day_log') }}"
+       data-timer-action="{{ url_for('timetracking.timer_start') }}">
+    {% if d.projects %}
+      <select class="form-select form-select-sm time-add-project" style="max-width: 18rem;"
+              title="Billing project">
+        {% set ns = namespace(cur='') %}
+        {% for p in d.projects %}
+          {% if p.customer != ns.cur %}
+            {% if not loop.first %}</optgroup>{% endif %}
+            {% set ns.cur = p.customer %}
+            <optgroup label="{{ p.customer }}">
+          {% endif %}
+          <option value="{{ p.id }}" {% if p.id == d.default_project_id %}selected{% endif %}>{{ p.name }}</option>
+          {% if loop.last %}</optgroup>{% endif %}
+        {% endfor %}
+      </select>
+      <input type="text" class="form-control form-control-sm time-add-duration"
+             style="max-width: 7rem;" placeholder="1h30m" autocomplete="off"
+             title="90 · 1:30 · 1h30m · 1.5h">
+      <input type="hidden" class="time-add-date" value="{{ d.day.isoformat() }}">
+      <input type="text" class="form-control form-control-sm time-add-note"
+             placeholder="What did you work on?" autocomplete="off" maxlength="200"
+             style="min-width: 12rem; flex: 1 1 12rem;">
+      <label class="form-check form-check-inline m-0 small" title="Billable">
+        <input type="checkbox" class="form-check-input time-add-billable" checked> billable
+      </label>
+      <button type="button" class="btn btn-sm btn-primary time-add-btn">Log</button>
+      {% if not d.timer %}
+        <button type="button" class="btn btn-sm btn-outline-danger tt-timer-start"
+                data-action="{{ url_for('timetracking.timer_start') }}"
+                title="Start the stopwatch on this project">
+          <i class="bi bi-play-fill"></i></button>
+      {% endif %}
+    {% else %}
+      <span class="text-muted small">No billing projects yet —
+        <a href="{{ url_for('timetracking.index') }}">create a customer and a project</a> first.</span>
+    {% endif %}
+  </div>
+</div>
+
+{# ---- The day's entries ---- #}
+{% if not d.entries %}
+  <p class="text-muted">Nothing logged on this day.</p>
+{% else %}
+  <div class="list-group mb-3">
+    {% for e in d.entries %}
+      <div class="list-group-item py-2">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span class="badge text-bg-light text-muted text-truncate" style="max-width: 18rem;"
+                title="{{ e.customer }} › {{ e.project }}">
+            <i class="bi bi-receipt"></i> {{ e.customer }} › {{ e.project }}</span>
+          <span class="flex-grow-1 text-truncate">
+            {{ e.note or '—' }}
+            {% if e.source_item_id %}
+              <a class="small text-decoration-none ms-1"
+                 href="{{ url_for('tasks.detail', task_id=e.source_item_id) }}"
+                 title="Logged from this task">
+                <i class="bi bi-link-45deg"></i>{{ e.source_label or 'task' }}</a>
+            {% endif %}
+          </span>
+          {% if not e.billable %}<span class="badge text-bg-secondary" title="Non-billable">n/b</span>{% endif %}
+          <strong class="font-monospace">{{ e.minutes|duration }}</strong>
+          {% if e.locked %}
+            <span class="text-muted small" title="Billed — locked"><i class="bi bi-lock"></i></span>
+          {% else %}
+            <button type="button" class="btn btn-sm btn-link p-0 text-muted tt-timer-start"
+                    data-action="{{ url_for('timetracking.timer_start') }}"
+                    data-project-id="{{ e.project_id }}" data-note="{{ e.note }}"
+                    {% if e.source_item_id %}data-task-id="{{ e.source_item_id }}"{% endif %}
+                    title="Start the stopwatch on this again"><i class="bi bi-play-fill"></i></button>
+            <button type="button" class="btn btn-sm btn-link p-0 text-muted tt-edit-toggle"
+                    title="Edit entry"><i class="bi bi-pencil"></i></button>
+            <button type="button" class="btn btn-sm btn-link p-0 text-muted time-delete"
+                    data-action="{{ url_for('timetracking.entry_cancel', bucket_id=e.bucket_id, entry_id=e.entry_id) }}"
+                    title="Cancel entry"><i class="bi bi-x-lg"></i></button>
+          {% endif %}
+        </div>
+        {% if not e.locked %}
+          <div class="tt-edit d-none d-flex gap-2 flex-wrap align-items-center mt-2"
+               data-action="{{ url_for('timetracking.entry_edit', bucket_id=e.bucket_id, entry_id=e.entry_id) }}">
+            <input type="text" class="form-control form-control-sm tt-edit-duration"
+                   style="max-width: 7rem;" value="{{ e.minutes }}" title="Duration">
+            <input type="date" class="form-control form-control-sm tt-edit-date"
+                   style="max-width: 9.5rem;" value="{{ d.day.isoformat() }}">
+            <input type="text" class="form-control form-control-sm tt-edit-note"
+                   style="min-width: 12rem; flex: 1 1 12rem;" value="{{ e.note }}"
+                   maxlength="200" placeholder="Note">
+            <label class="form-check form-check-inline m-0 small">
+              <input type="checkbox" class="form-check-input tt-edit-billable"
+                     {% if e.billable %}checked{% endif %}> billable
+            </label>
+            <button type="button" class="btn btn-sm btn-primary tt-edit-save">Save</button>
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="d-flex gap-3 justify-content-end small text-muted">
+    <span>Billable <strong>{{ d.billable_minutes|duration }}</strong></span>
+    {% if d.amount_cents %}<span>Amount <strong>{{ d.amount_cents|eur }}</strong></span>{% endif %}
+    <span>Day total <strong class="text-body">{{ d.total_minutes|duration }}</strong></span>
+    <span>Week <strong class="text-body">{{ d.week_minutes|duration }}</strong></span>
+  </div>
+{% endif %}
+</div>

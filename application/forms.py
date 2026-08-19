@@ -202,6 +202,12 @@ class ProjectForm(FlaskForm):
     )
     members = SelectMultipleField("Members (collaboration)", choices=[])
     shared_teams = SelectMultipleField("Share with teams", choices=[])
+    # Cross-module links. Both are inherited by everything below this container:
+    # time logged on a task inside it bills to ``time_project``, and the notes
+    # button on those tasks jumps into ``notes_folder``.
+    time_project = SelectField("Billing project (time tracking)", choices=[],
+                               validators=[Optional()])
+    notes_folder = SelectField("Notes folder", choices=[], validators=[Optional()])
     # NB: no ``jira_url`` field — the Jira base URL is set only in the CSV
     # import dialog (projects.import_csv), never via the project inspector.
     submit = SubmitField("Save project")

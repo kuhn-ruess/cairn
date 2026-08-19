@@ -86,6 +86,59 @@ def drop_legacy_time_entries():
     click.echo(f"cleared time_entries on {res.modified_count} item(s)")
 
 
+@cairn_cli.command("split-time-buckets")
+@click.option("--dry-run", is_flag=True, help="Report only, don't write.")
+def split_time_buckets(dry_run):
+    """Re-file monthly time buckets into the daily buckets the model now uses.
+
+    Time entries used to be bucketed per ``(team, customer, month)``; they are
+    now bucketed per ``(team, customer, day, part)`` so a customer's day is one
+    document for the whole team, with an automatic overflow part if it ever
+    grows too large. This walks every bucket whose ``period`` is still a month
+    (``YYYY-MM``), redistributes its entries into day buckets, and deletes the
+    old document. Entries keep their identity (``entry_id``) and all snapshots,
+    so nothing about billing, locks or reports changes. Idempotent — buckets
+    that already carry a day period are skipped.
+    """
+    from collections import defaultdict
+    from application.models.timetracking import (
+        MAX_ENTRIES_PER_BUCKET, TimeBucket,
+    )
+    from application.services.timetracking import local_date
+    moved = removed = created = 0
+    for bucket in TimeBucket.objects(period__not__regex=r"^\d{4}-\d{2}-\d{2}$"):
+        by_day = defaultdict(list)
+        for e in bucket.entries:
+            by_day[local_date(e.spent_on).isoformat()].append(e)
+        click.echo(f"{bucket.customer} {bucket.period}: "
+                   f"{len(bucket.entries)} entr(ies) → {len(by_day)} day(s)")
+        if dry_run:
+            continue
+        seen_parts = set()
+        for day, entries in by_day.items():
+            # One push per entry — the same atomic append a live write uses, so
+            # a re-filed month ends up shaped exactly like organically written
+            # data (including the overflow parts on a very busy day).
+            for i, e in enumerate(entries):
+                part = i // MAX_ENTRIES_PER_BUCKET + 1
+                TimeBucket.objects(team=bucket.team, customer=bucket.customer,
+                                   period=day, part=part).update_one(
+                    upsert=True,
+                    push__entries=e,
+                    inc__total_minutes=(e.minutes or 0) if e.status == "active" else 0,
+                    inc__entry_count=1,
+                    set__updated_at=bucket.updated_at,
+                    set_on_insert__created_at=bucket.created_at,
+                )
+                seen_parts.add((day, part))
+                moved += 1
+        created += len(seen_parts)
+        bucket.delete()
+        removed += 1
+    click.echo(f"{'would move' if dry_run else 'moved'} {moved} entr(ies) into "
+               f"{created} day bucket(s); removed {removed} monthly bucket(s)")
+
+
 @cairn_cli.command("cleanup-completed-tasks")
 @click.option("--dry-run", is_flag=True, help="Report only, don't delete.")
 @click.option("--user", "username", help="Only sweep one user (by username).")

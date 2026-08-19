@@ -1,21 +1,59 @@
 {# Task time tracking — re-rendered server-side and swapped in via
-   time-entries.js after every log / cancel. Only shown when the task's subtree
-   is linked to a billing project (tt is truthy). No nested <form>: the
-   inspector wraps everything in one form, so each action is a button carrying
-   its endpoint in data-action. #}
+   time-entries.js after every log / start / stop / cancel. Shown for every
+   team user: when the task's subtree isn't linked to a billing project the
+   picker below chooses one on the spot (and that choice becomes the next
+   default), so time can be logged from any task without any setup detour.
+   No nested <form>: the inspector wraps everything in one form, so each action
+   is a button carrying its endpoint in data-action. #}
 {% if tt %}
-<h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center flex-wrap">
+<h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center flex-wrap gap-1">
   <button type="button" class="btn btn-sm btn-link text-muted p-0 me-1"
           data-collapse-key="cairn-collapse-insp-time" title="Show / hide time tracking">
     <i class="bi bi-chevron-down"></i>
   </button>
   Time tracking
-  <span class="text-muted ms-1">({{ tt.total_minutes|duration }})</span>
-  <span class="badge text-bg-light text-muted ms-1" title="Billing project">
-    <i class="bi bi-receipt"></i> {{ tt.project.name }}</span>
+  <span class="text-muted">({{ tt.total_minutes|duration }})</span>
+  {% if tt.project %}
+    <span class="badge text-bg-light text-muted" title="Billing project inherited from this task's project/folder">
+      <i class="bi bi-receipt"></i> {{ tt.project.name }}</span>
+  {% endif %}
 </h2>
 <div class="section-collapsible">
 
+{% if not tt.projects %}
+  <p class="small text-muted mb-0">
+    No billing projects yet —
+    <a href="{{ url_for('timetracking.index') }}">create a customer and a project</a> first.
+  </p>
+{% else %}
+
+{# ---- Stopwatch: the one-click path. Running on this task → stop & log. ---- #}
+<div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+  {% if tt.timer %}
+    <button type="button" class="btn btn-sm btn-danger tt-timer-stop">
+      <i class="bi bi-stop-fill"></i> Stop
+      <span class="tt-timer-elapsed font-monospace ms-1"
+            data-elapsed="{{ tt.timer.elapsed_seconds() }}">0:00:00</span>
+    </button>
+    <span class="small text-muted">running on {{ tt.timer.project_name }}</span>
+  {% else %}
+    <button type="button" class="btn btn-sm btn-outline-danger tt-timer-start"
+            data-action="{{ url_for('timetracking.timer_start') }}"
+            data-task-id="{{ task.pk }}"
+            title="Start the stopwatch on this task">
+      <i class="bi bi-play-fill"></i> Start timer
+    </button>
+    {% if tt.timer_elsewhere %}
+      <span class="small text-muted">
+        <i class="bi bi-stopwatch"></i> running on
+        “{{ tt.timer_elsewhere.source_label or tt.timer_elsewhere.project_name }}” —
+        starting here stops &amp; logs it
+      </span>
+    {% endif %}
+  {% endif %}
+</div>
+
+{# ---- Logged entries ---- #}
 <ul class="time-list list-unstyled mb-2">
   {% for e in tt.entries %}
     <li class="d-flex align-items-center gap-2 py-1">
@@ -37,8 +75,24 @@
   {% endfor %}
 </ul>
 
+{# ---- Manual entry ---- #}
 <div class="time-add d-flex gap-2 flex-wrap align-items-center"
      data-action="{{ url_for('timetracking.log', task_id=task.pk) }}">
+  {% if not tt.project or tt.projects|length > 1 %}
+    <select class="form-select form-select-sm time-add-project" style="max-width: 14rem;"
+            title="Billing project">
+      {% set ns = namespace(cur='') %}
+      {% for p in tt.projects %}
+        {% if p.customer != ns.cur %}
+          {% if not loop.first %}</optgroup>{% endif %}
+          {% set ns.cur = p.customer %}
+          <optgroup label="{{ p.customer }}">
+        {% endif %}
+        <option value="{{ p.id }}" {% if p.id == tt.default_project_id %}selected{% endif %}>{{ p.name }}</option>
+        {% if loop.last %}</optgroup>{% endif %}
+      {% endfor %}
+    </select>
+  {% endif %}
   <input type="text" class="form-control form-control-sm time-add-duration"
          style="max-width: 6.5rem;" placeholder="e.g. 1h30m" autocomplete="off"
          title="90 · 1:30 · 1h30m · 1.5h">
@@ -51,5 +105,6 @@
   </label>
   <button type="button" class="btn btn-sm btn-outline-primary time-add-btn">Log</button>
 </div>
+{% endif %}
 </div>{# /.section-collapsible #}
 {% endif %}

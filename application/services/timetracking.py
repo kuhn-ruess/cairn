@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from application.models.item import Item
 from application.models.timetracking import (
+    MAX_ENTRIES_PER_BUCKET,
     Customer,
     TimeBucket,
     TimeEntry,
@@ -19,6 +20,23 @@ from application.models.timetracking import (
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def local_date(dt, user=None):
+    """The *calendar day* ``dt`` belongs to, in ``user``'s timezone.
+
+    Mongo hands datetimes back in UTC, so a naive ``dt.date()`` puts anything
+    logged before 02:00 CEST on the previous day — which would silently shift
+    entries into the wrong day (and, at a month boundary, the wrong report
+    period). Every read path that groups by day goes through here."""
+    if dt is None:
+        return None
+    if not hasattr(dt, "hour"):  # already a date
+        return dt
+    from application.services.tz import user_zone
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(user_zone(user)).date()
 
 
 # ---------------------------------------------------------------------------
@@ -87,17 +105,64 @@ def resolve_time_project(item) -> TimeTrackingProject | None:
 # Logging time into the monthly bucket
 # ---------------------------------------------------------------------------
 
-def period_for(spent_on: datetime) -> str:
-    return spent_on.strftime("%Y-%m")
+def period_for(spent_on) -> str:
+    """The bucket key for a moment: the day it falls on, ``"YYYY-MM-DD"``.
+
+    Callers pass a datetime already expressed in the logging user's timezone,
+    so the bucket a booking lands in is the day the user says they worked."""
+    return spent_on.strftime("%Y-%m-%d")
+
+
+def day_range_q(date_from, date_to, pad_days: int = 1):
+    """Bucket-period bounds for a day range, as a ``(gte, lte)`` string pair.
+
+    ``"YYYY-MM-DD"`` sorts lexicographically, so a range query beats listing
+    every day. The padding covers readers in a different timezone than the
+    logger: an entry can sit in the neighbouring day's bucket, and the exact
+    filtering happens per entry via :func:`local_date`."""
+    lo = date_from - timedelta(days=pad_days)
+    hi = date_to + timedelta(days=pad_days)
+    return lo.isoformat(), hi.isoformat()
+
+
+def _target_part(team, customer, period: str) -> int:
+    """Which part of ``(team, customer, day)`` the next entry goes into.
+
+    Almost always ``1``. Only when the newest part has filled up does this
+    return the next number, which the atomic upsert then creates. Two writers
+    racing here either both land in the same part (a few entries over the soft
+    cap — harmless) or both upsert the same new part (the unique index makes
+    that one document, not two)."""
+    newest = (TimeBucket.objects(team=team, customer=customer, period=period)
+              .order_by("-part").only("part", "entry_count").first())
+    if newest is None:
+        return 1
+    if (newest.entry_count or 0) >= MAX_ENTRIES_PER_BUCKET:
+        return (newest.part or 1) + 1
+    return newest.part or 1
+
+
+def source_snapshot(item) -> dict:
+    """The soft backlink we keep for a Cairn item: ids + a name snapshot."""
+    if item is None:
+        return {}
+    return {
+        "source_item_id": str(item.pk),
+        "source_kind": item.kind,
+        "source_label": (item.title or "")[:200],
+    }
 
 
 def add_entry(*, project: TimeTrackingProject, user, minutes: int,
               spent_on: datetime, note: str = "", source_item=None,
+              source: dict | None = None, external_id: str | None = None,
               billable: bool | None = None) -> TimeEntry:
     """Append a time entry to the ``(team, customer, month)`` bucket atomically.
 
     Freezes the project's current rate + computed amount onto the entry, and
-    captures the source item only as a soft id + label snapshot."""
+    captures the source item only as a soft id + label snapshot. ``source``
+    takes a ready-made snapshot instead of a live item (the stopwatch carries
+    one, so a task deleted mid-timer still logs cleanly)."""
     team = project.team
     customer = project.customer
     period = period_for(spent_on)
@@ -109,13 +174,10 @@ def add_entry(*, project: TimeTrackingProject, user, minutes: int,
     if billable and rate:
         amount = round(rate * minutes / 60)
 
-    label = ""
-    src_id = None
-    src_kind = None
-    if source_item is not None:
-        src_id = str(source_item.pk)
-        src_kind = source_item.kind
-        label = (source_item.title or "")[:200]
+    src = source or source_snapshot(source_item)
+    src_id = src.get("source_item_id")
+    src_kind = src.get("source_kind")
+    label = src.get("source_label", "")
 
     actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
     entry = TimeEntry(
@@ -132,15 +194,19 @@ def add_entry(*, project: TimeTrackingProject, user, minutes: int,
         hourly_rate_cents=rate,
         amount_cents=amount,
         billable=bool(billable),
+        external_id=external_id or None,
     )
 
-    # One atomic upsert-and-push: creates the bucket on first write for the
-    # month, then appends. Concurrent loggers each issue their own atomic
-    # $push, so they never clobber one another.
-    TimeBucket.objects(team=team, customer=customer, period=period).update_one(
+    # One atomic upsert-and-push: creates the day's bucket on first write, then
+    # appends. Concurrent loggers each issue their own atomic $push, so they
+    # never clobber one another — which is exactly why a whole team can share
+    # one document per customer per day.
+    TimeBucket.objects(team=team, customer=customer, period=period,
+                       part=_target_part(team, customer, period)).update_one(
         upsert=True,
         push__entries=entry,
         inc__total_minutes=minutes,
+        inc__entry_count=1,
         set__updated_at=_utcnow(),
         set_on_insert__created_at=_utcnow(),
     )
@@ -170,47 +236,112 @@ def parse_duration(raw: str):
     return None
 
 
-def task_time_context(user, item):
-    """Everything the inspector time section needs for one task, or ``None``.
+def pickable_projects(user) -> list[dict]:
+    """Every billing project the user may log to, flat + deref-free.
 
-    ``None`` when the user has no team or the task's subtree isn't linked to a
-    billing project — in which case the section renders nothing. Otherwise:
-    ``{project, total_minutes, entries}`` where each entry is a flat dict (so the
-    template never dereferences across documents)."""
-    if not has_team(user):
-        return None
-    project = resolve_time_project(item)
-    if project is None:
-        return None
-    team = project.team
-    # The billing project may live in any team the user belongs to; only show
-    # the section if they're actually a member of that team.
-    if str(team.id) not in user_team_ids(user):
-        return None
-    customer = project.customer
+    Two queries total (projects ``as_pymongo`` + one customer-name lookup), so
+    rendering a project picker on a task or the day sheet never costs a query
+    per row. Sorted customer → project, which is also the ``<optgroup>`` order.
+    """
+    teams = user_teams(user)
+    if not teams:
+        return []
+    raw = list(TimeTrackingProject.objects(
+        team__in=teams, archived__ne=True
+    ).only("name", "customer", "team", "hourly_rate_cents").as_pymongo())
+    if not raw:
+        return []
+    names = {c.id: c.name for c in Customer.objects(
+        id__in=list({r["customer"] for r in raw})).only("id", "name")}
+    rows = [{
+        "id": str(r["_id"]),
+        "name": r.get("name", ""),
+        "customer_id": str(r["customer"]),
+        "customer": names.get(r["customer"], "—"),
+        "team_id": str(r["team"]),
+        "hourly_rate_cents": r.get("hourly_rate_cents"),
+    } for r in raw]
+    rows.sort(key=lambda r: (r["customer"].lower(), r["name"].lower()))
+    return rows
+
+
+def default_project_id(user, item=None, projects: list | None = None) -> str:
+    """Which billing project a fresh log/timer on ``item`` should preselect.
+
+    Inherited from the item's subtree → else the one the user last logged to →
+    else the only project that exists. Keeps "log time from a task" a single
+    click for the common case where everything sits under one customer."""
+    if item is not None:
+        p = resolve_time_project(item)
+        if p is not None and str(p.team.id) in user_team_ids(user):
+            return str(p.id)
+    if projects is None:
+        projects = pickable_projects(user)
+    ids = {p["id"] for p in projects}
+    last = getattr(user, "tt_last_project", "") or ""
+    if last in ids:
+        return last
+    if len(projects) == 1:
+        return projects[0]["id"]
+    return ""
+
+
+def item_entries(user, item) -> list[dict]:
+    """Active time entries logged *on* ``item``, newest first, deref-free.
+
+    Scans every bucket in the user's teams that contains the backlink (indexed
+    on ``entries.source_item_id``), so entries logged to different billing
+    projects on the same task all show up."""
+    teams = user_teams(user)
+    if not teams:
+        return []
     src_id = str(item.pk)
-    buckets = TimeBucket.objects(team=team, customer=customer,
-                                 entries__source_item_id=src_id)
     rows = []
-    total = 0
-    for b in buckets:
+    for b in TimeBucket.objects(team__in=teams, entries__source_item_id=src_id):
         for e in b.entries:
             if e.source_item_id != src_id or e.status != "active":
                 continue
-            total += e.minutes or 0
             rows.append({
                 "entry_id": e.entry_id,
                 "bucket_id": str(b.id),
                 "minutes": e.minutes,
-                "spent_on": e.spent_on,
+                "spent_on": local_date(e.spent_on, user),
                 "note": e.note,
                 "locked": e.locked,
                 "billable": e.billable,
                 "user_name": e.user_name,
+                "project_name": e.project_name,
                 "amount_cents": e.amount_cents,
             })
-    rows.sort(key=lambda r: r["spent_on"] or _utcnow(), reverse=True)
-    return {"project": project, "total_minutes": total, "entries": rows}
+    rows.sort(key=lambda r: r["spent_on"], reverse=True)
+    return rows
+
+
+def task_time_context(user, item):
+    """Everything the inspector time section needs for one task, or ``None``.
+
+    ``None`` only for users without a team — the section is otherwise **always**
+    available, even when nothing in the task's subtree is linked to a billing
+    project: the picker then lets you choose one on the spot (mite-style "log
+    from anywhere"), and the choice is remembered as the next default.
+    """
+    if not has_team(user):
+        return None
+    inherited = resolve_time_project(item)
+    if inherited is not None and str(inherited.team.id) not in user_team_ids(user):
+        inherited = None
+    projects = pickable_projects(user)
+    rows = item_entries(user, item)
+    timer = getattr(user, "running_timer", None)
+    return {
+        "project": inherited,
+        "projects": projects,
+        "default_project_id": default_project_id(user, item, projects),
+        "total_minutes": sum(r["minutes"] or 0 for r in rows),
+        "entries": rows,
+        "timer": timer if (timer and timer.source_item_id == str(item.pk)) else None,
+        "timer_elsewhere": timer if (timer and timer.source_item_id != str(item.pk)) else None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -272,12 +403,7 @@ def resolve_period(preset: str, from_str: str, to_str: str, today: date):
     return first, nxt - timedelta(days=1)
 
 
-def _months_between(d_from: date, d_to: date):
-    periods, y, m = [], d_from.year, d_from.month
-    while (y, m) <= (d_to.year, d_to.month):
-        periods.append(f"{y:04d}-{m:02d}")
-        m, y = (1, y + 1) if m == 12 else (m + 1, y)
-    return periods
+
 
 
 def reachable_project_ids(user, team) -> set:
@@ -311,15 +437,16 @@ def reachable_project_ids(user, team) -> set:
 
 
 def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
-                      project_id=None, user_id=None, billable=None, locked=None):
+                      project_id=None, user_id=None, billable=None, locked=None,
+                      viewer=None):
     """Flat list of matching active entries. ``scope_ids`` (set of project-id
     strings) bounds visibility; ``None`` means unbounded (manager).
 
     Deref-free over the embedded entries — every field used is a snapshot — so
     a month of team activity is a handful of bucket reads, no per-entry queries.
     The customer name is dereferenced once per bucket."""
-    periods = _months_between(date_from, date_to)
-    q = TimeBucket.objects(team=team, period__in=periods)
+    lo, hi = day_range_q(date_from, date_to)
+    q = TimeBucket.objects(team=team, period__gte=lo, period__lte=hi)
     if customer_id:
         q = q.filter(customer=customer_id)
     rows = []
@@ -332,8 +459,7 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
                 continue
             if project_id and e.project_id != project_id:
                 continue
-            d = e.spent_on
-            dd = d.date() if hasattr(d, "date") else d
+            dd = local_date(e.spent_on, viewer)
             if dd < date_from or dd > date_to:
                 continue
             if user_id and e.user_id != user_id:
@@ -371,7 +497,8 @@ def team_consumption(team, current_period: str) -> dict:
     budget bars without a query per project."""
     out = {}
     for b in TimeBucket.objects(team=team):
-        is_cur = b.period == current_period
+        # ``period`` is a day; the "this month" columns match on its prefix.
+        is_cur = (b.period or "")[:7] == current_period
         for e in b.entries:
             if e.status != "active":
                 continue
@@ -446,8 +573,7 @@ def public_project_report(project):
             if e.project_id != pid or e.status != "active":
                 continue
             total += e.minutes or 0
-            d = e.spent_on
-            dd = d.date() if hasattr(d, "date") else d
+            dd = local_date(e.spent_on)
             key = f"{dd.year:04d}-{dd.month:02d}"
             mo = months.setdefault(key, {
                 "key": key, "label": dd.strftime("%B %Y"),
@@ -534,3 +660,270 @@ def cancel_entry(*, bucket: TimeBucket, entry_id: str, user) -> bool:
         set__updated_at=_utcnow(),
     )
     return bool(res)
+
+
+# ---------------------------------------------------------------------------
+# The stopwatch (one per user, server-side — mite's core capture mode)
+# ---------------------------------------------------------------------------
+
+def _actor(user):
+    return user._get_current_object() if hasattr(user, "_get_current_object") else user
+
+
+def project_for_user(user, project_id: str):
+    """Fetch a billing project, but only if the user may log to its team."""
+    if not project_id:
+        return None
+    p = TimeTrackingProject.objects(pk=project_id).first()
+    if p is None or str(p.team.id) not in user_team_ids(user):
+        return None
+    return p
+
+
+def start_timer(user, *, project, source_item=None, note: str = "",
+                billable: bool = True):
+    """Start the stopwatch on ``project``. Returns ``(timer, stopped_entry)``.
+
+    Only one timer may run: an already-running one is *stopped and logged*
+    first (mite does the same), so switching tasks never loses time."""
+    from application.models.timetracking import RunningTimer
+    actor = _actor(user)
+    stopped = stop_timer(actor)
+    src = source_snapshot(source_item)
+    timer = RunningTimer(
+        project_id=str(project.id),
+        project_name=project.name,
+        customer_name=project.customer.name if project.customer else "",
+        team_id=str(project.team.id),
+        started_at=_utcnow(),
+        note=(note or "")[:1000],
+        billable=bool(billable),
+        **src,
+    )
+    actor.running_timer = timer
+    actor.tt_last_project = str(project.id)
+    actor.save()
+    return timer, stopped
+
+
+def stop_timer(user):
+    """Stop the running stopwatch and log it as a normal entry.
+
+    Returns the created :class:`TimeEntry`, or ``None`` when nothing ran (or
+    the billing project vanished meanwhile — then the timer is just cleared).
+    The entry is dated on the day the timer *started*, in the user's timezone."""
+    from application.services.tz import user_zone
+    actor = _actor(user)
+    timer = getattr(actor, "running_timer", None)
+    if not timer:
+        return None
+    project = TimeTrackingProject.objects(pk=timer.project_id).first()
+    entry = None
+    if project is not None:
+        started = timer.started_at
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        entry = add_entry(
+            project=project, user=actor, minutes=timer.elapsed_minutes(),
+            spent_on=started.astimezone(user_zone(actor)),
+            note=timer.note, billable=timer.billable,
+            source={
+                "source_item_id": timer.source_item_id,
+                "source_kind": timer.source_kind,
+                "source_label": timer.source_label,
+            },
+        )
+    actor.running_timer = None
+    actor.save()
+    return entry
+
+
+def discard_timer(user) -> bool:
+    """Throw the running stopwatch away without logging anything."""
+    actor = _actor(user)
+    if not getattr(actor, "running_timer", None):
+        return False
+    actor.running_timer = None
+    actor.save()
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Editing an entry (mite lets you fix a logged entry until it is billed)
+# ---------------------------------------------------------------------------
+
+def may_edit_entry(user, team, entry) -> bool:
+    """The person who logged it, or a team manager/biller — never once locked."""
+    actor = _actor(user)
+    if entry is None or entry.locked or entry.status != "active":
+        return False
+    return (entry.user_id == str(actor.id)
+            or team.is_managed_by(actor)
+            or actor in (team.billers or []))
+
+
+def edit_entry(*, bucket: TimeBucket, entry_id: str, user, minutes=None,
+               spent_on=None, note=None, billable=None) -> bool:
+    """Update a logged entry in place (duration / date / note / billable).
+
+    Money is recomputed from the rate frozen on the entry, so editing never
+    silently reprices old work at today's rate. Moving an entry into another
+    month would put it in the wrong bucket — that case is handled the
+    append-only way: cancel here, re-append there."""
+    entry = next((e for e in bucket.entries
+                  if e.entry_id == entry_id and e.status == "active"), None)
+    if entry is None or entry.locked:
+        return False
+
+    new_minutes = int(minutes) if minutes else entry.minutes
+    new_spent = spent_on or entry.spent_on
+    new_note = entry.note if note is None else (note or "")[:1000]
+    new_billable = entry.billable if billable is None else bool(billable)
+
+    # Moved to another day → re-file into that day's bucket instead of
+    # corrupting this one. Append-only, so that means cancel here, add there.
+    if period_for(new_spent) != bucket.period:
+        project = TimeTrackingProject.objects(pk=entry.project_id).first()
+        if project is None:
+            return False
+        if not cancel_entry(bucket=bucket, entry_id=entry_id, user=user):
+            return False
+        add_entry(project=project, user=user, minutes=new_minutes,
+                  spent_on=new_spent, note=new_note, billable=new_billable,
+                  source={"source_item_id": entry.source_item_id,
+                          "source_kind": entry.source_kind,
+                          "source_label": entry.source_label})
+        return True
+
+    rate = entry.hourly_rate_cents
+    amount = round(rate * new_minutes / 60) if (new_billable and rate) else None
+    res = TimeBucket.objects(
+        pk=bucket.pk, entries__entry_id=entry_id, entries__locked=False,
+    ).update_one(
+        set__entries__S__minutes=new_minutes,
+        set__entries__S__spent_on=new_spent,
+        set__entries__S__note=new_note,
+        set__entries__S__billable=new_billable,
+        set__entries__S__amount_cents=amount,
+        inc__total_minutes=new_minutes - (entry.minutes or 0),
+        set__updated_at=_utcnow(),
+    )
+    return bool(res)
+
+
+# ---------------------------------------------------------------------------
+# The day sheet — mite's home screen: one day of *my* time, week at a glance
+# ---------------------------------------------------------------------------
+
+def day_sheet(user, day: date) -> dict:
+    """Everything the day view shows, from a single bucket query.
+
+    Personal by design (mite's "Zeiten erfassen" is per user; the team picture
+    lives in the report). Returns the day's entries plus per-day totals for the
+    surrounding week, so the strip above the list costs nothing extra."""
+    actor = _actor(user)
+    teams = user_teams(actor)
+    week_start = day - timedelta(days=day.weekday())
+    week_days = [week_start + timedelta(days=i) for i in range(7)]
+    # One indexed range over the visible week (padded for timezone edges);
+    # a busy day may return several parts, which just merge into the list.
+    lo, hi = day_range_q(week_days[0], week_days[-1])
+    uid = str(actor.id)
+    week = {d: 0 for d in week_days}
+    entries = []
+    for b in TimeBucket.objects(team__in=teams, period__gte=lo, period__lte=hi):
+        cust_name = None
+        for e in b.entries:
+            if e.status != "active" or e.user_id != uid:
+                continue
+            dd = local_date(e.spent_on, actor)
+            if dd in week:
+                week[dd] += e.minutes or 0
+            if dd != day:
+                continue
+            if cust_name is None:
+                cust_name = b.customer.name if b.customer else "—"
+            entries.append({
+                "entry_id": e.entry_id,
+                "bucket_id": str(b.id),
+                "customer": cust_name,
+                "project_id": e.project_id,
+                "project": e.project_name,
+                "minutes": e.minutes or 0,
+                "note": e.note or "",
+                "billable": bool(e.billable),
+                "locked": bool(e.locked),
+                "amount_cents": e.amount_cents,
+                "source_item_id": e.source_item_id,
+                "source_kind": e.source_kind,
+                "source_label": e.source_label or "",
+                "created_at": e.created_at,
+            })
+    entries.sort(key=lambda r: r["created_at"] or _utcnow())
+    total = sum(r["minutes"] for r in entries)
+    billable = sum(r["minutes"] for r in entries if r["billable"])
+    return {
+        "day": day,
+        "prev_day": day - timedelta(days=1),
+        "next_day": day + timedelta(days=1),
+        "entries": entries,
+        "total_minutes": total,
+        "billable_minutes": billable,
+        "amount_cents": sum(r["amount_cents"] or 0 for r in entries),
+        "week": [{"date": d, "minutes": week[d], "is_day": d == day}
+                 for d in week_days],
+        "week_minutes": sum(week.values()),
+        "projects": pickable_projects(actor),
+        "default_project_id": default_project_id(actor, None),
+        "timer": getattr(actor, "running_timer", None),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Importing time logged in an external system (Zammad time accounting)
+# ---------------------------------------------------------------------------
+
+def imported_entry_ids(user, item) -> set:
+    """External ids already imported onto ``item`` — the dedup key for re-syncs.
+
+    One indexed query over the backlink, so a sync asks once per ticket that
+    actually has time logged and never re-appends what it already has."""
+    teams = user_teams(user)
+    if not teams:
+        return set()
+    src_id = str(item.pk)
+    out = set()
+    for b in TimeBucket.objects(team__in=teams, entries__source_item_id=src_id):
+        for e in b.entries:
+            if e.source_item_id == src_id and e.external_id:
+                out.add(e.external_id)
+    return out
+
+
+def import_entries_for_item(*, user, item, rows) -> int:
+    """Append externally-tracked time to the billing project ``item`` inherits.
+
+    ``rows`` are dicts of ``{external_id, minutes, spent_on, note}``. Returns
+    how many were actually written: rows whose ``external_id`` is already on
+    the item are skipped, so syncing the same ticket again is a no-op. Does
+    nothing at all when the item's subtree isn't linked to a billing project —
+    that link *is* the opt-in."""
+    if not rows or not has_team(user):
+        return 0
+    project = resolve_time_project(item)
+    if project is None or str(project.team.id) not in user_team_ids(user):
+        return 0
+    known = imported_entry_ids(user, item)
+    written = 0
+    src = source_snapshot(item)
+    for r in rows:
+        ext = r.get("external_id")
+        minutes = int(r.get("minutes") or 0)
+        if not ext or ext in known or minutes < 1:
+            continue
+        add_entry(project=project, user=user, minutes=minutes,
+                  spent_on=r["spent_on"], note=r.get("note", ""),
+                  source=src, external_id=ext, billable=True)
+        known.add(ext)
+        written += 1
+    return written

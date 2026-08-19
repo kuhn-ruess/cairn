@@ -11,6 +11,7 @@ from mongoengine import (
     Document,
     EmailField,
     EmbeddedDocument,
+    EmbeddedDocumentField,
     EmbeddedDocumentListField,
     IntField,
     ListField,
@@ -132,6 +133,11 @@ class User(UserMixin, Document):
     zammad_sync_project = StringField(default="")
     zammad_assignee_only = BooleanField(default=True)
     zammad_include_closed = BooleanField(default=False)
+    # Mirror the time booked on a ticket into the time-tracking module. Only
+    # takes effect for tickets whose Cairn project/folder is linked to a
+    # billing project — that link is the real opt-in (see
+    # services.zammad_import._import_time_accounting).
+    zammad_import_time = BooleanField(default=True)
 
     # Password reset
     password_reset_token = StringField()
@@ -261,6 +267,14 @@ class User(UserMixin, Document):
     # on every page — see application.models.notification. Capped on write.
     from application.models.notification import Notification as _Notification  # noqa: E402
     notifications = EmbeddedDocumentListField(_Notification)
+
+    # Time tracking: the running stopwatch (at most one) and the billing
+    # project last logged to. Embedded so the navbar timer chip and the
+    # "log time on this task" defaults cost no extra query. It lives in its own
+    # module because application.models.timetracking imports User — see there.
+    from application.models.timer import RunningTimer as _RunningTimer  # noqa: E402
+    running_timer = EmbeddedDocumentField(_RunningTimer)
+    tt_last_project = StringField(default="")
 
     def save(self, *args, **kwargs):
         # Enforce the 20-perspective ceiling at the model layer so the API

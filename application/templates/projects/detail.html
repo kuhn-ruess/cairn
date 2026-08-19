@@ -315,6 +315,19 @@
         <i class="bi bi-bullseye"></i>
       </button>
     {% endif %}
+    {% set _nf = linked_notes_folder(project) %}
+    {% if _nf %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('notes.detail', note_id=_nf.pk) }}"
+         title="Open this project's notes — {{ _nf.title }}">
+        <i class="bi bi-journal-text"></i>
+      </a>
+    {% endif %}
+    {% if project.time_project %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('timetracking.day') }}"
+         title="Time on this project bills to {{ project.time_project.name }}">
+        <i class="bi bi-stopwatch"></i>
+      </a>
+    {% endif %}
     {% if project.owner == current_user %}
       <a class="btn btn-outline-secondary"
          href="{{ url_for('projects.import_csv', project_id=project.pk) }}"

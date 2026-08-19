@@ -19,6 +19,8 @@
   {% else %}
     <span class="badge text-bg-light text-muted"><i class="bi bi-people"></i> {{ team.name }}</span>
   {% endif %}
+  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('timetracking.day') }}">
+    <i class="bi bi-stopwatch"></i> Track time</a>
   <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('timetracking.report', team=team.pk) }}">
     <i class="bi bi-table"></i> Report</a>
 </div>

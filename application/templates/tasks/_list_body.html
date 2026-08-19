@@ -296,6 +296,26 @@
             {% from "tasks/_event_note_macros.html" import task_note_btn %}
             {{ task_note_btn(task, _tnc.get(task.pk|string, 0)) }}
           {% endif %}
+          {# One-click stopwatch, mite-style: start on this task (the billing
+             project is inherited from its folder/project, or the one you last
+             logged to — the server asks only when neither exists). Flips to a
+             stop button while the timer runs on this very task. #}
+          {% if task.kind == 'task' and not _done and (current_user.team or current_user.is_team_admin) %}
+            {% set _tt = current_user.running_timer %}
+            {% if _tt and _tt.source_item_id == task.pk|string %}
+              <button type="button" class="btn btn-sm btn-link p-0 tt-timer-stop"
+                      data-action="{{ url_for('timetracking.timer_stop') }}"
+                      data-task-id="{{ task.pk }}" title="Stop the timer and log the time">
+                <i class="bi bi-stop-circle-fill text-danger"></i>
+              </button>
+            {% else %}
+              <button type="button" class="btn btn-sm btn-link p-0 tt-timer-start task-row-hover-action"
+                      data-action="{{ url_for('timetracking.timer_start') }}"
+                      data-task-id="{{ task.pk }}" title="Start tracking time on this task">
+                <i class="bi bi-play-circle text-muted"></i>
+              </button>
+            {% endif %}
+          {% endif %}
           <button type="button" class="btn btn-sm btn-link p-0 task-delete-btn task-row-hover-action"
                   data-task-id="{{ task.pk }}" data-task-title="{{ task.title }}"
                   title="Delete task (d)">

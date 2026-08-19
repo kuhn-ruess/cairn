@@ -105,6 +105,15 @@
     </div>
 
     <div class="btn-group btn-group-sm task-detail-actions">
+      {# Straight into the notes of whatever project/folder this task sits in
+         (set on the container's inspector, inherited down the subtree). #}
+      {% set _nf = linked_notes_folder(task) %}
+      {% if _nf %}
+        <a class="btn btn-outline-secondary" href="{{ url_for('notes.detail', note_id=_nf.pk) }}"
+           title="Open the notes for this project — {{ _nf.title }}">
+          <i class="bi bi-journal-text"></i> Notes
+        </a>
+      {% endif %}
       <button type="button" class="btn btn-primary" id="inspector-toggle"
               title="Show / hide the inspector">
         <i class="bi bi-sliders"></i> Inspector

@@ -25,6 +25,12 @@
           <i class="bi bi-people"></i> Manage access
         </button>
       {% endif %}
+      {% for c in linked_from|default([]) %}
+        <a class="btn btn-sm btn-outline-secondary ms-2"
+           href="{{ url_for('projects.detail', project_id=c.pk) }}"
+           title="This notes folder is linked to that project">
+          <i class="bi bi-arrow-left-right"></i> {{ c.title }}</a>
+      {% endfor %}
       <a class="btn btn-sm btn-primary ms-2" href="#"
          onclick="event.preventDefault(); document.getElementById('newNoteHereForm').submit();">
         <i class="bi bi-plus-lg"></i> New note

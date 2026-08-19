@@ -61,6 +61,10 @@
     {{ form.include_closed(class="form-check-input") }}
     {{ form.include_closed.label(class="form-check-label") }}
   </div>
+  <div class="form-check mb-2">
+    {{ form.import_time(class="form-check-input") }}
+    {{ form.import_time.label(class="form-check-label") }}
+  </div>
   <div class="form-check mb-3">
     {{ form.dry_run(class="form-check-input") }}
     {{ form.dry_run.label(class="form-check-label") }}
@@ -80,6 +84,10 @@
         {% if stats.tickets_skipped %}<li>Skipped: {{ stats.tickets_skipped }}</li>{% endif %}
         {% if stats.tickets_dropped %}
           <li>Closed (no longer in Zammad): <strong>{{ stats.tickets_dropped }}</strong></li>
+        {% endif %}
+        {% if stats.time_entries_imported %}
+          <li>Time bookings imported: <strong>{{ stats.time_entries_imported }}</strong>
+            (<a href="{{ url_for('timetracking.day') }}">time tracking</a>)</li>
         {% endif %}
       </ul>
       <details>

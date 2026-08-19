@@ -63,6 +63,7 @@ class ZammadStats:
     filtered_closed: int = 0
     tickets_dropped: int = 0  # orphans closed (status=done) during reconcile
     comments_imported: int = 0  # ticket replies mirrored in as comments
+    time_entries_imported: int = 0  # Zammad time accounting → Cairn time entries
     me_id: Any = None
     fetched_via: str = ""
     errors: list[str] = field(default_factory=list)
@@ -82,6 +83,7 @@ class ZammadStats:
             "filtered_closed": self.filtered_closed,
             "tickets_dropped": self.tickets_dropped,
             "comments_imported": self.comments_imported,
+            "time_entries_imported": self.time_entries_imported,
             "me_id": self.me_id,
             "fetched_via": self.fetched_via,
             "errors": list(self.errors),
@@ -626,6 +628,7 @@ def _upsert_ticket(
         # Parent stays put either way: the user might have moved the
         # task / project into a specific place after the first import.
         existing.save()
+        _import_time_accounting(user, existing, base, token, zid, znum, stats, me_id)
         stats.tickets_updated += 1
         return existing
     else:
@@ -646,6 +649,7 @@ def _upsert_ticket(
             apply_label_rules(item, user)
         _sync_article_comments(item, articles, stats, user, me_id)
         item.save()
+        _import_time_accounting(user, item, base, token, zid, znum, stats, me_id)
         stats.tickets_created += 1
         return item
 
@@ -665,6 +669,67 @@ def _ensure_user_has_tags(user, names) -> None:
         return
     user.ensure_tags(missing)
     user.save()
+
+
+def _fetch_time_accounting(base: str, token: str, ticket_id: str,
+                           stats: ZammadStats) -> list[dict]:
+    """The ticket's logged time entries, or ``[]``.
+
+    ``GET /tickets/<id>/time_accountings`` needs ``ticket.agent`` (or
+    ``admin.time_accounting``) — on a token without it the call 403s, which we
+    swallow: time import is an extra, never a reason for the whole sync to
+    fail."""
+    try:
+        rows = _request(base + f"/tickets/{ticket_id}/time_accountings", token)
+    except ZammadError as exc:
+        stats.errors.append(f"time accounting for {ticket_id}: {exc}")
+        return []
+    return rows if isinstance(rows, list) else []
+
+
+def _import_time_accounting(user: User, item: "Item", base: str, token: str,
+                            zid: str, znum: str, stats: ZammadStats,
+                            me_id=None) -> None:
+    """Mirror the time booked on a Zammad ticket into Cairn's time tracking.
+
+    Only runs when the task's subtree is linked to a billing project — that
+    link is the opt-in, so tickets landing in an unlinked project cost nothing
+    and log nothing. Only *my* bookings are imported (Zammad's
+    ``created_by_id`` vs. the syncing user): every agent syncs their own hours,
+    so nobody's time ends up billed under someone else's name. Zammad's
+    ``time_unit`` is minutes, and each booking's ``id`` keeps the import
+    idempotent across re-syncs."""
+    from application.services.timetracking import (
+        has_team, import_entries_for_item, resolve_time_project,
+    )
+    if not getattr(user, "zammad_import_time", True) or not has_team(user):
+        return
+    # Cheap gate first: no billing link → no API call at all.
+    if resolve_time_project(item) is None:
+        return
+    rows = []
+    for raw in _fetch_time_accounting(base, token, zid, stats):
+        if me_id is not None and raw.get("created_by_id") not in (me_id, None):
+            continue
+        try:
+            minutes = round(float(raw.get("time_unit") or 0))
+        except (TypeError, ValueError):
+            continue
+        if minutes < 1:
+            continue
+        # Localise before handing it over: the monthly bucket is picked from
+        # the *local* month, so a booking made late on the last of the month
+        # can't land in the previous period's bucket.
+        from application.services.tz import user_zone
+        rows.append({
+            "external_id": f"zammad:{raw.get('id')}",
+            "minutes": minutes,
+            "spent_on": _article_dt(raw).astimezone(user_zone(user)),
+            "note": f"Zammad #{znum}",
+        })
+    if rows:
+        stats.time_entries_imported += import_entries_for_item(
+            user=user, item=item, rows=rows)
 
 
 def _fetch_articles(base: str, token: str, ticket_id: str, stats: ZammadStats) -> list[dict]:

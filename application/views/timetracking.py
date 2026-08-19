@@ -5,11 +5,11 @@ user's team; cross-team access 404s. See application.models.timetracking for the
 data model and application.services.timetracking for the bucket mechanics.
 """
 from flask import (
-    Blueprint, abort, flash, redirect, render_template, request, url_for,
+    Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for,
 )
 from flask_login import current_user, login_required
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from application.models.item import Item
 from application.models.timetracking import Customer, TimeBucket, TimeTrackingProject
@@ -17,8 +17,16 @@ from application.services.permissions import team_required
 from application.services.timetracking import (
     add_entry,
     cancel_entry,
+    day_sheet,
+    default_project_id,
+    discard_timer,
+    edit_entry,
+    may_edit_entry,
     parse_duration,
-    resolve_time_project,
+    pickable_projects,
+    project_for_user,
+    start_timer,
+    stop_timer,
     task_time_context,
 )
 
@@ -155,49 +163,182 @@ def index():
 
 
 # ---------------------------------------------------------------------------
-# Logging time on a task (inspector section) → monthly bucket
+# Capturing time: the stopwatch, and logging on a task or on the day sheet
 # ---------------------------------------------------------------------------
 
-def _task_time_response(task):
-    """Re-render the inspector time partial (AJAX swap) or redirect to detail."""
-    tt = task_time_context(current_user._get_current_object(), task) if task else None
-    if request.headers.get("X-Partial") == "1":
-        return render_template("timetracking/_task_time.html", task=task, tt=tt)
-    if task:
+def _parse_day(raw, user):
+    """``YYYY-MM-DD`` → date, falling back to *today in the user's timezone*."""
+    from application.services.tz import user_zone
+    try:
+        return datetime.strptime((raw or "").strip(), "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return datetime.now(user_zone(user)).date()
+
+
+def _spent_on(raw, user):
+    """The form's date → an aware datetime in the user's tz (noon, so the day
+    survives any later timezone conversion), or now when blank/invalid."""
+    from application.services.tz import user_zone
+    zone = user_zone(user)
+    try:
+        d = datetime.strptime((raw or "").strip(), "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return datetime.now(zone)
+    return datetime(d.year, d.month, d.day, 12, 0, tzinfo=zone)
+
+
+def _ajax_payload(user, task=None):
+    """The JSON the capture endpoints answer with: always the navbar chip, plus
+    whichever block the caller is showing (``X-Partial: task`` / ``day``)."""
+    want = request.headers.get("X-Partial") or ""
+    timer = user.running_timer
+    out = {"chip": render_template("timetracking/_timer_chip.html", timer=timer),
+           # Which task the stopwatch runs on (if any) — lets the play/stop
+           # buttons in a task list flip without re-rendering the list.
+           "timer_item": (timer.source_item_id or "") if timer else ""}
+    if want == "task" and task is not None:
+        out["block"] = render_template(
+            "timetracking/_task_time.html", task=task,
+            tt=task_time_context(user, task))
+    elif want == "day":
+        day = _parse_day(request.values.get("d"), user)
+        out["block"] = render_template("timetracking/_day_body.html",
+                                       d=day_sheet(user, day))
+    return out
+
+
+def _capture_response(user, task=None, fallback=None):
+    """AJAX → JSON payload; plain POST → back where the user came from."""
+    if request.headers.get("X-Partial"):
+        return jsonify(_ajax_payload(user, task))
+    if task is not None:
         return redirect(url_for("tasks.detail", task_id=str(task.pk)) + "#time")
-    return redirect(url_for("timetracking.index"))
+    return redirect(fallback or url_for("timetracking.day"))
+
+
+def _viewable_task(user, task_id):
+    if not task_id:
+        return None
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_viewed_by(user):
+        abort(404)
+    return task
+
+
+def _resolve_project(user, task=None, explicit=None):
+    """The billing project a capture action targets: an explicitly picked one,
+    else the task's inherited/last-used default. ``None`` when nothing fits."""
+    if explicit:
+        return project_for_user(user, explicit)
+    pid = default_project_id(user, task)
+    return project_for_user(user, pid) if pid else None
 
 
 @timetracking_bp.route("/log/<task_id>", methods=["POST"])
 @login_required
 @team_required
 def log(task_id):
-    """Log a chunk of time on a task into its billing project's monthly bucket.
+    """Log a chunk of time on a task.
 
-    The billing project is inherited from the task's subtree; if nothing is
-    linked the section isn't shown, so this just no-ops back."""
-    from application.services.tz import attach_user_tz, user_zone
+    The billing project comes from the picker if the user chose one, otherwise
+    from the task's subtree (inherited) or the project they last logged to — so
+    logging from a task stays a one-field action in the common case."""
     user = current_user._get_current_object()
-    task = Item.objects(pk=task_id).first()
-    if not task or not task.can_be_viewed_by(user):
-        abort(404)
-    project = resolve_time_project(task)
-    # Team-agnostic: a task's billing project may live in any team the user
-    # belongs to — log into that project's team, not a single "primary" one.
-    if project and str(project.team.id) in _team_ids(user):
-        minutes = parse_duration(request.form.get("duration") or "")
-        if minutes:
-            raw_date = (request.form.get("spent_on") or "").strip()
-            try:
-                when = attach_user_tz(datetime.strptime(raw_date, "%Y-%m-%d"), user)
-            except (ValueError, TypeError):
-                when = datetime.now(user_zone(user))
-            add_entry(
-                project=project, user=user, minutes=minutes, spent_on=when,
-                note=request.form.get("note") or "", source_item=task,
-                billable=request.form.get("billable") != "0",
-            )
-    return _task_time_response(task)
+    task = _viewable_task(user, task_id)
+    project = _resolve_project(user, task, request.form.get("project_id"))
+    minutes = parse_duration(request.form.get("duration") or "")
+    if project is not None and minutes:
+        add_entry(
+            project=project, user=user, minutes=minutes,
+            spent_on=_spent_on(request.form.get("spent_on"), user),
+            note=request.form.get("note") or "", source_item=task,
+            billable=request.form.get("billable") != "0",
+        )
+        user.tt_last_project = str(project.id)
+        user.save()
+    return _capture_response(user, task)
+
+
+@timetracking_bp.route("/day/log", methods=["POST"])
+@login_required
+@team_required
+def day_log():
+    """Quick-add a manual entry from the day sheet (no task involved)."""
+    user = current_user._get_current_object()
+    project = _resolve_project(user, None, request.form.get("project_id"))
+    minutes = parse_duration(request.form.get("duration") or "")
+    if project is not None and minutes:
+        add_entry(
+            project=project, user=user, minutes=minutes,
+            spent_on=_spent_on(request.form.get("spent_on"), user),
+            note=request.form.get("note") or "",
+            billable=request.form.get("billable") != "0",
+        )
+        user.tt_last_project = str(project.id)
+        user.save()
+    elif not minutes:
+        flash("Enter a duration like 1h30m, 1:30 or 90.", "warning")
+    return _capture_response(user)
+
+
+@timetracking_bp.route("/timer/start", methods=["POST"])
+@login_required
+@team_required
+def timer_start():
+    """Start the stopwatch — the one-click path from a task row or the day sheet.
+
+    When no billing project can be resolved the answer is a project list rather
+    than an error, so the caller can pop a picker and start without a detour."""
+    user = current_user._get_current_object()
+    task = _viewable_task(user, request.form.get("task_id"))
+    project = _resolve_project(user, task, request.form.get("project_id"))
+    if project is None:
+        projects = pickable_projects(user)
+        if request.headers.get("X-Partial"):
+            return jsonify({"needs_project": True, "projects": projects,
+                            "task_id": request.form.get("task_id") or ""})
+        flash("Pick a billing project to track time against." if projects
+              else "Create a customer and a billing project first.", "warning")
+        return _capture_response(user, task)
+    start_timer(user, project=project, source_item=task,
+                note=request.form.get("note") or "",
+                billable=request.form.get("billable") != "0")
+    return _capture_response(user, task)
+
+
+@timetracking_bp.route("/timer/stop", methods=["POST"])
+@login_required
+@team_required
+def timer_stop():
+    """Stop the stopwatch and log the elapsed time as a normal entry."""
+    user = current_user._get_current_object()
+    timer = user.running_timer
+    task = None
+    if timer and timer.source_item_id:
+        task = Item.objects(pk=timer.source_item_id).first()
+        if task is not None and not task.can_be_viewed_by(user):
+            task = None
+    entry = stop_timer(user)
+    if entry and not request.headers.get("X-Partial"):
+        flash(f"Logged {entry.minutes // 60}h {entry.minutes % 60}m "
+              f"on {entry.project_name}.", "success")
+    return _capture_response(user, task)
+
+
+@timetracking_bp.route("/timer/discard", methods=["POST"])
+@login_required
+@team_required
+def timer_discard():
+    """Throw the running stopwatch away without logging it."""
+    user = current_user._get_current_object()
+    timer = user.running_timer
+    task = None
+    if timer and timer.source_item_id:
+        task = Item.objects(pk=timer.source_item_id).first()
+        if task is not None and not task.can_be_viewed_by(user):
+            task = None
+    discard_timer(user)
+    return _capture_response(user, task)
 
 
 @timetracking_bp.route("/entry/<bucket_id>/<entry_id>/cancel", methods=["POST"])
@@ -218,15 +359,63 @@ def entry_cancel(bucket_id, entry_id):
     entry = next((e for e in bucket.entries if e.entry_id == entry_id), None)
     if entry is None:
         abort(404)
-    is_owner = entry.user_id == str(user.id)
-    is_manager = team.is_managed_by(user) or user in (team.billers or [])
-    if not (is_owner or is_manager):
+    if not may_edit_entry(user, team, entry):
         abort(403)
     cancel_entry(bucket=bucket, entry_id=entry_id, user=user)
     task = None
     if entry.source_item_id:
         task = Item.objects(pk=entry.source_item_id).first()
-    return _task_time_response(task)
+    return _capture_response(user, task)
+
+
+@timetracking_bp.route("/entry/<bucket_id>/<entry_id>/edit", methods=["POST"])
+@login_required
+@team_required
+def entry_edit(bucket_id, entry_id):
+    """Correct a logged entry — duration, date, note, billable — until it is
+    billed. mite allows the same; the money is recomputed from the frozen rate."""
+    user = current_user._get_current_object()
+    bucket = TimeBucket.objects(pk=bucket_id).first()
+    if not bucket:
+        abort(404)
+    team = bucket.team
+    if str(team.id) not in _team_ids(user):
+        abort(403)
+    entry = next((e for e in bucket.entries if e.entry_id == entry_id), None)
+    if not may_edit_entry(user, team, entry):
+        abort(403)
+    minutes = parse_duration(request.form.get("duration") or "")
+    spent_on = (_spent_on(request.form.get("spent_on"), user)
+                if request.form.get("spent_on") else None)
+    # A cleared note arrives as whitespace (an empty field would be dropped in
+    # transit) — normalise it back to "no note".
+    note = request.form.get("note")
+    if note is not None and not note.strip():
+        note = ""
+    edit_entry(bucket=bucket, entry_id=entry_id, user=user, minutes=minutes,
+               spent_on=spent_on, note=note,
+               billable=request.form.get("billable") != "0")
+    task = None
+    if entry.source_item_id:
+        task = Item.objects(pk=entry.source_item_id).first()
+    return _capture_response(user, task)
+
+
+# ---------------------------------------------------------------------------
+# The day sheet — mite's "Zeiten erfassen": today's time, week at a glance
+# ---------------------------------------------------------------------------
+
+@timetracking_bp.route("/day")
+@login_required
+@team_required
+def day():
+    user = current_user._get_current_object()
+    d = _parse_day(request.args.get("d"), user)
+    from application.services.tz import user_zone
+    return render_template(
+        "timetracking/day.html", d=day_sheet(user, d),
+        today=datetime.now(user_zone(user)).date(),
+        all_teams=_user_teams(user))
 
 
 def _report_filters():
@@ -270,6 +459,7 @@ def _grouped_report(team, f):
         date_from=f["date_from"], date_to=f["date_to"],
         customer_id=f["customer_id"], project_id=f["project_id"],
         user_id=f["user_id"], billable=f["billable"], locked=f["locked"],
+        viewer=user,
     )
 
     customers = {}

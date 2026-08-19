@@ -77,3 +77,52 @@ def container_choices(user, *, selectable_kinds=("project", "folder"),
     selectable = sorted((c for c in containers if offered(c)),
                         key=lambda c: path_label(c).lower())
     return [(str(c.pk), path_label(c)) for c in selectable]
+
+
+def notes_folder_choices(user):
+    """``[(pk, "🗂️  Clients / Acme"), …]`` over the *notes* tree.
+
+    The counterpart to :func:`container_choices` for the notes navigator, used
+    by the project/folder inspector to bind a project to its notes folder.
+    Same one-query + in-memory breadcrumb approach."""
+    from application.services.permissions import container_visibility_q
+    folders = list(
+        Item.objects(container_visibility_q(user), kind="folder",
+                     folder_domain="notes").only("pk", "title", "parent")
+    )
+    by_id = {str(f.pk): f for f in folders}
+
+    def path_label(f):
+        parts, cur, seen = [], f, set()
+        while cur is not None and str(cur.pk) not in seen:
+            seen.add(str(cur.pk))
+            parts.append(cur.name)
+            par = cur.parent
+            cur = by_id.get(str(par.pk)) if par else None
+        parts.reverse()
+        return "🗂️  " + " / ".join(parts)
+
+    rows = sorted(folders, key=lambda f: path_label(f).lower())
+    return [(str(f.pk), path_label(f)) for f in rows]
+
+
+def resolve_notes_folder(item):
+    """The notes folder ``item`` belongs to — its own link, or the nearest
+    ancestor's. Mirrors ``services.timetracking.resolve_time_project``: a task
+    inherits the notes folder of its project/folder, so "open the notes for
+    what I'm working on" works from anywhere in the subtree. Bounded and
+    cycle-guarded; a deleted folder resolves to ``None`` instead of raising."""
+    seen, node, depth = set(), item, 0
+    while node is not None and depth < 50:
+        if node.pk in seen:
+            break
+        seen.add(node.pk)
+        nf = getattr(node, "notes_folder", None)
+        if nf:
+            try:
+                return nf if nf.kind == "folder" else None
+            except Exception:
+                return None
+        node = node.parent
+        depth += 1
+    return None
