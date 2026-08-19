@@ -279,6 +279,14 @@ def _ajax_payload(user, task=None):
         day = _parse_day(request.values.get("d"), user)
         out["block"] = render_template("timetracking/_day_body.html",
                                        d=day_sheet(user, day))
+    elif want == "report":
+        # The report's filters ride along in the POST, so a corrected entry
+        # comes back into the same view you were looking at.
+        from urllib.parse import parse_qsl
+        from werkzeug.datastructures import MultiDict
+        args = MultiDict(parse_qsl(request.form.get("report_args") or ""))
+        out["block"] = render_template("timetracking/_report_body.html",
+                                       **_report_context(args))
     return out
 
 
@@ -534,32 +542,78 @@ def day():
         all_teams=_user_teams(user))
 
 
-def _report_filters():
+def _report_filters(args=None):
     """Parse the report query string into normalised filter values + the
-    resolved date range, shared by the HTML report and the CSV export."""
+    resolved date range, shared by the HTML report, the exports and the
+    in-place edit (which posts the filters back so the swapped-in body shows
+    the same view you were correcting)."""
     from application.services.tz import user_zone
     from application.services.timetracking import resolve_period
 
+    args = request.args if args is None else args
     user = current_user._get_current_object()
     today = datetime.now(user_zone(user)).date()
-    preset = request.args.get("period") or "this_month"
+    preset = args.get("period") or "this_month"
     date_from, date_to = resolve_period(
-        preset, request.args.get("from"), request.args.get("to"), today)
+        preset, args.get("from"), args.get("to"), today)
 
     def _tri(name):
-        v = request.args.get(name)
+        v = args.get(name)
         return True if v == "1" else False if v == "0" else None
 
     return {
         "preset": preset,
         "date_from": date_from,
         "date_to": date_to,
-        "customer_id": request.args.get("customer") or None,
-        "project_id": request.args.get("project") or None,
-        "user_id": request.args.get("user") or None,
+        "customer_id": args.get("customer") or None,
+        "project_id": args.get("project") or None,
+        "user_id": args.get("user") or None,
         "billable": _tri("billable"),
         "locked": _tri("locked"),
     }
+
+
+def _report_context(args=None):
+    """Everything the report body renders from, for a page load or a swap."""
+    from application.services.timetracking import can_bill, pickable_projects
+    team = _team()
+    user = current_user._get_current_object()
+    f = _report_filters(args)
+    data = _grouped_report(team, f)
+    projects = pickable_projects(user)
+    header, rows = _export_table(data)
+    return dict(
+        team=team, f=f, can_bill=can_bill(user, team),
+        can_unlock=team.is_managed_by(user),
+        # Field definitions for the inline edit forms, and the export exactly as
+        # it will be written — the preview is the export, not a description of it.
+        fields_by_project={p["id"]: p["fields"] for p in projects},
+        export_header=header, export_rows=rows,
+        **data)
+
+
+def _export_table(data):
+    """``(header, rows)`` for the report export — one flat table.
+
+    The CSV, the Excel-flavoured CSV and the on-page preview all render this,
+    so what you see before downloading is what the file contains."""
+    from application.services.timetracking import ref_label
+    header = ["Date", "Start", "End", "Customer", "Project", "Service", "User",
+              "Minutes", "Hours", "Billable", "Billed", "Amount (EUR)",
+              "Description", "Fields"]
+    rows = []
+    for r in sorted(data["rows"], key=lambda r: (r["spent_on"], r.get("start_time") or "")):
+        rows.append([
+            r["spent_on"].isoformat(), r.get("start_time", ""), r.get("end_time", ""),
+            r["customer"], r["project"], r.get("service", ""), r["user_name"],
+            r["minutes"], f"{r['minutes'] / 60:.2f}",
+            "yes" if r["billable"] else "no", "yes" if r["locked"] else "no",
+            f"{(r['amount_cents'] or 0) / 100:.2f}",
+            (ref_label(r["external_ref"]) + " " if r.get("external_ref") else "")
+            + r.get("description", r["note"]),
+            "; ".join(f"{c['label']}: {c['value']}" for c in r.get("custom", [])),
+        ])
+    return header, rows
 
 
 def _grouped_report(team, f):
@@ -620,16 +674,11 @@ def _grouped_report(team, f):
 @login_required
 @team_required
 def report():
-    from application.services.timetracking import PERIOD_PRESETS, can_bill
-    team = _team()
+    from application.services.timetracking import PERIOD_PRESETS
     user = current_user._get_current_object()
-    f = _report_filters()
-    data = _grouped_report(team, f)
     return render_template(
-        "timetracking/report.html", team=team, all_teams=_user_teams(user),
-        f=f, presets=PERIOD_PRESETS,
-        can_bill=can_bill(user, team), can_unlock=team.is_managed_by(user),
-        **data)
+        "timetracking/report.html", all_teams=_user_teams(user),
+        presets=PERIOD_PRESETS, **_report_context())
 
 
 @timetracking_bp.route("/report/bill", methods=["POST"])
@@ -664,41 +713,54 @@ def report_bill():
 @login_required
 @team_required
 def report_csv():
+    """The report as a file. ``?excel=1`` writes the flavour Excel opens on a
+    double-click in a German locale — BOM, semicolons, decimal commas — while
+    the plain form stays a neutral comma CSV for anything that parses it."""
     import csv
     import io
     from flask import Response
+
     team = _team()
     f = _report_filters()
     data = _grouped_report(team, f)
+    header, rows = _export_table(data)
+    excel = request.args.get("excel") == "1"
+
     buf = io.StringIO()
-    w = csv.writer(buf)
-    # Custom fields differ per project, so they share one column rather than
-    # sprouting a sparse column per field across the whole team's export.
-    w.writerow(["Date", "Start", "End", "Customer", "Project", "Service", "User",
-                "Minutes", "Hours", "Billable", "Billed", "Amount (EUR)",
-                "Note", "Fields"])
-    for r in sorted(data["rows"], key=lambda r: r["spent_on"]):
-        w.writerow([
-            r["spent_on"].isoformat(), r.get("start_time", ""),
-            r.get("end_time", ""), r["customer"], r["project"],
-            r.get("service", ""), r["user_name"], r["minutes"],
-            f"{r['minutes'] / 60:.2f}",
-            "yes" if r["billable"] else "no", "yes" if r["locked"] else "no",
-            f"{(r['amount_cents'] or 0) / 100:.2f}",
-            (ref_label(r["external_ref"]) + " " if r.get("external_ref") else "")
-            + r.get("description", r["note"]),
-            "; ".join(f"{c['label']}: {c['value']}" for c in r.get("custom", [])),
-        ])
-    return Response(buf.getvalue(), mimetype="text/csv", headers={
-        "Content-Disposition":
-            f"attachment; filename=cairn-time-"
-            f"{f['date_from']:%Y%m%d}-{f['date_to']:%Y%m%d}.csv",
+    w = csv.writer(buf, delimiter=";" if excel else ",")
+    w.writerow(header)
+    for row in rows:
+        if excel:
+            # Hours and amounts are numbers to Excel only with a decimal comma.
+            row = [str(v).replace(".", ",") if i in (8, 11) else v
+                   for i, v in enumerate(row)]
+        w.writerow(row)
+
+    body = ("\ufeff" + buf.getvalue()) if excel else buf.getvalue()
+    name = (f"cairn-time-{f['date_from']:%Y%m%d}-{f['date_to']:%Y%m%d}"
+            f"{'-excel' if excel else ''}.csv")
+    return Response(body, mimetype="text/csv; charset=utf-8", headers={
+        "Content-Disposition": f"attachment; filename={name}",
     })
 
 
 # ---------------------------------------------------------------------------
 # Migrating off mite
 # ---------------------------------------------------------------------------
+
+@timetracking_bp.route("/import")
+@login_required
+@team_required
+def import_page():
+    """The mite import on its own page — it is a one-off migration, not part of
+    keeping customers and projects."""
+    team = _team()
+    user = current_user._get_current_object()
+    if not team.is_managed_by(user):
+        abort(403)
+    return render_template("timetracking/import_mite.html", team=team,
+                           all_teams=_user_teams(user))
+
 
 @timetracking_bp.route("/import/mite", methods=["POST"])
 @login_required
@@ -740,7 +802,7 @@ def import_mite():
         )
     except MiteError as exc:
         flash(str(exc), "danger")
-        return redirect(url_for("timetracking.index", team=team.pk))
+        return redirect(url_for("timetracking.import_page", team=team.pk))
 
     summary = (f"{stats.customers_created} new customer(s), "
                f"{stats.projects_created} new project(s)")
@@ -761,7 +823,7 @@ def import_mite():
     if len(stats.errors) > 5:
         flash(f"…and {len(stats.errors) - 5} more issues — run "
               f"“cairn import-mite” for the full list.", "warning")
-    return redirect(url_for("timetracking.index", team=team.pk))
+    return redirect(url_for("timetracking.import_page", team=team.pk))
 
 
 # ---------------------------------------------------------------------------

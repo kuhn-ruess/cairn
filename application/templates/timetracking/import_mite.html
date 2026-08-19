@@ -1,0 +1,61 @@
+{% extends "layout/base.html" %}
+{% block title %}Import from mite{% endblock %}
+{% block content %}
+{% import "timetracking/_nav.html" as nav with context %}
+{{ nav.tt_nav('import', team, all_teams, true) }}
+
+<h1 class="h4 mb-3"><i class="bi bi-box-arrow-in-down"></i> Import from mite</h1>
+
+  <div class="card mb-4" style="max-width: 720px;">
+    <div class="card-body">
+      <h2 class="h6 mb-2"><i class="bi bi-box-arrow-in-down"></i> Import from mite</h2>
+      <p class="small text-muted mb-2">
+        Pulls customers and projects (with rates and budgets) into
+        <strong>{{ team.name }}</strong> — and, if you ask for it, the whole time
+        history. Repeatable either way: everything carries its mite id, so a
+        second run updates what changed and adds only what is new, and a
+        projects-only run can be widened to a full import later.
+        The API key is used for this request only and never stored.
+      </p>
+      <form method="post" action="{{ url_for('timetracking.import_mite') }}"
+            class="d-flex gap-2 flex-wrap align-items-end">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="team" value="{{ team.pk }}">
+        <div>
+          <label class="form-label small text-muted mb-0">Account</label>
+          <input type="text" name="account" required placeholder="acme"
+                 class="form-control form-control-sm" style="max-width: 11rem;"
+                 title="The “acme” in acme.mite.de">
+        </div>
+        <div>
+          <label class="form-label small text-muted mb-0">API key</label>
+          <input type="password" name="api_key" required autocomplete="off"
+                 class="form-control form-control-sm" style="max-width: 16rem;"
+                 title="mite → Mein Konto → API-Schlüssel">
+        </div>
+        <div>
+          <label class="form-label small text-muted mb-0">Scope</label>
+          <select name="scope" class="form-select form-select-sm" style="max-width: 15rem;">
+            <option value="projects">Current projects only — no time</option>
+            <option value="all">Everything, incl. time history</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label small text-muted mb-0">From</label>
+          <input type="date" name="from" class="form-control form-control-sm"
+                 style="max-width: 9.5rem;"
+                 title="Only import entries from this day on (full imports only)">
+        </div>
+        <label class="form-check form-check-inline m-0 small">
+          <input type="checkbox" class="form-check-input" name="dry_run" value="1" checked>
+          dry run
+        </label>
+        <button class="btn btn-sm btn-primary">Import</button>
+      </form>
+      <p class="small text-muted mt-2 mb-0">
+        A large account can take a while — for years of history
+        <code>cairn import-mite</code> on the server is the better route.
+      </p>
+    </div>
+  </div>
+{% endblock %}

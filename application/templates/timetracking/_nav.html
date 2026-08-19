@@ -5,7 +5,7 @@
    you happened to be on. This is the same bar everywhere: what you can do
    (track / report / manage), which team you are in, and nothing else. #}
 
-{%- macro tt_nav(active, team=none, all_teams=none) -%}
+{%- macro tt_nav(active, team=none, all_teams=none, can_manage=false) -%}
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
   <ul class="nav nav-pills gap-1 me-auto">
     <li class="nav-item">
@@ -23,6 +23,17 @@
          href="{{ url_for('timetracking.index', team=team.pk if team else none) }}">
         <i class="bi bi-gear"></i> Customers &amp; projects</a>
     </li>
+    {# Manager-only: a one-off migration has no place in everyone's navigation.
+       Passed in rather than derived — inside a macro ``current_user`` is
+       already the resolved user, not the proxy. #}
+    {% if team and can_manage %}
+      <li class="nav-item">
+        <a class="nav-link py-1 {{ 'active' if active == 'import' }}"
+           href="{{ url_for('timetracking.import_page', team=team.pk) }}"
+           title="One-off migration from a mite account">
+          <i class="bi bi-box-arrow-in-down"></i> Import</a>
+      </li>
+    {% endif %}
   </ul>
 
   {% if team %}

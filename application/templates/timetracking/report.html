@@ -2,12 +2,16 @@
 {% block title %}Time report{% endblock %}
 {% block content %}
 {% import "timetracking/_nav.html" as nav with context %}
-{{ nav.tt_nav('report', team, all_teams) }}
+{{ nav.tt_nav('report', team, all_teams, can_unlock) }}
 
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
   <h1 class="h4 mb-0 me-auto"><i class="bi bi-table"></i> Report</h1>
   <a class="btn btn-sm btn-outline-secondary"
-     href="{{ url_for('timetracking.report_csv', **request.args) }}">
+     href="{{ url_for('timetracking.report_csv', **dict(request.args, excel='1')) }}">
+    <i class="bi bi-file-earmark-spreadsheet"></i> Excel</a>
+  <a class="btn btn-sm btn-outline-secondary"
+     href="{{ url_for('timetracking.report_csv', **request.args) }}"
+     title="Plain comma-separated CSV">
     <i class="bi bi-download"></i> CSV</a>
 </div>
 
@@ -90,98 +94,5 @@
   <span class="text-muted small">{{ f.date_from.isoformat() }} – {{ f.date_to.isoformat() }}</span>
 </div>
 
-{% if not groups %}
-  <p class="text-muted">No time entries match these filters.</p>
-{% endif %}
-
-{% if can_bill and groups %}
-<form method="post" action="{{ url_for('timetracking.report_bill') }}">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  {# carry the current filters so the redirect keeps the same view #}
-  <input type="hidden" name="team" value="{{ team.pk }}">
-  <input type="hidden" name="period" value="{{ f.preset }}">
-  <input type="hidden" name="from" value="{{ f.date_from.isoformat() }}">
-  <input type="hidden" name="to" value="{{ f.date_to.isoformat() }}">
-  <input type="hidden" name="customer" value="{{ f.customer_id or '' }}">
-  <input type="hidden" name="project" value="{{ f.project_id or '' }}">
-  <input type="hidden" name="user" value="{{ f.user_id or '' }}">
-  <input type="hidden" name="billable" value="{{ '1' if f.billable == true else '0' if f.billable == false else '' }}">
-  <input type="hidden" name="locked" value="{{ '1' if f.locked == true else '0' if f.locked == false else '' }}">
-  <div class="d-flex align-items-center gap-2 mb-2">
-    <button class="btn btn-sm btn-success" name="action" value="bill">
-      <i class="bi bi-lock"></i> Mark selected billed</button>
-    {% if can_unlock %}
-      <button class="btn btn-sm btn-outline-secondary" name="action" value="unlock">
-        <i class="bi bi-unlock"></i> Reopen selected</button>
-    {% endif %}
-    <span class="small text-muted">Tick entries to settle them. Billed entries are locked.</span>
-  </div>
-{% endif %}
-
-{% for c in groups %}
-  <div class="card mb-3">
-    <div class="card-header py-2 d-flex align-items-center">
-      <strong class="me-auto"><i class="bi bi-person-vcard"></i> {{ c.name }}</strong>
-      <span class="text-muted small me-3">{{ c.minutes|duration }}</span>
-      <span class="text-success">{{ c.amount|eur }}</span>
-    </div>
-    <div class="card-body py-2">
-      {% for p in c.projects %}
-        <div class="mb-2">
-          <div class="d-flex align-items-center">
-            <span class="me-auto fw-semibold">{{ p.name }}</span>
-            <span class="text-muted small me-3">{{ p.minutes|duration }}</span>
-            <span class="text-success small">{{ p.amount|eur }}</span>
-          </div>
-          {% for u in p.users %}
-            <details class="ms-3">
-              <summary class="small d-flex align-items-center" style="cursor:pointer;">
-                <span class="me-auto">{{ u.name }}</span>
-                <span class="text-muted me-3">{{ u.minutes|duration }}</span>
-                <span class="text-success">{{ u.amount|eur }}</span>
-              </summary>
-              <table class="table table-sm table-borderless mb-1 mt-1">
-                <tbody>
-                  {% for e in u.entries %}
-                    <tr>
-                      {% if can_bill %}
-                        <td style="width:1.5rem;">
-                          {% if not e.locked or can_unlock %}
-                            <input type="checkbox" class="form-check-input" name="entry"
-                                   value="{{ e.bucket_id }}:{{ e.entry_id }}">
-                          {% endif %}
-                        </td>
-                      {% endif %}
-                      <td class="text-muted small" style="width:6rem;">{{ e.spent_on.isoformat() }}</td>
-                      <td class="small" style="width:5rem;">{{ e.minutes|duration }}</td>
-                      <td class="small">
-                        {% if e.locked %}<i class="bi bi-lock text-muted" title="Billed"></i> {% endif %}
-                        {% if not e.billable %}<span class="badge text-bg-secondary">n/b</span> {% endif %}
-                        {% if e.service %}<span class="badge text-bg-light text-muted">{{ e.service }}</span> {% endif %}
-                        {% if e.start_time %}<span class="text-muted font-monospace">{{ e.start_time }}–{{ e.end_time }}</span> {% endif %}
-                        {% for c in e.custom %}<span class="badge text-bg-light text-muted">{{ c.label }}: {{ c.value }}</span> {% endfor %}
-                        {% if e.external_ref %}
-                          {% if e.external_url %}<a href="{{ e.external_url }}" target="_blank"
-                              rel="noopener" class="text-decoration-none"
-                              title="Open the ticket">{{ e.external_ref|ticketref }}</a>
-                          {% else %}<span class="text-muted">{{ e.external_ref|ticketref }}</span>{% endif %}
-                        {% endif %}
-                        {{ e.description }}
-                      </td>
-                      <td class="small text-success text-end" style="width:6rem;">{{ e.amount_cents|eur }}</td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </details>
-          {% endfor %}
-        </div>
-      {% endfor %}
-    </div>
-  </div>
-{% endfor %}
-
-{% if can_bill and groups %}
-</form>
-{% endif %}
+{% include "timetracking/_report_body.html" %}
 {% endblock %}

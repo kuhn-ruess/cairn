@@ -23,6 +23,8 @@
   function contextFor(el) {
     const day = el.closest("#tt-day");
     if (day) return { kind: "day", block: day, day: day.dataset.day };
+    const report = el.closest("#tt-report");
+    if (report) return { kind: "report", block: report, args: report.dataset.args };
     const task = el.closest("#time, .time-block");
     if (task) return { kind: "task", block: task };
     return { kind: "", block: null };
@@ -69,6 +71,7 @@
       if (v !== undefined && v !== null && v !== "") fd.append(k, v);
     });
     if (ctx.kind === "day" && ctx.day) fd.append("d", ctx.day);
+    if (ctx.kind === "report") fd.append("report_args", ctx.args || "");
     const resp = await fetch(action, {
       method: "POST",
       headers: { "X-Partial": ctx.kind || "chip" },
@@ -411,8 +414,13 @@
     const editToggle = t.closest(".tt-edit-toggle");
     if (editToggle) {
       ev.preventDefault();
-      const row = editToggle.closest(".list-group-item");
-      const form = row && row.querySelector(".tt-edit");
+      // The day sheet keeps the edit form inside the entry; the report puts it
+      // in the next table row.
+      const row = editToggle.closest(".list-group-item, .tt-report-row");
+      const form = row && (row.querySelector(".tt-edit")
+                           || (row.nextElementSibling
+                               && row.nextElementSibling.classList.contains("tt-edit")
+                               ? row.nextElementSibling : null));
       if (form) {
         form.classList.toggle("d-none");
         const dur = form.querySelector(".tt-edit-duration");
@@ -459,6 +467,14 @@
       if (!confirm(what)) return;
       post(rm.dataset.action, {}, contextFor(rm)).catch(() => {});
     }
+  });
+
+  // "Mark selected billed" needs something to select — one tick for the lot.
+  document.addEventListener("change", (ev) => {
+    const all = ev.target.closest("#tt-select-all");
+    if (!all) return;
+    const scope = all.closest("form") || document;
+    scope.querySelectorAll(".tt-pick").forEach((cb) => { cb.checked = all.checked; });
   });
 
   // Enter in any capture input logs the entry instead of submitting the

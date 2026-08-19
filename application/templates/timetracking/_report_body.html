@@ -1,0 +1,224 @@
+{# The report's results: totals, then every entry in one flat table.
+
+   The entries used to sit inside a <details> per user, which is why "Mark
+   selected billed" had nothing to select — the checkboxes were folded away.
+   Totals and entries are now separate things: the cards aggregate, the table
+   lists, and the table's columns are exactly what the export writes, so it
+   doubles as the preview.
+
+   Swapped in place after an edit (see time-entries.js), which is why the whole
+   thing lives in one container carrying the current filters. #}
+<div id="tt-report" data-args="{{ request.query_string.decode('utf-8') }}">
+
+{% if not groups %}
+  <p class="text-muted">No time entries match these filters.</p>
+{% else %}
+
+{# ---- Totals ---- #}
+<div class="row g-2 mb-3">
+  {% for c in groups %}
+    <div class="col-12 col-lg-6">
+      <div class="card h-100">
+        <div class="card-header py-2 d-flex align-items-center">
+          <strong class="me-auto"><i class="bi bi-person-vcard"></i> {{ c.name }}</strong>
+          <span class="text-muted small me-3">{{ c.minutes|duration }}</span>
+          <span class="text-success">{{ c.amount|eur }}</span>
+        </div>
+        <div class="card-body py-2 small">
+          {% for p in c.projects %}
+            <div class="d-flex align-items-center">
+              <span class="me-auto">{{ p.name }}</span>
+              <span class="text-muted me-3">{{ p.minutes|duration }}</span>
+              <span class="text-success">{{ p.amount|eur }}</span>
+            </div>
+            {% for u in p.users %}
+              <div class="d-flex align-items-center text-muted ms-3"
+                   style="font-size:.78rem;">
+                <span class="me-auto">{{ u.name }}</span>
+                <span class="me-3">{{ u.minutes|duration }}</span>
+                <span>{{ u.amount|eur }}</span>
+              </div>
+            {% endfor %}
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+{# ---- Every entry, selectable and correctable ---- #}
+<form method="post" action="{{ url_for('timetracking.report_bill') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {# carry the current filters so the redirect keeps the same view #}
+  <input type="hidden" name="team" value="{{ team.pk }}">
+  <input type="hidden" name="period" value="{{ f.preset }}">
+  <input type="hidden" name="from" value="{{ f.date_from.isoformat() }}">
+  <input type="hidden" name="to" value="{{ f.date_to.isoformat() }}">
+  <input type="hidden" name="customer" value="{{ f.customer_id or '' }}">
+  <input type="hidden" name="project" value="{{ f.project_id or '' }}">
+  <input type="hidden" name="user" value="{{ f.user_id or '' }}">
+  <input type="hidden" name="billable" value="{{ '1' if f.billable == true else '0' if f.billable == false else '' }}">
+  <input type="hidden" name="locked" value="{{ '1' if f.locked == true else '0' if f.locked == false else '' }}">
+
+  {% if can_bill %}
+    <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+      <button class="btn btn-sm btn-success" name="action" value="bill">
+        <i class="bi bi-lock"></i> Mark selected billed</button>
+      {% if can_unlock %}
+        <button class="btn btn-sm btn-outline-secondary" name="action" value="unlock">
+          <i class="bi bi-unlock"></i> Reopen selected</button>
+      {% endif %}
+      <span class="small text-muted">
+        Tick entries to settle them — billed entries are locked and can only be
+        corrected after reopening.
+      </span>
+    </div>
+  {% endif %}
+
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-1">
+      <thead>
+        <tr class="small text-muted">
+          {% if can_bill %}
+            <th style="width:1.5rem;">
+              <input type="checkbox" class="form-check-input" id="tt-select-all"
+                     title="Select all">
+            </th>
+          {% endif %}
+          <th>Date</th>
+          <th>Time</th>
+          <th>Customer / project</th>
+          <th>Who</th>
+          <th>Description</th>
+          <th class="text-end">Hours</th>
+          <th class="text-end">Amount</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in rows|sort(attribute='spent_on') %}
+          <tr class="tt-report-row">
+            {% if can_bill %}
+              <td>
+                {% if not e.locked or can_unlock %}
+                  <input type="checkbox" class="form-check-input tt-pick" name="entry"
+                         value="{{ e.bucket_id }}:{{ e.entry_id }}">
+                {% endif %}
+              </td>
+            {% endif %}
+            <td class="small text-muted text-nowrap">{{ e.spent_on.strftime('%d.%m.%Y') }}</td>
+            <td class="small text-muted text-nowrap font-monospace">
+              {% if e.start_time %}{{ e.start_time }}–{{ e.end_time }}{% endif %}
+            </td>
+            <td class="small text-nowrap">{{ e.customer }} › {{ e.project }}</td>
+            <td class="small text-nowrap">{{ e.user_name }}</td>
+            <td class="small">
+              {% if e.locked %}<i class="bi bi-lock text-muted" title="Billed"></i> {% endif %}
+              {% if not e.billable %}<span class="badge text-bg-secondary">n/b</span> {% endif %}
+              {% if e.service %}<span class="badge text-bg-light text-muted">{{ e.service }}</span> {% endif %}
+              {% for c in e.custom %}<span class="badge text-bg-light text-muted">{{ c.label }}: {{ c.value }}</span> {% endfor %}
+              {% if e.external_ref %}
+                {% if e.external_url %}<a href="{{ e.external_url }}" target="_blank"
+                    rel="noopener" class="text-decoration-none"
+                    title="Open the ticket">{{ e.external_ref|ticketref }}</a>
+                {% else %}<span class="text-muted">{{ e.external_ref|ticketref }}</span>{% endif %}
+              {% endif %}
+              {{ e.description }}
+            </td>
+            <td class="small text-end text-nowrap">{{ e.minutes|duration }}</td>
+            <td class="small text-success text-end text-nowrap">{{ e.amount_cents|eur }}</td>
+            <td class="text-end" style="width:2rem;">
+              {% if not e.locked %}
+                <button type="button" class="btn btn-sm btn-link p-0 text-muted tt-edit-toggle"
+                        title="Correct this entry"><i class="bi bi-pencil"></i></button>
+              {% endif %}
+            </td>
+          </tr>
+          {% if not e.locked %}
+            {# Correcting an entry where you found it, mite-style. Same controls
+               and endpoint as the day sheet; none of these inputs carry a name,
+               so the bulk-billing form above never submits them. #}
+            <tr class="tt-edit d-none">
+              <td colspan="{{ 9 if can_bill else 8 }}">
+                <div class="d-flex gap-2 flex-wrap align-items-center"
+                     data-action="{{ url_for('timetracking.entry_edit', bucket_id=e.bucket_id, entry_id=e.entry_id) }}">
+                  <input type="text" class="form-control form-control-sm tt-edit-duration"
+                         style="max-width: 7rem;" value="{{ e.minutes }}" title="Duration">
+                  <input type="time" class="form-control form-control-sm tt-edit-start"
+                         style="max-width: 7rem;" value="{{ e.start_time }}" title="Start (optional)">
+                  <input type="time" class="form-control form-control-sm tt-edit-end"
+                         style="max-width: 7rem;" value="{{ e.end_time }}" title="End (optional)">
+                  <input type="date" class="form-control form-control-sm tt-edit-date"
+                         style="max-width: 9.5rem;" value="{{ e.spent_on.isoformat() }}">
+                  <input type="text" class="form-control form-control-sm tt-edit-note"
+                         style="min-width: 12rem; flex: 1 1 12rem;" value="{{ e.note }}"
+                         maxlength="200" placeholder="Description">
+                  {% for fd in fields_by_project.get(e.project_id, []) %}
+                    {% set _v = (e.custom | selectattr('key', 'equalto', fd.key)
+                                          | map(attribute='value') | first) or fd.default %}
+                    {% if fd.type == 'select' %}
+                      <select class="form-select form-select-sm tt-edit-cf" data-key="{{ fd.key }}"
+                              style="max-width: 11rem;" title="{{ fd.label }}">
+                        <option value="">{{ fd.label }} —</option>
+                        {% for o in fd.options %}
+                          <option value="{{ o }}" {% if o == _v %}selected{% endif %}>{{ o }}</option>
+                        {% endfor %}
+                      </select>
+                    {% else %}
+                      <input type="text" class="form-control form-control-sm tt-edit-cf"
+                             data-key="{{ fd.key }}" style="max-width: 11rem;"
+                             placeholder="{{ fd.label }}" title="{{ fd.label }}" value="{{ _v }}">
+                    {% endif %}
+                  {% endfor %}
+                  <label class="form-check form-check-inline m-0 small">
+                    <input type="checkbox" class="form-check-input tt-edit-billable"
+                           {% if e.billable %}checked{% endif %}> billable
+                  </label>
+                  <button type="button" class="btn btn-sm btn-primary tt-edit-save">Save</button>
+                  <button type="button" class="btn btn-sm btn-link text-danger time-delete"
+                          data-action="{{ url_for('timetracking.entry_cancel', bucket_id=e.bucket_id, entry_id=e.entry_id) }}"
+                          data-confirm="Remove {{ e.minutes|duration }} on {{ e.spent_on.strftime('%d.%m.%Y') }}{% if e.note %} — {{ e.note|truncate(60) }}{% endif %}?">
+                    Remove</button>
+                </div>
+              </td>
+            </tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="fw-semibold">
+          <td colspan="{{ 6 if can_bill else 5 }}" class="text-end">Total</td>
+          <td class="text-end text-nowrap">{{ grand_minutes|duration }}</td>
+          <td class="text-end text-success text-nowrap">{{ grand_amount|eur }}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</form>
+
+{# ---- What the export will contain ---- #}
+<details class="mt-3">
+  <summary class="small text-muted" style="cursor:pointer;">
+    <i class="bi bi-file-earmark-spreadsheet"></i>
+    Export preview — {{ export_rows|length }} row(s), exactly as the file is written
+  </summary>
+  <div class="table-responsive mt-2">
+    <table class="table table-sm table-bordered small mb-0">
+      <thead><tr>{% for h in export_header %}<th class="text-nowrap">{{ h }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for row in export_rows[:50] %}
+          <tr>{% for cell in row %}<td class="text-nowrap">{{ cell }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if export_rows|length > 50 %}
+      <p class="small text-muted mt-1">
+        Showing the first 50 of {{ export_rows|length }} rows — the file has them all.
+      </p>
+    {% endif %}
+  </div>
+</details>
+
+{% endif %}
+</div>
