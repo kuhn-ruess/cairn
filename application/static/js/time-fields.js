@@ -86,3 +86,59 @@
     if (opts) syncChoices(rowOf(opts));
   });
 })();
+
+/* The customer link, toggled without leaving the panel.
+ *
+ * Enabling it used to POST-and-redirect, which closed the <details> the link
+ * lives in — so copying the link you just created meant reopening it. The block
+ * is re-rendered server-side and swapped in place instead. */
+(function () {
+  function csrf() {
+    const el = document.querySelector('input[name="csrf_token"]');
+    return el ? el.value : "";
+  }
+
+  async function toggle(btn) {
+    const block = btn.closest(".tt-share-block");
+    if (!block) return;
+    const fd = new FormData();
+    fd.append("csrf_token", csrf());
+    fd.append("team", block.dataset.team || "");
+    fd.append("action", btn.dataset.shareAction || "enable");
+    btn.disabled = true;
+    try {
+      const resp = await fetch(block.dataset.action, {
+        method: "POST", headers: { "X-Partial": "share" }, body: fd,
+      });
+      if (!resp.ok) throw new Error(resp.status);
+      block.outerHTML = await resp.text();
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".tt-share-btn");
+    if (btn) {
+      ev.preventDefault();
+      toggle(btn).catch(() => {});
+      return;
+    }
+    const copy = ev.target.closest(".tt-share-copy");
+    if (copy) {
+      ev.preventDefault();
+      const url = copy.dataset.url || "";
+      const done = () => {
+        const was = copy.textContent;
+        copy.textContent = "Copied";
+        setTimeout(() => { copy.textContent = was; }, 1200);
+      };
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(url).then(done, () => {});
+      } else {
+        const field = copy.closest(".tt-share-block").querySelector(".tt-share-url");
+        if (field) { field.select(); document.execCommand("copy"); done(); }
+      }
+    }
+  });
+})();

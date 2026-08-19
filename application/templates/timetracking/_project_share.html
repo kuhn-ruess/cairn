@@ -1,0 +1,30 @@
+{# The customer link controls for one billing project.
+
+   Re-rendered server-side and swapped in place by time-fields.js: enabling a
+   link used to redirect back to the page, which closed the <details> it lives
+   in — so the very next thing you wanted to do (copy the link) meant opening
+   the panel again. Buttons carry their endpoint in data-action; there is no
+   <form>, because this sits inside one. #}
+<div class="tt-share-block small"
+     data-action="{{ url_for('timetracking.project_share', pid=p.id) }}"
+     data-team="{{ team.pk }}">
+  <div class="text-muted mb-1"><i class="bi bi-link-45deg"></i> Customer link (hours only)</div>
+  {% if p.share_enabled and p.share_token %}
+    {% set _url = url_for('public.project_time', token=p.share_token, _external=True) %}
+    <input class="form-control form-control-sm mb-1 tt-share-url" readonly
+           onclick="this.select()" value="{{ _url }}">
+    <div class="d-flex gap-1">
+      <button type="button" class="btn btn-sm btn-outline-secondary tt-share-copy"
+              data-url="{{ _url }}">Copy</button>
+      <a class="btn btn-sm btn-outline-secondary" href="{{ _url }}"
+         target="_blank" rel="noopener">Open</a>
+      <button type="button" class="btn btn-sm btn-outline-secondary tt-share-btn"
+              data-share-action="regenerate">New link</button>
+      <button type="button" class="btn btn-sm btn-outline-danger tt-share-btn"
+              data-share-action="disable">Disable</button>
+    </div>
+  {% else %}
+    <button type="button" class="btn btn-sm btn-outline-primary tt-share-btn"
+            data-share-action="enable">Enable customer link</button>
+  {% endif %}
+</div>

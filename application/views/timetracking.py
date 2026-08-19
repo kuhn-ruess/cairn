@@ -870,15 +870,22 @@ def project_share(pid):
     team = _team()
     p = _project_or_404(pid, team)
     action = request.form.get("action")
+    ajax = bool(request.headers.get("X-Partial"))
     if action == "disable":
         p.share_enabled = False
-        flash("Customer link disabled.", "info")
+        if not ajax:
+            flash("Customer link disabled.", "info")
     else:  # enable / regenerate
         if action == "regenerate" or not p.share_token:
             p.regenerate_share_token()
         p.share_enabled = True
-        flash("Customer link is live.", "success")
+        if not ajax:
+            flash("Customer link is live.", "success")
     p.save()
+    if request.headers.get("X-Partial"):
+        # Swap the block in place — a redirect here would collapse the panel
+        # the link was just created in.
+        return render_template("timetracking/_project_share.html", p=p, team=team)
     return redirect(url_for("timetracking.index", team=team.pk))
 
 
