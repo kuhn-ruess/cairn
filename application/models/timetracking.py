@@ -63,6 +63,26 @@ class Customer(Document):
     # repeated import updates instead of duplicating. Empty for customers
     # created in Cairn.
     external_id = StringField()
+
+    # Billing details — what an invoice needs, kept with the customer it bills.
+    # Plain strings, deliberately: this is data to read off when invoicing (or
+    # to hand to whatever writes the invoice), not something Cairn validates or
+    # calculates with. ``address`` is multi-line and free-form, because postal
+    # formats are not ours to police.
+    legal_name = StringField(max_length=200)      # if it differs from ``name``
+    address = StringField(default="")
+    vat_id = StringField(max_length=64)           # USt-IdNr. / VAT ID
+    tax_number = StringField(max_length=64)       # Steuernummer
+    invoice_email = StringField(max_length=200)
+    contact_name = StringField(max_length=200)
+    phone = StringField(max_length=64)
+    # How this customer is billed: payment terms in days, a customer number in
+    # your own accounting, and anything else the person writing the invoice
+    # needs to know.
+    payment_terms_days = IntField(min_value=0)
+    customer_number = StringField(max_length=64)
+    billing_note = StringField(default="")
+
     created_at = DateTimeField(default=_utcnow)
 
     def __str__(self) -> str:

@@ -845,6 +845,32 @@ def customer_create():
     return redirect(url_for("timetracking.index", team=team.pk))
 
 
+@timetracking_bp.route("/customers/<cid>")
+@login_required
+@team_required
+def customer_detail(cid):
+    """One customer on its own page: who they are, how they are billed, what
+    they have. The overview stays a list — everything an invoice needs is too
+    much for a dropdown inside a card."""
+    from application.services.timetracking import team_consumption
+    from application.services.tz import user_zone
+
+    team = _team()
+    user = current_user._get_current_object()
+    c = _customer_or_404(cid, team)
+    projects = list(TimeTrackingProject.objects(team=team, customer=c)
+                    .order_by("+archived", "+name"))
+    today = datetime.now(user_zone(user)).date()
+    consumption = team_consumption(team, f"{today.year:04d}-{today.month:02d}")
+    minutes_by_project = {str(p.id): consumption.get(str(p.id), {}).get("minutes", 0)
+                          for p in projects}
+    return render_template(
+        "timetracking/customer.html", team=team, all_teams=_user_teams(user),
+        can_manage=team.is_managed_by(user), customer=c, projects=projects,
+        minutes_by_project=minutes_by_project,
+        total_minutes=sum(minutes_by_project.values()))
+
+
 @timetracking_bp.route("/customers/<cid>/edit", methods=["POST"])
 @login_required
 @team_required
@@ -856,9 +882,30 @@ def customer_edit(cid):
         c.name = name[:200]
     c.note = (request.form.get("note") or "").strip()
     c.archived = request.form.get("archived") == "1"
+
+    # Billing details — stored as given (see the model): this is what someone
+    # reads off when invoicing, not something to normalise behind their back.
+    for field, limit in (("legal_name", 200), ("vat_id", 64), ("tax_number", 64),
+                         ("invoice_email", 200), ("contact_name", 200),
+                         ("phone", 64), ("customer_number", 64)):
+        if field in request.form:
+            setattr(c, field, (request.form.get(field) or "").strip()[:limit] or None)
+    for field in ("address", "billing_note"):
+        if field in request.form:
+            setattr(c, field, (request.form.get(field) or "").strip()[:4000])
+    if "payment_terms_days" in request.form:
+        raw = (request.form.get("payment_terms_days") or "").strip()
+        try:
+            c.payment_terms_days = max(0, int(raw)) if raw else None
+        except ValueError:
+            c.payment_terms_days = None
     c.save()
     flash("Customer updated.", "success")
-    return redirect(url_for("timetracking.index", team=team.pk))
+    # Back where the editing happened — the overview only ever sent the name.
+    if request.form.get("from") == "index":
+        return redirect(url_for("timetracking.index", team=team.pk))
+    return redirect(url_for("timetracking.customer_detail", cid=str(c.id),
+                            team=team.pk))
 
 
 @timetracking_bp.route("/customers/<cid>/delete", methods=["POST"])

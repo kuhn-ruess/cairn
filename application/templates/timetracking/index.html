@@ -36,32 +36,10 @@
         <i class="bi bi-person-vcard"></i> {{ c.name }}
         {% if c.archived %}<span class="badge text-bg-secondary ms-1">archived</span>{% endif %}
       </h2>
-      <details>
-        <summary class="small text-muted" style="cursor:pointer;">edit</summary>
-        <form method="post" action="{{ url_for('timetracking.customer_edit', cid=c.id) }}"
-              class="d-flex flex-column gap-2 mt-2 w-100">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="team" value="{{ team.pk }}">
-          <input type="text" name="name" value="{{ c.name }}" class="form-control form-control-sm">
-          <input type="text" name="note" value="{{ c.note }}" placeholder="Note"
-                 class="form-control form-control-sm">
-          <label class="form-check small">
-            <input type="checkbox" name="archived" value="1" class="form-check-input"
-                   {% if c.archived %}checked{% endif %}> archived
-          </label>
-          <button class="btn btn-sm btn-outline-secondary align-self-start">Save</button>
-        </form>
-        {% if can_manage %}
-          <hr class="my-2">
-          <form method="post" action="{{ url_for('timetracking.customer_delete', cid=c.id) }}"
-                onsubmit="return confirm('Delete “{{ c.name }}” and ALL its projects and logged time? This cannot be undone.');">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="team" value="{{ team.pk }}">
-            <button class="btn btn-sm btn-outline-danger">
-              <i class="bi bi-trash"></i> Delete customer + history</button>
-          </form>
-        {% endif %}
-      </details>
+      <a class="btn btn-sm btn-outline-secondary"
+         href="{{ url_for('timetracking.customer_detail', cid=c.id, team=team.pk) }}"
+         title="Address, tax details, billing information">
+        <i class="bi bi-pencil"></i> Edit</a>
     </div>
 
     <ul class="list-group list-group-flush">

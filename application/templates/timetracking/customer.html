@@ -1,0 +1,157 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ customer.name }} · Customer{% endblock %}
+{% block content %}
+{% import "timetracking/_nav.html" as nav with context %}
+{{ nav.tt_nav('manage', team, all_teams, can_manage) }}
+
+<div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+  <a class="btn btn-sm btn-outline-secondary"
+     href="{{ url_for('timetracking.index', team=team.pk) }}">
+    <i class="bi bi-chevron-left"></i> All customers</a>
+  <h1 class="h4 mb-0 me-auto">
+    <i class="bi bi-person-vcard"></i> {{ customer.name }}
+    {% if customer.archived %}<span class="badge text-bg-secondary">archived</span>{% endif %}
+  </h1>
+  <span class="text-muted small">
+    {{ projects|length }} project(s) · {{ total_minutes|duration }} logged
+  </span>
+</div>
+
+<form method="post" action="{{ url_for('timetracking.customer_edit', cid=customer.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="team" value="{{ team.pk }}">
+
+  <div class="row g-3">
+    <div class="col-12 col-lg-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <h2 class="h6 mb-3"><i class="bi bi-building"></i> Who they are</h2>
+          <label class="form-label small text-muted mb-0">Name</label>
+          <input type="text" name="name" value="{{ customer.name }}" required
+                 class="form-control form-control-sm mb-2">
+
+          <label class="form-label small text-muted mb-0">Legal name</label>
+          <input type="text" name="legal_name" value="{{ customer.legal_name or '' }}"
+                 class="form-control form-control-sm mb-2"
+                 placeholder="Only if it differs from the name above">
+
+          <label class="form-label small text-muted mb-0">Address</label>
+          <textarea name="address" rows="4" class="form-control form-control-sm mb-2"
+                    placeholder="Street&#10;Postcode City&#10;Country">{{ customer.address or '' }}</textarea>
+
+          <label class="form-label small text-muted mb-0">Contact</label>
+          <input type="text" name="contact_name" value="{{ customer.contact_name or '' }}"
+                 class="form-control form-control-sm mb-2" placeholder="Person to talk to">
+
+          <label class="form-label small text-muted mb-0">Phone</label>
+          <input type="text" name="phone" value="{{ customer.phone or '' }}"
+                 class="form-control form-control-sm">
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <h2 class="h6 mb-3"><i class="bi bi-receipt"></i> How they are billed</h2>
+          <label class="form-label small text-muted mb-0">Invoice email</label>
+          <input type="email" name="invoice_email" value="{{ customer.invoice_email or '' }}"
+                 class="form-control form-control-sm mb-2"
+                 placeholder="rechnung@kunde.de">
+
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label small text-muted mb-0">VAT ID</label>
+              <input type="text" name="vat_id" value="{{ customer.vat_id or '' }}"
+                     class="form-control form-control-sm" placeholder="DE123456789">
+            </div>
+            <div class="col-6">
+              <label class="form-label small text-muted mb-0">Tax number</label>
+              <input type="text" name="tax_number" value="{{ customer.tax_number or '' }}"
+                     class="form-control form-control-sm" placeholder="Steuernummer">
+            </div>
+          </div>
+
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label small text-muted mb-0">Customer number</label>
+              <input type="text" name="customer_number" value="{{ customer.customer_number or '' }}"
+                     class="form-control form-control-sm"
+                     placeholder="In your accounting">
+            </div>
+            <div class="col-6">
+              <label class="form-label small text-muted mb-0">Payment terms</label>
+              <div class="input-group input-group-sm">
+                <input type="number" name="payment_terms_days" min="0"
+                       value="{{ customer.payment_terms_days if customer.payment_terms_days is not none else '' }}"
+                       class="form-control form-control-sm" placeholder="14">
+                <span class="input-group-text">days</span>
+              </div>
+            </div>
+          </div>
+
+          <label class="form-label small text-muted mb-0">Billing notes</label>
+          <textarea name="billing_note" rows="3" class="form-control form-control-sm mb-2"
+                    placeholder="Purchase order number, cost centre, who to address the invoice to…">{{ customer.billing_note or '' }}</textarea>
+
+          <label class="form-label small text-muted mb-0">Internal note</label>
+          <input type="text" name="note" value="{{ customer.note or '' }}"
+                 class="form-control form-control-sm mb-2">
+
+          <label class="form-check small">
+            <input type="checkbox" name="archived" value="1" class="form-check-input"
+                   {% if customer.archived %}checked{% endif %}>
+            Archived — keeps its history, drops out of the pickers
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex gap-2 mt-3">
+    <button class="btn btn-sm btn-primary">Save</button>
+    <a class="btn btn-sm btn-outline-secondary"
+       href="{{ url_for('timetracking.index', team=team.pk) }}">Back</a>
+  </div>
+</form>
+
+{# Its projects — managed on the overview, listed here so the page is the whole
+   picture of one customer. #}
+<h2 class="h6 mt-4 mb-2"><i class="bi bi-folder"></i> Projects</h2>
+{% if not projects %}
+  <p class="text-muted small">No billing projects yet —
+    <a href="{{ url_for('timetracking.index', team=team.pk) }}">add one on the overview</a>.</p>
+{% else %}
+  <ul class="list-group" style="max-width: 720px;">
+    {% for p in projects %}
+      <li class="list-group-item d-flex align-items-center gap-2 py-2">
+        <span class="me-auto">
+          {{ p.name }}
+          {% if p.archived %}<span class="badge text-bg-secondary">archived</span>{% endif %}
+        </span>
+        <span class="small text-muted">{{ p.hourly_rate_cents|eur }}{% if p.hourly_rate_cents %} / h{% endif %}</span>
+        <span class="small">{{ minutes_by_project.get(p.id|string, 0)|duration }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+
+{% if can_manage %}
+  <details class="mt-4">
+    <summary class="small text-danger" style="cursor:pointer;">
+      <i class="bi bi-exclamation-triangle"></i> Delete this customer
+    </summary>
+    <form method="post" class="mt-2 d-flex gap-2 align-items-center flex-wrap"
+          action="{{ url_for('timetracking.customer_delete', cid=customer.id) }}"
+          onsubmit="return confirm('Delete “{{ customer.name }}” with all its projects and logged time? This cannot be undone.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="team" value="{{ team.pk }}">
+      <span class="small text-muted">
+        Removes the customer, its {{ projects|length }} project(s) and every hour
+        booked on them — irreversible.
+      </span>
+      <button class="btn btn-sm btn-outline-danger">Delete customer</button>
+    </form>
+  </details>
+{% endif %}
+{% endblock %}
