@@ -12,8 +12,27 @@
       <ul class="dropdown-menu dropdown-menu-end">
         {% for t in all_teams %}
           <li><a class="dropdown-item {% if t == team %}active{% endif %}"
-                 href="{{ url_for('timetracking.report', team=t.pk|string) }}">{{ t.name }}</a></li>
+                 href="{{ url_for('timetracking.report', team=t.pk|string) }}">
+            {% if current_user.tt_default_team == t.pk|string %}<i class="bi bi-pin-angle-fill"></i>{% endif %}
+            {{ t.name }}</a></li>
         {% endfor %}
+        <li><hr class="dropdown-divider"></li>
+        <li>
+          {# Pin the current team so the module stops opening in whichever team
+             happens to sort first. #}
+          <form method="post" action="{{ url_for('timetracking.set_default_team') }}" class="px-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="team" value="{{ team.pk }}">
+            <button class="btn btn-sm btn-outline-secondary w-100">
+              <i class="bi bi-pin-angle"></i>
+              {% if current_user.tt_default_team == team.pk|string %}
+                Don't open here by default
+              {% else %}
+                Always open in “{{ team.name }}”
+              {% endif %}
+            </button>
+          </form>
+        </li>
       </ul>
     </div>
   {% else %}
@@ -172,6 +191,7 @@
                       <td class="small">
                         {% if e.locked %}<i class="bi bi-lock text-muted" title="Billed"></i> {% endif %}
                         {% if not e.billable %}<span class="badge text-bg-secondary">n/b</span> {% endif %}
+                        {% if e.service %}<span class="badge text-bg-light text-muted">{{ e.service }}</span> {% endif %}
                         {{ e.note }}
                       </td>
                       <td class="small text-success text-end" style="width:6rem;">{{ e.amount_cents|eur }}</td>

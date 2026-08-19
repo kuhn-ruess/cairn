@@ -49,8 +49,9 @@ def _team():
     """The team the module currently operates on.
 
     Honours ``team=<id>`` (query string OR form body, so it survives POSTs)
-    when the user belongs to it; otherwise falls back to their first team.
-    404s if they ask for a team they're not in, 403 if they have none."""
+    when the user belongs to it; otherwise the team they pinned as their
+    default. 404s if they ask for a team they're not in, 403 if they have none."""
+    from application.services.timetracking import default_team
     user = current_user._get_current_object()
     teams = _user_teams(user)
     if not teams:
@@ -61,7 +62,25 @@ def _team():
             if str(t.pk) == raw:
                 return t
         abort(404)
-    return teams[0]
+    return default_team(user)
+
+
+@timetracking_bp.route("/default-team", methods=["POST"])
+@login_required
+@team_required
+def set_default_team():
+    """Pin the team the module opens in. Sending the current default again
+    clears it (back to "first by name")."""
+    user = current_user._get_current_object()
+    team = _team()
+    if user.tt_default_team == str(team.pk):
+        user.tt_default_team = ""
+        flash(f"“{team.name}” is no longer your default.", "info")
+    else:
+        user.tt_default_team = str(team.pk)
+        flash(f"Time tracking now opens in “{team.name}”.", "success")
+    user.save()
+    return redirect(request.referrer or url_for("timetracking.index", team=team.pk))
 
 
 def _customer_or_404(cid, team):
@@ -556,12 +575,13 @@ def report_csv():
     data = _grouped_report(team, f)
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["Date", "Customer", "Project", "User", "Minutes", "Hours",
-                "Billable", "Billed", "Amount (EUR)", "Note"])
+    w.writerow(["Date", "Customer", "Project", "Service", "User", "Minutes",
+                "Hours", "Billable", "Billed", "Amount (EUR)", "Note"])
     for r in sorted(data["rows"], key=lambda r: r["spent_on"]):
         w.writerow([
             r["spent_on"].isoformat(), r["customer"], r["project"],
-            r["user_name"], r["minutes"], f"{r['minutes'] / 60:.2f}",
+            r.get("service", ""), r["user_name"], r["minutes"],
+            f"{r['minutes'] / 60:.2f}",
             "yes" if r["billable"] else "no", "yes" if r["locked"] else "no",
             f"{(r['amount_cents'] or 0) / 100:.2f}", r["note"],
         ])
@@ -570,6 +590,65 @@ def report_csv():
             f"attachment; filename=cairn-time-"
             f"{f['date_from']:%Y%m%d}-{f['date_to']:%Y%m%d}.csv",
     })
+
+
+# ---------------------------------------------------------------------------
+# Migrating off mite
+# ---------------------------------------------------------------------------
+
+@timetracking_bp.route("/import/mite", methods=["POST"])
+@login_required
+@team_required
+def import_mite():
+    """Pull a mite account's customers, projects and time history into this team.
+
+    Manager-only: it creates billing data for the whole team. The API key is
+    used for this request and never stored. Runs inline — a big account is
+    better served by ``cairn import-mite``, which reports as it goes."""
+    from datetime import date as _date
+    from application.services.mite_import import MiteError, import_for_user
+
+    team = _team()
+    user = current_user._get_current_object()
+    if not team.is_managed_by(user):
+        abort(403)
+
+    def _day(raw):
+        try:
+            return _date.fromisoformat((raw or "").strip())
+        except ValueError:
+            return None
+
+    try:
+        stats = import_for_user(
+            user,
+            account=request.form.get("account") or "",
+            api_key=request.form.get("api_key") or "",
+            team=team,
+            date_from=_day(request.form.get("from")),
+            date_to=_day(request.form.get("to")),
+            dry_run=request.form.get("dry_run") == "1",
+        )
+    except MiteError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("timetracking.index", team=team.pk))
+
+    flash(
+        f"{'Dry run — nothing written. Would import' if stats.dry_run else 'Imported'}: "
+        f"{stats.customers_created} new customer(s), "
+        f"{stats.projects_created} new project(s), "
+        f"{stats.entries_imported} time entr{'y' if stats.entries_imported == 1 else 'ies'}"
+        + (f" ({stats.entries_skipped} already there)" if stats.entries_skipped else "")
+        + ".", "success")
+    if stats.unmatched_users:
+        flash("No Cairn account for these mite users — their entries keep the "
+              "mite name: " + ", ".join(sorted(set(stats.unmatched_users))), "info")
+    for err in stats.errors[:5]:
+        flash(err, "warning")
+    if len(stats.errors) > 5:
+        flash(f"…and {len(stats.errors) - 5} more issues — run "
+              f"“cairn import-mite” for the full list.", "warning")
+    return redirect(url_for("timetracking.index", team=team.pk))
 
 
 # ---------------------------------------------------------------------------

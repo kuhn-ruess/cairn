@@ -72,6 +72,27 @@ def user_team_ids(user) -> set:
     return {str(t.pk) for t in user_teams(user)}
 
 
+def sorted_user_teams(user) -> list:
+    """The user's teams, by name — the order the switcher shows."""
+    return sorted(user_teams(user), key=lambda t: (t.name or "").lower())
+
+
+def default_team(user):
+    """The team the module operates in when the URL doesn't name one.
+
+    The user's pinned default (``User.tt_default_team``) if they still belong to
+    it, otherwise the first by name. Without this, someone in two teams lands in
+    whichever sorts first every single time."""
+    teams = sorted_user_teams(user)
+    if not teams:
+        return None
+    want = getattr(user, "tt_default_team", "") or ""
+    for t in teams:
+        if str(t.pk) == want:
+            return t
+    return teams[0]
+
+
 # ---------------------------------------------------------------------------
 # Inheritance: resolve the billing project for a Cairn item
 # ---------------------------------------------------------------------------
@@ -485,6 +506,7 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
                 "billable": bool(e.billable),
                 "locked": bool(e.locked),
                 "note": e.note or "",
+                "service": e.service or "",
             })
     return rows
 
@@ -851,6 +873,7 @@ def day_sheet(user, day: date) -> dict:
                 "project": e.project_name,
                 "minutes": e.minutes or 0,
                 "note": e.note or "",
+                "service": e.service or "",
                 "billable": bool(e.billable),
                 "locked": bool(e.locked),
                 "amount_cents": e.amount_cents,

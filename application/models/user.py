@@ -275,6 +275,10 @@ class User(UserMixin, Document):
     from application.models.timer import RunningTimer as _RunningTimer  # noqa: E402
     running_timer = EmbeddedDocumentField(_RunningTimer)
     tt_last_project = StringField(default="")
+    # Which team the time-tracking module opens in when no team is in the URL.
+    # A plain id string (not a reference): it is a UI preference, and a team the
+    # user has since left must degrade to "first team", not to a broken deref.
+    tt_default_team = StringField(default="")
 
     def save(self, *args, **kwargs):
         # Enforce the 20-perspective ceiling at the model layer so the API

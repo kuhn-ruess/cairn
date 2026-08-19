@@ -88,6 +88,8 @@
                 title="{{ e.customer }} › {{ e.project }}">
             <i class="bi bi-receipt"></i> {{ e.customer }} › {{ e.project }}</span>
           <span class="flex-grow-1 text-truncate">
+            {% if e.service %}<span class="badge text-bg-light text-muted"
+              title="Service (imported from mite)">{{ e.service }}</span>{% endif %}
             {{ e.note or '—' }}
             {% if e.source_item_id %}
               <a class="small text-decoration-none ms-1"

@@ -58,6 +58,10 @@ class Customer(Document):
     name = StringField(required=True, max_length=200)
     note = StringField(default="")
     archived = BooleanField(default=False)
+    # Identity in the system this was imported from (``mite:<id>``), so a
+    # repeated import updates instead of duplicating. Empty for customers
+    # created in Cairn.
+    external_id = StringField()
     created_at = DateTimeField(default=_utcnow)
 
     def __str__(self) -> str:
@@ -92,6 +96,10 @@ class TimeTrackingProject(Document):
                                        "minutes_per_month", "cents_per_month"))
 
     archived = BooleanField(default=False)
+
+    # Identity in the system this was imported from (``mite:<id>``) — see
+    # Customer.external_id.
+    external_id = StringField()
 
     # Customer share link (read-only, hours only).
     share_enabled = BooleanField(default=False)
@@ -131,6 +139,10 @@ class TimeEntry(EmbeddedDocument):
     minutes = IntField(required=True, min_value=1)
     spent_on = DateTimeField(default=_utcnow)  # date the work happened, tz-aware
     note = StringField(default="")
+    # mite calls this a "Leistung": what kind of work this was. Cairn has no
+    # service entity — the label is carried along so imported history keeps its
+    # meaning, and shown next to the note wherever entries are listed.
+    service = StringField(default="")
 
     # Soft backlink to the Cairn item the time was logged from. Stored as a
     # plain string id (NOT a ReferenceField) on purpose: dereferencing must
@@ -200,6 +212,8 @@ class TimeBucket(Document):
             ("team", "period"),
             # Backlink lookup: "all time logged on this task" (inspector).
             "entries.source_item_id",
+            # Dedup scan when re-importing from an external system.
+            "entries.external_id",
         ],
     }
 

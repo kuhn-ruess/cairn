@@ -86,6 +86,74 @@ def drop_legacy_time_entries():
     click.echo(f"cleared time_entries on {res.modified_count} item(s)")
 
 
+@cairn_cli.command("import-mite")
+@click.argument("username")
+@click.option("--account", required=True,
+              help="mite account name (the 'acme' in acme.mite.de).")
+@click.option("--key", required=True, help="mite API key (Mein Konto → API).")
+@click.option("--team", "team_id", help="Team to import into (default: the "
+                                        "user's tracking default).")
+@click.option("--from", "date_from", help="Only entries from this day (YYYY-MM-DD).")
+@click.option("--to", "date_to", help="Only entries up to this day (YYYY-MM-DD).")
+@click.option("--dry-run", is_flag=True, help="Report only, don't write.")
+def import_mite(username, account, key, team_id, date_from, date_to, dry_run):
+    """Import a mite.de account (customers, projects, time entries) into a team.
+
+    Idempotent: everything imported carries its mite id, so re-running updates
+    names/rates and appends only entries that aren't there yet — run it once for
+    the history and again right before switching over.
+    """
+    from datetime import date as _date
+    from application.services.mite_import import MiteError, import_for_user
+    from application.services.timetracking import default_team, user_teams
+
+    user = User.objects(username=username).first()
+    if not user:
+        raise click.ClickException(f"user '{username}' not found")
+    teams = user_teams(user)
+    if not teams:
+        raise click.ClickException(
+            f"'{username}' is in no team — time tracking is team-only")
+    if team_id:
+        team = next((t for t in teams if str(t.pk) == team_id), None)
+        if team is None:
+            raise click.ClickException(f"'{username}' is not in team {team_id}")
+    else:
+        team = default_team(user)
+
+    def _day(raw, label):
+        if not raw:
+            return None
+        try:
+            return _date.fromisoformat(raw)
+        except ValueError:
+            raise click.ClickException(f"--{label} must be YYYY-MM-DD")
+
+    try:
+        stats = import_for_user(
+            user, account=account, api_key=key, team=team,
+            date_from=_day(date_from, "from"), date_to=_day(date_to, "to"),
+            dry_run=dry_run,
+        )
+    except MiteError as exc:
+        raise click.ClickException(str(exc))
+
+    click.echo(f"team: {team.name}{'  (dry run)' if dry_run else ''}")
+    click.echo(f"customers: {stats.customers_created} created, "
+               f"{stats.customers_updated} updated")
+    click.echo(f"projects:  {stats.projects_created} created, "
+               f"{stats.projects_updated} updated")
+    click.echo(f"entries:   {stats.entries_imported} imported, "
+               f"{stats.entries_skipped} skipped, {stats.entries_fetched} fetched")
+    if stats.unmatched_users:
+        click.echo("mite users with no Cairn account (their name is kept on the "
+                   "entries): " + ", ".join(sorted(set(stats.unmatched_users))))
+    for err in stats.errors[:20]:
+        click.echo(f"  ! {err}")
+    if len(stats.errors) > 20:
+        click.echo(f"  … and {len(stats.errors) - 20} more")
+
+
 @cairn_cli.command("split-time-buckets")
 @click.option("--dry-run", is_flag=True, help="Report only, don't write.")
 def split_time_buckets(dry_run):
