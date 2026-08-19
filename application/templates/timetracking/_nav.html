@@ -1,0 +1,68 @@
+{# One navigation for the whole time-tracking module.
+
+   The three pages had grown their own headers with different buttons in
+   different corners, so "where do I manage customers?" depended on which page
+   you happened to be on. This is the same bar everywhere: what you can do
+   (track / report / manage), which team you are in, and nothing else. #}
+
+{%- macro tt_nav(active, team=none, all_teams=none) -%}
+<div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+  <ul class="nav nav-pills gap-1 me-auto">
+    <li class="nav-item">
+      <a class="nav-link py-1 {{ 'active' if active == 'track' }}"
+         href="{{ url_for('timetracking.day') }}">
+        <i class="bi bi-stopwatch"></i> Track time</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link py-1 {{ 'active' if active == 'report' }}"
+         href="{{ url_for('timetracking.report', team=team.pk if team else none) }}">
+        <i class="bi bi-table"></i> Report</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link py-1 {{ 'active' if active == 'manage' }}"
+         href="{{ url_for('timetracking.index', team=team.pk if team else none) }}">
+        <i class="bi bi-gear"></i> Customers &amp; projects</a>
+    </li>
+  </ul>
+
+  {% if team %}
+    {# The team the report and the management pages operate in. The day sheet
+       spans every team you're in, so it doesn't show this at all. #}
+    {% if all_teams and all_teams|length > 1 %}
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                data-bs-toggle="dropdown" title="Switch team">
+          <i class="bi bi-people"></i> {{ team.name }}
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          {% for t in all_teams %}
+            <li><a class="dropdown-item {% if t == team %}active{% endif %}"
+                   href="{{ url_for(request.endpoint, team=t.pk|string) }}">
+              {% if current_user.tt_default_team == t.pk|string %}<i class="bi bi-pin-angle-fill"></i>{% endif %}
+              {{ t.name }}</a></li>
+          {% endfor %}
+          <li><hr class="dropdown-divider"></li>
+          <li>
+            {# Pin the current team so the module stops opening in whichever
+               team happens to sort first. #}
+            <form method="post" action="{{ url_for('timetracking.set_default_team') }}" class="px-2">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="team" value="{{ team.pk }}">
+              <button class="btn btn-sm btn-outline-secondary w-100">
+                <i class="bi bi-pin-angle"></i>
+                {% if current_user.tt_default_team == team.pk|string %}
+                  Don't open here by default
+                {% else %}
+                  Always open in “{{ team.name }}”
+                {% endif %}
+              </button>
+            </form>
+          </li>
+        </ul>
+      </div>
+    {% else %}
+      <span class="badge text-bg-light text-muted"><i class="bi bi-people"></i> {{ team.name }}</span>
+    {% endif %}
+  {% endif %}
+</div>
+{%- endmacro -%}

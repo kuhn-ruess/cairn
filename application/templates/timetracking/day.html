@@ -1,8 +1,12 @@
 {% extends "layout/base.html" %}
 {% block title %}Time — {{ d.day.strftime('%d.%m.%Y') }}{% endblock %}
 {% block content %}
+{% import "timetracking/_nav.html" as nav with context %}
+{{ nav.tt_nav('track') }}
+
+{# The day being looked at, and how to move between days. #}
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-  <h1 class="h4 mb-0 me-auto"><i class="bi bi-stopwatch"></i> Time</h1>
+  <h1 class="h4 mb-0 me-2">{{ d.day.strftime('%A, %d.%m.%Y') }}</h1>
   <div class="btn-group btn-group-sm">
     <a class="btn btn-outline-secondary"
        href="{{ url_for('timetracking.day', d=d.prev_day.isoformat()) }}"
@@ -18,13 +22,10 @@
            class="form-control form-control-sm" style="max-width: 10rem;"
            onchange="this.form.submit()">
   </form>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('timetracking.report') }}">
-    <i class="bi bi-table"></i> Report</a>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('timetracking.index') }}">
-    <i class="bi bi-person-vcard"></i> Customers &amp; projects</a>
+  <span class="text-muted small ms-auto">
+    {{ d.total_minutes|duration }} today · {{ d.week_minutes|duration }} this week
+  </span>
 </div>
-
-<h2 class="h5 mb-3">{{ d.day.strftime('%A, %d.%m.%Y') }}</h2>
 
 {% include "timetracking/_day_body.html" %}
 {% endblock %}
