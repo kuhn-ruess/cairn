@@ -177,10 +177,16 @@ def index():
     for it in linked:
         links_by_project.setdefault(str(it.time_project.id), []).append(it)
 
-    # Containers the user can attach (their own projects/folders).
+    # Containers the user can attach, labelled with their full breadcrumb
+    # ("🗂️  Work / Acme / Website") — a bare title doesn't say *which* of the
+    # three "Website" projects you are about to bill. Same picker builder the
+    # task and project inspectors use. Owner-only, matching what link_item
+    # accepts. The map doubles as the label source for the already-linked list
+    # below, so both read the same way.
     user = current_user._get_current_object()
-    linkable = list(Item.objects(owner=user, kind__in=["project", "folder"])
-                    .only("id", "title", "kind").order_by("+title"))
+    from application.services.containers import container_choices
+    linkable = container_choices(user, selectable_kinds=("project", "folder"))
+    link_labels = dict(linkable)
 
     # Budget vs. actual — one bucket pass for the whole team, then a status per
     # project (None when no budget set).
@@ -200,6 +206,7 @@ def index():
         by_customer=by_customer,
         links_by_project=links_by_project,
         linkable=linkable,
+        link_labels=link_labels,
         budgets=budgets,
     )
 

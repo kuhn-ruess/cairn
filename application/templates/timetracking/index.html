@@ -239,9 +239,15 @@
           <div class="mt-2 ps-2 border-start">
             {% for it in links_by_project.get(p.id|string, []) %}
               <div class="d-flex align-items-center gap-2 small">
-                <span class="me-auto">
+                {# The full path, so it's obvious which "Website" this is. #}
+                <span class="me-auto text-truncate"
+                      title="{{ link_labels.get(it.id|string, it.title) }}">
                   <i class="bi bi-{{ 'folder' if it.kind == 'folder' else 'collection' }}"></i>
-                  {{ it.title }}
+                  {% set _path = link_labels.get(it.id|string) %}
+                  {% if _path %}
+                    {% set _parts = _path.split('  ', 1)[-1].split(' / ') %}
+                    {% if _parts|length > 1 %}<span class="text-muted">{{ _parts[:-1]|join(' / ') }} / </span>{% endif %}{{ _parts[-1] }}
+                  {% else %}{{ it.title }}{% endif %}
                 </span>
                 <form method="post" action="{{ url_for('timetracking.link_item') }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -256,10 +262,13 @@
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="team" value="{{ team.pk }}">
               <input type="hidden" name="project_id" value="{{ p.id }}">
-              <select name="item_id" class="form-select form-select-sm" style="max-width:320px;">
+              <select name="item_id" class="form-select form-select-sm"
+                      style="max-width:320px;"
+                      data-searchable-select="1"
+                      data-searchable-placeholder="Search folders / projects…">
                 <option value="">Link a folder / project…</option>
-                {% for it in linkable %}
-                  <option value="{{ it.id }}">{{ '📁 ' if it.kind == 'folder' else '📋 ' }}{{ it.title }}</option>
+                {% for pk, label in linkable %}
+                  <option value="{{ pk }}">{{ label }}</option>
                 {% endfor %}
               </select>
               <button class="btn btn-sm btn-outline-primary">Link</button>
