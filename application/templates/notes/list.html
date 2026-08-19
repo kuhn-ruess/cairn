@@ -1,17 +1,20 @@
 {% extends "layout/base.html" %}
 {% block title %}Notes · Cairn{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center mb-3">
-  <h1 class="h4 mb-0 me-auto"><i class="bi bi-journal-text text-success"></i> Notes</h1>
-</div>
 <div class="notes-wrap">
   {% include "notes/_nav.html" %}
+  {% include "notes/_list_column.html" %}
   <div class="notes-content">
-    {% if tree %}
-      <div class="text-muted">
-        <p>Select a note on the left, or create a new one with the
-        <i class="bi bi-plus-lg"></i> button.</p>
-      </div>
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-toggle-column="list"
+              title="Show/hide the note list"><i class="bi bi-list-ul"></i></button>
+      <h1 class="h5 mb-0"><i class="bi bi-journal-text text-success"></i> Notes</h1>
+    </div>
+    {% if rows %}
+      <p class="text-muted">Pick a note from the list, or create one with the
+      <i class="bi bi-plus-lg"></i> button.</p>
+    {% elif list_q or list_tag %}
+      <p class="text-muted">Nothing matches the current filter.</p>
     {% else %}
       <div class="text-center text-muted py-5">
         <i class="bi bi-journal-text" style="font-size: 2.5rem;"></i>
@@ -26,4 +29,5 @@
     {% endif %}
   </div>
 </div>
+<script src="{{ asset('js/notes-list.js') }}"></script>
 {% endblock %}

@@ -186,6 +186,7 @@ class Item(Document):
             "next_review_at",
             "trashed_at",
             "depends_on",
+            "note_links",
             ("owner", "kind"),
             ("owner", "status"),
             # Template library items are hidden from every normal list by the
@@ -381,6 +382,13 @@ class Item(Document):
     # linked via the symmetric ``related`` field instead, so they back-link
     # automatically from the task side too.
     linked_events = EmbeddedDocumentListField(LinkedEvent)
+
+    # Note-to-note wiki links: the notes this note's body references via
+    # ``[[Title]]``. DIRECTED and derived — rebuilt from the body on every
+    # save (services/note_links.py), never edited by hand. Backlinks
+    # ("linked mentions") are the reverse query ``Item.objects(note_links=x)``,
+    # which is why this is stored instead of scanning bodies with a regex.
+    note_links = ListField(ReferenceField("Item"))
 
     # ----- project-flavoured fields -----
     project_type = StringField(choices=PROJECT_TYPES, default="parallel")

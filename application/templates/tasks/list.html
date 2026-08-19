@@ -46,6 +46,30 @@
   </a>
 </div>
 
+{% if note_hits is defined and note_hits %}
+  {# Notes matching the same search. Their own strip: a note has no due date,
+     project or status, so it can't be a row in the task list. #}
+  <div class="list-group mb-3" style="max-width: 48rem;">
+    <div class="list-group-item bg-body-tertiary py-1 small text-muted text-uppercase">
+      <i class="bi bi-journal-text"></i> Notes ({{ note_total }})
+    </div>
+    {% for n in note_hits %}
+      <a class="list-group-item list-group-item-action d-flex align-items-center gap-2 py-2"
+         href="{{ url_for('notes.detail', note_id=n.pk) }}">
+        <i class="bi bi-journal-text text-success"></i>
+        <span class="text-truncate">{{ n.title }}</span>
+        <span class="ms-auto small text-muted flex-shrink-0">{{ n.updated_at|timeago }}</span>
+      </a>
+    {% endfor %}
+    {% if note_total > note_hits|length %}
+      <a class="list-group-item list-group-item-action small"
+         href="{{ url_for('notes.index', q=query) }}">
+        Show all {{ note_total }} in Notes →
+      </a>
+    {% endif %}
+  </div>
+{% endif %}
+
 {% if calendar_events is defined and calendar_events %}
   <div class="calendar-events mb-3">
     <h2 class="h6 text-muted small text-uppercase mb-2">

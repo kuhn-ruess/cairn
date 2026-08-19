@@ -11,8 +11,11 @@
 </style>
 <div class="notes-wrap">
   {% include "notes/_nav.html" %}
+  {% include "notes/_list_column.html" %}
   <div class="notes-content">
     <div class="d-flex align-items-center mb-3">
+      <button type="button" class="btn btn-sm btn-outline-secondary me-2" data-toggle-column="list"
+              title="Show/hide the note list"><i class="bi bi-list-ul"></i></button>
       <h1 class="h4 mb-0 me-auto">
         {{ item_icon(folder) }} {{ folder.name }}
       </h1>
@@ -85,4 +88,5 @@
 
 {# ---- Share modal ---- #}
 {% include "notes/_share_modal.html" %}
+<script src="{{ asset('js/notes-list.js') }}"></script>
 {% endblock %}

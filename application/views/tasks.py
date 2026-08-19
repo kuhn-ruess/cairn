@@ -1682,21 +1682,28 @@ def search():
     q = (request.args.get("q") or "").strip()
     if not q:
         return render_template("tasks/list.html", title="Search", perspective="search", tasks=[])
+    hits = _scope(user) & (
+        Q(title__icontains=q)
+        | Q(note__icontains=q)
+        | Q(external_ref__icontains=q)
+    )
     tasks = _filter_by_project(
-        Item.objects(
-            _scope(user) & (
-                Q(title__icontains=q)
-                | Q(note__icontains=q)
-                | Q(external_ref__icontains=q)
-            )
-        ),
-        user,
+        Item.objects(hits, kind="task"), user,
     ).order_by("-updated_at").limit(200)
+    # Notes match on the same terms but are a different kind of result — they
+    # get their own strip above the task list rather than being rendered as
+    # rows in it (they have no due date, project or status to show).
+    notes = list(Item.objects(hits, kind="note")
+                 .only("pk", "title", "updated_at")
+                 .order_by("-updated_at").limit(5))
+    note_total = Item.objects(hits, kind="note").count() if notes else 0
     return render_template(
         "tasks/list.html",
         title=f"Search: {q}",
         perspective="search",
         tasks=tasks,
+        note_hits=notes,
+        note_total=note_total,
         query=q,
     )
 
@@ -1706,22 +1713,34 @@ def search():
 def quickjump():
     """JSON endpoint backing the cmd-K-style command bar.
 
-    Returns up to 20 items (projects + tasks) matching ``q`` by title.
-    Projects come first so navigation by project name is reliable."""
+    Returns up to 20 items matching ``q`` by title. Projects come first so
+    navigation by project name is reliable.
+
+    ``?kinds=`` picks what may come back. It defaults to projects + tasks
+    because most callers (the Related and Dependency pickers) can only accept
+    those — the server drops anything else, so offering a note there would be
+    a result that silently does nothing. The command bar opts notes in."""
     from flask import jsonify
     user = current_user._get_current_object()
     q = (request.args.get("q") or "").strip()
+    kinds = {k for k in (request.args.get("kinds") or "").split(",") if k}
+    if not kinds:
+        kinds = {"project", "folder", "task"}
     if not q:
         return jsonify({"results": []})
     base = _scope(user) & (
         Q(title__icontains=q) | Q(external_ref__icontains=q)
     )
+    want = [k for k in ("project", "folder") if k in kinds]
     projects = list(
-        Item.objects(base, kind__in=["project", "folder"]).order_by("+name").limit(8)
-    )
+        Item.objects(base, kind__in=want).order_by("+name").limit(8)
+    ) if want else []
     tasks = list(
         Item.objects(base, kind="task").order_by("-updated_at").limit(12)
-    )
+    ) if "task" in kinds else []
+    notes = list(
+        Item.objects(base, kind="note").order_by("-updated_at").limit(6)
+    ) if "note" in kinds else []
     out = []
     for p in projects:
         out.append({
@@ -1730,6 +1749,14 @@ def quickjump():
             "title": p.title,
             "url": url_for("projects.detail", project_id=str(p.pk)),
             "subtitle": (p.parent.title if p.parent else ""),
+        })
+    for n in notes:
+        out.append({
+            "id": str(n.pk),
+            "kind": "note",
+            "title": n.title,
+            "url": url_for("notes.detail", note_id=str(n.pk)),
+            "subtitle": (n.parent.title if n.parent else "Notes"),
         })
     for t in tasks:
         out.append({

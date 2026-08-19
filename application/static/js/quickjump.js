@@ -23,6 +23,7 @@
   function iconFor(kind) {
     if (kind === "project") return "bi-folder";
     if (kind === "folder") return "bi-folder2-open";
+    if (kind === "note") return "bi-journal-text";
     return "bi-check2-circle";
   }
 
@@ -55,7 +56,7 @@
     }
     try {
       const resp = await fetch(
-        "/tasks/quickjump?q=" + encodeURIComponent(q),
+        "/tasks/quickjump?kinds=project,folder,task,note&q=" + encodeURIComponent(q),
         { signal: fetchAbort.signal }
       );
       if (!resp.ok) return;

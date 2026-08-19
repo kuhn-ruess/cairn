@@ -931,6 +931,11 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
 .md-body p { margin: 0 0 .35em; }
 .md-body ul, .md-body ol { margin: .1em 0 .35em 1.25em; padding: 0; }
 .md-body li { margin: 0; }
+/* Markdown task lists (``- [ ]`` / ``- [x]``, see filters._checkboxes): the
+   checkbox stands in for the bullet, so drop the marker and pull the row back
+   flush. Interactive only inside a note body — elsewhere they render disabled. */
+.md-body li.md-task { list-style: none; margin-left: -1.15em; }
+.md-body li.md-task input { margin-right: .4em; vertical-align: -1px; }
 .md-body code {
   font-size: .88em;
   padding: 0 .25em;

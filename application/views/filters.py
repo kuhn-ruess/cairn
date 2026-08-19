@@ -55,13 +55,46 @@ def _link_target(attrs, new=False):
     tab just hands off to Mail/Phone/DEVONthink and leaves an empty tab behind
     to close. External links also get ``rel`` hardening."""
     href = attrs.get((None, "href"), "")
-    if _is_handoff(href):
+    # Internal links (a [[wiki link]] to another note, /tasks/<id>, /static/…)
+    # are navigation inside Cairn, not an outbound jump — they stay in the tab.
+    if _is_handoff(href) or not _SCHEME_RE.match(href):
         attrs.pop((None, "target"), None)
         attrs.pop((None, "rel"), None)
         return attrs
     attrs[(None, "target")] = "_blank"
     attrs[(None, "rel")] = "nofollow noopener noreferrer"
     return attrs
+
+
+# ``- [ ] todo`` / ``- [x] done`` inside a note body. Python-Markdown has no
+# task-list extension bundled, so the brackets survive into the rendered <li>
+# and we swap them for a real checkbox here. ``data-md-task`` is the checkbox's
+# ordinal in the SOURCE (same order markdown emits them), which is how the JS
+# toggles the right line back in the Markdown without parsing it.
+_MD_TASK_RE = re.compile(r"(<li[^>]*>)\s*(<p>\s*)?\[([ xX])\]\s*")
+
+
+def _checkboxes(html: str, interactive: bool = False) -> str:
+    """Turn the literal ``[ ]`` / ``[x]`` markers markdown left in list items
+    into checkboxes. No-op for text that has none.
+
+    Only the note body wires up a click handler (notes/detail.html), so
+    everywhere else they render disabled — a checkbox you can tick that
+    silently forgets is worse than one that plainly can't be ticked.
+    """
+    if "[" not in html:
+        return html
+    counter = [0]
+
+    def repl(m):
+        idx = counter[0]
+        counter[0] += 1
+        checked = " checked" if m.group(3).lower() == "x" else ""
+        state = "" if interactive else " disabled"
+        return (f'<li class="md-task">{m.group(2) or ""}'
+                f'<input type="checkbox" data-md-task="{idx}"{checked}{state}> ')
+
+    return _MD_TASK_RE.sub(repl, html)
 
 
 def _a_attr_ok(tag, name, value):
@@ -379,7 +412,7 @@ def register_filters(app):
         return f"{s},{frac:02d} €"
 
     @app.template_filter("markdown")
-    def markdown_filter(value):
+    def markdown_filter(value, interactive_tasks=False):
         """Render Markdown to safe HTML for note bodies + comments.
 
         Notes are stored as Markdown (importers convert HTML → Markdown
@@ -396,17 +429,21 @@ def register_filters(app):
             str(value),
             extensions=["fenced_code", "tables", "nl2br", "sane_lists"],
         )
+        html = _checkboxes(html, interactive_tasks)
         cleaned = bleach.clean(
             html,
             tags=[
                 "p", "br", "strong", "em", "del", "ul", "ol", "li",
                 "blockquote", "code", "pre", "h1", "h2", "h3", "h4",
                 "h5", "h6", "a", "hr", "table", "thead", "tbody", "tr",
-                "th", "td", "img",
+                "th", "td", "img", "input",
             ],
             attributes={
                 "a": _a_attr_ok,
                 "img": _img_attr_ok,
+                "input": ["type", "checked", "disabled", "data-md-task"],
+                "li": ["class"],
+                "ul": ["class"],
             },
             # ``data`` is needed for the inline (pasted, compressed) images we
             # store in the note itself. It's only honoured on ``img src`` and
@@ -430,6 +467,21 @@ def register_filters(app):
             cleaned, callbacks=[_link_target], skip_tags=["pre", "code"],
         )
         return Markup(cleaned)
+
+    @app.template_filter("note_md")
+    def note_md_filter(value, wiki_index=None):
+        """``markdown``, plus ``[[Note title]]`` wiki links resolved against
+        ``wiki_index`` (see services/note_links). Used wherever a NOTE body is
+        rendered; comments and task notes keep the plain ``markdown`` filter so
+        a stray "[[" there stays literal."""
+        from flask import url_for
+        from application.services import note_links
+        if value and wiki_index is not None:
+            value = note_links.expand(
+                value, wiki_index,
+                new_note_url=lambda t: url_for("notes.new", kind="note", title=t),
+            )
+        return markdown_filter(value, interactive_tasks=True)
 
     @app.template_filter("timeago")
     def timeago(value):

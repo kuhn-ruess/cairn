@@ -42,7 +42,8 @@ def notes_tree_for_sidebar(user):
         Item.objects(
             container_visibility_q(user)
             & (Q(kind="note") | Q(kind="folder", folder_domain="notes"))
-        ).only("pk", "title", "kind", "parent", "color", "members", "owner", "shared_teams")
+        ).only("pk", "title", "kind", "parent", "color", "members", "owner",
+              "shared_teams", "tags")
     )
     by_id = {str(i.pk): i for i in items}
     children: dict = {}
@@ -117,6 +118,129 @@ def _folder_choices(user, *, exclude_pk=None):
     return out
 
 
+# ---------- note list (the middle column) ----------
+
+# What a list row needs. Projected explicitly so the query never drags the
+# inline image/file BLOBS (megabytes per note) into a 200-row list — only the
+# image token, which is enough to build a lazy <img> URL.
+_LIST_FIELDS = (
+    "pk", "title", "note", "updated_at", "created_at", "tags", "parent",
+    "owner", "members", "shared_teams", "note_images__token",
+    "note_files__filename",
+)
+
+NOTE_SORTS = {
+    "updated": "-updated_at",
+    "created": "-created_at",
+    "title": None,  # sorted in Python — Mongo's sort is case-sensitive
+}
+
+
+def _raw_parent_id(item) -> str:
+    """The parent's id WITHOUT dereferencing it — accessing ``item.parent`` in
+    a list loop fires one query per row (see CLAUDE.md: minimise DB load)."""
+    ref = item._data.get("parent")
+    if ref is None:
+        return ""
+    return str(getattr(ref, "id", getattr(ref, "pk", "")) or "")
+
+
+def _folder_scope(tree, folder_id: str):
+    """``[pk, …]`` for a folder plus every folder nested under it, read out of
+    the already-built sidebar tree (depth-first, so a folder's descendants are
+    exactly the following entries with a greater depth). ``None`` = no folder
+    filter."""
+    if not folder_id:
+        return None
+    out, collecting, base_depth = [], False, 0
+    for depth, it in tree:
+        if collecting and depth <= base_depth:
+            break
+        if collecting:
+            if it.kind == "folder":
+                out.append(it.pk)
+            continue
+        if str(it.pk) == folder_id and it.kind == "folder":
+            collecting, base_depth = True, depth
+            out.append(it.pk)
+    return out or None
+
+
+def _note_rows(user, tree, *, folder="", tag="", q="", sort="updated", limit=200):
+    """The middle column: every note in scope, as plain dicts.
+
+    One query, everything projected up front. Folder names and tag colours come
+    from data already in memory (the sidebar tree / ``user.tags``), so
+    rendering the list fires no further queries no matter how long it is.
+    """
+    from application.services.permissions import container_visibility_q
+
+    qs = Item.objects(container_visibility_q(user) & Q(kind="note"))
+    if folder == "unfiled":
+        qs = qs.filter(parent=None)
+    else:
+        scope = _folder_scope(tree, folder)
+        if scope is not None:
+            qs = qs.filter(parent__in=scope)
+    if tag:
+        qs = qs.filter(tags=tag)
+    if q:
+        qs = qs.filter(Q(title__icontains=q) | Q(note__icontains=q))
+
+    order = NOTE_SORTS.get(sort, "-updated_at")
+    qs = qs.only(*_LIST_FIELDS)
+    notes = list(qs.order_by(order).limit(limit) if order else qs.limit(limit))
+    if order is None:
+        notes.sort(key=lambda n: (n.title or "").lower())
+
+    folder_names = {str(it.pk): it.name for _d, it in tree if it.kind == "folder"}
+    rows = []
+    for n in notes:
+        imgs = n.note_images or []
+        rows.append({
+            "id": str(n.pk),
+            "title": n.title or "Untitled note",
+            "snippet": (_search_snippet(n.note, q) if q
+                        else _note_preview(n.note, 160)),
+            "updated_at": n.updated_at,
+            "created_at": n.created_at,
+            "tags": n.tags or [],
+            "folder": folder_names.get(_raw_parent_id(n), ""),
+            "thumb": imgs[0].token if imgs else "",
+            "files": len(n.note_files or []),
+            "shared": bool(n._data.get("members") or n._data.get("shared_teams")),
+        })
+    return rows
+
+
+def _list_context(user, tree, args):
+    """Shared state for the middle column: the current filter/sort plus the
+    rows it selects. Every notes page renders the same partial from this."""
+    folder = (args.get("folder") or "").strip()
+    tag = (args.get("tag") or "").strip()
+    q = (args.get("q") or "").strip()
+    sort = (args.get("sort") or "updated").strip()
+    if sort not in NOTE_SORTS:
+        sort = "updated"
+    return {
+        "rows": _note_rows(user, tree, folder=folder, tag=tag, q=q, sort=sort),
+        "list_folder": folder,
+        "list_tag": tag,
+        "list_q": q,
+        "list_sort": sort,
+        "folder_name": next(
+            (it.name for _d, it in tree if str(it.pk) == folder), ""),
+    }
+
+
+def _wiki_index(tree):
+    """``[[Title]]`` → note lookup built from the tree that's already loaded,
+    so wiki links cost no extra query (see services/note_links)."""
+    from application.services import note_links
+    return note_links.title_index(
+        None, notes=[it for _d, it in tree if it.kind == "note"])
+
+
 # ---------- views ----------
 
 @notes_bp.route("/")
@@ -124,7 +248,35 @@ def _folder_choices(user, *, exclude_pk=None):
 def index():
     user = current_user._get_current_object()
     tree = notes_tree_for_sidebar(user)
-    return render_template("notes/list.html", tree=tree, note=None)
+    return render_template(
+        "notes/list.html", tree=tree, note=None,
+        tag_filter_choices=_tag_filter_choices(user, tree),
+        **_list_context(user, tree, request.args),
+    )
+
+
+@notes_bp.route("/list")
+@login_required
+def list_partial():
+    """The middle column on its own — the list's search/sort/filter controls
+    swap it in place instead of reloading the page (and losing the editor)."""
+    user = current_user._get_current_object()
+    tree = notes_tree_for_sidebar(user)
+    ctx = _list_context(user, tree, request.args)
+    return render_template(
+        "notes/_list_column.html", note=None, tree=tree,
+        tag_filter_choices=_tag_filter_choices(user, tree), **ctx,
+    )
+
+
+def _tag_filter_choices(user, tree):
+    """Tags actually used by the user's notes, for the list filter. Counted
+    from the tags already loaded on the tree rows — no extra query."""
+    seen = {}
+    for _d, it in tree:
+        for name in (it.tags or []):
+            seen[name] = seen.get(name, 0) + 1
+    return sorted(seen.items(), key=lambda kv: kv[0].lower())
 
 
 @notes_bp.route("/<note_id>")
@@ -132,6 +284,8 @@ def index():
 def detail(note_id):
     user = current_user._get_current_object()
     item = _note_or_404(note_id)
+    tree = notes_tree_for_sidebar(user)
+    list_ctx = _list_context(user, tree, request.args)
     # A folder has no body of its own — show an overview of its contents and
     # let the user manage sharing/rights for the whole subtree.
     if item.kind == "folder":
@@ -148,7 +302,8 @@ def detail(note_id):
             note=item,
             folder=item,
             children=children,
-            tree=notes_tree_for_sidebar(user),
+            tree=tree,
+            tag_filter_choices=_tag_filter_choices(user, tree),
             can_edit=item.can_be_edited_by(user),
             is_owner=(item.owner == user),
             member_choices=_member_choices(user),
@@ -156,11 +311,12 @@ def detail(note_id):
             team_choices=_team_choices(user),
             selected_teams=[str(t.pk) for t in (item.shared_teams or [])],
             access=item.effective_viewers(),
+            **list_ctx,
         )
-    tree = notes_tree_for_sidebar(user)
     related = item.related_items()
     linked_tasks = [r for r in related if r.kind == "task"]
     linked_projects = [r for r in related if r.kind == "project"]
+    from application.services import note_links
     # Reuse the task tag picker's tree builder (imported lazily — tasks.py
     # pulls in a lot and importing it at module load would risk a cycle).
     from application.views.tasks import _tag_choices_tree
@@ -170,7 +326,12 @@ def detail(note_id):
         tree=tree,
         linked_tasks=linked_tasks,
         linked_projects=linked_projects,
+        backlinks=note_links.backlinks(item, user),
+        wiki_index=_wiki_index(tree),
+        word_count=len(re.findall(r"[\w'-]+", item.note or "")),
+        base_stamp=_stamp(item.updated_at),
         tag_choices=_tag_choices_tree(user.tags or []),
+        tag_filter_choices=_tag_filter_choices(user, tree),
         can_edit=item.can_be_edited_by(user),
         is_owner=(item.owner == user),
         folder_choices=_folder_choices(user, exclude_pk=item.pk),
@@ -179,6 +340,7 @@ def detail(note_id):
         team_choices=_team_choices(user),
         selected_teams=[str(t.pk) for t in (item.shared_teams or [])],
         access=item.effective_viewers(),
+        **list_ctx,
     )
 
 
@@ -194,16 +356,53 @@ def _team_choices(user):
     return [(str(t.pk), t.name) for t in teams_of(user)]
 
 
-def _note_preview(text, limit=200):
-    """A short plain-text snippet of a note's markdown body, for the mail-style
-    folder preview. Drops images, unwraps links to their text, strips markdown
-    punctuation and collapses whitespace."""
+def _plain(text) -> str:
+    """A note's markdown body as flat prose: images dropped, links unwrapped to
+    their text, markdown punctuation stripped, whitespace collapsed."""
     s = text or ""
     s = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", s)        # images out
     s = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", s)     # links → their text
+    s = re.sub(r"\[\[([^\[\]|]*)(?:\|([^\[\]]*))?\]\]", r"\2\1", s)  # wiki links
+    s = re.sub(r"\[([ xX])\]",
+               lambda m: "☑" if m.group(1).lower() == "x" else "☐", s)
     s = re.sub(r"[`*_#>~]|(?<!\w)-(?!\w)", " ", s)      # md punctuation
-    s = re.sub(r"\s+", " ", s).strip()
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _note_preview(text, limit=200):
+    """A short plain-text snippet of a note's body, for the list rows."""
+    s = _plain(text)
     return (s[:limit] + "…") if len(s) > limit else s
+
+
+def _search_snippet(text, q, limit=180):
+    """Preview centred on the search hit, with the match marked. Returns HTML
+    (escaped here — the caller prints it raw), because a plain-text snippet
+    can't say WHERE it matched, which is the whole point of a search result."""
+    from markupsafe import Markup, escape
+    s = _plain(text)
+    if not q:
+        return _note_preview(text, limit)
+    hit = s.lower().find(q.lower())
+    if hit < 0:
+        return _note_preview(text, limit)   # matched the title, not the body
+    start = max(0, hit - limit // 3)
+    end = min(len(s), start + limit)
+    body = ("…" if start else "") + s[start:end] + ("…" if end < len(s) else "")
+    pos = hit - start + (1 if start else 0)
+    return Markup("{}<mark>{}</mark>{}").format(
+        body[:pos], body[pos:pos + len(q)], body[pos + len(q):])
+
+
+def _stamp(dt) -> str:
+    """A note version marker for the autosave's conflict check. Millisecond
+    precision: Mongo stores milliseconds, so comparing the microsecond-precise
+    in-memory value against a re-read one would report a phantom conflict."""
+    if not dt:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat(timespec="milliseconds")
 
 
 @notes_bp.route("/new", methods=["GET", "POST"])
@@ -248,26 +447,97 @@ def new():
         "notes/form.html", kind=kind,
         folder_choices=_folder_choices(user),
         parent_id=raw_parent,
+        prefill_title=(request.args.get("title") or "").strip(),
     )
 
 
 @notes_bp.route("/<note_id>/edit", methods=["POST"])
 @login_required
 def edit(note_id):
-    """Save title and/or Markdown body from the inline editor. Returns the
-    rendered note partial for AJAX callers (X-Partial), else redirects."""
+    """Save title and/or Markdown body from the editor (the autosave posts
+    here). Returns the re-rendered body for AJAX callers (X-Partial), else
+    redirects.
+
+    ``base_stamp`` is the version the editor started from. If the stored note
+    moved on since (a second tab, a share partner), we refuse rather than
+    overwrite and hand back the current text so the client can show it — an
+    autosave that silently clobbers someone else's paragraph is the one bug
+    this feature must not have.
+    """
     item = _editable_note_or_404(note_id, kinds=("note",))
+    user = current_user._get_current_object()
+    base = (request.form.get("base_stamp") or "").strip()
+    if base and base != _stamp(item.updated_at):
+        return jsonify({
+            "ok": False, "conflict": True,
+            "title": item.title, "note": item.note,
+            "stamp": _stamp(item.updated_at),
+        }), 409
     if "title" in request.form:
         title = (request.form.get("title") or "").strip()
         item.title = title or "Untitled note"
     if "note" in request.form:
         item.note = request.form.get("note", "") or ""
+    from application.services import note_links
+    # Only pay for the title lookup when wiki links are actually in play —
+    # autosave posts this route every few seconds.
+    index = {}
+    if "note" in request.form and ("[[" in (item.note or "")
+                                   or item._data.get("note_links")):
+        index = note_links.title_index(user)
+        note_links.rebuild(item, index)
     item.save()
     if request.headers.get("X-Partial") == "1":
-        html = current_app.jinja_env.filters["markdown"](item.note)
+        html = current_app.jinja_env.filters["note_md"](item.note, index)
         return jsonify({"ok": True, "title": item.title, "note": item.note,
-                        "html": html})
+                        "html": html, "stamp": _stamp(item.updated_at),
+                        "words": len(re.findall(r"[\w'-]+", item.note or "")),
+                        "updated": item.updated_at.isoformat() if item.updated_at else ""})
     return redirect(url_for("notes.detail", note_id=str(item.pk)))
+
+
+@notes_bp.route("/titles")
+@login_required
+def titles():
+    """Note titles for the editor's ``[[`` autocomplete."""
+    user = current_user._get_current_object()
+    q = (request.args.get("q") or "").strip().lower()
+    from application.services.permissions import container_visibility_q
+    notes = Item.objects(
+        container_visibility_q(user) & Q(kind="note")
+    ).only("pk", "title").order_by("-updated_at").limit(300)
+    out = [{"id": str(n.pk), "title": n.title or "Untitled note"} for n in notes]
+    if q:
+        out = [o for o in out if q in o["title"].lower()]
+    return jsonify({"results": out[:12]})
+
+
+# The nth ``- [ ]`` / ``- [x]`` line of a Markdown body, in the same order the
+# renderer numbers its checkboxes (see filters._checkboxes).
+_TASK_LINE_RE = re.compile(r"^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\]", re.M)
+
+
+@notes_bp.route("/<note_id>/toggle-task", methods=["POST"])
+@login_required
+def toggle_task(note_id):
+    """Tick/untick a checklist line straight from the rendered note, without
+    dropping into the editor."""
+    item = _editable_note_or_404(note_id, kinds=("note",))
+    try:
+        idx = int(request.form.get("index", ""))
+    except ValueError:
+        return jsonify({"error": "bad index"}), 400
+    matches = list(_TASK_LINE_RE.finditer(item.note or ""))
+    if not 0 <= idx < len(matches):
+        return jsonify({"error": "no such checkbox"}), 404
+    m = matches[idx]
+    checked = m.group(2).lower() == "x"
+    body = item.note
+    item.note = (body[:m.start()] + m.group(1) + ("[ ]" if checked else "[x]")
+                 + body[m.end():])
+    item.save()
+    return jsonify({"ok": True, "checked": not checked,
+                    "stamp": _stamp(item.updated_at)})
 
 
 @notes_bp.route("/<note_id>/move", methods=["POST"])
@@ -394,7 +664,9 @@ def set_tags(note_id):
         final.append(name)
     item.tags = final
     item.save()
-    return jsonify({"ok": True, "tags": final})
+    # Hand back the new version marker: this save moved ``updated_at``, and the
+    # editor's autosave would otherwise report a conflict against itself.
+    return jsonify({"ok": True, "tags": final, "stamp": _stamp(item.updated_at)})
 
 
 # ---------- calendar event links (snapshotted on the note) ----------
@@ -574,6 +846,9 @@ def note_image_upload(note_id):
     payload = {
         "markdown": f"![pasted image]({url_for('notes.note_image', note_id=str(item.pk), token=token)})",
         "storage": item.storage_info(),
+        # The upload saved the item, so the editor's autosave needs the new
+        # version marker or its next post would look like a conflict.
+        "stamp": _stamp(item.updated_at),
     }
     if size > ITEM_WARN_BYTES:
         payload["warning"] = f"This note is getting large ({size / 1024 / 1024:.1f} MB of 16 MB max) — consider removing some images."
@@ -606,7 +881,8 @@ def note_file_upload(note_id):
         return jsonify({"error": result[0]}), result[1]
     label = result["filename"].replace("[", "").replace("]", "")
     url = url_for("notes.note_file", note_id=str(item.pk), token=result["token"])
-    payload = {"markdown": f"[{label}]({url})", "storage": result["storage"]}
+    payload = {"markdown": f"[{label}]({url})", "storage": result["storage"],
+               "stamp": _stamp(item.updated_at)}
     if result["size"] > ITEM_WARN_BYTES:
         payload["warning"] = (f"This note is getting large "
                               f"({result['size'] / 1024 / 1024:.1f} MB of 16 MB max) "
