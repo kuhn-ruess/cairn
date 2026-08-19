@@ -198,6 +198,11 @@ def profile():
         user.task_row_hidden = [
             key for key, _, _ in TASK_ROW_FIELDS if key not in visible
         ]
+        # Premium/team only: free accounts keep their plan window, which is
+        # part of what the plan is rather than a preference. Checked against the
+        # live level, so a lapsed subscription starts sweeping again.
+        user.keep_completed_forever = bool(
+            user.is_premium and request.form.get("keep_completed_forever") == "1")
         try:
             user.completed_task_retention_days = max(
                 int(request.form.get("retention_days") or 0), 0

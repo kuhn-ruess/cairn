@@ -166,8 +166,11 @@ def purge_completed_tasks_all(*, dry_run: bool = False) -> dict:
     actually had tasks swept."""
     from application.models.user import User
     per_user = {}
+    # ``only()`` leaves unloaded fields at their default — omitting the
+    # keep-forever flag here would sweep the very users who switched it off.
     for user in User.objects.only(
-        "id", "username", "level", "completed_task_retention_days"
+        "id", "username", "level", "completed_task_retention_days",
+        "keep_completed_forever", "team",
     ):
         n = purge_completed_tasks(user, dry_run=dry_run)
         if n:

@@ -180,6 +180,10 @@ class User(UserMixin, Document):
     # plan's limit (see ``effective_retention_days``). ``0`` = use the plan
     # default (free 60d / premium 180d). Sweep: ``cairn cleanup-completed-tasks``.
     completed_task_retention_days = IntField(default=0, min_value=0)
+    # Premium (and team) users may switch the sweep off entirely and keep their
+    # finished tasks for good. Free stays on its plan window — that limit is
+    # what the plan *is*, not a preference.
+    keep_completed_forever = BooleanField(default=False)
 
     # Trash: items deleted by the user are soft-deleted (Item.trashed_at) and
     # purged this many days later. ``0`` keeps trash until emptied by hand.
@@ -473,6 +477,12 @@ class User(UserMixin, Document):
     PREMIUM_RETENTION_DAYS = 180
 
     def effective_retention_days(self) -> int:
+        """Days a finished task is kept, or ``0`` for "never delete".
+
+        ``0`` is the same answer the purge already treats as "leave everything
+        alone", so switching the sweep off needs nothing further downstream."""
+        if self.is_premium and self.keep_completed_forever:
+            return 0
         tier = self.FREE_RETENTION_DAYS if (self.level or "free") == "free" \
             else self.PREMIUM_RETENTION_DAYS
         user_set = int(self.completed_task_retention_days or 0)

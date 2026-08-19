@@ -143,14 +143,33 @@
         on your {{ 'Free' if current_user.level == 'free' else 'Premium' }} plan.
         You can set a <em>shorter</em> window below (you can't keep them longer
         than your plan allows). <code>0</code> = use the plan default. The sweep
-        runs nightly. <span class="text-body">Currently kept: {{ plan_keep }} days.</span>
+        runs nightly.
+        <span class="text-body">
+          {% if plan_keep %}Currently kept: {{ plan_keep }} days.
+          {% else %}<strong>Currently kept: forever</strong> — nothing is swept.{% endif %}
+        </span>
       </p>
       <div class="d-flex gap-2 align-items-center">
         <input type="number" name="retention_days" min="0" max="3650"
                value="{{ current_user.completed_task_retention_days or 0 }}"
-               class="form-control form-control-sm" style="max-width: 8rem;">
+               class="form-control form-control-sm" style="max-width: 8rem;"
+               {% if current_user.is_premium and current_user.keep_completed_forever %}disabled{% endif %}>
         <span class="text-muted small">days (0 = plan default)</span>
       </div>
+      {% if current_user.is_premium %}
+        <label class="form-check small mt-2">
+          <input type="checkbox" name="keep_completed_forever" value="1"
+                 class="form-check-input"
+                 {% if current_user.keep_completed_forever %}checked{% endif %}>
+          <strong>Never delete finished tasks</strong> — keep them for good and
+          switch the nightly sweep off entirely.
+        </label>
+      {% else %}
+        <p class="text-muted small mt-2 mb-0">
+          Premium and team accounts can switch this off and keep finished tasks
+          for good.
+        </p>
+      {% endif %}
 
       <hr>
       <h2 class="h6 mb-1"><i class="bi bi-trash"></i> Trash retention</h2>
