@@ -158,15 +158,31 @@
   }
 
   // ---- duration vs. start/end ----------------------------------------------
-  // Which one you book with is a habit, not a per-entry decision, so the choice
-  // is remembered across pages and reloads.
-  const CLOCK_KEY = "cairn-tt-clock";
+  // The *project* decides which one the form asks for (set on the billing
+  // project, since it is a property of how that customer is billed, not of
+  // whoever happens to be logging). The toggle stays as a one-off override —
+  // for a forgotten entry you only remember the length of — and it lasts until
+  // the project changes, at which point that project's way wins again.
+  function projectMode(add) {
+    const sel = add.querySelector(".time-add-project");
+    const opt = sel && sel.selectedOptions[0];
+    return (opt && opt.dataset.mode) === "clock" ? "clock" : "duration";
+  }
+
   function applyClockMode(scope) {
-    const on = localStorage.getItem(CLOCK_KEY) === "1";
     (scope || document).querySelectorAll(".time-add").forEach((add) => {
       const dur = add.querySelector(".time-add-duration");
       const clock = add.querySelector(".time-add-clock");
       if (!dur || !clock) return;
+      const mode = projectMode(add);
+      // An override only survives while the project it was made for is still
+      // selected.
+      if (add.dataset.overrideFor && add.dataset.overrideFor !== currentProject(add)) {
+        delete add.dataset.override;
+        delete add.dataset.overrideFor;
+      }
+      const on = add.dataset.override
+        ? add.dataset.override === "clock" : mode === "clock";
       dur.classList.toggle("d-none", on);
       clock.classList.toggle("d-none", !on);
       clock.classList.toggle("d-flex", on);
@@ -178,6 +194,11 @@
                        : "Book start and end time instead of a duration";
       }
     });
+  }
+
+  function currentProject(add) {
+    const sel = add.querySelector(".time-add-project");
+    return sel ? sel.value : "";
   }
 
   function ensureDefaultDate(scope) {
@@ -200,7 +221,10 @@
   }).observe(document.body, { childList: true, subtree: true });
 
   document.addEventListener("change", (ev) => {
-    if (ev.target.closest(".time-add-project")) renderCustomFields();
+    if (ev.target.closest(".time-add-project")) {
+      renderCustomFields();
+      applyClockMode();
+    }
   });
 
   // ---- manual logging ------------------------------------------------------
@@ -329,11 +353,14 @@
     const clockToggle = t.closest(".tt-clock-toggle");
     if (clockToggle) {
       ev.preventDefault();
-      const on = localStorage.getItem(CLOCK_KEY) === "1";
-      localStorage.setItem(CLOCK_KEY, on ? "0" : "1");
-      applyClockMode();
       const add = clockToggle.closest(".time-add");
-      const focus = add && add.querySelector(on ? ".time-add-duration" : ".time-add-start");
+      if (!add) return;
+      const clock = add.querySelector(".time-add-clock");
+      const wasClock = clock && !clock.classList.contains("d-none");
+      add.dataset.override = wasClock ? "duration" : "clock";
+      add.dataset.overrideFor = currentProject(add);
+      applyClockMode(add);
+      const focus = add.querySelector(wasClock ? ".time-add-duration" : ".time-add-start");
       if (focus) focus.focus();
       return;
     }

@@ -105,6 +105,10 @@
             <span class="me-auto">
               <strong>{{ p.name }}</strong>
               {% if p.archived %}<span class="badge text-bg-secondary ms-1">archived</span>{% endif %}
+              {% if p.time_mode == 'clock' %}
+                <span class="badge text-bg-light text-muted" title="Booked by start and end time">
+                  <i class="bi bi-clock"></i> start–end</span>
+              {% endif %}
               {% for f in p.custom_fields %}
                 <span class="badge text-bg-light text-muted"
                       title="{{ 'Choices: ' ~ f.options|join(', ') if f.field_type == 'select' else 'Free text' }}">
@@ -142,6 +146,18 @@
                 </div>
                 <input type="text" name="note" value="{{ p.note }}" placeholder="Note"
                        class="form-control form-control-sm">
+
+                {# How the capture form asks for time on this project. #}
+                <div class="d-flex gap-1 align-items-center">
+                  <label class="small text-muted" style="min-width:5.5rem;">Track by</label>
+                  <select name="time_mode" class="form-select form-select-sm"
+                          style="max-width:170px;">
+                    <option value="duration" {% if p.time_mode != 'clock' %}selected{% endif %}>
+                      hours (1h30m)</option>
+                    <option value="clock" {% if p.time_mode == 'clock' %}selected{% endif %}>
+                      start – end (09:00–10:30)</option>
+                  </select>
+                </div>
 
                 {# ---- Custom fields asked for on every booking ----
                    One row per field plus a blank one to add the next. Clearing
@@ -293,6 +309,11 @@
                  class="form-control form-control-sm" style="max-width:240px;">
           <input type="text" name="hourly_rate" placeholder="€/h"
                  class="form-control form-control-sm" style="max-width:90px;">
+          <select name="time_mode" class="form-select form-select-sm"
+                  style="max-width:150px;" title="How time is entered here">
+            <option value="duration">hours</option>
+            <option value="clock">start – end</option>
+          </select>
           <button class="btn btn-sm btn-primary">Add project</button>
         </form>
       </li>

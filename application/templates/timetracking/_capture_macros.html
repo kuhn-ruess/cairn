@@ -15,6 +15,7 @@
         <optgroup label="{{ p.customer }}">
       {% endif %}
       <option value="{{ p.id }}" {% if p.id == selected %}selected{% endif %}
+              data-mode="{{ p.mode }}"
               data-fields="{{ p.fields|tojson|forceescape }}">{{ p.name }}</option>
       {% if loop.last %}</optgroup>{% endif %}
     {% endfor %}

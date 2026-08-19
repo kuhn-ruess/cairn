@@ -808,6 +808,8 @@ def project_create():
         hourly_rate_cents=_parse_rate_cents(request.form.get("hourly_rate")),
         budget_value=budget_value, budget_type=budget_type,
         custom_fields=parse_project_fields(_field_rows(request.form)),
+        time_mode=("clock" if request.form.get("time_mode") == "clock"
+                   else "duration"),
     ).save()
     flash(f"Project “{name}” created.", "success")
     return redirect(url_for("timetracking.index", team=team.pk))
@@ -826,6 +828,7 @@ def project_edit(pid):
     p.hourly_rate_cents = _parse_rate_cents(request.form.get("hourly_rate"))
     p.budget_value, p.budget_type = _parse_budget(request.form)
     p.custom_fields = parse_project_fields(_field_rows(request.form))
+    p.time_mode = "clock" if request.form.get("time_mode") == "clock" else "duration"
     p.archived = request.form.get("archived") == "1"
     p.save()
     flash("Project updated.", "success")

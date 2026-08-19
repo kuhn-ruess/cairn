@@ -297,7 +297,7 @@ def pickable_projects(user) -> list[dict]:
     raw = list(TimeTrackingProject.objects(
         team__in=teams, archived__ne=True
     ).only("name", "customer", "team", "hourly_rate_cents",
-           "custom_fields").as_pymongo())
+           "custom_fields", "time_mode").as_pymongo())
     if not raw:
         return []
     names = {c.id: c.name for c in Customer.objects(
@@ -309,6 +309,7 @@ def pickable_projects(user) -> list[dict]:
         "customer": names.get(r["customer"], "—"),
         "team_id": str(r["team"]),
         "hourly_rate_cents": r.get("hourly_rate_cents"),
+        "mode": r.get("time_mode") or "duration",
         # Field definitions travel with the picker so the capture form can ask
         # for them the moment a project is selected, without another round trip.
         "fields": [{"key": f.get("key"), "label": f.get("label"),

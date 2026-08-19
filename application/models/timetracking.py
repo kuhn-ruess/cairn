@@ -128,6 +128,14 @@ class TimeTrackingProject(Document):
     # TimeProjectField). Empty for a project that just wants hours and a note.
     custom_fields = EmbeddedDocumentListField(TimeProjectField)
 
+    # How time is normally entered here: a duration ("1h30m") or the clock
+    # ("09:00–10:30"). Some customers want the times of day on the sheet, most
+    # only want the hours — pinning it per project means nobody has to remember
+    # which, the capture form just asks the right way. A *default for the form*,
+    # not a constraint: the stopwatch and the one-click start still book
+    # whatever they measured.
+    time_mode = StringField(choices=("duration", "clock"), default="duration")
+
     # Customer share link (read-only, hours only).
     share_enabled = BooleanField(default=False)
     share_token = StringField(unique=True, sparse=True)
