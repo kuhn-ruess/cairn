@@ -166,7 +166,7 @@
                               title="Open the ticket">#{{ e.external_ref }}</a>
                           {% else %}<span class="text-muted">#{{ e.external_ref }}</span>{% endif %}
                         {% endif %}
-                        {{ e.note }}
+                        {{ e.description }}
                       </td>
                       <td class="small text-success text-end" style="width:6rem;">{{ e.amount_cents|eur }}</td>
                     </tr>

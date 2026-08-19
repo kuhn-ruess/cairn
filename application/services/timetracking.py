@@ -536,6 +536,10 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
     The customer name is dereferenced once per bucket."""
     lo, hi = day_range_q(date_from, date_to)
     q = TimeBucket.objects(team=team, period__gte=lo, period__lte=hi)
+    # Which projects want the task title rendered into the description — one
+    # lookup for the whole report, not one per row.
+    with_source = {str(p["_id"]) for p in TimeTrackingProject.objects(
+        team=team, show_source=True).only("id").as_pymongo()}
     if customer_id:
         q = q.filter(customer=customer_id)
     rows = []
@@ -574,6 +578,8 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
                 "billable": bool(e.billable),
                 "locked": bool(e.locked),
                 "note": e.note or "",
+                "description": described(e.note, e.source_label,
+                                         e.project_id in with_source),
                 "service": e.service or "",
                 "start_time": e.start_time or "",
                 "end_time": e.end_time or "",
@@ -656,6 +662,16 @@ def delete_customer(customer) -> dict:
             "entries": n_entries, "unlinked": unlinked}
 
 
+def described(note: str, source_label: str, show_source: bool) -> str:
+    """The description as it should *read*: the task it was logged from, then
+    the note. Composed here, never stored — see ``show_source``."""
+    ref = (source_label or "").strip() if show_source else ""
+    note = (note or "").strip()
+    if ref and note:
+        return f"{ref} — {note}"
+    return ref or note
+
+
 def public_project_report(project, month: str | None = None):
     """Read-only time sheet for the customer share link.
 
@@ -687,8 +703,10 @@ def public_project_report(project, month: str | None = None):
                 "end_time": e.end_time or "",
                 # The ticket number is useful to the customer; the deep link
                 # behind it points into an internal system, so it stays home.
+                # The task's title joins it when the project asks for it.
                 "note": ((f"#{e.external_ref} " if e.external_ref else "")
-                         + (e.note or "")).strip(),
+                         + described(e.note, e.source_label,
+                                     project.show_source)).strip(),
                 "user_name": e.user_name or "",
                 "custom": {c.key: c.value for c in (e.custom or []) if c.value},
             })

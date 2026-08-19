@@ -113,6 +113,16 @@
                 <input type="text" name="note" value="{{ p.note }}" placeholder="Note"
                        class="form-control form-control-sm">
 
+                {# Render the task an entry came from into its description on
+                   the report and the customer's sheet. Nothing is written into
+                   the note — switching this off takes the reference away
+                   again. #}
+                <label class="form-check small">
+                  <input type="checkbox" name="show_source" value="1" class="form-check-input"
+                         {% if p.show_source %}checked{% endif %}>
+                  Show the task title in the description
+                </label>
+
                 {# How the capture form asks for time on this project. #}
                 <div class="d-flex gap-1 align-items-center">
                   <label class="small text-muted" style="min-width:5.5rem;">Track by</label>

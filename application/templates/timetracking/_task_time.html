@@ -96,11 +96,8 @@
   {{ cap.duration_or_clock() }}
   <input type="date" class="form-control form-control-sm time-add-date"
          style="max-width: 9.5rem;">
-  {# The placeholder is the actual default, not a hint: leave it empty and the
-     task's title is what gets stored. #}
   <input type="text" class="form-control form-control-sm time-add-note"
-         placeholder="{{ task.title|truncate(60) }}" autocomplete="off"
-         title="Description — defaults to the task's title" maxlength="200">
+         placeholder="Note (optional)" autocomplete="off" maxlength="200">
   {{ cap.custom_fields() }}
   <label class="form-check form-check-inline m-0 small" title="Billable">
     <input type="checkbox" class="form-check-input time-add-billable" checked> billable

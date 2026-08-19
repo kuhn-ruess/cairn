@@ -136,6 +136,14 @@ class TimeTrackingProject(Document):
     # whatever they measured.
     time_mode = StringField(choices=("duration", "clock"), default="duration")
 
+    # Show the task an entry was logged from as part of its description on the
+    # customer's sheet and export. The title is already on every entry
+    # (``TimeEntry.source_label``); this only decides whether it is *rendered*
+    # into the description — nothing is ever written into the note, so turning
+    # it off takes the reference away again and an edited note stays the user's
+    # own words.
+    show_source = BooleanField(default=False)
+
     # Customer share link (read-only, hours only).
     share_enabled = BooleanField(default=False)
     share_token = StringField(unique=True, sparse=True)
