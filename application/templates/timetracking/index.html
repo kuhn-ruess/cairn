@@ -76,56 +76,71 @@
               <form method="post" action="{{ url_for('timetracking.project_edit', pid=p.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="team" value="{{ team.pk }}">
-              {# Two columns: what the project *is* on the left, what it asks
-                 for when booking on the right. #}
-              <div class="row g-3">
-              <div class="col-12 col-xl-5 d-flex flex-column gap-2">
-                <input type="text" name="name" value="{{ p.name }}" class="form-control form-control-sm">
-                <input type="text" name="hourly_rate" value="{{ '%.2f'|format(p.hourly_rate_cents/100) if p.hourly_rate_cents else '' }}"
-                       placeholder="Hourly rate (€)" class="form-control form-control-sm">
+              {# What the project *is*, as one labelled header line: name,
+                 rate, budget and how time is entered belong together and are
+                 each a few characters wide. Stacking them in a narrow column
+                 only pushed the fields that need room further down. #}
+              <div class="d-flex gap-3 flex-wrap align-items-end mb-3">
+                <div style="flex: 1 1 16rem; min-width: 0;">
+                  <label class="form-label small text-muted mb-0">Project</label>
+                  <input type="text" name="name" value="{{ p.name }}"
+                         class="form-control form-control-sm">
+                </div>
+                <div style="flex: 0 0 8rem;">
+                  <label class="form-label small text-muted mb-0">Rate</label>
+                  <div class="input-group input-group-sm">
+                    <input type="text" name="hourly_rate"
+                           value="{{ '%.2f'|format(p.hourly_rate_cents/100) if p.hourly_rate_cents else '' }}"
+                           placeholder="—" class="form-control form-control-sm">
+                    <span class="input-group-text">€/h</span>
+                  </div>
+                </div>
                 {% set b_money = p.budget_type and p.budget_type.startswith('cents') %}
                 {% set b_recur = p.budget_type and p.budget_type.endswith('_per_month') %}
-                <div class="d-flex gap-1 align-items-center">
-                  <input type="text" name="budget_value"
-                         value="{{ ('%.2f'|format(p.budget_value/100) if b_money else '%g'|format(p.budget_value/60)) if p.budget_value else '' }}"
-                         placeholder="Budget" class="form-control form-control-sm" style="max-width:90px;">
-                  <select name="budget_unit" class="form-select form-select-sm" style="max-width:90px;">
-                    <option value="" {% if not p.budget_type %}selected{% endif %}>none</option>
-                    <option value="hours" {% if p.budget_type and not b_money %}selected{% endif %}>hours</option>
-                    <option value="money" {% if b_money %}selected{% endif %}>€</option>
-                  </select>
-                  <label class="form-check small m-0">
-                    <input type="checkbox" name="budget_recurring" value="1" class="form-check-input"
-                           {% if b_recur %}checked{% endif %}> /month
-                  </label>
+                <div style="flex: 0 0 auto;">
+                  <label class="form-label small text-muted mb-0">Budget</label>
+                  <div class="d-flex gap-1 align-items-center">
+                    <input type="text" name="budget_value"
+                           value="{{ ('%.2f'|format(p.budget_value/100) if b_money else '%g'|format(p.budget_value/60)) if p.budget_value else '' }}"
+                           placeholder="—" class="form-control form-control-sm" style="max-width:80px;">
+                    <select name="budget_unit" class="form-select form-select-sm" style="max-width:88px;">
+                      <option value="" {% if not p.budget_type %}selected{% endif %}>none</option>
+                      <option value="hours" {% if p.budget_type and not b_money %}selected{% endif %}>hours</option>
+                      <option value="money" {% if b_money %}selected{% endif %}>€</option>
+                    </select>
+                    <label class="form-check small m-0 text-nowrap">
+                      <input type="checkbox" name="budget_recurring" value="1" class="form-check-input"
+                             {% if b_recur %}checked{% endif %}> /month
+                    </label>
+                  </div>
                 </div>
-                <input type="text" name="note" value="{{ p.note }}" placeholder="Note"
-                       class="form-control form-control-sm">
-
-                {# Render the task an entry came from into its description on
-                   the report and the customer's sheet. Nothing is written into
-                   the note — switching this off takes the reference away
-                   again. #}
-                <label class="form-check small">
-                  <input type="checkbox" name="show_source" value="1" class="form-check-input"
-                         {% if p.show_source %}checked{% endif %}>
-                  Show the task title in the description
-                </label>
-
-                {# How the capture form asks for time on this project. #}
-                <div class="d-flex gap-1 align-items-center">
-                  <label class="small text-muted" style="min-width:5.5rem;">Track by</label>
+                <div style="flex: 0 0 auto;">
+                  <label class="form-label small text-muted mb-0">Track by</label>
                   <select name="time_mode" class="form-select form-select-sm"
-                          style="max-width:170px;">
+                          style="max-width:190px;">
                     <option value="duration" {% if p.time_mode != 'clock' %}selected{% endif %}>
                       hours (1h30m)</option>
                     <option value="clock" {% if p.time_mode == 'clock' %}selected{% endif %}>
                       start – end (09:00–10:30)</option>
                   </select>
                 </div>
-
+                <div style="flex: 1 1 14rem; min-width: 0;">
+                  <label class="form-label small text-muted mb-0">Note</label>
+                  <input type="text" name="note" value="{{ p.note }}" placeholder="Internal"
+                         class="form-control form-control-sm">
+                </div>
               </div>
-              <div class="col-12 col-xl-7">
+
+              {# Render the task an entry came from into its description on the
+                 report and the customer's sheet. Nothing is written into the
+                 note — switching this off takes the reference away again. #}
+              <label class="form-check small mb-3">
+                <input type="checkbox" name="show_source" value="1" class="form-check-input"
+                       {% if p.show_source %}checked{% endif %}>
+                Show the task title in the description
+              </label>
+
+              <div>
                 {# ---- Custom fields asked for on every booking ----
                    Rows are added and removed right here (time-fields.js); the
                    form only carries what is on screen when you save, so a
@@ -196,7 +211,6 @@
                   </div>
                 </template>
 
-              </div>
               </div>
                 <div class="d-flex align-items-center gap-3 mt-3">
                   <button class="btn btn-sm btn-primary">Save</button>
