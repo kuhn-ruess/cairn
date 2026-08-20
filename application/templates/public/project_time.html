@@ -66,18 +66,37 @@
   <div class="public-bar">
     {# Month filter — plain links, so the view is shareable and bookmarkable. #}
     <a class="btn btn-sm {{ 'btn-primary' if not month else 'btn-outline-secondary' }}"
-       href="{{ url_for('public.project_time', token=token, month='all', by=group_by) }}">All</a>
+       href="{{ url_for('public.project_time', token=token, month='all', by=group_by, who=who or None) }}">All</a>
     {% for mo in months %}
       <a class="btn btn-sm {{ 'btn-primary' if month == mo.key else 'btn-outline-secondary' }}"
-         href="{{ url_for('public.project_time', token=token, month=mo.key, by=group_by) }}">
+         href="{{ url_for('public.project_time', token=token, month=mo.key, by=group_by, who=who or None) }}">
         {{ mo.label }} <span class="text-muted">· {{ mo.minutes|duration }}</span>
       </a>
     {% endfor %}
     <a class="btn btn-sm btn-outline-secondary ms-auto"
-       href="{{ url_for('public.project_time_export', token=token, month=month or None) }}">
+       href="{{ url_for('public.project_time_export', token=token,
+                        month=month or None, who=who or None) }}">
       <i class="bi bi-file-earmark-spreadsheet"></i> Excel / CSV
     </a>
   </div>
+
+  {% if people|length > 1 %}
+    {# One person's hours, on the page and in the download — "export what I am
+       looking at" has to hold for this filter too. #}
+    <div class="public-bar">
+      <span class="text-muted small align-self-center me-1">Who</span>
+      <a class="btn btn-sm {{ 'btn-primary' if not who else 'btn-outline-secondary' }}"
+         href="{{ url_for('public.project_time', token=token,
+                          month=(month or 'all'), by=group_by) }}">Everyone</a>
+      {% for p in people %}
+        <a class="btn btn-sm {{ 'btn-primary' if who == p.name else 'btn-outline-secondary' }}"
+           href="{{ url_for('public.project_time', token=token, month=(month or 'all'),
+                            by=group_by, who=p.name) }}">
+          {{ p.name }} <span class="text-muted">· {{ p.minutes|duration }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  {% endif %}
 
   {% if rows %}
     {# Where the hours went, before the list of what they were. Broken down by
@@ -90,7 +109,7 @@
           {% for o in group_options %}
             <a class="btn btn-sm {{ 'btn-primary' if group_by == o.key else 'btn-outline-secondary' }}"
                href="{{ url_for('public.project_time', token=token,
-                                month=(month or 'all'), by=o.key) }}">{{ o.label }}</a>
+                                month=(month or 'all'), by=o.key, who=who or None) }}">{{ o.label }}</a>
           {% endfor %}
         </div>
       {% endif %}
@@ -128,35 +147,29 @@
       <table class="public-table">
         <thead>
           <tr>
-            <th>Date</th>
-            {% if has_times %}<th>From</th><th>To</th>{% endif %}
-            <th>Hours</th>
-            <th>Who</th>
-            <th>Description</th>
-            {% for c in columns %}<th>{{ c.label }}</th>{% endfor %}
+            {% for c in sheet_columns %}<th>{{ c.label }}</th>{% endfor %}
           </tr>
         </thead>
         <tbody>
           {% for r in rows %}
             <tr>
-              <td class="num">{{ r.date.strftime('%d.%m.%Y') }}</td>
-              {% if has_times %}
-                <td class="num">{{ r.start_time }}</td>
-                <td class="num">{{ r.end_time }}</td>
-              {% endif %}
-              <td class="num">{{ r.minutes|duration }}</td>
-              <td>{{ r.user_name }}</td>
-              <td>{{ r.note }}</td>
-              {% for c in columns %}<td>{{ r.custom.get(c.key, '') }}</td>{% endfor %}
+              {% for cell in r.cells %}
+                <td {% if cell.num %}class="num"{% endif %}>{{ cell.text }}</td>
+              {% endfor %}
             </tr>
           {% endfor %}
         </tbody>
         <tfoot>
           <tr>
-            <td class="num">Total</td>
-            {% if has_times %}<td></td><td></td>{% endif %}
-            <td class="num">{{ total_minutes|duration }}</td>
-            <td colspan="{{ 2 + columns|length }}"></td>
+            {% for c in sheet_columns %}
+              {% if c.key == 'hours' %}
+                <td class="num">{{ total_minutes|duration }}</td>
+              {% elif loop.first %}
+                <td>Total</td>
+              {% else %}
+                <td></td>
+              {% endif %}
+            {% endfor %}
           </tr>
         </tfoot>
       </table>

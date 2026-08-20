@@ -185,6 +185,14 @@ class TimeTrackingProject(Document):
     # it at a project you already had is how you take the training wheels off.
     intake = BooleanField(default=False)
 
+    # Which columns the customer's sheet shows, in which order — keys from
+    # services.timetracking.sheet_columns ("date", "start", "end", "hours",
+    # "user", "note", "cf:<field key>"). Empty = the default set. Money is not
+    # among the keys and never will be: this link is hours only, and that is
+    # enforced by there being nothing to switch on rather than by a switch
+    # someone might flip.
+    share_columns = ListField(StringField(max_length=64))
+
     # Customer share link (read-only, hours only).
     share_enabled = BooleanField(default=False)
     share_token = StringField(unique=True, sparse=True)

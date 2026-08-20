@@ -118,7 +118,8 @@ def project_time(token):
     else:
         month = datetime.now(user_zone(None)).strftime("%Y-%m")
     data = public_project_report(
-        proj, month, group_by=(request.args.get("by") or "user").strip())
+        proj, month, group_by=(request.args.get("by") or "user").strip(),
+        who=(request.args.get("who") or "").strip())
     return render_template("public/project_time.html", project=proj,
                            token=token, **data)
 
@@ -129,49 +130,54 @@ def project_time_export(token):
 
     UTF-8 with a BOM and semicolon-separated, which is what Excel opens
     correctly on a double-click in a German locale — no add-on, no import
-    wizard. Honours the month filter, so "export what I'm looking at" holds."""
+    wizard. Honours the month *and* the person filter, so "export what I'm
+    looking at" holds for both."""
     import csv
     import io
     from flask import Response
     from application.models.timetracking import TimeTrackingProject
-    from application.services.timetracking import public_project_report
+    from application.services.timetracking import (
+        public_project_report, sheet_cell)
+    from application.services.tz import user_zone
 
     proj = TimeTrackingProject.objects(
         share_token=token, share_enabled=True).first()
     if not proj:
         abort(404)
-    month = (request.args.get("month") or "").strip()
-    data = public_project_report(proj, month if len(month) == 7 else None)
+
+    raw = (request.args.get("month") or "").strip()
+    month = raw if len(raw) == 7 else (None if raw == "all" else
+                                       datetime.now(user_zone(None)).strftime("%Y-%m"))
+    who = (request.args.get("who") or "").strip()
+    data = public_project_report(proj, month, who=who)
+    cols = data["sheet_columns"]
 
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
-    header = ["Datum"]
-    if data["has_times"]:
-        header += ["Von", "Bis"]
-    header += ["Stunden", "Bearbeiter", "Beschreibung"]
-    header += [c["label"] for c in data["columns"]]
-    w.writerow(header)
+    # The same columns the page shows, in the same order the project configured
+    # — and, as everywhere on this link, hours only. There is no money column to
+    # leave out, which is the point (see services.timetracking.SHEET_BASE_COLUMNS).
+    w.writerow([c["csv"] for c in cols])
     for r in data["rows"]:
-        row = [r["date"].strftime("%d.%m.%Y")]
-        if data["has_times"]:
-            row += [r["start_time"], r["end_time"]]
-        # Excel reads "1,50" as a number in a German locale; "1.50" would be text.
-        row += [f"{r['minutes'] / 60:.2f}".replace(".", ","), r["user_name"],
-                r["note"]]
-        row += [r["custom"].get(c["key"], "") for c in data["columns"]]
-        w.writerow(row)
+        w.writerow([sheet_cell(r, c["key"], for_csv=True) for c in cols])
     w.writerow([])
-    total = ["Summe"] + ([""] * 2 if data["has_times"] else [])
-    total += [f"{data['total_minutes'] / 60:.2f}".replace(".", ",")]
-    total += [""]  # keep the sum under the Stunden column
+    total = []
+    for i, c in enumerate(cols):
+        if c["key"] == "hours":
+            total.append(f"{data['total_minutes'] / 60:.2f}".replace(".", ","))
+        elif i == 0:
+            total.append("Summe")
+        else:
+            total.append("")
     w.writerow(total)
 
-    stamp = month if month else "gesamt"
+    stamp = month or "gesamt"
+    person = f"-{_slug(who)}" if who else ""
     return Response(
         "\ufeff" + buf.getvalue(),
         mimetype="text/csv; charset=utf-8",
         headers={"Content-Disposition":
-                 f"attachment; filename=zeiten-{_slug(proj.name)}-{stamp}.csv"},
+                 f"attachment; filename=zeiten-{_slug(proj.name)}{person}-{stamp}.csv"},
     )
 
 

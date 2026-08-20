@@ -750,6 +750,53 @@ def purge_project_entries(project) -> dict:
     return stats
 
 
+def set_custom_value(*, team, pairs, key: str, label: str, value: str,
+                     viewer) -> dict:
+    """Set one custom field on many entries at once. Returns a count summary.
+
+    The field is defined per project, so an entry booked on a project that
+    doesn't have it is skipped rather than given a value nothing will ever show
+    — reported, not silently dropped. Billed entries stay frozen. An empty
+    ``value`` removes the field from the entry, which is how a value set by
+    mistake is taken back."""
+    out = {"changed": 0, "skipped": 0, "locked": 0}
+    by_bucket = {}
+    for bucket_id, entry_id in pairs:
+        by_bucket.setdefault(str(bucket_id), []).append(str(entry_id))
+    # Which projects actually define this field — one lookup for the whole run.
+    ok_projects = {str(p["_id"]) for p in TimeTrackingProject.objects(
+        team=team, custom_fields__key=key).only("id").as_pymongo()}
+    for bucket_id, entry_ids in by_bucket.items():
+        bucket = TimeBucket.objects(pk=to_oid(bucket_id), team=team).first()
+        if bucket is None:
+            out["skipped"] += len(entry_ids)
+            continue
+        for entry_id in entry_ids:
+            entry = next((e for e in bucket.entries
+                          if e.entry_id == entry_id), None)
+            if entry is None or entry.status != "active":
+                out["skipped"] += 1
+                continue
+            if entry.locked or not may_edit_entry(viewer, team, entry):
+                out["locked"] += 1
+                continue
+            if entry.project_id not in ok_projects:
+                out["skipped"] += 1
+                continue
+            values = [c for c in (entry.custom or []) if c.key != key]
+            if value:
+                values.append(TimeEntryValue(key=key, label=label, value=value))
+            res = TimeBucket.objects(
+                pk=bucket.pk, entries__entry_id=entry_id, entries__locked=False,
+            ).update_one(set__entries__S__custom=values,
+                         set__updated_at=_utcnow())
+            if res:
+                out["changed"] += 1
+            else:
+                out["skipped"] += 1
+    return out
+
+
 def cancelled_entries(*, team, viewer) -> list[dict]:
     """The team's deleted time, newest first — the trash view's contents.
 
@@ -1065,8 +1112,73 @@ def described(note: str, source_label: str, show_source: bool) -> str:
     return ref or note
 
 
+def fmt_duration(minutes) -> str:
+    """Minutes → ``2h 30m``. The Jinja filter's twin, for strings built in
+    Python (the customer's sheet renders its cells here, not in the template)."""
+    h, m = divmod(int(minutes or 0), 60)
+    return f"{h}h {m}m" if h and m else (f"{h}h" if h else f"{m}m")
+
+
+# The customer sheet's fixed columns. ``label`` is what the page shows,
+# ``csv`` what the download's header says — the file goes to the customer, who
+# has been reading "Datum; Von; Bis" for as long as this link has existed.
+# There is deliberately no money column here and no way to add one: the whole
+# promise of this link is hours only, and a promise kept by having nothing to
+# switch on is stronger than one kept by a switch.
+SHEET_BASE_COLUMNS = [
+    {"key": "date",  "label": "Date",        "csv": "Datum",        "num": True},
+    {"key": "start", "label": "From",        "csv": "Von",          "num": True},
+    {"key": "end",   "label": "To",          "csv": "Bis",          "num": True},
+    {"key": "hours", "label": "Hours",       "csv": "Stunden",      "num": True},
+    {"key": "user",  "label": "Who",         "csv": "Bearbeiter"},
+    {"key": "note",  "label": "Description", "csv": "Beschreibung"},
+]
+
+
+def sheet_columns(project, *, has_times: bool = True) -> list[dict]:
+    """The sheet's columns for ``project``, in the order it wants them.
+
+    Everything available, in the natural order, unless the project says
+    otherwise via ``share_columns`` — which is then followed exactly, including
+    leaving columns out. Custom fields join the list under ``cf:<key>``; a field
+    removed from the project after being configured simply drops out."""
+    available = list(SHEET_BASE_COLUMNS)
+    for f in (project.custom_fields or []):
+        available.append({"key": f"cf:{f.key}", "label": f.label, "csv": f.label})
+    by_key = {c["key"]: c for c in available}
+    wanted = [k for k in (project.share_columns or []) if k in by_key]
+    if wanted:
+        return [by_key[k] for k in wanted]
+    # Default: everything, minus the clock columns when there are no times to
+    # put in them.
+    return [c for c in available
+            if has_times or c["key"] not in ("start", "end")]
+
+
+def sheet_cell(row: dict, key: str, *, for_csv: bool = False) -> str:
+    """One cell of the customer's sheet, as text. Page and download read the
+    same rows through the same function, so they can never disagree."""
+    if key == "date":
+        return row["date"].strftime("%d.%m.%Y")
+    if key == "start":
+        return row["start_time"]
+    if key == "end":
+        return row["end_time"]
+    if key == "hours":
+        # Excel reads "1,50" as a number in a German locale; "1.50" is text.
+        return (f"{row['minutes'] / 60:.2f}".replace(".", ",") if for_csv
+                else fmt_duration(row["minutes"]))
+    if key == "user":
+        return row["user_name"]
+    if key == "note":
+        return row["note"]
+    if key.startswith("cf:"):
+        return row["custom"].get(key[3:], "")
+    return ""
+
+
 def public_project_report(project, month: str | None = None,
-                          group_by: str = "user"):
+                          group_by: str = "user", who: str = ""):
     """Read-only time sheet for the customer share link.
 
     Hours, clock times, notes and the project's custom fields — never rates or
@@ -1089,6 +1201,8 @@ def public_project_report(project, month: str | None = None,
             mo["minutes"] += e.minutes or 0
             if month and key != month:
                 continue
+            if who and (e.user_name or "") != who:
+                continue
             total += e.minutes or 0
             rows.append({
                 "date": dd,
@@ -1105,6 +1219,21 @@ def public_project_report(project, month: str | None = None,
                 "custom": {c.key: c.value for c in (e.custom or []) if c.value},
             })
     rows.sort(key=lambda r: (r["date"], r["start_time"]), reverse=True)
+    # Who worked in the shown month — offered as a filter, and counted from the
+    # month rather than from the filtered result so the buttons don't vanish as
+    # soon as one is pressed.
+    people: dict = {}
+    for b in buckets:
+        for e in b.entries:
+            if e.project_id != pid or e.status != "active":
+                continue
+            dd = local_date(e.spent_on)
+            if month and f"{dd.year:04d}-{dd.month:02d}" != month:
+                continue
+            name = e.user_name or "—"
+            people[name] = people.get(name, 0) + (e.minutes or 0)
+    people_rows = [{"name": n, "minutes": m}
+                   for n, m in sorted(people.items(), key=lambda kv: (-kv[1], kv[0].lower()))]
     # Columns come from the project's current definition, plus any key that only
     # exists on older entries (a field since removed still has to be printable).
     columns = [{"key": f.key, "label": f.label}
@@ -1141,9 +1270,18 @@ def public_project_report(project, month: str | None = None,
     } for label, minutes in sorted(tally.items(),
                                    key=lambda kv: (-kv[1], kv[0].lower()))]
 
+    cols = sheet_columns(project, has_times=(project.time_mode == "clock"
+                                             or any(r["start_time"] for r in rows)))
+    for r in rows:
+        r["cells"] = [{"text": sheet_cell(r, c["key"]), "num": c.get("num", False)}
+                      for c in cols]
+
     return {
         "rows": rows,
         "columns": columns,
+        "sheet_columns": cols,
+        "people": people_rows,
+        "who": who,
         "group_by": group_by,
         "group_options": options,
         # Always returned, even when it is a single value: the page needs to be

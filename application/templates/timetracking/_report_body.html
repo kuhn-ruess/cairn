@@ -93,6 +93,25 @@
         <button class="btn btn-sm btn-outline-primary" name="action" value="move">
           <i class="bi bi-arrow-left-right"></i> Move selected</button>
       {% endif %}
+      {% if field_columns %}
+        {# Set one of the projects' own fields on everything ticked — the same
+           edit twenty times is what the per-row editor made of this. #}
+        <span class="vr d-none d-md-inline"></span>
+        <select name="field_key" class="form-select form-select-sm"
+                style="max-width: 12rem;">
+          {% for fd in field_columns %}
+            <option value="{{ fd.key }}|{{ fd.label }}">{{ fd.label }}</option>
+          {% endfor %}
+        </select>
+        <input type="text" name="field_value" class="form-control form-control-sm"
+               style="max-width: 12rem;" list="tt-field-values"
+               placeholder="Value (empty = clear)">
+        <datalist id="tt-field-values">
+          {% for v in field_values %}<option value="{{ v }}"></option>{% endfor %}
+        </datalist>
+        <button class="btn btn-sm btn-outline-primary" name="action" value="field">
+          Set on selected</button>
+      {% endif %}
       <span class="small text-muted">
         Tick entries to settle them — billed entries are locked and can only be
         corrected after reopening.

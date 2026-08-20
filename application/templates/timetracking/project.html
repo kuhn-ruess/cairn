@@ -54,7 +54,8 @@
   {% endif %}
 
   {# ---- What the project is, and what it asks for ---------------------- #}
-  <form method="post" action="{{ url_for('timetracking.project_edit', pid=p.id) }}">
+  <form id="tt-project-form" method="post"
+        action="{{ url_for('timetracking.project_edit', pid=p.id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="team" value="{{ team.pk }}">
     <input type="hidden" name="back" value="{{ request.path }}">
@@ -302,12 +303,41 @@
     </div>
     <div class="card-body">
       <p class="form-text small mt-0">
-        A page (and CSV) the customer can open without a Cairn account: date,
-        times, hours, description — the time sheet you would otherwise mail them
-        every month. Anyone with the link can see it, so hand it out like a
-        password; “New link” invalidates the old one.
+        A page (and CSV) the customer can open without a Cairn account: the time
+        sheet you would otherwise mail them every month. It shows hours and never
+        money — there is no rate on that page and no setting that could put one
+        there. Anyone with the link can see it, so hand it out like a password;
+        “New link” invalidates the old one.
       </p>
       {% include "timetracking/_project_share.html" %}
+
+      <hr class="my-3">
+      {# Which columns that sheet has, and in which order. Part of the edit form
+         above (this section is outside it), so it posts with everything else. #}
+      <div class="small text-muted mb-2">
+        <i class="bi bi-layout-three-columns"></i> Columns on the sheet and in
+        its download — untick what this customer shouldn't see, number them to
+        reorder. Nothing ticked = the default set.
+      </div>
+      <div class="row g-2">
+        {% for c in share_cols %}
+          <div class="col-12 col-md-6 col-lg-4">
+            <div class="d-flex align-items-center gap-2 border rounded px-2 py-1">
+              <input type="checkbox" class="form-check-input m-0" form="tt-project-form"
+                     name="share_col" value="{{ c.key }}" id="sc-{{ c.key }}"
+                     {% if c.on %}checked{% endif %}>
+              <input type="hidden" name="share_col_key" value="{{ c.key }}"
+                     form="tt-project-form">
+              <label class="small me-auto" for="sc-{{ c.key }}">{{ c.label }}</label>
+              <input type="number" name="share_pos_{{ c.key }}" value="{{ loop.index }}"
+                     form="tt-project-form" class="form-control form-control-sm"
+                     style="max-width: 4.5rem;" min="1" title="Position">
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      <button class="btn btn-sm btn-primary mt-2" form="tt-project-form">
+        Save columns</button>
     </div>
   </div>
 

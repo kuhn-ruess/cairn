@@ -120,6 +120,16 @@ def _back(team, **kw):
     return redirect(url_for("timetracking.index", team=team.pk, **kw))
 
 
+class _bare_project:
+    """A project with no column configuration — used to ask for *all* the
+    columns it could offer, which is what the configuration form lists."""
+
+    def __init__(self, project):
+        self.custom_fields = project.custom_fields
+        self.share_columns = []
+        self.time_mode = project.time_mode
+
+
 def _parse_budget(form):
     """Form (budget_unit ∈ ''/hours/money, budget_value, budget_recurring) →
     ``(budget_value, budget_type)``. Hours are stored as minutes, money as
@@ -817,6 +827,10 @@ def _grouped_report(team, f):
         "authors": authors,
         "move_targets": move_targets, "live": live,
         "field_columns": _field_columns(rows),
+        # Values already in use, so setting one is a pick rather than a typo
+        # waiting to happen.
+        "field_values": sorted({c["value"] for r in rows
+                                for c in r.get("custom", []) if c["value"]}),
     }
 
 
@@ -922,6 +936,29 @@ def report_bill():
         if bid and eid:
             pairs.append((bid, eid))
     action = request.form.get("action")
+    if action == "field":
+        # Setting "Abrechnungsart" on the twenty entries you just filtered to is
+        # the same edit twenty times; the per-row editor made that a chore.
+        from application.services.timetracking import set_custom_value
+        raw = (request.form.get("field_key") or "").strip()
+        key, _, label = raw.partition("|")
+        res = set_custom_value(team=team, pairs=pairs, key=key, label=label,
+                               value=(request.form.get("field_value") or "").strip(),
+                               viewer=user)
+        if res["changed"]:
+            flash(f"{label or key} set on {res['changed']} entr"
+                  f"{'y' if res['changed'] == 1 else 'ies'}"
+                  + (f"; {res['skipped']} skipped (their project doesn't have "
+                     f"that field)" if res["skipped"] else "")
+                  + (f"; {res['locked']} billed" if res["locked"] else "")
+                  + ".", "success")
+        else:
+            flash("Nothing changed — the selected entries either have no such "
+                  "field or are already billed.", "info")
+        args = {k: v for k, v in request.form.items()
+                if k in ("team", "period", "from", "to", "customer", "project",
+                         "user", "billable", "locked", "state", "archived")}
+        return redirect(url_for("timetracking.report", **args))
     if action == "move":
         # Re-filing time onto another project changes what gets invoiced to
         # whom — a manager's call, same as billing it.
@@ -1362,9 +1399,19 @@ def project_detail(pid):
         ({"id": str(o.id), "label": f"{o.customer.name} › {o.name}"}
          for o in TimeTrackingProject.objects(team=team, archived=False)),
         key=lambda r: r["label"].lower())
+    # The customer sheet's columns, in this project's order, each flagged with
+    # whether it is currently shown — the form below is the whole configuration.
+    from application.services.timetracking import sheet_columns
+    all_cols = sheet_columns(_bare_project(p))
+    chosen = [k for k in (p.share_columns or []) if k in {c["key"] for c in all_cols}]
+    ordered = ([c for k in chosen for c in all_cols if c["key"] == k]
+               + [c for c in all_cols if c["key"] not in chosen])
+    share_cols = [{**c, "on": (not chosen) or c["key"] in chosen}
+                  for c in ordered]
+
     return render_template(
         "timetracking/project.html", team=team, all_teams=_user_teams(user),
-        can_manage=team.is_managed_by(user), p=p,
+        can_manage=team.is_managed_by(user), p=p, share_cols=share_cols,
         budget=budget_status(p, consumption.get(str(p.id))),
         logged=consumption.get(str(p.id), {}).get("minutes", 0),
         links=linked, link_info=describe_containers(linked, team=team),
@@ -1416,6 +1463,22 @@ def project_edit(pid):
     p.save()
     # One intake project per customer, so switching it on has to switch it off
     # elsewhere — hence the service call rather than a plain field assignment.
+    # The customer sheet's columns: every key comes back with a position, only
+    # the ticked ones are kept, and the order is theirs. An empty selection
+    # means "the default set" rather than an empty sheet — a customer link
+    # showing nothing at all is never what someone meant.
+    if "share_col" in request.form:
+        picked = set(request.form.getlist("share_col"))
+        order = []
+        for key in request.form.getlist("share_col_key"):
+            try:
+                pos = int(request.form.get(f"share_pos_{key}") or 0)
+            except ValueError:
+                pos = 0
+            order.append((pos, key))
+        p.share_columns = [k for _, k in sorted(order, key=lambda t: t[0])
+                           if k in picked]
+        p.save()
     set_intake_project(p, request.form.get("intake") == "1")
     flash("Project updated.", "success")
     return _back(team)
