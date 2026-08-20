@@ -90,6 +90,18 @@
     </div>
   </div>
 
+  <div class="form-check mb-2">
+    {{ form.full_sync(class="form-check-input") }}
+    {{ form.full_sync.label(class="form-check-label") }}
+    <div class="form-text small">
+      A sync normally looks only at tickets Zammad says have changed since the
+      last run — a ticket costs two requests to inspect, so walking the whole
+      instance every few minutes is what makes a sync slow. Tick this after
+      changing the options above, or when something looks out of date; it is
+      also the only run that closes tasks whose ticket has vanished.
+    </div>
+  </div>
+
   <div class="form-check mb-3">
     {{ form.dry_run(class="form-check-input") }}
     {{ form.dry_run.label(class="form-check-label") }}
@@ -229,6 +241,19 @@
         <ul class="mb-0 mt-2 text-muted">
           <li>Tickets fetched from Zammad: <strong>{{ stats.tickets_fetched }}</strong>
             {% if stats.fetched_via %}<span class="text-muted">via {{ stats.fetched_via }}</span>{% endif %}
+          </li>
+          <li>
+            {% if stats.since %}
+              Only tickets changed since <code>{{ stats.since }}</code>
+              {% if stats.tickets_unchanged %}
+                — {{ stats.tickets_unchanged }} untouched ticket(s) skipped without
+                looking inside
+              {% endif %}
+              <span class="text-muted">— tick “Check every ticket” for a full pass</span>
+            {% else %}
+              Full pass: every ticket was inspected, and tasks whose ticket is
+              gone were closed.
+            {% endif %}
           </li>
           <li>Cost of this run: <strong>{{ stats.api_calls }}</strong> Zammad
             requests in <strong>{{ '%.1f'|format(stats.elapsed_s) }}s</strong>

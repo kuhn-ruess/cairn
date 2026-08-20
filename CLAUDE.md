@@ -126,6 +126,12 @@ Implications when writing queries or features:
 ### Background workers (Celery + Redis)
 
 Distributed Zammad auto-sync runs on Celery, NOT in the web process.
+A sync is **incremental**: it asks Zammad only for tickets updated since
+`User.last_zammad_sync_at` (minus a few minutes of overlap), because inspecting
+one ticket costs two requests. The orphan-reconcile pass (closing tasks whose
+ticket is gone) therefore runs only on a full pass — `import_for_user(full=True)`,
+the "Check every ticket" box on the settings page.
+
 `application/celery_app.py` builds the Celery app (it calls `create_app()`
 so every task runs inside a Flask app context with the mongoengine
 connection). Two `@shared_task`s in `application/services/sync_tasks.py`:

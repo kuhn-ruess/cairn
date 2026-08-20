@@ -79,6 +79,8 @@ class ZammadImportForm(FlaskForm):
     auto_customer = BooleanField(
         "Create customers from Zammad organisations when the ticket's project "
         "isn't linked to a billing project")
+    full_sync = BooleanField(
+        "Check every ticket, not only the ones changed since the last sync")
     dry_run = BooleanField("Dry run (don't write changes)")
     submit = SubmitField("Import")
     save_only = SubmitField("Save settings")
@@ -674,6 +676,7 @@ def zammad():
                 assignee_only=form.assignee_only.data,
                 include_closed=form.include_closed.data,
                 dry_run=form.dry_run.data,
+                full=form.full_sync.data,
                 debug=True,  # populate the per-ticket trace for the debug console
             )
         except ZammadError as exc:

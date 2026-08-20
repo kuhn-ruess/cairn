@@ -32,7 +32,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from application.models.item import Comment, Item
@@ -72,6 +72,10 @@ class ZammadStats:
     time_skipped_unlinked: int = 0   # tickets with time but nowhere to book it
     time_skipped_no_time: int = 0    # tickets Zammad reports no accounted time for
     time_folders_linked: int = 0     # folders bound to a billing project by name
+    # Incremental runs: what the ticket list was narrowed to, and how many
+    # tickets the run therefore never had to look inside.
+    since: Any = None
+    tickets_unchanged: int = 0
     time_task_links_cleared: int = 0  # per-task billing links an earlier sync wrote
     # Zammad user id → actor snapshot, cached for the run (not reported).
     actor_cache: dict = field(default_factory=dict)
@@ -114,6 +118,8 @@ class ZammadStats:
             "time_skipped_unlinked": self.time_skipped_unlinked,
             "time_skipped_no_time": self.time_skipped_no_time,
             "time_folders_linked": self.time_folders_linked,
+            "since": self.since.isoformat() if self.since else "",
+            "tickets_unchanged": self.tickets_unchanged,
             "time_task_links_cleared": self.time_task_links_cleared,
             "me_id": self.me_id,
             "fetched_via": self.fetched_via,
@@ -209,6 +215,14 @@ _DONE_STATES = {
 }
 
 
+# How far back an incremental run reaches beyond the last sync. Clocks drift,
+# a run takes a moment, and Zammad's index is written a heartbeat after the
+# ticket — a few minutes of overlap costs almost nothing (the tickets in it are
+# re-checked, not re-created) and is the difference between "cheap" and "loses
+# an edit now and then".
+_SINCE_OVERLAP_MIN = 10
+
+
 def import_for_user(
     user: User,
     url: str,
@@ -219,6 +233,7 @@ def import_for_user(
     include_closed: bool = False,
     dry_run: bool = False,
     debug: bool = False,
+    full: bool = False,
 ) -> ZammadStats:
     """Pull tickets from Zammad and merge them into Cairn for ``user``.
 
@@ -239,6 +254,16 @@ def import_for_user(
     global _CALLS
     _CALLS = itertools.count()
     started = time.monotonic()
+
+    # Incremental by default: only tickets touched since the last successful
+    # run. A sync costs two requests *per ticket* (articles, tags) plus a third
+    # when there is time on it, so walking the whole history every few minutes
+    # is the difference between a sync that finishes and one that times out —
+    # and on a quiet instance, most runs now do nothing but ask.
+    since = None
+    if not full and user.last_zammad_sync_at:
+        since = user.last_zammad_sync_at - timedelta(minutes=_SINCE_OVERLAP_MIN)
+        stats.since = since
 
     # /tickets/search needs Elasticsearch on the Zammad side. Plenty
     # of self-hosted installs don't have ES wired up, in which case
@@ -274,11 +299,15 @@ def import_for_user(
         page = 1
         while True:
             try:
+                query = f"owner_id:{me_id}"
+                if since is not None:
+                    # Zammad's search speaks Elasticsearch's range syntax.
+                    query += f' AND updated_at:>="{since:%Y-%m-%dT%H:%M:%SZ}"'
                 chunk = _request(
                     base + "/tickets/search",
                     token,
                     params={
-                        "query": f"owner_id:{me_id}",
+                        "query": query,
                         "expand": "true",
                         "per_page": 200,
                         "page": page,
@@ -347,6 +376,19 @@ def import_for_user(
         if zid is not None:
             seen_zammad_ids.add(f"zammad:{zid}")
 
+    # The fallback path (no Elasticsearch) fetches the list — cheap, a page of
+    # 200 at a time — and drops the untouched ones here, before they cost a
+    # request each for articles, tags and time.
+    if since is not None and not overview_used:
+        fresh = []
+        for raw in tickets:
+            stamp = _stamp(raw.get("updated_at"))
+            if stamp is not None and stamp < since:
+                stats.tickets_unchanged += 1
+                continue
+            fresh.append(raw)
+        tickets = fresh
+
     filtered: list[dict] = []
     for raw in tickets:
         # "Assigned to me" needs to cover both sides of a Zammad
@@ -394,7 +436,11 @@ def import_for_user(
     # Orphan reconcile: a task with source=zammad whose external_id
     # didn't come back this run is closed server-side → mark done.
     # Tasks filtered out by the user's options stay untouched.
-    if not dry_run:
+    #
+    # Only on a full run: an incremental one deliberately asked for a slice of
+    # the instance, so "didn't come back" means "wasn't touched lately", and
+    # closing everything on that basis would be a small catastrophe.
+    if not dry_run and since is None:
         orphans = Item.objects(
             owner=user, kind="task", source="zammad",
             external_id__startswith="zammad:",
@@ -734,6 +780,19 @@ def _fetch_time_accounting(base: str, token: str, ticket_id: str,
         stats.errors.append(f"time accounting for {ticket_id}: {exc}")
         return []
     return rows if isinstance(rows, list) else []
+
+
+def _stamp(value) -> datetime | None:
+    """Zammad's ``updated_at`` as an aware datetime, or ``None`` if unreadable.
+
+    Unreadable means "treat it as changed": an unparseable timestamp must never
+    be the reason a ticket is skipped."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 def _ticket_has_time(raw: dict) -> bool:
