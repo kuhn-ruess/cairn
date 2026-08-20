@@ -714,16 +714,32 @@ def _grouped_report(team, f):
 
     # Filter dropdown data — the working set, plus whatever is currently
     # selected (so an archived project picked on purpose stays picked).
+    # "Archived" here means the project's own flag *or* its customer's: see
+    # archived_project_ids, which is the same rule the report body uses.
     customers_list = list(Customer.objects(
         Q(team=team) & (Q(archived__ne=True) | Q(id=f["customer_id"] or None))
     ).order_by("+name"))
-    projects_list = list(TimeTrackingProject.objects(
-        Q(team=team) & (Q(archived__ne=True) | Q(id=f["project_id"] or None))
-    ).order_by("+name"))
+    # Projects follow the chosen customer: picking "Acme" and then scrolling
+    # through every project of every other client to find theirs is a list
+    # asking the reader to do the filtering it was given.
+    pq = Q(team=team)
+    if f["customer_id"]:
+        pq &= Q(customer=f["customer_id"])
+    projects_list = [p for p in TimeTrackingProject.objects(pq).order_by("+name")
+                     if str(p.id) not in dead or str(p.id) == f["project_id"]]
     members = team_members(team)
+    # Grouped for the picker, so a project is always shown under the client it
+    # bills to — two customers with a "Support" project are otherwise two
+    # identical-looking options.
+    grouped = {}
+    for p in projects_list:
+        grouped.setdefault(p.customer.name, []).append(p)
+    project_groups = [{"customer": name, "projects": ps}
+                      for name, ps in sorted(grouped.items(),
+                                             key=lambda kv: kv[0].lower())]
     move_targets = sorted(
         ({"id": str(p.id), "label": f"{p.customer.name} › {p.name}"}
-         for p in projects_list if not p.archived),
+         for p in TimeTrackingProject.objects(team=team, archived=False)),
         key=lambda r: r["label"].lower())
     # Which snapshots still have a record behind them: an entry keeps its
     # project's name and id even after the project is gone, and a link to a
@@ -739,7 +755,8 @@ def _grouped_report(team, f):
         "grand_minutes": grand_min, "grand_amount": grand_amt,
         "hidden_count": len(hidden),
         "hidden_minutes": sum(r["minutes"] for r in hidden),
-        "customers": customers_list, "projects": projects_list, "members": members,
+        "customers": customers_list, "projects": projects_list,
+        "project_groups": project_groups, "members": members,
         "move_targets": move_targets, "live": live,
     }
 

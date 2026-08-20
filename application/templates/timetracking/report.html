@@ -39,7 +39,10 @@
     </div>
     <div class="col-auto">
       <label class="form-label small mb-0">Customer</label>
-      <select name="customer" class="form-select form-select-sm">
+      {# Choosing a customer narrows the project list below it, so the two
+         selects are applied together rather than one at a time. #}
+      <select name="customer" class="form-select form-select-sm"
+              onchange="this.form.project.value=''; this.form.submit();">
         <option value="">All</option>
         {% for c in customers %}
           <option value="{{ c.id }}" {% if f.customer_id == c.id|string %}selected{% endif %}>{{ c.name }}</option>
@@ -49,9 +52,19 @@
     <div class="col-auto">
       <label class="form-label small mb-0">Project</label>
       <select name="project" class="form-select form-select-sm">
-        <option value="">All</option>
-        {% for p in projects %}
-          <option value="{{ p.id }}" {% if f.project_id == p.id|string %}selected{% endif %}>{{ p.name }}</option>
+        <option value="">{{ 'All of this customer' if f.customer_id else 'All' }}</option>
+        {% for g in project_groups %}
+          {% if f.customer_id %}
+            {% for p in g.projects %}
+              <option value="{{ p.id }}" {% if f.project_id == p.id|string %}selected{% endif %}>{{ p.name }}</option>
+            {% endfor %}
+          {% else %}
+            <optgroup label="{{ g.customer }}">
+              {% for p in g.projects %}
+                <option value="{{ p.id }}" {% if f.project_id == p.id|string %}selected{% endif %}>{{ p.name }}</option>
+              {% endfor %}
+            </optgroup>
+          {% endif %}
         {% endfor %}
       </select>
     </div>

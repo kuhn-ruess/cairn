@@ -344,8 +344,13 @@ def pickable_projects(user) -> list[dict]:
            "custom_fields", "time_mode").as_pymongo())
     if not raw:
         return []
+    # The customer lookup doubles as the archived filter: archiving a customer
+    # takes their projects out of circulation too, whether or not each project
+    # carries the flag (a mite import archives customers wholesale).
     names = {c.id: c.name for c in Customer.objects(
-        id__in=list({r["customer"] for r in raw})).only("id", "name")}
+        id__in=list({r["customer"] for r in raw})).only("id", "name", "archived")
+        if not c.archived}
+    raw = [r for r in raw if r["customer"] in names]
     rows = [{
         "id": str(r["_id"]),
         "name": r.get("name", ""),
@@ -556,12 +561,23 @@ def reachable_project_ids(user, team) -> set:
 def archived_project_ids(team) -> set:
     """Ids (as strings) of the team's archived billing projects.
 
-    One projection, used to mark report rows: an archived project's *history*
+    "Archived" includes *every project of an archived customer*, whether or not
+    the project itself carries the flag — archiving a customer is the broader
+    statement of the two, and a mite import routinely archives a customer while
+    leaving its projects untouched. Missing that is what kept archived work in
+    the report's project picker.
+
+    Two projections, used to mark report rows: an archived project's *history*
     still exists and still bills, so a report can't simply pretend it isn't
     there — it can only decide whether to show it, which is a question for the
     reader, not for the query."""
+    dead_customers = [c["_id"] for c in Customer.objects(
+        team=team, archived=True).only("id").as_pymongo()]
+    q = Q(archived=True)
+    if dead_customers:
+        q = q | Q(customer__in=dead_customers)
     return {str(p["_id"]) for p in TimeTrackingProject.objects(
-        team=team, archived=True).only("id").as_pymongo()}
+        Q(team=team) & q).only("id").as_pymongo()}
 
 
 def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
