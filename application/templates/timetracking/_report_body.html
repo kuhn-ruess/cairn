@@ -60,6 +60,7 @@
   <input type="hidden" name="billable" value="{{ '1' if f.billable == true else '0' if f.billable == false else '' }}">
   <input type="hidden" name="locked" value="{{ '1' if f.locked == true else '0' if f.locked == false else '' }}">
   <input type="hidden" name="state" value="{{ f.state }}">
+  <input type="hidden" name="archived" value="{{ '1' if f.archived else '' }}">
 
   {% if can_bill %}
     <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
@@ -241,6 +242,7 @@
     <input type="hidden" name="project" value="{{ f.project_id or '' }}">
     <input type="hidden" name="user" value="{{ f.user_id or '' }}">
     <input type="hidden" name="state" value="{{ f.state }}">
+    <input type="hidden" name="archived" value="{{ '1' if f.archived else '' }}">
   </form>
 {% endfor %}
 

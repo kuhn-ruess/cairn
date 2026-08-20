@@ -9,6 +9,7 @@ from flask import (
 )
 from bson import ObjectId
 from flask_login import current_user, login_required
+from mongoengine import Q
 
 from datetime import datetime
 
@@ -607,6 +608,10 @@ def _report_filters(args=None):
         "state": (args.get("state")
                   if args.get("state") in ("active", "cancelled", "all")
                   else "active"),
+        # Archived projects are finished business: out of the report by
+        # default, one click away, and never silently — what they hold is
+        # summarised where the totals are.
+        "archived": args.get("archived") == "1",
     }
 
 
@@ -659,15 +664,24 @@ def _grouped_report(team, f):
         build_report_rows, reachable_project_ids)
     from application.services.permissions import team_members
 
+    from application.services.timetracking import archived_project_ids
+
     user = current_user._get_current_object()
     scope = reachable_project_ids(user, team)
+    dead = archived_project_ids(team)
     rows = build_report_rows(
         team=team, scope_ids=scope,
         date_from=f["date_from"], date_to=f["date_to"],
         customer_id=f["customer_id"], project_id=f["project_id"],
         user_id=f["user_id"], billable=f["billable"], locked=f["locked"],
-        state=f["state"], viewer=user,
+        state=f["state"], archived_ids=dead, viewer=user,
     )
+    # Held back rather than dropped: the count and the hours are reported next
+    # to the totals, so an invoice is never short by a number nobody mentioned.
+    hidden = []
+    if not f["archived"]:
+        rows, hidden = ([r for r in rows if not r["archived"]],
+                        [r for r in rows if r["archived"]])
 
     customers = {}
     grand_min = grand_amt = 0
@@ -696,9 +710,14 @@ def _grouped_report(team, f):
             projects.append({**p, "users": users})
         out.append({**c, "projects": projects})
 
-    # Filter dropdown data.
-    customers_list = list(Customer.objects(team=team).order_by("+name"))
-    projects_list = list(TimeTrackingProject.objects(team=team).order_by("+name"))
+    # Filter dropdown data — the working set, plus whatever is currently
+    # selected (so an archived project picked on purpose stays picked).
+    customers_list = list(Customer.objects(
+        Q(team=team) & (Q(archived__ne=True) | Q(id=f["customer_id"] or None))
+    ).order_by("+name"))
+    projects_list = list(TimeTrackingProject.objects(
+        Q(team=team) & (Q(archived__ne=True) | Q(id=f["project_id"] or None))
+    ).order_by("+name"))
     members = team_members(team)
     move_targets = sorted(
         ({"id": str(p.id), "label": f"{p.customer.name} › {p.name}"}
@@ -707,6 +726,8 @@ def _grouped_report(team, f):
     return {
         "groups": out, "rows": rows,
         "grand_minutes": grand_min, "grand_amount": grand_amt,
+        "hidden_count": len(hidden),
+        "hidden_minutes": sum(r["minutes"] for r in hidden),
         "customers": customers_list, "projects": projects_list, "members": members,
         "move_targets": move_targets,
     }
@@ -831,7 +852,7 @@ def report_bill():
                                       if res["locked"] else ""), "info")
         args = {k: v for k, v in request.form.items()
                 if k in ("team", "period", "from", "to", "customer", "project",
-                         "user", "billable", "locked", "state")}
+                         "user", "billable", "locked", "state", "archived")}
         return redirect(url_for("timetracking.report", **args))
     lock = action != "unlock"
     n = set_locked(team=team, user=user, items=pairs, locked=lock)
@@ -843,7 +864,7 @@ def report_bill():
     # Preserve the report filters (incl. the selected team) from the hidden form.
     args = {k: v for k, v in request.form.items()
             if k in ("team", "period", "from", "to", "customer", "project",
-                     "user", "billable", "locked", "state")}
+                     "user", "billable", "locked", "state", "archived")}
     return redirect(url_for("timetracking.report", **args))
 
 
@@ -874,7 +895,7 @@ def report_restore():
         flash("Nothing to restore.", "info")
     args = {k: v for k, v in request.form.items()
             if k in ("team", "period", "from", "to", "customer", "project",
-                     "user", "billable", "locked", "state")}
+                     "user", "billable", "locked", "state", "archived")}
     return redirect(url_for("timetracking.report", **args))
 
 
@@ -1024,6 +1045,62 @@ def import_mite():
 # ---------------------------------------------------------------------------
 # Customers
 # ---------------------------------------------------------------------------
+
+@timetracking_bp.route("/bulk-delete", methods=["POST"])
+@login_required
+@team_required
+def bulk_delete():
+    """Delete the ticked customers and projects in one go.
+
+    Cleaning up after an import that produced the wrong shape means removing
+    twenty things, and doing that one confirmation dialog at a time is how
+    people give up halfway and leave a half-cleaned list. Same rights and same
+    consequences as deleting them individually — manager-only, and everything
+    booked on them goes with them — just not the same twenty clicks. A customer
+    takes its projects along, so a project ticked under a ticked customer isn't
+    counted twice."""
+    from application.services.timetracking import delete_customer, delete_project
+
+    team = _team()
+    user = current_user._get_current_object()
+    if not team.is_managed_by(user):
+        abort(403)
+
+    customer_ids, project_ids = [], []
+    for raw in request.form.getlist("pick"):
+        kind, _, ident = raw.partition(":")
+        if kind == "customer" and ident:
+            customer_ids.append(ident)
+        elif kind == "project" and ident:
+            project_ids.append(ident)
+    if not customer_ids and not project_ids:
+        flash("Nothing was ticked.", "info")
+        return redirect(url_for("timetracking.index", team=team.pk,
+                                **({"archive": 1} if request.form.get("archive") else {})))
+
+    done = {"customers": 0, "projects": 0, "entries": 0}
+    doomed = [c for c in Customer.objects(team=team, id__in=[
+        to_oid(i) for i in customer_ids if to_oid(i)])]
+    doomed_ids = {str(c.id) for c in doomed}
+    for p in TimeTrackingProject.objects(team=team, id__in=[
+            to_oid(i) for i in project_ids if to_oid(i)]):
+        if str(p.customer.id) in doomed_ids:
+            continue  # its customer is going anyway
+        res = delete_project(p, purge=True)
+        done["projects"] += 1
+        done["entries"] += res.get("entries", 0)
+    for c in doomed:
+        res = delete_customer(c)
+        done["customers"] += 1
+        done["projects"] += res.get("projects", 0)
+        done["entries"] += res.get("entries", 0)
+
+    flash(f"Deleted {done['customers']} customer(s) and {done['projects']} "
+          f"project(s) with {done['entries']} time entr"
+          f"{'y' if done['entries'] == 1 else 'ies'}.", "success")
+    return redirect(url_for("timetracking.index", team=team.pk,
+                            **({"archive": 1} if request.form.get("archive") else {})))
+
 
 @timetracking_bp.route("/customers", methods=["POST"])
 @login_required

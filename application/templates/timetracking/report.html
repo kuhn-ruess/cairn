@@ -94,6 +94,13 @@
       </select>
     </div>
     <div class="col-auto">
+      <label class="form-check small mb-1">
+        <input type="checkbox" class="form-check-input" name="archived" value="1"
+               {% if f.archived %}checked{% endif %}>
+        incl. archived projects
+      </label>
+    </div>
+    <div class="col-auto">
       <button class="btn btn-sm btn-primary">Apply</button>
     </div>
   </div>
@@ -102,6 +109,15 @@
 {# ---- Totals ---- #}
 <div class="d-flex gap-3 align-items-baseline mb-3">
   <span class="h5 mb-0">{{ grand_minutes|duration }}</span>
+  {% if hidden_count %}
+    {# Held back, never dropped silently: an invoice built from this page must
+       not be short by hours nobody mentioned. #}
+    <a class="badge text-bg-secondary text-decoration-none"
+       href="{{ url_for('timetracking.report', **dict(request.args, archived='1')) }}"
+       title="Show them">
+      + {{ hidden_count }} on archived projects ({{ hidden_minutes|duration }})
+    </a>
+  {% endif %}
   {% if f.state != 'active' %}
     <span class="badge text-bg-warning">
       {{ 'deleted entries only' if f.state == 'cancelled' else 'incl. deleted entries' }}

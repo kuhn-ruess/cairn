@@ -8,7 +8,9 @@
 <div class="tt-share-block small"
      data-action="{{ url_for('timetracking.project_share', pid=p.id) }}"
      data-team="{{ team.pk }}">
-  <div class="text-muted mb-1"><i class="bi bi-link-45deg"></i> Customer link (hours only)</div>
+  <div class="text-muted mb-1">
+    <i class="bi bi-link-45deg"></i> Public time-sheet link for {{ p.customer.name }}
+  </div>
   {% if p.share_enabled and p.share_token %}
     {% set _url = url_for('public.project_time', token=p.share_token, _external=True) %}
     <input class="form-control form-control-sm mb-1 tt-share-url" readonly
@@ -25,6 +27,6 @@
     </div>
   {% else %}
     <button type="button" class="btn btn-sm btn-outline-primary tt-share-btn"
-            data-share-action="enable">Enable customer link</button>
+            data-share-action="enable">Create the link</button>
   {% endif %}
 </div>

@@ -47,6 +47,30 @@
   {% endif %}
 </div>
 
+{% if can_manage and customers %}
+  {# The bulk form is a *sibling* of the list, not a wrapper: the list already
+     contains forms (add project), and forms cannot nest. Each checkbox and the
+     button below point at it with form="tt-bulk", which submits them from
+     wherever they sit in the page. #}
+  <form id="tt-bulk" method="post"
+        action="{{ url_for('timetracking.bulk_delete') }}"
+        onsubmit="return confirm('Delete everything ticked — customers with all their projects, and every hour booked on them? This cannot be undone.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="team" value="{{ team.pk }}">
+    {% if show_archive %}<input type="hidden" name="archive" value="1">{% endif %}
+  </form>
+  <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    <label class="form-check small m-0">
+      <input type="checkbox" class="form-check-input" id="tt-pick-all"> select all
+    </label>
+    <button form="tt-bulk" class="btn btn-sm btn-outline-danger">
+      <i class="bi bi-trash"></i> Delete selected</button>
+    <span class="small text-muted">
+      Ticking a customer takes its projects and their logged time with it.
+    </span>
+  </div>
+{% endif %}
+
 {% if not customers %}
   <p class="text-muted">
     {% if show_archive %}
@@ -60,6 +84,11 @@
 {% for c in customers %}
   <div class="card mb-3 {% if c.archived %}opacity-75{% endif %}">
     <div class="card-header py-2 d-flex align-items-center gap-2 flex-wrap">
+      {% if can_manage %}
+        <input type="checkbox" class="form-check-input tt-pick m-0" form="tt-bulk"
+               name="pick" value="customer:{{ c.id }}"
+               title="Delete this customer with everything on it">
+      {% endif %}
       <h2 class="h6 mb-0 me-auto">
         <a class="text-decoration-none"
            href="{{ url_for('timetracking.customer_detail', cid=c.id, team=team.pk) }}">
@@ -78,6 +107,11 @@
         {% set links = links_by_project.get(p.id|string, []) %}
         <li class="list-group-item py-2">
           <div class="d-flex align-items-center gap-2 flex-wrap">
+            {% if can_manage %}
+              <input type="checkbox" class="form-check-input tt-pick m-0" form="tt-bulk"
+                     name="pick" value="project:{{ p.id }}"
+                     title="Delete this project and the time booked on it">
+            {% endif %}
             <a class="text-decoration-none"
                href="{{ url_for('timetracking.project_detail', pid=p.id, team=team.pk) }}">
               <strong>{{ p.name }}</strong></a>
@@ -164,4 +198,18 @@
     </ul>
   </div>
 {% endfor %}
+
+{% if can_manage and customers %}
+  <script>
+    // "select all" for the bulk form. Delegated on document, like the rest of
+    // the module's JS, so it survives a swapped <main>.
+    document.addEventListener("change", (ev) => {
+      const all = ev.target.closest("#tt-pick-all");
+      if (!all) return;
+      document.querySelectorAll(".tt-pick").forEach((cb) => {
+        cb.checked = all.checked;
+      });
+    });
+  </script>
+{% endif %}
 {% endblock %}

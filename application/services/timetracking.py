@@ -553,9 +553,20 @@ def reachable_project_ids(user, team) -> set:
     return {str(p.id) for p in projs if p}
 
 
+def archived_project_ids(team) -> set:
+    """Ids (as strings) of the team's archived billing projects.
+
+    One projection, used to mark report rows: an archived project's *history*
+    still exists and still bills, so a report can't simply pretend it isn't
+    there — it can only decide whether to show it, which is a question for the
+    reader, not for the query."""
+    return {str(p["_id"]) for p in TimeTrackingProject.objects(
+        team=team, archived=True).only("id").as_pymongo()}
+
+
 def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
                       project_id=None, user_id=None, billable=None, locked=None,
-                      state="active", viewer=None):
+                      state="active", archived_ids=None, viewer=None):
     """Flat list of matching entries. ``scope_ids`` (set of project-id strings)
     bounds visibility; ``None`` means unbounded (manager).
 
@@ -614,6 +625,7 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
                 "user_id": e.user_id,
                 "external_user": e.external_user or "",
                 "status": e.status,
+                "archived": e.project_id in (archived_ids or ()),
                 "spent_on": dd,
                 "minutes": e.minutes or 0,
                 "amount_cents": e.amount_cents,
