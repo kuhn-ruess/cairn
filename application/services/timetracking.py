@@ -787,7 +787,8 @@ def set_custom_value(*, team, pairs, key: str, label: str, value: str,
             if value:
                 values.append(TimeEntryValue(key=key, label=label, value=value))
             res = TimeBucket.objects(
-                pk=bucket.pk, entries__entry_id=entry_id, entries__locked=False,
+                pk=bucket.pk,
+                entries__match={"entry_id": entry_id, "locked": {"$ne": True}},
             ).update_one(set__entries__S__custom=values,
                          set__updated_at=_utcnow())
             if res:
@@ -877,8 +878,9 @@ def purge_entries(*, team, pairs, viewer) -> dict:
             # Cancelling already took the minutes out of the cached total, so
             # only the count moves here.
             res = TimeBucket.objects(
-                pk=bucket.pk, entries__entry_id=entry_id,
-                entries__status="cancelled", entries__locked=False,
+                pk=bucket.pk,
+                entries__match={"entry_id": entry_id, "status": "cancelled",
+                                "locked": {"$ne": True}},
             ).update_one(
                 pull__entries__entry_id=entry_id,
                 inc__entry_count=-1,
@@ -976,8 +978,8 @@ def move_entries(*, team, pairs, target, actor=None) -> dict:
                       if rate and entry.billable else None)
             if same_customer:
                 res = TimeBucket.objects(
-                    pk=bucket.pk, entries__entry_id=entry_id,
-                    entries__locked=False,
+                    pk=bucket.pk,
+                    entries__match={"entry_id": entry_id, "locked": {"$ne": True}},
                 ).update_one(
                     set__entries__S__project_id=str(target.id),
                     set__entries__S__project_name=target.name,
@@ -1126,33 +1128,54 @@ def fmt_duration(minutes) -> str:
 # promise of this link is hours only, and a promise kept by having nothing to
 # switch on is stronger than one kept by a switch.
 SHEET_BASE_COLUMNS = [
-    {"key": "date",  "label": "Date",        "csv": "Datum",        "num": True},
-    {"key": "start", "label": "From",        "csv": "Von",          "num": True},
-    {"key": "end",   "label": "To",          "csv": "Bis",          "num": True},
-    {"key": "hours", "label": "Hours",       "csv": "Stunden",      "num": True},
-    {"key": "user",  "label": "Who",         "csv": "Bearbeiter"},
-    {"key": "note",  "label": "Description", "csv": "Beschreibung"},
+    {"key": "date",    "label": "Date",        "csv": "Datum",        "num": True},
+    {"key": "start",   "label": "From",        "csv": "Von",          "num": True},
+    {"key": "end",     "label": "To",          "csv": "Bis",          "num": True},
+    {"key": "hours",   "label": "Hours",       "csv": "Stunden",      "num": True},
+    {"key": "user",    "label": "Who",         "csv": "Bearbeiter"},
+    # Ticket, task and service normally ride *inside* the description, which is
+    # how this sheet has always read. Give them a column of their own and the
+    # description hands them over instead of repeating them (see below), so
+    # either arrangement is a choice rather than a duplication.
+    {"key": "ref",     "label": "Ticket",      "csv": "Ticket"},
+    {"key": "source",  "label": "Task",        "csv": "Aufgabe"},
+    {"key": "service", "label": "Service",     "csv": "Leistung"},
+    {"key": "note",    "label": "Description", "csv": "Beschreibung"},
 ]
+
+# What the description absorbs when nothing else shows it.
+_NOTE_ABSORBS = ("ref", "source")
+
+
+def available_sheet_columns(project) -> list[dict]:
+    """Every column this project's sheet *could* show — the configurator's list.
+
+    The fixed vocabulary plus one entry per custom field. Money is not in it and
+    cannot be: see SHEET_BASE_COLUMNS."""
+    out = list(SHEET_BASE_COLUMNS)
+    for f in (project.custom_fields or []):
+        out.append({"key": f"cf:{f.key}", "label": f.label, "csv": f.label})
+    return out
 
 
 def sheet_columns(project, *, has_times: bool = True) -> list[dict]:
     """The sheet's columns for ``project``, in the order it wants them.
 
-    Everything available, in the natural order, unless the project says
-    otherwise via ``share_columns`` — which is then followed exactly, including
-    leaving columns out. Custom fields join the list under ``cf:<key>``; a field
-    removed from the project after being configured simply drops out."""
-    available = list(SHEET_BASE_COLUMNS)
-    for f in (project.custom_fields or []):
-        available.append({"key": f"cf:{f.key}", "label": f.label, "csv": f.label})
+    The project's own order via ``share_columns`` when it has one — followed
+    exactly, including leaving columns out — otherwise the default set. A custom
+    field removed from the project after being configured simply drops out."""
+    available = available_sheet_columns(project)
     by_key = {c["key"]: c for c in available}
     wanted = [k for k in (project.share_columns or []) if k in by_key]
     if wanted:
         return [by_key[k] for k in wanted]
-    # Default: everything, minus the clock columns when there are no times to
-    # put in them.
-    return [c for c in available
-            if has_times or c["key"] not in ("start", "end")]
+    # Default: the sheet as it has always read — dates, hours, who, the
+    # description (with ticket and task folded into it) and the project's own
+    # fields. Ticket / task / service only appear as columns when asked for.
+    skip = {"ref", "source", "service"}
+    if not has_times:
+        skip |= {"start", "end"}
+    return [c for c in available if c["key"] not in skip]
 
 
 def sheet_cell(row: dict, key: str, *, for_csv: bool = False) -> str:
@@ -1170,6 +1193,12 @@ def sheet_cell(row: dict, key: str, *, for_csv: bool = False) -> str:
                 else fmt_duration(row["minutes"]))
     if key == "user":
         return row["user_name"]
+    if key == "ref":
+        return row["ref"]
+    if key == "source":
+        return row["source_label"]
+    if key == "service":
+        return row["service"]
     if key == "note":
         return row["note"]
     if key.startswith("cf:"):
@@ -1211,10 +1240,13 @@ def public_project_report(project, month: str | None = None,
                 "end_time": e.end_time or "",
                 # The ticket number is useful to the customer; the deep link
                 # behind it points into an internal system, so it stays home.
-                # The task's title joins it when the project asks for it.
-                "note": ((ref_label(e.external_ref) + " " if e.external_ref else "")
-                         + described(e.note, e.source_label,
-                                     project.show_source)).strip(),
+                # The task's title joins it when the project asks for it. Kept
+                # apart here and assembled below, once it is known whether they
+                # have columns of their own.
+                "note": (e.note or "").strip(),
+                "ref": ref_label(e.external_ref) if e.external_ref else "",
+                "source_label": e.source_label or "" if project.show_source else "",
+                "service": e.service or "",
                 "user_name": e.user_name or "",
                 "custom": {c.key: c.value for c in (e.custom or []) if c.value},
             })
@@ -1272,6 +1304,15 @@ def public_project_report(project, month: str | None = None,
 
     cols = sheet_columns(project, has_times=(project.time_mode == "clock"
                                              or any(r["start_time"] for r in rows)))
+    shown = {c["key"] for c in cols}
+    for r in rows:
+        # Whatever has no column of its own goes into the description, exactly
+        # as this sheet has always read.
+        lead = [r[k if k != "source" else "source_label"]
+                for k in _NOTE_ABSORBS if k not in shown]
+        r["note"] = " ".join([p for p in lead if p]
+                             + ([r["note"]] if r["note"] else [])).strip() \
+            if lead else r["note"]
     for r in rows:
         r["cells"] = [{"text": sheet_cell(r, c["key"]), "num": c.get("num", False)}
                       for c in cols]
@@ -1361,7 +1402,8 @@ def restore_entry(*, bucket: TimeBucket, entry_id: str, user) -> bool:
     if entry is None or entry.locked:
         return False
     res = TimeBucket.objects(
-        pk=bucket.pk, entries__entry_id=entry_id, entries__status="cancelled",
+        pk=bucket.pk,
+        entries__match={"entry_id": entry_id, "status": "cancelled"},
     ).update_one(
         set__entries__S__status="active",
         set__entries__S__cancelled_at=None,
@@ -1385,7 +1427,8 @@ def cancel_entry(*, bucket: TimeBucket, entry_id: str, user) -> bool:
         return False
     actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
     res = TimeBucket.objects(
-        pk=bucket.pk, entries__entry_id=entry_id, entries__locked=False,
+        pk=bucket.pk,
+                entries__match={"entry_id": entry_id, "locked": {"$ne": True}},
     ).update_one(
         set__entries__S__status="cancelled",
         set__entries__S__cancelled_at=_utcnow(),
@@ -1558,7 +1601,8 @@ def edit_entry(*, bucket: TimeBucket, entry_id: str, user, minutes=None,
     rate = entry.hourly_rate_cents
     amount = round(rate * new_minutes / 60) if (new_billable and rate) else None
     res = TimeBucket.objects(
-        pk=bucket.pk, entries__entry_id=entry_id, entries__locked=False,
+        pk=bucket.pk,
+                entries__match={"entry_id": entry_id, "locked": {"$ne": True}},
     ).update_one(
         set__entries__S__minutes=new_minutes,
         set__entries__S__spent_on=new_spent,
@@ -1753,7 +1797,8 @@ def sync_external_entries(*, user, item, rows, project=None) -> tuple[int, int]:
             continue
         changes = _external_corrections(entry, r)
         if changes and TimeBucket.objects(
-            pk=bucket.pk, entries__entry_id=entry.entry_id, entries__locked=False,
+            pk=bucket.pk,
+            entries__match={"entry_id": entry.entry_id, "locked": {"$ne": True}},
         ).update_one(set__updated_at=_utcnow(), **changes):
             fixed += 1
     return added, fixed
@@ -1795,7 +1840,8 @@ def repair_imported_entries(*, user, item, note: str, external_ref: str = "",
                 fixed += 1
                 continue
             res = TimeBucket.objects(
-                pk=b.pk, entries__entry_id=e.entry_id, entries__locked=False,
+                pk=b.pk,
+                entries__match={"entry_id": e.entry_id, "locked": {"$ne": True}},
             ).update_one(
                 set__entries__S__note=new_note,
                 set__entries__S__external_ref=external_ref or None,
@@ -2003,7 +2049,8 @@ def split_note_times(*, user=None, dry_run: bool = False) -> dict:
             if dry_run:
                 continue
             TimeBucket.objects(
-                pk=b.pk, entries__entry_id=e.entry_id, entries__locked=False,
+                pk=b.pk,
+                entries__match={"entry_id": e.entry_id, "locked": {"$ne": True}},
             ).update_one(
                 set__entries__S__start_time=start,
                 set__entries__S__end_time=end,

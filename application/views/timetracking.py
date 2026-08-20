@@ -120,16 +120,6 @@ def _back(team, **kw):
     return redirect(url_for("timetracking.index", team=team.pk, **kw))
 
 
-class _bare_project:
-    """A project with no column configuration — used to ask for *all* the
-    columns it could offer, which is what the configuration form lists."""
-
-    def __init__(self, project):
-        self.custom_fields = project.custom_fields
-        self.share_columns = []
-        self.time_mode = project.time_mode
-
-
 def _parse_budget(form):
     """Form (budget_unit ∈ ''/hours/money, budget_value, budget_recurring) →
     ``(budget_value, budget_type)``. Hours are stored as minutes, money as
@@ -1401,8 +1391,8 @@ def project_detail(pid):
         key=lambda r: r["label"].lower())
     # The customer sheet's columns, in this project's order, each flagged with
     # whether it is currently shown — the form below is the whole configuration.
-    from application.services.timetracking import sheet_columns
-    all_cols = sheet_columns(_bare_project(p))
+    from application.services.timetracking import available_sheet_columns
+    all_cols = available_sheet_columns(p)
     chosen = [k for k in (p.share_columns or []) if k in {c["key"] for c in all_cols}]
     ordered = ([c for k in chosen for c in all_cols if c["key"] == k]
                + [c for c in all_cols if c["key"] not in chosen])
