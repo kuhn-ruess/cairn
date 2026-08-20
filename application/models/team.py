@@ -58,6 +58,40 @@ class TeamInvite(EmbeddedDocument):
         return self.expires_at > _utcnow()
 
 
+class ZammadAgent(EmbeddedDocument):
+    """One Zammad agent the time import has seen, and who they are in Cairn.
+
+    The roster lives on the *team*, not on the syncing user: a booking made by
+    a colleague must be attributed the same way no matter whose sync picks it
+    up, and the team is what gets billed. Matching is attempted automatically
+    (email, then login/username, then display name); anything the automatic
+    pass can't resolve is kept here **unmatched** so the UI can say so and
+    offer the assignment — an agent silently booked under a bare name is
+    exactly the thing that goes unnoticed until an invoice is wrong.
+
+    ``user`` is the Cairn account the agent's time belongs to (``None`` while
+    unmatched). ``matched_by`` records how we got there, so a manual
+    assignment is never overwritten by the automatic matcher on the next sync.
+    """
+
+    zammad_id = StringField(required=True, max_length=32)
+    login = StringField(max_length=255)
+    email = StringField(max_length=255)
+    name = StringField(max_length=255)
+    user = ReferenceField(User)
+    matched_by = StringField(choices=("email", "login", "name", "manual"))
+    last_seen_at = DateTimeField(default=_utcnow)
+
+    @property
+    def key(self) -> str:
+        """The value stamped on imported entries — ``zammad:user:<id>``."""
+        return f"zammad:user:{self.zammad_id}"
+
+    @property
+    def label(self) -> str:
+        return self.name or self.login or self.email or f"#{self.zammad_id}"
+
+
 class Team(Document):
     meta = {"collection": "teams", "indexes": ["admin", "invites.token"]}
 
@@ -80,6 +114,23 @@ class Team(Document):
     # False the team is an organisation (every member seat billed). The choice
     # is made by the payer at checkout; see application.services.billing.
     family = BooleanField(default=False)
+    # Zammad agents seen by the time import, and their Cairn counterpart.
+    # Embedded because it is read on every sync and written rarely — see
+    # ZammadAgent.
+    zammad_agents = EmbeddedDocumentListField(ZammadAgent)
+
+    def zammad_agent(self, zammad_id):
+        zid = str(zammad_id or "")
+        if not zid:
+            return None
+        for a in self.zammad_agents or []:
+            if a.zammad_id == zid:
+                return a
+        return None
+
+    def unmatched_zammad_agents(self) -> list:
+        """Agents whose time is booked under a bare Zammad name."""
+        return [a for a in (self.zammad_agents or []) if not a.user]
 
     def members_query(self):
         from application.models.user import User as _User

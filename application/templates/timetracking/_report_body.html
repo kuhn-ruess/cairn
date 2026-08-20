@@ -59,6 +59,7 @@
   <input type="hidden" name="user" value="{{ f.user_id or '' }}">
   <input type="hidden" name="billable" value="{{ '1' if f.billable == true else '0' if f.billable == false else '' }}">
   <input type="hidden" name="locked" value="{{ '1' if f.locked == true else '0' if f.locked == false else '' }}">
+  <input type="hidden" name="state" value="{{ f.state }}">
 
   {% if can_bill %}
     <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
@@ -67,6 +68,16 @@
       {% if can_unlock %}
         <button class="btn btn-sm btn-outline-secondary" name="action" value="unlock">
           <i class="bi bi-unlock"></i> Reopen selected</button>
+        {# Re-file selected time onto another project — the per-entry version of
+           the wholesale move on the manage page. #}
+        <select name="target_id" class="form-select form-select-sm"
+                style="max-width: 18rem;">
+          {% for op in move_targets %}
+            <option value="{{ op.id }}">{{ op.label }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-sm btn-outline-primary" name="action" value="move">
+          <i class="bi bi-arrow-left-right"></i> Move selected</button>
       {% endif %}
       <span class="small text-muted">
         Tick entries to settle them — billed entries are locked and can only be
@@ -113,6 +124,9 @@
             <td class="small text-nowrap">{{ e.customer }} › {{ e.project }}</td>
             <td class="small text-nowrap">{{ e.user_name }}</td>
             <td class="small">
+              {% if e.status == 'cancelled' %}
+                <span class="badge text-bg-warning" title="Deleted — kept, but counted nowhere">deleted</span>
+              {% endif %}
               {% if e.locked %}<i class="bi bi-lock text-muted" title="Billed"></i> {% endif %}
               {% if not e.billable %}<span class="badge text-bg-secondary">n/b</span> {% endif %}
               {% if e.service %}<span class="badge text-bg-light text-muted">{{ e.service }}</span> {% endif %}
@@ -128,13 +142,27 @@
             <td class="small text-end text-nowrap">{{ e.minutes|duration }}</td>
             <td class="small text-success text-end text-nowrap">{{ e.amount_cents|eur }}</td>
             <td class="text-end" style="width:2rem;">
-              {% if not e.locked %}
+              {% if not e.locked and e.status == 'active' %}
                 <button type="button" class="btn btn-sm btn-link p-0 text-muted tt-edit-toggle"
                         title="Correct this entry"><i class="bi bi-pencil"></i></button>
               {% endif %}
             </td>
           </tr>
-          {% if not e.locked %}
+          {% if e.status == 'cancelled' and not e.locked %}
+            {# Deleted time is kept, so it can come back — and this is the only
+               view that shows an entry whose booker has no Cairn account. #}
+            <tr>
+              <td colspan="{{ 9 if can_bill else 8 }}" class="pt-0">
+                <div class="small text-muted d-flex align-items-center gap-2">
+                  Deleted{% if e.external_ref %} — imported from ticket
+                  {{ e.external_ref|ticketref }}{% endif %}.
+                  <button form="tt-restore-{{ e.entry_id }}"
+                          class="btn btn-sm btn-link p-0">Restore</button>
+                </div>
+              </td>
+            </tr>
+          {% endif %}
+          {% if not e.locked and e.status == 'active' %}
             {# Correcting an entry where you found it, mite-style. Same controls
                and endpoint as the day sheet; none of these inputs carry a name,
                so the bulk-billing form above never submits them. #}
@@ -196,6 +224,25 @@
     </table>
   </div>
 </form>
+
+{# Restore forms sit outside the billing form — forms can't nest — and are
+   wired to their button by the button's form= attribute. #}
+{% for e in rows if e.status == 'cancelled' and not e.locked %}
+  <form id="tt-restore-{{ e.entry_id }}" method="post" class="d-none"
+        action="{{ url_for('timetracking.report_restore') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="bucket_id" value="{{ e.bucket_id }}">
+    <input type="hidden" name="entry_id" value="{{ e.entry_id }}">
+    <input type="hidden" name="team" value="{{ team.pk }}">
+    <input type="hidden" name="period" value="{{ f.preset }}">
+    <input type="hidden" name="from" value="{{ f.date_from.isoformat() }}">
+    <input type="hidden" name="to" value="{{ f.date_to.isoformat() }}">
+    <input type="hidden" name="customer" value="{{ f.customer_id or '' }}">
+    <input type="hidden" name="project" value="{{ f.project_id or '' }}">
+    <input type="hidden" name="user" value="{{ f.user_id or '' }}">
+    <input type="hidden" name="state" value="{{ f.state }}">
+  </form>
+{% endfor %}
 
 {# ---- What the export will contain ---- #}
 <details class="mt-3">

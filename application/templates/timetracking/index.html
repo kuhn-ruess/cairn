@@ -55,6 +55,11 @@
             <span class="me-auto">
               <strong>{{ p.name }}</strong>
               {% if p.archived %}<span class="badge text-bg-secondary ms-1">archived</span>{% endif %}
+              {% if p.intake %}
+                <span class="badge text-bg-info ms-1"
+                      title="Time imported from Zammad for this customer books here">
+                  <i class="bi bi-box-arrow-in-down"></i> intake</span>
+              {% endif %}
               {% if p.time_mode == 'clock' %}
                 <span class="badge text-bg-light text-muted" title="Booked by start and end time">
                   <i class="bi bi-clock"></i> start–end</span>
@@ -134,10 +139,21 @@
               {# Render the task an entry came from into its description on the
                  report and the customer's sheet. Nothing is written into the
                  note — switching this off takes the reference away again. #}
-              <label class="form-check small mb-3">
+              <label class="form-check small mb-2">
                 <input type="checkbox" name="show_source" value="1" class="form-check-input"
                        {% if p.show_source %}checked{% endif %}>
                 Show the task title in the description
+              </label>
+
+              {# Where imported time lands for this customer. One project per
+                 customer carries it, so ticking it here unticks it elsewhere —
+                 which is how you take the time away from an auto-created
+                 project and give it to the one you actually bill. #}
+              <label class="form-check small mb-3">
+                <input type="checkbox" name="intake" value="1" class="form-check-input"
+                       {% if p.intake %}checked{% endif %}>
+                Incoming Zammad time books here
+                <span class="text-muted">— for everything of {{ c.name }}</span>
               </label>
 
               <div>
@@ -245,6 +261,57 @@
                     <button class="btn btn-sm btn-outline-danger"
                             onclick="return confirm('Delete all time logged on “{{ p.name }}”? This cannot be undone.');">
                       Reset</button>
+                  </form>
+                </details>
+
+                {% set _mins = logged.get(p.id|string, 0) %}
+                <details class="mt-2">
+                  <summary class="small" style="cursor:pointer;">
+                    <i class="bi bi-arrow-left-right"></i> Move logged time to
+                    another project
+                  </summary>
+                  <form method="post" class="d-flex gap-1 mt-2 align-items-center flex-wrap"
+                        action="{{ url_for('timetracking.project_move_entries', pid=p.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="team" value="{{ team.pk }}">
+                    <span class="small text-muted">
+                      Moves everything booked here{% if _mins %} ({{ _mins|duration }}){% endif %}
+                      onto another project — across customers too. Billed
+                      entries stay put.
+                    </span>
+                    <select name="target_id" class="form-select form-select-sm"
+                            style="max-width: 22rem;">
+                      {% for op in all_projects if op.id != p.id|string %}
+                        <option value="{{ op.id }}">{{ op.label }}</option>
+                      {% endfor %}
+                    </select>
+                    <button class="btn btn-sm btn-outline-primary">Move</button>
+                  </form>
+                </details>
+
+                <details class="mt-2">
+                  <summary class="small text-danger" style="cursor:pointer;">
+                    <i class="bi bi-trash"></i> Delete this project
+                  </summary>
+                  <form method="post" class="d-flex gap-1 mt-2 align-items-center flex-wrap"
+                        action="{{ url_for('timetracking.project_delete', pid=p.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="team" value="{{ team.pk }}">
+                    <span class="small text-muted">
+                      Removes the project and clears the Cairn links pointing at
+                      it. Time still booked here blocks it — move it first, or
+                      tick the box to destroy it along with the project.
+                    </span>
+                    <label class="form-check small m-0">
+                      <input type="checkbox" name="purge" value="1" class="form-check-input">
+                      delete the time too
+                    </label>
+                    <input type="text" name="confirm" class="form-control form-control-sm"
+                           style="max-width: 16rem;" autocomplete="off"
+                           placeholder="Type “{{ p.name }}” to confirm">
+                    <button class="btn btn-sm btn-outline-danger"
+                            onclick="return confirm('Delete “{{ p.name }}”? This cannot be undone.');">
+                      Delete</button>
                   </form>
                 </details>
               {% endif %}

@@ -133,11 +133,16 @@ class User(UserMixin, Document):
     zammad_sync_project = StringField(default="")
     zammad_assignee_only = BooleanField(default=True)
     zammad_include_closed = BooleanField(default=False)
-    # Mirror the time booked on a ticket into the time-tracking module. Only
-    # takes effect for tickets whose Cairn project/folder is linked to a
-    # billing project — that link is the real opt-in (see
-    # services.zammad_import._import_time_accounting).
+    # Mirror the time booked on a ticket into the time-tracking module. The
+    # master switch for the whole time import: off means no time_accountings
+    # call is made at all (see services.zammad_import._import_time_accounting).
     zammad_import_time = BooleanField(default=True)
+    # Where imported time lands when the ticket's Cairn subtree isn't linked to
+    # a billing project: off = nowhere (the link is the only opt-in), on = the
+    # ticket's Zammad organisation becomes a Cairn customer + billing project,
+    # created on first sight and reused afterwards. See
+    # services.zammad_billing.ensure_billing_target.
+    zammad_time_auto_customer = BooleanField(default=False)
 
     # Password reset
     password_reset_token = StringField()

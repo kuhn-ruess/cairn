@@ -98,6 +98,18 @@
           <input type="text" name="note" value="{{ customer.note or '' }}"
                  class="form-control form-control-sm mb-2">
 
+          {# The key an importer recognises this customer by. Paste an
+             auto-created customer's key here and the import feeds *this*
+             customer instead — then the created one can be deleted. #}
+          <label class="form-label small text-muted mb-0">Import key</label>
+          <input type="text" name="external_id" value="{{ customer.external_id or '' }}"
+                 class="form-control form-control-sm mb-1"
+                 placeholder="zammad:org:12 · mite:4711">
+          <div class="form-text small mb-2">
+            How an import identifies this customer. Move a Zammad organisation's
+            key here to make its time land on this customer.
+          </div>
+
           <label class="form-check small">
             <input type="checkbox" name="archived" value="1" class="form-check-input"
                    {% if customer.archived %}checked{% endif %}>

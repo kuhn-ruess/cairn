@@ -67,8 +67,16 @@ class ZammadStats:
     time_entries_repaired: int = 0  # older imports backfilled with title + link
     time_users_matched: int = 0     # Zammad agents resolved to a Cairn account
     time_users_unmatched: list = field(default_factory=list)
+    time_customers_created: int = 0  # Zammad organisations turned into customers
+    time_skipped_unlinked: int = 0   # tickets with time but nowhere to book it
     # Zammad user id → actor snapshot, cached for the run (not reported).
     actor_cache: dict = field(default_factory=dict)
+    # Zammad organisation / customer id → billing project, cached for the run.
+    target_cache: dict = field(default_factory=dict)
+    # Team id → the ONE Team instance a run mutates. The agent roster lives on
+    # the team document, so every write must go through the same object or a
+    # second dereference would overwrite the first one's appends.
+    team_cache: dict = field(default_factory=dict)
     me_id: Any = None
     fetched_via: str = ""
     errors: list[str] = field(default_factory=list)
@@ -92,6 +100,8 @@ class ZammadStats:
             "time_entries_repaired": self.time_entries_repaired,
             "time_users_matched": self.time_users_matched,
             "time_users_unmatched": list(self.time_users_unmatched),
+            "time_customers_created": self.time_customers_created,
+            "time_skipped_unlinked": self.time_skipped_unlinked,
             "me_id": self.me_id,
             "fetched_via": self.fetched_via,
             "errors": list(self.errors),
@@ -636,7 +646,8 @@ def _upsert_ticket(
         # Parent stays put either way: the user might have moved the
         # task / project into a specific place after the first import.
         existing.save()
-        _import_time_accounting(user, existing, base, token, zid, znum, stats, me_id)
+        _import_time_accounting(user, existing, base, token, zid, znum, stats,
+                                me_id, raw=raw)
         stats.tickets_updated += 1
         return existing
     else:
@@ -657,7 +668,8 @@ def _upsert_ticket(
             apply_label_rules(item, user)
         _sync_article_comments(item, articles, stats, user, me_id)
         item.save()
-        _import_time_accounting(user, item, base, token, zid, znum, stats, me_id)
+        _import_time_accounting(user, item, base, token, zid, znum, stats,
+                                me_id, raw=raw)
         stats.tickets_created += 1
         return item
 
@@ -695,60 +707,143 @@ def _fetch_time_accounting(base: str, token: str, ticket_id: str,
     return rows if isinstance(rows, list) else []
 
 
-def _zammad_actor(base: str, token: str, uid, stats: ZammadStats,
+def _team_for(stats: ZammadStats, team):
+    """The one in-memory ``Team`` a run mutates (see ``stats.team_cache``)."""
+    if team is None:
+        return None
+    return stats.team_cache.setdefault(str(team.pk), team)
+
+
+def _zammad_actor(base: str, token: str, uid, stats: ZammadStats, team,
                   fallback_user: User) -> dict:
     """Zammad user id → the Cairn user the booking belongs to.
 
-    Matched by email, the one identifier both systems agree on. An agent with no
-    Cairn account keeps their Zammad name as the entry's snapshot and no id —
-    the reports and the customer's sheet then still say who did the work, which
-    is the part that matters. Results are cached for the run, so a ticket
-    thread with five bookings from two agents costs two lookups.
+    The team's agent roster answers this (see services.zammad_billing): matched
+    by email / login / display name once, remembered on the team, and
+    overridable by hand when none of those work. An agent with no Cairn account
+    keeps their Zammad name as the entry's snapshot and no id — the reports and
+    the customer's sheet then still say who did the work, and the mapping UI can
+    offer to fix it. Results are cached for the run, so a ticket thread with
+    five bookings from two agents costs two lookups.
     """
+    from application.services.zammad_billing import actor_for, record_agent
+
     key = str(uid or "")
     if key in stats.actor_cache:
         return stats.actor_cache[key]
 
-    actor = {"user_id": None, "user_name": ""}
-    if key:
-        try:
-            raw = _request(base + f"/users/{key}", token) or {}
-        except ZammadError as exc:
-            stats.errors.append(f"zammad user {key}: {exc}")
-            raw = {}
-        email = (raw.get("email") or "").strip().lower()
-        name = " ".join(p for p in (raw.get("firstname"), raw.get("lastname")) if p)
-        name = name.strip() or raw.get("login") or email
-        cairn = User.objects(email__iexact=email).first() if email else None
-        if cairn is not None:
-            actor = {"user_id": str(cairn.id),
-                     "user_name": cairn.display_name or cairn.username or name}
+    agent = None
+    if key and team is not None:
+        known = team.zammad_agent(key)
+        raw = {}
+        # Only ask Zammad about an agent we don't know yet — a steady sync
+        # never calls /users at all.
+        if known is None:
+            try:
+                raw = _request(base + f"/users/{key}", token) or {}
+            except ZammadError as exc:
+                stats.errors.append(f"zammad user {key}: {exc}")
+        agent = record_agent(
+            team, zammad_id=key,
+            email=(raw.get("email") or "").strip(),
+            login=(raw.get("login") or "").strip(),
+            name=" ".join(p for p in (raw.get("firstname"),
+                                      raw.get("lastname")) if p).strip(),
+        )
+    actor = actor_for(agent, fallback_user)
+    if agent is not None:
+        if agent.user:
             stats.time_users_matched += 1
-        elif name:
-            actor = {"user_id": None, "user_name": name}
-            if name not in stats.time_users_unmatched:
-                stats.time_users_unmatched.append(name)
-    if not actor["user_id"] and not actor["user_name"]:
-        # Nothing to go on — the booking is the syncing user's own work.
-        actor = {"user_id": str(fallback_user.id),
-                 "user_name": (fallback_user.display_name
-                               or fallback_user.username or "")}
+        elif agent.label not in stats.time_users_unmatched:
+            stats.time_users_unmatched.append(agent.label)
     stats.actor_cache[key] = actor
     return actor
 
 
+def _zammad_org(base: str, token: str, raw: dict, stats: ZammadStats
+                ) -> tuple[str, str]:
+    """``(external_id, name)`` of the customer a ticket should be billed to.
+
+    The ticket's organisation when it has one; otherwise the requesting person,
+    who for a solo client *is* the customer. ``("", "")`` when Zammad tells us
+    neither."""
+    org_id = raw.get("organization_id")
+    if org_id:
+        ext = f"zammad:org:{org_id}"
+        if ext in stats.target_cache:
+            return ext, stats.target_cache[ext]
+        try:
+            org = _request(base + f"/organizations/{org_id}", token) or {}
+        except ZammadError as exc:
+            stats.errors.append(f"zammad organization {org_id}: {exc}")
+            return "", ""
+        name = (org.get("name") or "").strip() or f"Zammad org {org_id}"
+        stats.target_cache[ext] = name
+        return ext, name
+
+    cust_id = raw.get("customer_id")
+    if not cust_id:
+        return "", ""
+    ext = f"zammad:user:{cust_id}"
+    if ext in stats.target_cache:
+        return ext, stats.target_cache[ext]
+    try:
+        person = _request(base + f"/users/{cust_id}", token) or {}
+    except ZammadError as exc:
+        stats.errors.append(f"zammad user {cust_id}: {exc}")
+        return "", ""
+    name = " ".join(p for p in (person.get("firstname"),
+                                person.get("lastname")) if p).strip()
+    name = name or person.get("email") or person.get("login") or f"Zammad user {cust_id}"
+    stats.target_cache[ext] = name
+    return ext, name
+
+
+def _auto_billing_project(user: User, item: "Item", base: str, token: str,
+                          raw: dict, stats: ZammadStats):
+    """Billing project for a ticket whose Cairn subtree isn't linked to one.
+
+    Only reached with ``User.zammad_time_auto_customer`` on. The ticket's Zammad
+    organisation becomes a Cairn customer + project, and the *task* is linked to
+    it — so the binding is visible in the inspector afterwards, editable like
+    any other, and the next sync resolves it the normal way without asking
+    Zammad again."""
+    from application.services.timetracking import default_team
+    from application.services.zammad_billing import ensure_billing_target
+
+    team = _team_for(stats, default_team(user))
+    if team is None:
+        return None
+    ext, name = _zammad_org(base, token, raw, stats)
+    if not ext:
+        return None
+    project, created = ensure_billing_target(team, external_id=ext, name=name)
+    if project is None:
+        return None
+    if created:
+        stats.time_customers_created += 1
+    if item.time_project is None:
+        item.time_project = project
+        item.save()
+    return project
+
+
 def _import_time_accounting(user: User, item: "Item", base: str, token: str,
                             zid: str, znum: str, stats: ZammadStats,
-                            me_id=None) -> None:
+                            me_id=None, raw: dict | None = None) -> None:
     """Mirror the time booked on a Zammad ticket into Cairn's time tracking.
 
-    Only runs when the task's subtree is linked to a billing project — that
-    link is the opt-in, so tickets landing in an unlinked project cost nothing
-    and log nothing. Only *my* bookings are imported (Zammad's
-    ``created_by_id`` vs. the syncing user): every agent syncs their own hours,
-    so nobody's time ends up billed under someone else's name. Zammad's
-    ``time_unit`` is minutes, and each booking's ``id`` keeps the import
-    idempotent across re-syncs."""
+    Two gates, in order. ``User.zammad_import_time`` is the master switch — off
+    means not even the ``/time_accountings`` call happens. Then the ticket needs
+    a billing project: normally the one its Cairn subtree is linked to (that
+    link is the opt-in), or — with ``zammad_time_auto_customer`` on — one
+    derived from the ticket's Zammad organisation, created on first sight.
+
+    Every agent's booking on the ticket comes across, each attributed to *its
+    own* Cairn user via the team's agent roster, so an invoice built from one
+    agent's sync isn't short by everyone else's hours. Zammad's ``time_unit`` is
+    minutes, and each booking's ``id`` keeps the import idempotent across
+    re-syncs."""
     from application.services.timetracking import (
         has_team, repair_imported_entries, resolve_time_project,
         sync_external_entries,
@@ -757,9 +852,19 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
 
     if not getattr(user, "zammad_import_time", True) or not has_team(user):
         return
-    # Cheap gate first: no billing link → no API call at all.
-    if resolve_time_project(item) is None:
-        return
+    # Cheap gate first: no billing link → no API call at all, unless the user
+    # asked us to create the customer from Zammad.
+    project = resolve_time_project(item)
+    if project is None:
+        if getattr(user, "zammad_time_auto_customer", False):
+            project = _auto_billing_project(user, item, base, token,
+                                            raw or {}, stats)
+        if project is None:
+            # Counted, not silent: "why is there no time in Cairn" is otherwise
+            # a question with no answer on the result page.
+            stats.time_skipped_unlinked += 1
+            return
+    team = _team_for(stats, project.team)
     # The description is the ticket's own title (what the work was about) —
     # the number and its deep link ride along as their own fields, so reports
     # can render "#4711" as a link without parsing the text.
@@ -768,34 +873,35 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
     zone = user_zone(user)
 
     rows = []
-    for raw in _fetch_time_accounting(base, token, zid, stats):
+    for booking in _fetch_time_accounting(base, token, zid, stats):
         try:
-            minutes = round(float(raw.get("time_unit") or 0))
+            minutes = round(float(booking.get("time_unit") or 0))
         except (TypeError, ValueError):
             continue
         if minutes < 1:
             continue
-        # Every agent's booking on the ticket comes across, each attributed to
-        # *its own* Cairn user — an invoice built from one agent's sync would
-        # otherwise be short by everyone else's hours. Double-booking is not a
-        # risk: the dedup is by the Zammad id across the whole team, so whoever
-        # syncs first records it and the next sync recognises it.
-        actor = _zammad_actor(base, token, raw.get("created_by_id"), stats, user)
+        # Double-booking is not a risk: the dedup is by the Zammad id across
+        # the whole team, so whoever syncs first records it and the next sync
+        # recognises it.
+        actor = _zammad_actor(base, token, booking.get("created_by_id"),
+                              stats, team, user)
         rows.append({
-            "external_id": f"zammad:{raw.get('id')}",
+            "external_id": f"zammad:{booking.get('id')}",
             "minutes": minutes,
             # Localise before handing it over: the bucket is picked from the
             # *local* day, so a booking made near midnight can't land in the
             # neighbouring day's document.
-            "spent_on": _article_dt(raw).astimezone(zone),
+            "spent_on": _article_dt(booking).astimezone(zone),
             "note": ticket_note,
             "external_ref": znum,
             "external_url": web_url,
             "user_id": actor["user_id"],
             "user_name": actor["user_name"],
+            "external_user": actor["external_user"],
         })
     if rows:
-        added, fixed = sync_external_entries(user=user, item=item, rows=rows)
+        added, fixed = sync_external_entries(user=user, item=item, rows=rows,
+                                             project=project)
         stats.time_entries_imported += added
         stats.time_entries_repaired += fixed
     # Entries whose Zammad booking no longer exists are never in ``rows``, so

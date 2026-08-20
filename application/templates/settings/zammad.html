@@ -57,22 +57,129 @@
     {{ form.assignee_only(class="form-check-input") }}
     {{ form.assignee_only.label(class="form-check-label") }}
   </div>
-  <div class="form-check mb-2">
+  <div class="form-check mb-3">
     {{ form.include_closed(class="form-check-input") }}
     {{ form.include_closed.label(class="form-check-label") }}
   </div>
-  <div class="form-check mb-2">
-    {{ form.import_time(class="form-check-input") }}
-    {{ form.import_time.label(class="form-check-label") }}
+
+  {# ---- Time tracking: its own block, with its own master switch ---- #}
+  <div class="card mb-3">
+    <div class="card-body py-3">
+      <h2 class="h6 mb-2"><i class="bi bi-stopwatch"></i> Time tracking</h2>
+      <div class="form-check mb-2">
+        {{ form.import_time(class="form-check-input") }}
+        {{ form.import_time.label(class="form-check-label") }}
+        <div class="form-text small">
+          Off means the sync never even asks Zammad for booked time. On, every
+          agent's booking on a ticket is imported and attributed to that agent's
+          Cairn account (see the mapping below).
+        </div>
+      </div>
+      <div class="form-check mb-0">
+        {{ form.auto_customer(class="form-check-input") }}
+        {{ form.auto_customer.label(class="form-check-label") }}
+        <div class="form-text small">
+          Without this, time is only imported for tickets whose Cairn
+          project/folder is linked to a billing project. With it, the ticket's
+          Zammad organisation becomes a customer with one project, and that
+          project keeps receiving the time — until you tick
+          <strong>“Incoming Zammad time books here”</strong> on a project of
+          your own, move the entries over and delete the created one.
+        </div>
+      </div>
+    </div>
   </div>
+
   <div class="form-check mb-3">
     {{ form.dry_run(class="form-check-input") }}
     {{ form.dry_run.label(class="form-check-label") }}
   </div>
 
   {{ form.submit(class="btn btn-primary") }}
+  {{ form.save_only(class="btn btn-outline-secondary") }}
   <a class="btn btn-link" href="{{ url_for('settings.index') }}">Back</a>
+  <div class="form-text small">
+    “Save settings” stores the options above without pulling any tickets.
+  </div>
 </form>
+
+{# ---- Who booked the time: Zammad agents → Cairn accounts ---- #}
+{% if team %}
+  <div class="card mt-4" style="max-width: 720px;">
+    <div class="card-body">
+      <h2 class="h6 mb-1"><i class="bi bi-people"></i> Time bookers</h2>
+      <p class="form-text small mt-0">
+        Every agent whose bookings the import has seen, and who they are in
+        {{ team.name }}. Matched automatically by email, login, then display
+        name. An agent without a Cairn account keeps their Zammad name on every
+        entry — assigning them here re-files the time they already booked.
+      </p>
+      {% if not agents %}
+        <p class="text-muted small mb-0">
+          No agents seen yet — run a sync with time import switched on.
+        </p>
+      {% else %}
+        {% set unmatched = agents | rejectattr('user_id') | list %}
+        {% if unmatched %}
+          <div class="alert alert-warning py-2 small">
+            <i class="bi bi-exclamation-triangle"></i>
+            {{ unmatched|length }} agent(s) have no Cairn account — their hours
+            are recorded under their Zammad name and show up in the team report,
+            but in nobody's personal day sheet.
+          </div>
+        {% endif %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle small mb-0">
+            <thead class="text-muted">
+              <tr><th>Zammad agent</th><th>Cairn account</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for a in agents %}
+                <tr>
+                  <td>
+                    <strong>{{ a.label }}</strong>
+                    <div class="text-muted">
+                      {{ a.email or a.login or '—' }}
+                      <span class="font-monospace">#{{ a.zammad_id }}</span>
+                    </div>
+                  </td>
+                  <td colspan="2">
+                    <form method="post"
+                          action="{{ url_for('settings.zammad_agent_map') }}"
+                          class="d-flex gap-2 align-items-center">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <input type="hidden" name="zammad_id" value="{{ a.zammad_id }}">
+                      <select name="user_id" class="form-select form-select-sm"
+                              style="max-width: 16rem;" {% if not can_map %}disabled{% endif %}>
+                        <option value="">— no Cairn account —</option>
+                        {% for m in members %}
+                          <option value="{{ m.id }}" {% if a.user_id == m.id|string %}selected{% endif %}>
+                            {{ m.display_name or m.username }}</option>
+                        {% endfor %}
+                      </select>
+                      {% if can_map %}
+                        <button class="btn btn-sm btn-outline-primary">Assign</button>
+                      {% endif %}
+                      {% if a.matched_by %}
+                        <span class="text-muted">via {{ a.matched_by }}</span>
+                      {% endif %}
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if not can_map %}
+          <p class="form-text small mb-0">
+            Only a team manager can change these — the attribution decides
+            whose hours land on an invoice.
+          </p>
+        {% endif %}
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
 
 {% if stats %}
   <div class="card mt-4" style="max-width: 720px;">
@@ -88,6 +195,22 @@
         {% if stats.time_entries_imported %}
           <li>Time bookings imported: <strong>{{ stats.time_entries_imported }}</strong>
             (<a href="{{ url_for('timetracking.day') }}">time tracking</a>)</li>
+        {% endif %}
+        {% if stats.time_customers_created %}
+          <li>Customers created from Zammad organisations:
+            <strong>{{ stats.time_customers_created }}</strong></li>
+        {% endif %}
+        {% if stats.time_skipped_unlinked %}
+          <li>Tickets with no billing project (their time was not imported):
+            {{ stats.time_skipped_unlinked }}
+            <span class="text-warning">— link their Cairn project to a billing
+              project, or switch on “Create customers from Zammad
+              organisations”</span></li>
+        {% endif %}
+        {% if stats.time_users_unmatched %}
+          <li class="text-warning">No Cairn account:
+            {{ stats.time_users_unmatched|join(', ') }} — assign them under
+            “Time bookers” below.</li>
         {% endif %}
       </ul>
       <details>

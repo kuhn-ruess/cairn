@@ -62,6 +62,10 @@
         {% for m in members %}
           <option value="{{ m.id }}" {% if f.user_id == m.id|string %}selected{% endif %}>{{ m.username }}</option>
         {% endfor %}
+        {# Imported time whose booker has no Cairn account: it shows up here
+           and in no personal day sheet, so this is the only way to find it. #}
+        <option value="none" {% if f.user_id == 'none' %}selected{% endif %}>
+          — no Cairn account —</option>
       </select>
     </div>
     <div class="col-auto">
@@ -81,6 +85,15 @@
       </select>
     </div>
     <div class="col-auto">
+      <label class="form-label small mb-0">Show</label>
+      <select name="state" class="form-select form-select-sm"
+              title="Deleted time is only cancelled, never dropped — this is where to find it">
+        <option value="active" {% if f.state == 'active' %}selected{% endif %}>Current</option>
+        <option value="cancelled" {% if f.state == 'cancelled' %}selected{% endif %}>Deleted</option>
+        <option value="all" {% if f.state == 'all' %}selected{% endif %}>Both</option>
+      </select>
+    </div>
+    <div class="col-auto">
       <button class="btn btn-sm btn-primary">Apply</button>
     </div>
   </div>
@@ -89,6 +102,11 @@
 {# ---- Totals ---- #}
 <div class="d-flex gap-3 align-items-baseline mb-3">
   <span class="h5 mb-0">{{ grand_minutes|duration }}</span>
+  {% if f.state != 'active' %}
+    <span class="badge text-bg-warning">
+      {{ 'deleted entries only' if f.state == 'cancelled' else 'incl. deleted entries' }}
+    </span>
+  {% endif %}
   <span class="text-muted">·</span>
   <span class="h6 mb-0 text-success">{{ grand_amount|eur }}</span>
   <span class="text-muted small">{{ f.date_from.isoformat() }} – {{ f.date_to.isoformat() }}</span>

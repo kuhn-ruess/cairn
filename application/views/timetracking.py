@@ -33,6 +33,7 @@ from application.services.timetracking import (
     parse_project_fields,
     pickable_projects,
     project_for_user,
+    set_intake_project,
     start_timer,
     stop_timer,
     task_time_context,
@@ -208,12 +209,21 @@ def index():
     logged = {str(p.id): consumption.get(str(p.id), {}).get("minutes", 0)
               for p in projects}
 
+    # Flat "customer › project" list for the move picker — the target of a
+    # move is usually under a *different* customer, so the per-customer
+    # grouping above can't serve it.
+    all_projects = [{"id": str(p.id),
+                     "label": f"{p.customer.name} › {p.name}"}
+                    for p in projects if not p.archived]
+    all_projects.sort(key=lambda r: r["label"].lower())
+
     return render_template(
         "timetracking/index.html",
         team=team,
         all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user),
         customers=customers,
+        all_projects=all_projects,
         by_customer=by_customer,
         links_by_project=links_by_project,
         link_info=link_info,
@@ -570,6 +580,10 @@ def _report_filters(args=None):
         "user_id": args.get("user") or None,
         "billable": _tri("billable"),
         "locked": _tri("locked"),
+        # Deleted time is cancelled, never dropped — so it has to be findable.
+        "state": (args.get("state")
+                  if args.get("state") in ("active", "cancelled", "all")
+                  else "active"),
     }
 
 
@@ -629,7 +643,7 @@ def _grouped_report(team, f):
         date_from=f["date_from"], date_to=f["date_to"],
         customer_id=f["customer_id"], project_id=f["project_id"],
         user_id=f["user_id"], billable=f["billable"], locked=f["locked"],
-        viewer=user,
+        state=f["state"], viewer=user,
     )
 
     customers = {}
@@ -663,10 +677,15 @@ def _grouped_report(team, f):
     customers_list = list(Customer.objects(team=team).order_by("+name"))
     projects_list = list(TimeTrackingProject.objects(team=team).order_by("+name"))
     members = team_members(team)
+    move_targets = sorted(
+        ({"id": str(p.id), "label": f"{p.customer.name} › {p.name}"}
+         for p in projects_list if not p.archived),
+        key=lambda r: r["label"].lower())
     return {
         "groups": out, "rows": rows,
         "grand_minutes": grand_min, "grand_amount": grand_amt,
         "customers": customers_list, "projects": projects_list, "members": members,
+        "move_targets": move_targets,
     }
 
 
@@ -687,7 +706,7 @@ def report():
 def report_bill():
     """Bulk lock (bill) or unlock the selected entries, then back to the report
     with the same filters preserved."""
-    from application.services.timetracking import set_locked
+    from application.services.timetracking import move_entries, set_locked
     team = _team()
     user = current_user._get_current_object()
     pairs = []
@@ -695,7 +714,27 @@ def report_bill():
         bid, _, eid = raw.partition(":")
         if bid and eid:
             pairs.append((bid, eid))
-    lock = request.form.get("action") != "unlock"
+    action = request.form.get("action")
+    if action == "move":
+        # Re-filing time onto another project changes what gets invoiced to
+        # whom — a manager's call, same as billing it.
+        if not team.is_managed_by(user):
+            abort(403)
+        target = _project_or_404(request.form.get("target_id"), team)
+        res = move_entries(team=team, pairs=pairs, target=target, actor=user)
+        if res["moved"]:
+            flash(f"{res['moved']} entr{'y' if res['moved'] == 1 else 'ies'} "
+                  f"moved to “{target.name}”"
+                  + (f"; {res['locked']} billed one(s) left where they were"
+                     if res["locked"] else "") + ".", "success")
+        else:
+            flash("Nothing moved." + (" Billed entries are frozen."
+                                      if res["locked"] else ""), "info")
+        args = {k: v for k, v in request.form.items()
+                if k in ("team", "period", "from", "to", "customer", "project",
+                         "user", "billable", "locked", "state")}
+        return redirect(url_for("timetracking.report", **args))
+    lock = action != "unlock"
     n = set_locked(team=team, user=user, items=pairs, locked=lock)
     if n:
         flash(f"{n} entr{'y' if n == 1 else 'ies'} "
@@ -705,7 +744,38 @@ def report_bill():
     # Preserve the report filters (incl. the selected team) from the hidden form.
     args = {k: v for k, v in request.form.items()
             if k in ("team", "period", "from", "to", "customer", "project",
-                     "user", "billable", "locked")}
+                     "user", "billable", "locked", "state")}
+    return redirect(url_for("timetracking.report", **args))
+
+
+@timetracking_bp.route("/report/restore", methods=["POST"])
+@login_required
+@team_required
+def report_restore():
+    """Take a deleted entry back from the report.
+
+    The day sheet can only offer this to the person the entry belongs to, and
+    imported time booked for an agent with no Cairn account belongs to nobody —
+    the report is the only place it is visible at all, so it is also where it
+    has to be recoverable."""
+    team = _team()
+    user = current_user._get_current_object()
+    bucket = TimeBucket.objects(pk=to_oid(request.form.get("bucket_id")),
+                                team=team).first()
+    entry_id = (request.form.get("entry_id") or "").strip()
+    entry = next((e for e in (bucket.entries if bucket else [])
+                  if e.entry_id == entry_id), None)
+    if bucket is None or entry is None:
+        abort(404)
+    if not may_touch_entry(user, team, entry, status="cancelled"):
+        abort(403)
+    if restore_entry(bucket=bucket, entry_id=entry_id, user=user):
+        flash("Entry restored.", "success")
+    else:
+        flash("Nothing to restore.", "info")
+    args = {k: v for k, v in request.form.items()
+            if k in ("team", "period", "from", "to", "customer", "project",
+                     "user", "billable", "locked", "state")}
     return redirect(url_for("timetracking.report", **args))
 
 
@@ -899,6 +969,11 @@ def customer_edit(cid):
             c.payment_terms_days = max(0, int(raw)) if raw else None
         except ValueError:
             c.payment_terms_days = None
+    # The key an importer recognises this customer by. Editable on purpose:
+    # moving a Zammad organisation's key onto the customer you already had is
+    # what stops the import from re-creating its own every sync.
+    if "external_id" in request.form:
+        c.external_id = (request.form.get("external_id") or "").strip()[:100] or None
     c.save()
     flash("Customer updated.", "success")
     # Back where the editing happened — the overview only ever sent the name.
@@ -974,6 +1049,9 @@ def project_edit(pid):
     p.show_source = request.form.get("show_source") == "1"
     p.archived = request.form.get("archived") == "1"
     p.save()
+    # One intake project per customer, so switching it on has to switch it off
+    # elsewhere — hence the service call rather than a plain field assignment.
+    set_intake_project(p, request.form.get("intake") == "1")
     flash("Project updated.", "success")
     return redirect(url_for("timetracking.index", team=team.pk))
 
@@ -1008,6 +1086,79 @@ def project_purge(pid):
               + "). The project itself is untouched.", "success")
     else:
         flash(f"“{p.name}” had no time logged on it.", "info")
+    return redirect(url_for("timetracking.index", team=team.pk))
+
+
+@timetracking_bp.route("/projects/<pid>/move", methods=["POST"])
+@login_required
+@team_required
+def project_move_entries(pid):
+    """Move every entry booked on this project onto another one.
+
+    The way to take an auto-created intake project out of the picture without
+    losing an hour: move its time onto the project you actually bill, then
+    delete it. Crossing customers is allowed — an imported Zammad organisation
+    is quite often a customer you already had under another name."""
+    from application.services.timetracking import (
+        move_entries, project_entries_for_move)
+
+    team = _team()
+    user = current_user._get_current_object()
+    if not team.is_managed_by(user):
+        abort(403)
+    src = _project_or_404(pid, team)
+    target = _project_or_404(request.form.get("target_id"), team)
+    if str(target.id) == str(src.id):
+        flash("Pick a different project to move the time to.", "warning")
+        return redirect(url_for("timetracking.index", team=team.pk))
+    pairs = project_entries_for_move(src)
+    if not pairs:
+        flash(f"“{src.name}” has no time logged on it.", "info")
+        return redirect(url_for("timetracking.index", team=team.pk))
+    res = move_entries(team=team, pairs=pairs, target=target, actor=user)
+    msg = (f"Moved {res['moved']} entr{'y' if res['moved'] == 1 else 'ies'} "
+           f"from “{src.name}” to “{target.name}”.")
+    if res["locked"]:
+        msg += (f" {res['locked']} billed entr"
+                f"{'y' if res['locked'] == 1 else 'ies'} stayed — reopen them "
+                f"first if they should move too.")
+    flash(msg, "success")
+    return redirect(url_for("timetracking.index", team=team.pk))
+
+
+@timetracking_bp.route("/projects/<pid>/delete", methods=["POST"])
+@login_required
+@team_required
+def project_delete(pid):
+    """Delete a billing project outright.
+
+    Refuses while time is still booked on it — move it somewhere first (that
+    is the point of the move above). ``purge=1`` deletes the time with it,
+    guarded like the reset: manager only, and the name typed out."""
+    from application.services.timetracking import delete_project
+
+    team = _team()
+    user = current_user._get_current_object()
+    if not team.is_managed_by(user):
+        abort(403)
+    p = _project_or_404(pid, team)
+    if (request.form.get("confirm") or "").strip() != p.name:
+        flash(f"Type the project name exactly (“{p.name}”) to delete it — "
+              "nothing was deleted.", "warning")
+        return redirect(url_for("timetracking.index", team=team.pk))
+    name = p.name
+    res = delete_project(p, purge=request.form.get("purge") == "1")
+    if not res["deleted"]:
+        flash(f"“{name}” still has {res['entries']} entr"
+              f"{'y' if res['entries'] == 1 else 'ies'} on it. Move them to "
+              f"another project first, or tick “delete the time too”.",
+              "warning")
+    else:
+        flash(f"“{name}” deleted"
+              + (f" with {res['entries']} entr"
+                 f"{'y' if res['entries'] == 1 else 'ies'}" if res["entries"] else "")
+              + (f"; {res['unlinked']} Cairn link(s) cleared" if res["unlinked"] else "")
+              + ".", "success")
     return redirect(url_for("timetracking.index", team=team.pk))
 
 

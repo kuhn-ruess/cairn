@@ -75,10 +75,13 @@ class ZammadImportForm(FlaskForm):
     assignee_only = BooleanField("Only tickets assigned to me", default=True)
     include_closed = BooleanField("Include closed tickets (closed/merged/pending close)")
     import_time = BooleanField(
-        "Import my booked ticket time into time tracking "
-        "(only for projects linked to a billing project)", default=True)
+        "Import booked ticket time into time tracking", default=True)
+    auto_customer = BooleanField(
+        "Create customers from Zammad organisations when the ticket's project "
+        "isn't linked to a billing project")
     dry_run = BooleanField("Dry run (don't write changes)")
     submit = SubmitField("Import")
+    save_only = SubmitField("Save settings")
 
 
 @settings_bp.route("/")
@@ -624,20 +627,46 @@ def zammad():
         form.assignee_only.data = bool(user.zammad_assignee_only)
         form.include_closed.data = bool(user.zammad_include_closed)
         form.import_time.data = bool(user.zammad_import_time)
+        form.auto_customer.data = bool(user.zammad_time_auto_customer)
+
+    def _persist_options():
+        """The sync options, saved wherever this form was submitted from."""
+        user.show_zammad_sync = bool(form.show_sync_button.data)
+        # Persist the import options so the background auto-sync replays
+        # the same choices (project, scope) the user picked here.
+        user.zammad_auto_sync = bool(form.auto_sync.data)
+        user.zammad_sync_project = form.project.data or ""
+        user.zammad_assignee_only = bool(form.assignee_only.data)
+        user.zammad_include_closed = bool(form.include_closed.data)
+        user.zammad_import_time = bool(form.import_time.data)
+        user.zammad_time_auto_customer = bool(form.auto_customer.data)
+        user.save()
 
     if form.validate_on_submit():
         url = (form.url.data or "").strip() or user.zammad_url
         saved_token = decrypt_for_user(user, user.zammad_token) if user.zammad_token else ""
         token = (form.token.data or "").strip() or saved_token
+        # "Save settings" is the way to turn the time import (or anything else
+        # here) on and off without pulling tickets — the switches shouldn't
+        # need a sync to take effect.
+        if form.save_only.data:
+            if url and token and form.save_credentials.data:
+                user.zammad_url = url
+                user.zammad_token = encrypt_for_user(user, token)
+            _persist_options()
+            flash("Settings saved.", "success")
+            return redirect(url_for("settings.zammad"))
         if not url or not token:
             flash("Please supply both a Zammad URL and an API token.", "danger")
-            return render_template("settings/zammad.html", form=form, stats=None)
+            return render_template("settings/zammad.html", form=form, stats=None,
+                                   **_zammad_agent_context(user))
         target_project = None
         if form.project.data:
             target_project = Item.objects(pk=form.project.data, owner=user).first()
-        # Apply the time-import choice to this very run (it is persisted below
-        # once the sync succeeded).
+        # Apply the time-import choices to this very run (they are persisted
+        # below once the sync succeeded).
         user.zammad_import_time = bool(form.import_time.data)
+        user.zammad_time_auto_customer = bool(form.auto_customer.data)
         try:
             stats = zammad_import_for_user(
                 user, url, token,
@@ -657,20 +686,73 @@ def zammad():
             if form.save_credentials.data:
                 user.zammad_url = url
                 user.zammad_token = encrypt_for_user(user, token)
-            user.show_zammad_sync = bool(form.show_sync_button.data)
-            # Persist the import options so the background auto-sync replays
-            # the same choices (project, scope) the user picked here.
-            user.zammad_auto_sync = bool(form.auto_sync.data)
-            user.zammad_sync_project = form.project.data or ""
-            user.zammad_assignee_only = bool(form.assignee_only.data)
-            user.zammad_include_closed = bool(form.include_closed.data)
-            user.zammad_import_time = bool(form.import_time.data)
-            user.save()
+            _persist_options()
             if form.auto_sync.data and not (user.zammad_url and user.zammad_token):
                 flash("Auto-sync needs saved credentials — tick "
                       "“Remember URL + token” so the background worker can "
                       "authenticate.", "warning")
-    return render_template("settings/zammad.html", form=form, stats=stats)
+            if stats.time_users_unmatched:
+                flash("These Zammad agents have no Cairn account yet — their "
+                      "time is booked under their Zammad name until you assign "
+                      "them below: " + ", ".join(stats.time_users_unmatched),
+                      "warning")
+    return render_template("settings/zammad.html", form=form, stats=stats,
+                           **_zammad_agent_context(user))
+
+
+def _zammad_agent_context(user) -> dict:
+    """The agent roster shown under the form: who Zammad booked time as, and
+    who that is in Cairn. Empty for a solo user — there is no team to bill."""
+    from application.services.permissions import team_members
+    from application.services.timetracking import default_team
+    from application.services.zammad_billing import agent_rows
+
+    team = default_team(user)
+    if team is None:
+        return {"team": None, "agents": [], "members": [], "can_map": False}
+    return {
+        "team": team,
+        "agents": agent_rows(team),
+        "members": sorted(team_members(team),
+                          key=lambda m: (m.display_name or m.username or "").lower()),
+        "can_map": team.is_managed_by(user),
+    }
+
+
+@settings_bp.route("/import/zammad/agents", methods=["POST"])
+@login_required
+def zammad_agent_map():
+    """Point one Zammad agent at a Cairn account — and re-file the time already
+    booked under their bare Zammad name."""
+    from application.services.permissions import team_members
+    from application.services.timetracking import default_team
+    from application.services.zammad_billing import assign_agent
+
+    user = current_user._get_current_object()
+    team = default_team(user)
+    if team is None or not team.is_managed_by(user):
+        abort(403)
+    zammad_id = (request.form.get("zammad_id") or "").strip()
+    target_id = (request.form.get("user_id") or "").strip()
+    target = None
+    if target_id:
+        target = User.objects(pk=target_id).first()
+        if target is None or not any(str(m.pk) == target_id
+                                     for m in team_members(team)):
+            flash("That account isn't a member of this team.", "danger")
+            return redirect(url_for("settings.zammad"))
+    agent, fixed = assign_agent(team, zammad_id, target)
+    if agent is None:
+        flash("Unknown Zammad agent.", "warning")
+    elif target is None:
+        flash(f"“{agent.label}” is no longer mapped to a Cairn account"
+              + (f" — {fixed} entr{'y' if fixed == 1 else 'ies'} re-filed under "
+                 f"their Zammad name." if fixed else "."), "info")
+    else:
+        flash(f"“{agent.label}” → {target.display_name or target.username}"
+              + (f" — {fixed} existing entr{'y' if fixed == 1 else 'ies'} "
+                 f"re-attributed." if fixed else "."), "success")
+    return redirect(url_for("settings.zammad"))
 
 
 @settings_bp.route("/sync/zammad", methods=["POST"])

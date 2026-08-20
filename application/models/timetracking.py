@@ -164,6 +164,14 @@ class TimeTrackingProject(Document):
     # own words.
     show_source = BooleanField(default=False)
 
+    # Incoming external time (currently: the Zammad import) for this customer
+    # books here. Exactly one project per customer should carry it — the
+    # importer takes the first it finds, and setting it on a project clears it
+    # on the customer's other ones (services.timetracking.set_intake_project).
+    # An auto-created customer gets it on the project created with it; pointing
+    # it at a project you already had is how you take the training wheels off.
+    intake = BooleanField(default=False)
+
     # Customer share link (read-only, hours only).
     share_enabled = BooleanField(default=False)
     share_token = StringField(unique=True, sparse=True)
@@ -247,6 +255,12 @@ class TimeEntry(EmbeddedDocument):
     # only ever gets the number as text.
     external_ref = StringField()
     external_url = StringField()
+    # Who booked it *in the source system*, e.g. ``zammad:user:42``. Kept next
+    # to the Cairn attribution (``user_id``/``user_name``) rather than instead
+    # of it: while an agent has no Cairn account the entry still carries the
+    # agent's identity, so assigning that agent later can find and re-attribute
+    # exactly their entries — by id, not by a name that may repeat.
+    external_user = StringField()
 
     # Values for the project's custom fields, snapshotted with their labels
     # (see TimeEntryValue).
@@ -308,6 +322,8 @@ class TimeBucket(Document):
             "entries.source_item_id",
             # Dedup scan when re-importing from an external system.
             "entries.external_id",
+            # Re-attribution when a Zammad agent is mapped to a Cairn account.
+            "entries.external_user",
         ],
     }
 

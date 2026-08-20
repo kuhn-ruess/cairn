@@ -221,7 +221,7 @@ def add_entry(*, project: TimeTrackingProject, user, minutes: int,
               spent_on: datetime, note: str = "", source_item=None,
               source: dict | None = None, external_id: str | None = None,
               external_ref: str = "", external_url: str = "",
-              actor: dict | None = None,
+              external_user: str = "", actor: dict | None = None,
               custom: list | None = None, start_time: str = "",
               end_time: str = "", billable: bool | None = None) -> TimeEntry:
     """Append a time entry to the ``(team, customer, month)`` bucket atomically.
@@ -286,6 +286,7 @@ def add_entry(*, project: TimeTrackingProject, user, minutes: int,
         external_id=external_id or None,
         external_ref=external_ref or None,
         external_url=external_url or None,
+        external_user=external_user or None,
     )
 
     # One atomic upsert-and-push: creates the day's bucket on first write, then
@@ -554,9 +555,15 @@ def reachable_project_ids(user, team) -> set:
 
 def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
                       project_id=None, user_id=None, billable=None, locked=None,
-                      viewer=None):
-    """Flat list of matching active entries. ``scope_ids`` (set of project-id
-    strings) bounds visibility; ``None`` means unbounded (manager).
+                      state="active", viewer=None):
+    """Flat list of matching entries. ``scope_ids`` (set of project-id strings)
+    bounds visibility; ``None`` means unbounded (manager).
+
+    ``state`` is ``active`` (the report proper), ``cancelled`` (what was
+    deleted — nothing in this module is ever really gone, so it must be
+    *findable*) or ``all``. ``user_id="none"`` selects the entries with no
+    Cairn account behind them: time imported for an external agent nobody has
+    mapped yet, which no personal day sheet can show.
 
     Deref-free over the embedded entries — every field used is a snapshot — so
     a month of team activity is a handful of bucket reads, no per-entry queries.
@@ -573,7 +580,10 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
     for b in q:
         cust_name = None
         for e in b.entries:
-            if e.status != "active":
+            if state == "all":
+                if e.status not in ("active", "cancelled"):
+                    continue
+            elif e.status != state:
                 continue
             if scope_ids is not None and e.project_id not in scope_ids:
                 continue
@@ -582,7 +592,10 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
             dd = local_date(e.spent_on, viewer)
             if dd < date_from or dd > date_to:
                 continue
-            if user_id and e.user_id != user_id:
+            if user_id == "none":
+                if e.user_id:
+                    continue
+            elif user_id and e.user_id != user_id:
                 continue
             if billable is not None and bool(e.billable) != billable:
                 continue
@@ -599,6 +612,8 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
                 "project": e.project_name,
                 "user_name": e.user_name,
                 "user_id": e.user_id,
+                "external_user": e.external_user or "",
+                "status": e.status,
                 "spent_on": dd,
                 "minutes": e.minutes or 0,
                 "amount_cents": e.amount_cents,
@@ -720,6 +735,140 @@ def project_entry_summary(project) -> dict:
             if e.status == "active":
                 out["minutes"] += e.minutes or 0
     return out
+
+
+def intake_project(team, customer):
+    """The project incoming external time books to for ``customer``, if any."""
+    return TimeTrackingProject.objects(
+        team=team, customer=customer, intake=True, archived=False).first()
+
+
+def set_intake_project(project, on: bool) -> None:
+    """Make ``project`` the customer's intake target (or stop being it).
+
+    One per customer: turning it on clears the flag on the customer's other
+    projects, so "where does Zammad's time land" always has exactly one answer.
+    """
+    if on:
+        TimeTrackingProject.objects(
+            team=project.team, customer=project.customer, id__ne=project.id,
+        ).update(set__intake=False)
+    project.intake = bool(on)
+    project.save()
+
+
+def move_entries(*, team, pairs, target, actor=None) -> dict:
+    """Move logged time onto another billing project. Returns a count summary.
+
+    The way out of an auto-created intake project: the hours were captured
+    correctly, they are just filed under the wrong project — and possibly the
+    wrong customer, because the importer met the client as a Zammad
+    organisation before anyone told it that this *is* an existing customer.
+
+    Within one customer the entry stays in its bucket and only its project
+    snapshot changes. Across customers the entry has to change bucket (the
+    bucket **is** the customer + day), so it is appended to the target's bucket
+    for the same day first and only then pulled from the old one — the order
+    that risks a duplicate rather than a hole if the process dies in between.
+    Cancelled entries move too, so a project can be emptied completely; billed
+    (locked) ones never move, they are frozen where they were settled.
+
+    The frozen rate travels *to the target's* rate: the entry wasn't billed
+    yet, and the whole point of the move is that this project's terms apply."""
+    out = {"moved": 0, "locked": 0, "missing": 0}
+    by_bucket = {}
+    for bucket_id, entry_id in pairs:
+        by_bucket.setdefault(str(bucket_id), []).append(str(entry_id))
+    rate = target.hourly_rate_cents
+    for bucket_id, entry_ids in by_bucket.items():
+        bucket = TimeBucket.objects(pk=to_oid(bucket_id), team=team).first()
+        if bucket is None:
+            out["missing"] += len(entry_ids)
+            continue
+        same_customer = str(bucket.customer.id) == str(target.customer.id)
+        for entry_id in entry_ids:
+            entry = next((e for e in bucket.entries
+                          if e.entry_id == entry_id), None)
+            if entry is None:
+                out["missing"] += 1
+                continue
+            if entry.locked:
+                out["locked"] += 1
+                continue
+            if entry.project_id == str(target.id):
+                continue
+            minutes = entry.minutes or 0
+            amount = (round(rate * minutes / 60)
+                      if rate and entry.billable else None)
+            if same_customer:
+                res = TimeBucket.objects(
+                    pk=bucket.pk, entries__entry_id=entry_id,
+                    entries__locked=False,
+                ).update_one(
+                    set__entries__S__project_id=str(target.id),
+                    set__entries__S__project_name=target.name,
+                    set__entries__S__hourly_rate_cents=rate,
+                    set__entries__S__amount_cents=amount,
+                    set__updated_at=_utcnow(),
+                )
+                if res:
+                    out["moved"] += 1
+                continue
+            # Different customer → different bucket document.
+            moved = entry
+            moved.project_id = str(target.id)
+            moved.project_name = target.name
+            moved.hourly_rate_cents = rate
+            moved.amount_cents = amount
+            active = entry.status == "active"
+            TimeBucket.objects(
+                team=team, customer=target.customer, period=bucket.period,
+                part=_target_part(team, target.customer, bucket.period),
+            ).update_one(
+                upsert=True, push__entries=moved,
+                inc__total_minutes=minutes if active else 0,
+                inc__entry_count=1,
+                set__updated_at=_utcnow(),
+                set_on_insert__created_at=_utcnow(),
+            )
+            TimeBucket.objects(pk=bucket.pk).update_one(
+                pull__entries__entry_id=entry_id,
+                inc__total_minutes=-(minutes if active else 0),
+                inc__entry_count=-1,
+                set__updated_at=_utcnow(),
+            )
+            out["moved"] += 1
+    return out
+
+
+def project_entries_for_move(project) -> list:
+    """``(bucket_id, entry_id)`` for everything booked on ``project`` — the
+    input to :func:`move_entries` when emptying a project wholesale."""
+    pid = str(project.id)
+    return [(str(b.id), e.entry_id)
+            for b in TimeBucket.objects(team=project.team,
+                                        customer=project.customer,
+                                        entries__project_id=pid)
+            for e in b.entries if e.project_id == pid]
+
+
+def delete_project(project, *, purge: bool = False) -> dict:
+    """Remove a billing project for good. Returns a count summary.
+
+    Refuses while time is still booked on it unless ``purge`` is set, in which
+    case that time is destroyed with it (:func:`purge_project_entries`) — the
+    honest reading of "delete without a trace". GTD links pointing at the
+    project are cleared, including on trashed items, so nothing keeps a
+    dangling reference."""
+    summary = project_entry_summary(project)
+    if summary["entries"] and not purge:
+        return {"deleted": False, **summary}
+    purged = purge_project_entries(project) if summary["entries"] else {}
+    unlinked = Item.all_objects(time_project=project).update(
+        unset__time_project=True)
+    project.delete()
+    return {"deleted": True, "unlinked": unlinked, **summary,
+            "buckets": purged.get("buckets", 0)}
 
 
 def delete_customer(customer) -> dict:
@@ -1203,14 +1352,17 @@ def imported_entry_ids(user, item) -> set:
     return out
 
 
-def sync_external_entries(*, user, item, rows) -> tuple[int, int]:
+def sync_external_entries(*, user, item, rows, project=None) -> tuple[int, int]:
     """Mirror an external system's time for ``item``. Returns ``(added, fixed)``.
 
     Each row is ``{external_id, minutes, spent_on, note, external_ref,
-    external_url, user_id, user_name}``. Rows the team already has are not
-    appended again — dedup is by ``external_id`` across the **whole team**, not
-    just this item, because two people syncing the same ticket keep their own
-    Cairn task for it and would otherwise book the same hour twice.
+    external_url, user_id, user_name, external_user}``. Rows the team already
+    has are not appended again — dedup is by ``external_id`` across the **whole
+    team**, not just this item, because two people syncing the same ticket keep
+    their own Cairn task for it and would otherwise book the same hour twice.
+    A booking the team *deleted* here counts as known too: cancelling an
+    imported entry is a decision, and a sync that quietly re-added it every few
+    minutes would be impossible to argue with.
 
     A row the team already has is instead *corrected*: description, ticket
     number, deep link and — the point of the exercise — who the time belongs
@@ -1218,11 +1370,12 @@ def sync_external_entries(*, user, item, rows) -> tuple[int, int]:
     keeps attribution right if someone's account is matched up later. Locked
     (billed) entries are never touched.
 
-    Does nothing at all when the item's subtree isn't linked to a billing
-    project — that link *is* the opt-in."""
+    ``project`` overrides where the time books; without it the item's subtree
+    link is resolved, and no link means nothing happens — that link *is* the
+    opt-in."""
     if not rows or not has_team(user):
         return 0, 0
-    project = resolve_time_project(item)
+    project = project or resolve_time_project(item)
     if project is None or str(project.team.id) not in user_team_ids(user):
         return 0, 0
     team = project.team
@@ -1236,7 +1389,7 @@ def sync_external_entries(*, user, item, rows) -> tuple[int, int]:
     for b in TimeBucket.objects(team=team,
                                 entries__external_id__in=list(wanted)):
         for e in b.entries:
-            if e.external_id in wanted and e.status == "active":
+            if e.external_id in wanted:
                 seen[e.external_id] = (b, e)
 
     added = fixed = 0
@@ -1251,13 +1404,14 @@ def sync_external_entries(*, user, item, rows) -> tuple[int, int]:
                       spent_on=r["spent_on"], note=r.get("note", ""),
                       external_ref=r.get("external_ref", ""),
                       external_url=r.get("external_url", ""),
+                      external_user=r.get("external_user", ""),
                       actor={"user_id": r.get("user_id") or None,
                              "user_name": r.get("user_name") or ""},
                       source=src, external_id=ext, billable=True)
             added += 1
             continue
         bucket, entry = hit
-        if entry.locked:
+        if entry.locked or entry.status != "active":
             continue
         changes = _external_corrections(entry, r)
         if changes and TimeBucket.objects(
@@ -1333,6 +1487,9 @@ def _external_corrections(entry, row) -> dict:
     url = row.get("external_url") or ""
     if url and entry.external_url != url:
         changes["set__entries__S__external_url"] = url
+    who = row.get("external_user") or ""
+    if who and entry.external_user != who:
+        changes["set__entries__S__external_user"] = who
     # Attribution: only ever *towards* a known Cairn user, never away from one.
     uid, uname = row.get("user_id") or "", row.get("user_name") or ""
     if uid and entry.user_id != uid:
