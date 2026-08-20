@@ -1407,12 +1407,19 @@ def project_detail(pid):
         key=lambda r: r["label"].lower())
     # The customer sheet's columns, in this project's order, each flagged with
     # whether it is currently shown — the form below is the whole configuration.
-    from application.services.timetracking import available_sheet_columns
+    from application.services.timetracking import (
+        available_sheet_columns, sheet_columns)
     all_cols = available_sheet_columns(p)
     chosen = [k for k in (p.share_columns or []) if k in {c["key"] for c in all_cols}]
     ordered = ([c for k in chosen for c in all_cols if c["key"] == k]
                + [c for c in all_cols if c["key"] not in chosen])
-    share_cols = [{**c, "on": (not chosen) or c["key"] in chosen}
+    # With nothing configured, tick what the *default* sheet actually shows —
+    # ticking everything would claim the ticket and the service have columns
+    # when the default folds them into the description.
+    fallback = {c["key"] for c in
+                sheet_columns(p, has_times=(p.time_mode == "clock"))}
+    share_cols = [{**c, "on": (c["key"] in chosen) if chosen
+                   else (c["key"] in fallback)}
                   for c in ordered]
 
     return render_template(
@@ -1473,16 +1480,12 @@ def project_edit(pid):
     # the ticked ones are kept, and the order is theirs. An empty selection
     # means "the default set" rather than an empty sheet — a customer link
     # showing nothing at all is never what someone meant.
-    if "share_col" in request.form:
+    if request.form.getlist("share_col_key"):
+        # The order is the order the rows arrive in — same-named fields are
+        # submitted in document order, so dragging a row *is* the edit and
+        # there is no position to keep in sync with it.
         picked = set(request.form.getlist("share_col"))
-        order = []
-        for key in request.form.getlist("share_col_key"):
-            try:
-                pos = int(request.form.get(f"share_pos_{key}") or 0)
-            except ValueError:
-                pos = 0
-            order.append((pos, key))
-        p.share_columns = [k for _, k in sorted(order, key=lambda t: t[0])
+        p.share_columns = [k for k in request.form.getlist("share_col_key")
                            if k in picked]
         p.save()
     set_intake_project(p, request.form.get("intake") == "1")

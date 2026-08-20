@@ -9,9 +9,13 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
   <style>
-    /* Wider than the other public pages: this one is a table, and a project
-       with a few custom fields needs the room. */
-    .public-wrap { max-width: 1040px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+    /* Wider than the other public pages: this one is a table, and a sheet
+       carrying times, a ticket, a service and two custom fields has nowhere to
+       put them at 1040px. It takes the window, with a ceiling so the lines stay
+       readable on a very wide screen. */
+    .public-wrap { max-width: 1800px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+    /* The prose above the table doesn't want the same width as the table. */
+    .public-intro { max-width: 60rem; }
     .public-title { font-weight: 600; letter-spacing: -.01em; margin: 0; }
     .public-sub { color: var(--gv-fg4); font-size: .85rem; margin-top: .25rem; }
     .public-total { display: flex; align-items: baseline; gap: .75rem;
@@ -23,6 +27,8 @@
     /* The table scrolls on its own so the page never scrolls sideways. */
     .public-table-wrap { overflow-x: auto; }
     table.public-table { width: 100%; font-size: .88rem; border-collapse: collapse; }
+    /* Description is the column that should absorb the leftover width. */
+    .public-table td:last-child, .public-table th:last-child { width: auto; }
     .public-table th { text-align: left; font-weight: 500; color: var(--gv-fg4);
                        font-size: .72rem; text-transform: uppercase;
                        letter-spacing: .06em; padding: .35rem .6rem .35rem 0;
