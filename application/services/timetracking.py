@@ -289,6 +289,12 @@ def add_entry(*, project: TimeTrackingProject, user, minutes: int,
         external_user=external_user or None,
     )
 
+    # What a person books by hand becomes their shortlist for next time.
+    # Imports pass an ``actor`` and are excluded: nobody wants a thousand
+    # migrated mite entries deciding what their capture bar offers.
+    if actor is None and who is not None:
+        remember_project(who, project)
+
     # One atomic upsert-and-push: creates the day's bucket on first write, then
     # appends. Concurrent loggers each issue their own atomic $push, so they
     # never clobber one another — which is exactly why a whole team can share
@@ -303,6 +309,24 @@ def add_entry(*, project: TimeTrackingProject, user, minutes: int,
         set_on_insert__created_at=_utcnow(),
     )
     return entry
+
+
+RECENT_PROJECT_LIMIT = 12
+
+
+def remember_project(user, project) -> None:
+    """Put ``project`` at the front of the user's shortlist.
+
+    One tiny ``$set`` on the user document, and only when the order actually
+    changes — booking the same project ten times in a row costs one write."""
+    pid = str(project.id)
+    current = list(getattr(user, "tt_recent_projects", None) or [])
+    if current[:1] == [pid]:
+        return
+    fresh = [pid] + [p for p in current if p != pid]
+    fresh = fresh[:RECENT_PROJECT_LIMIT]
+    user.tt_recent_projects = fresh
+    user.__class__.objects(pk=user.pk).update_one(set__tt_recent_projects=fresh)
 
 
 def parse_duration(raw: str):
@@ -328,13 +352,24 @@ def parse_duration(raw: str):
     return None
 
 
-def pickable_projects(user) -> list[dict]:
-    """Every billing project the user may log to, flat + deref-free.
+def pickable_projects(user, *, limit: int | None = None, query: str = "",
+                     keep: str = "") -> list[dict]:
+    """Billing projects the user may log to, flat + deref-free.
 
     Two queries total (projects ``as_pymongo`` + one customer-name lookup), so
     rendering a project picker on a task or the day sheet never costs a query
     per row. Sorted customer → project, which is also the ``<optgroup>`` order.
-    """
+
+    ``limit`` returns only the most useful ones: the projects this user booked
+    on most recently (``User.tt_recent_projects``), then alphabetically, plus
+    ``keep`` whatever happens — the currently selected project must be in the
+    list or the form would silently change it. A team with a thousand projects
+    must not put a thousand ``<option>``s on a page that re-renders after every
+    booking; the rest are reached by typing, which asks the server (see
+    ``views.timetracking.project_search``).
+
+    ``query`` filters by customer or project name, case-insensitively, on every
+    word — "acme web" finds "Acme › Website"."""
     teams = user_teams(user)
     if not teams:
         return []
@@ -368,7 +403,52 @@ def pickable_projects(user) -> list[dict]:
                    for f in (r.get("custom_fields") or [])],
     } for r in raw]
     rows.sort(key=lambda r: (r["customer"].lower(), r["name"].lower()))
-    return rows
+
+    if query:
+        words = query.lower().split()
+        rows = [r for r in rows
+                if all(w in f"{r['customer']} {r['name']}".lower() for w in words)]
+    if limit is None:
+        return rows
+
+    recent = list(getattr(user, "tt_recent_projects", None) or [])
+    rank = {pid: i for i, pid in enumerate(recent)}
+    rows.sort(key=lambda r: (rank.get(r["id"], len(recent)),
+                             r["customer"].lower(), r["name"].lower()))
+    short = rows[:limit]
+    if keep and not any(r["id"] == keep for r in short):
+        pinned = next((r for r in rows if r["id"] == keep), None)
+        if pinned is not None:
+            short = [pinned] + short[:limit - 1]
+    return short
+
+
+# How many projects a capture bar ships to the browser. Enough that the answer
+# is usually already there, few enough that a team with a thousand projects
+# doesn't pay for them on every re-render — anything else is one keystroke and
+# one request away (views.timetracking.project_search).
+PICKER_SHORTLIST = 25
+
+
+def project_fields(project_ids) -> dict:
+    """``{project_id: [field definitions]}`` for the given projects.
+
+    The edit form of an already-logged entry has to ask for that entry's own
+    project's fields, and its project may well not be on the shortlist the
+    picker ships. One keyed query, no matter how many entries are on screen."""
+    ids = [to_oid(i) for i in set(project_ids or ()) if to_oid(i)]
+    if not ids:
+        return {}
+    out = {}
+    for r in TimeTrackingProject.objects(id__in=ids).only(
+            "id", "custom_fields").as_pymongo():
+        out[str(r["_id"])] = [
+            {"key": f.get("key"), "label": f.get("label"),
+             "type": f.get("field_type") or "text",
+             "default": f.get("default") or "",
+             "options": list(f.get("options") or [])}
+            for f in (r.get("custom_fields") or [])]
+    return out
 
 
 def default_project_id(user, item=None, projects: list | None = None) -> str:
@@ -381,15 +461,28 @@ def default_project_id(user, item=None, projects: list | None = None) -> str:
         p = resolve_time_project(item)
         if p is not None and str(p.team.id) in user_team_ids(user):
             return str(p.id)
-    if projects is None:
-        projects = pickable_projects(user)
-    ids = {p["id"] for p in projects}
     last = getattr(user, "tt_last_project", "") or ""
-    if last in ids:
-        return last
-    if len(projects) == 1:
-        return projects[0]["id"]
-    return ""
+    if projects is not None:
+        # A caller that already has the list saves the lookups below.
+        ids = {p["id"] for p in projects}
+        if last in ids:
+            return last
+        return projects[0]["id"] if len(projects) == 1 else ""
+    # Otherwise ask about the one project we care about rather than fetching
+    # every project the team has — this runs on the day sheet, which a team
+    # with a thousand of them opens as often as anyone else.
+    teams = user_teams(user)
+    if not teams:
+        return ""
+    if last and to_oid(last) is not None:
+        hit = TimeTrackingProject.objects(
+            pk=to_oid(last), team__in=teams, archived__ne=True
+        ).only("id", "customer").first()
+        if hit is not None and not hit.customer.archived:
+            return last
+    only = list(TimeTrackingProject.objects(
+        team__in=teams, archived__ne=True).only("id").limit(2))
+    return str(only[0].id) if len(only) == 1 else ""
 
 
 def item_entries(user, item) -> list[dict]:
@@ -445,8 +538,9 @@ def task_time_context(user, item):
     inherited = resolve_time_project(item)
     if inherited is not None and str(inherited.team.id) not in user_team_ids(user):
         inherited = None
-    projects = pickable_projects(user)
     rows = item_entries(user, item)
+    preselect = default_project_id(user, item)
+    projects = pickable_projects(user, limit=PICKER_SHORTLIST, keep=preselect)
     timer = getattr(user, "running_timer", None)
     # The inherited project's customer, read off the picker data rather than
     # dereferenced again.
@@ -458,7 +552,7 @@ def task_time_context(user, item):
         "project": inherited,
         "project_customer": inherited_customer,
         "projects": projects,
-        "default_project_id": default_project_id(user, item, projects),
+        "default_project_id": preselect,
         "total_minutes": sum(r["minutes"] or 0 for r in rows),
         "entries": rows,
         "timer": timer if (timer and timer.source_item_id == str(item.pk)) else None,
@@ -1725,7 +1819,10 @@ def day_sheet(user, day: date) -> dict:
             })
     entries.sort(key=lambda r: r["created_at"] or _utcnow())
     removed.sort(key=lambda r: r["cancelled_at"] or _utcnow(), reverse=True)
-    projects = pickable_projects(actor)
+    # The shortlist for the capture bar, with the preselected project pinned
+    # into it; anything else is found by typing (project_search).
+    preselect = default_project_id(actor, None)
+    projects = pickable_projects(actor, limit=PICKER_SHORTLIST, keep=preselect)
     total = sum(r["minutes"] for r in entries)
     billable = sum(r["minutes"] for r in entries if r["billable"])
     # Where the day's last clock-booked entry ended — the natural start for the
@@ -1746,9 +1843,14 @@ def day_sheet(user, day: date) -> dict:
         "week_minutes": sum(week.values()),
         "projects": projects,
         # Field definitions keyed by project, so an entry's edit form can ask
-        # for exactly what that project wants without a lookup per row.
-        "fields_by_project": {p["id"]: p["fields"] for p in projects},
-        "default_project_id": default_project_id(actor, None),
+        # for exactly what that project wants without a lookup per row. Taken
+        # from the day's own entries as well as the shortlist: an entry booked
+        # on a project that isn't offered here still has to be editable.
+        "fields_by_project": {
+            **{p["id"]: p["fields"] for p in projects},
+            **project_fields([r["project_id"] for r in entries]),
+        },
+        "default_project_id": preselect,
         "timer": getattr(actor, "running_timer", None),
     }
 

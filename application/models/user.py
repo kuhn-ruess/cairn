@@ -144,6 +144,13 @@ class User(UserMixin, Document):
     # services.zammad_billing.ensure_billing_target.
     zammad_time_auto_customer = BooleanField(default=False)
 
+    # The billing projects this user last booked time on, newest first (a short
+    # list, capped in services.timetracking.remember_project). The capture bar
+    # offers these before anything else and only ships them to the browser —
+    # a team with a thousand projects must not put a thousand <option>s on a
+    # page that is re-rendered after every single booking.
+    tt_recent_projects = ListField(StringField(max_length=32))
+
     # Password reset
     password_reset_token = StringField()
     password_reset_expires_at = DateTimeField()

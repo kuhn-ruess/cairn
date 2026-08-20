@@ -35,7 +35,7 @@
     menu.className = "tt-pick-menu";
     menu.innerHTML =
       '<input type="search" class="form-control form-control-sm tt-pick-search"' +
-      ' placeholder="Type to find a project…" autocomplete="off">' +
+      ' placeholder="Type to find any project…" autocomplete="off">' +
       '<div class="tt-pick-list"></div>';
     wrap.appendChild(menu);
     const list = menu.querySelector(".tt-pick-list");
@@ -52,6 +52,7 @@
   function filter(wrap, q) {
     const needle = q.trim().toLowerCase();
     let first = null;
+    let shown = 0;
     wrap.querySelectorAll(".tt-pick-opt").forEach((row) => {
       // Every word has to appear, so "acme web" finds "Acme › Website" without
       // caring which order they were typed in.
@@ -59,9 +60,62 @@
       const hit = !needle || needle.split(/\s+/).every((w) => hay.includes(w));
       row.hidden = !hit;
       row.classList.remove("active");
-      if (hit && !first) first = row;
+      if (hit) {
+        shown += 1;
+        if (!first) first = row;
+      }
     });
     if (first) first.classList.add("active");
+    return shown;
+  }
+
+  /* The page carries a shortlist — the projects this person actually books on.
+   * Everything else is asked for, so a team with a thousand projects costs the
+   * capture bar nothing until someone goes looking for the thousandth. */
+  const timers = new WeakMap();
+
+  function remote(wrap, q) {
+    clearTimeout(timers.get(wrap));
+    if (q.trim().length < 2) {
+      wrap.querySelectorAll(".tt-pick-opt[data-remote]").forEach((r) => r.remove());
+      return;
+    }
+    timers.set(wrap, setTimeout(() => {
+      const url = "/time/projects/search?q=" + encodeURIComponent(q.trim());
+      fetch(url, { headers: { "X-Requested-With": "fetch" } })
+        .then((r) => (r.ok ? r.json() : { projects: [] }))
+        .then((data) => {
+          // Only answer the question that is still on screen.
+          const search = wrap.querySelector(".tt-pick-search");
+          if (!search || search.value.trim() !== q.trim()) return;
+          const sel = wrap.querySelector("select");
+          const list = wrap.querySelector(".tt-pick-list");
+          const have = new Set(Array.from(sel.options).map((o) => o.value));
+          wrap.querySelectorAll(".tt-pick-opt[data-remote]").forEach((r) => r.remove());
+          (data.projects || []).forEach((p) => {
+            if (have.has(p.id)) return;
+            // Give the <select> the option too: it stays the source of truth,
+            // and the capture code reads the field definitions off it.
+            const opt = document.createElement("option");
+            opt.value = p.id;
+            opt.textContent = p.label;
+            opt.dataset.mode = p.mode || "duration";
+            opt.dataset.fields = JSON.stringify(p.fields || []);
+            sel.appendChild(opt);
+            const row = document.createElement("button");
+            row.type = "button";
+            row.className = "tt-pick-opt";
+            row.dataset.remote = "1";
+            row.dataset.index = String(sel.options.length - 1);
+            row.textContent = p.label;
+            list.appendChild(row);
+          });
+          if (!filter(wrap, search.value)) {
+            wrap.querySelector(".tt-pick-list").dataset.empty = "1";
+          }
+        })
+        .catch(() => {});
+    }, 160));
   }
 
   function open(wrap) {
@@ -110,7 +164,10 @@
 
   document.addEventListener("input", (ev) => {
     const search = ev.target.closest(".tt-pick-search");
-    if (search) filter(search.closest(".tt-pick"), search.value);
+    if (!search) return;
+    const wrap = search.closest(".tt-pick");
+    filter(wrap, search.value);
+    remote(wrap, search.value);
   });
 
   // The keyboard has to reach all of it: arrows walk the matches, Enter takes

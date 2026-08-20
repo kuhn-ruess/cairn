@@ -354,6 +354,27 @@ def _resolve_project(user, task=None, explicit=None):
     return project_for_user(user, pid) if pid else None
 
 
+@timetracking_bp.route("/projects/search")
+@login_required
+@team_required
+def project_search():
+    """Projects matching ``?q=`` — what the capture bar's picker asks for.
+
+    The bar itself only carries a shortlist, so the rest of a large team's
+    projects are found by typing. Returns the same shape the picker's
+    ``<option>``s carry, including the custom-field definitions, so a project
+    chosen from here behaves exactly like one that was on the page already."""
+    from application.services.timetracking import pickable_projects
+
+    user = current_user._get_current_object()
+    q = (request.args.get("q") or "").strip()
+    rows = pickable_projects(user, query=q, limit=30) if q else \
+        pickable_projects(user, limit=30)
+    return jsonify({"projects": [
+        {"id": r["id"], "label": f"{r['customer']} › {r['name']}",
+         "mode": r["mode"], "fields": r["fields"]} for r in rows]})
+
+
 @timetracking_bp.route("/log/<task_id>", methods=["POST"])
 @login_required
 @team_required
@@ -619,19 +640,20 @@ def _report_filters(args=None):
 
 def _report_context(args=None):
     """Everything the report body renders from, for a page load or a swap."""
-    from application.services.timetracking import can_bill, pickable_projects
+    from application.services.timetracking import can_bill, project_fields
     team = _team()
     user = current_user._get_current_object()
     f = _report_filters(args)
     data = _grouped_report(team, f)
-    projects = pickable_projects(user)
     header, rows = _export_table(data)
     return dict(
         team=team, f=f, can_bill=can_bill(user, team),
         can_unlock=team.is_managed_by(user),
-        # Field definitions for the inline edit forms, and the export exactly as
-        # it will be written — the preview is the export, not a description of it.
-        fields_by_project={p["id"]: p["fields"] for p in projects},
+        # Field definitions for the inline edit forms — for the projects on
+        # screen, not for every project the team has, and the export exactly as
+        # it will be written: the preview is the export, not a description of it.
+        fields_by_project=project_fields(
+            r["project_id"] for r in data["rows"]),
         export_header=header, export_rows=rows,
         **data)
 
