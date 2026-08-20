@@ -34,24 +34,53 @@
   </span>
 {%- endmacro -%}
 
+{# Behind every clock field: "now", and the quarter-hour grid — so a time can
+   be set without typing hh:mm. The end list shows what each choice makes the
+   entry long, which is the number you are really deciding about. #}
+{%- macro time_buttons(target) -%}
+  <span class="btn-group btn-group-sm">
+    <button type="button" class="btn btn-outline-secondary tt-now px-1"
+            data-target="{{ target }}" title="{{ target|capitalize }} = now"><i class="bi bi-clock"></i></button>
+    <button type="button" class="btn btn-outline-secondary tt-time-pick px-1"
+            data-target="{{ target }}" aria-haspopup="listbox"
+            title="Pick the {{ target }} time"><i class="bi bi-caret-down-fill"></i></button>
+  </span>
+{%- endmacro -%}
+
 {# Duration, or a start/end pair — the toggle swaps which one is submitted. #}
 {%- macro duration_or_clock(suggest_start="") -%}
-  <input type="text" class="form-control form-control-sm time-add-duration"
-         style="max-width: 6.5rem;" placeholder="1h30m" autocomplete="off"
-         title="90 · 1:30 · 1h30m · 1.5h">
+  {# The field takes anything you can type, but most bookings are one of five
+     lengths — so those are buttons, and ±15 nudges whatever is in the field
+     onto the quarter hour. Duration-only, so the whole group hides together
+     when the project books by the clock. #}
+  <span class="time-dur d-flex align-items-center gap-1">
+    <input type="text" class="form-control form-control-sm time-add-duration"
+           style="max-width: 6.5rem;" placeholder="1h30m" autocomplete="off"
+           title="90 · 1:30 · 1h30m · 1.5h">
+    <span class="btn-group btn-group-sm" role="group" aria-label="Adjust by 15 minutes">
+      <button type="button" class="btn btn-outline-secondary tt-dur-step px-2"
+              data-step="-15" title="15 minutes less">&minus;</button>
+      <button type="button" class="btn btn-outline-secondary tt-dur-step px-2"
+              data-step="15" title="15 minutes more">+</button>
+    </span>
+    <span class="btn-group btn-group-sm" role="group" aria-label="Common durations">
+      {% for m in [15, 30, 45, 60, 120] %}
+        <button type="button" class="btn btn-outline-secondary tt-dur-chip px-2"
+                data-minutes="{{ m }}" title="Book {{ m|duration }}">{{ m|duration }}</button>
+      {% endfor %}
+    </span>
+  </span>
   {# The start is pre-filled with where the last entry of the day ended, so a
      day booked by the clock chains without retyping. Each field also has a
      "now" button, which is how most of these get filled in the first place. #}
   <span class="time-add-clock d-none align-items-center gap-1">
     <input type="time" class="form-control form-control-sm time-add-start"
            style="max-width: 7rem;" title="Start" value="{{ suggest_start }}">
-    <button type="button" class="btn btn-sm btn-outline-secondary tt-now px-1"
-            data-target="start" title="Start = now"><i class="bi bi-clock"></i></button>
+    {{ time_buttons("start") }}
     <span class="text-muted">–</span>
     <input type="time" class="form-control form-control-sm time-add-end"
            style="max-width: 7rem;" title="End">
-    <button type="button" class="btn btn-sm btn-outline-secondary tt-now px-1"
-            data-target="end" title="End = now"><i class="bi bi-clock"></i></button>
+    {{ time_buttons("end") }}
   </span>
   <button type="button" class="btn btn-sm btn-outline-secondary tt-clock-toggle"
           title="Book start and end time instead of a duration">

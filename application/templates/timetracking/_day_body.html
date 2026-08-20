@@ -126,12 +126,10 @@
                    style="max-width: 7rem;" value="{{ e.minutes }}" title="Duration">
             <input type="time" class="form-control form-control-sm tt-edit-start"
                    style="max-width: 7rem;" value="{{ e.start_time }}" title="Start (optional)">
-            <button type="button" class="btn btn-sm btn-outline-secondary tt-now px-1"
-                    data-target="start" title="Start = now"><i class="bi bi-clock"></i></button>
+            {{ cap.time_buttons("start") }}
             <input type="time" class="form-control form-control-sm tt-edit-end"
                    style="max-width: 7rem;" value="{{ e.end_time }}" title="End (optional)">
-            <button type="button" class="btn btn-sm btn-outline-secondary tt-now px-1"
-                    data-target="end" title="End = now"><i class="bi bi-clock"></i></button>
+            {{ cap.time_buttons("end") }}
             <input type="date" class="form-control form-control-sm tt-edit-date"
                    style="max-width: 9.5rem;" value="{{ d.day.isoformat() }}">
             <input type="text" class="form-control form-control-sm tt-edit-note"

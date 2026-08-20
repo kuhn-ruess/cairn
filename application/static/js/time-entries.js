@@ -179,7 +179,7 @@
 
   function applyClockMode(scope) {
     (scope || document).querySelectorAll(".time-add").forEach((add) => {
-      const dur = add.querySelector(".time-add-duration");
+      const dur = add.querySelector(".time-dur") || add.querySelector(".time-add-duration");
       const clock = add.querySelector(".time-add-clock");
       if (!dur || !clock) return;
       const mode = projectMode(add);
@@ -212,6 +212,123 @@
     input.value = `${String(d.getHours()).padStart(2, "0")}:` +
                   `${String(d.getMinutes()).padStart(2, "0")}`;
     input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  // ---- duration buttons ----------------------------------------------------
+  // Mirrors services.timetracking.parse_duration, so ±15 can pick up whatever
+  // is already in the field no matter which of the accepted spellings it is.
+  // The field stays free text — the buttons only write into it.
+  function parseDuration(raw) {
+    const s = (raw || "").trim().toLowerCase().replace(/\s+/g, "");
+    if (!s) return null;
+    let m = s.match(/^(\d+):([0-5]?\d)$/);
+    if (m) return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    m = s.match(/^(\d+(?:[.,]\d+)?)h$/);
+    if (m) return Math.round(parseFloat(m[1].replace(",", ".")) * 60);
+    m = s.match(/^(?:(\d+)h)?(?:(\d+)m?)?$/);
+    if (m && (m[1] || m[2])) {
+      return parseInt(m[1] || "0", 10) * 60 + parseInt(m[2] || "0", 10);
+    }
+    return null;
+  }
+
+  function formatDuration(minutes) {
+    if (minutes <= 0) return "";
+    const h = Math.floor(minutes / 60), m = minutes % 60;
+    if (!h) return m + "m";
+    return m ? h + "h" + m + "m" : h + "h";
+  }
+
+  function setDuration(field, minutes) {
+    if (!field) return;
+    field.value = formatDuration(minutes);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  // ---- picking a time with the mouse ---------------------------------------
+  // A native <input type="time"> is a keyboard field: hh, tab, mm. Booking a
+  // day happens on the quarter-hour grid, so the caret next to each clock
+  // field offers exactly that grid. The end list is labelled with what each
+  // choice makes the entry long — the number you are really deciding about.
+  const TIME_STEP = 15;
+
+  function toMinutes(hhmm) {
+    const m = /^(\d{1,2}):([0-5]\d)$/.exec((hhmm || "").trim());
+    return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
+  }
+
+  function toClock(minutes) {
+    const m = ((minutes % 1440) + 1440) % 1440;
+    return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  }
+
+  function clockField(box, which) {
+    return box.querySelector(which === "end" ? ".time-add-end, .tt-edit-end"
+                                             : ".time-add-start, .tt-edit-start");
+  }
+
+  function timeChoices(which, startMin) {
+    const out = [];
+    // An end can only follow its start, and no shift runs past midnight here —
+    // an overnight entry is still booked as a duration.
+    if (which === "end" && startMin !== null) {
+      for (let t = startMin + TIME_STEP; t < 1440; t += TIME_STEP) {
+        out.push({ value: toClock(t), label: toClock(t), hint: formatDuration(t - startMin) });
+      }
+      return out;
+    }
+    for (let t = 0; t < 1440; t += TIME_STEP) {
+      out.push({ value: toClock(t), label: toClock(t), hint: "" });
+    }
+    return out;
+  }
+
+  function openTimeMenu(btn) {
+    const box = btn.closest(".time-add") || btn.closest(".tt-edit");
+    if (!box) return;
+    const which = btn.dataset.target === "end" ? "end" : "start";
+    const field = clockField(box, which);
+    if (!field) return;
+    const startMin = which === "end" ? toMinutes((clockField(box, "start") || {}).value) : null;
+
+    const menu = document.createElement("div");
+    menu.className = "dropdown-menu show shadow tt-time-menu";
+    menu.style.cssText = "position:absolute; z-index:1080; max-height:16rem; overflow:auto;";
+    // Open where the answer probably is: on what the field already says,
+    // otherwise on the clock.
+    const now = new Date();
+    const focusOn = toMinutes(field.value);
+    const near = focusOn !== null ? focusOn
+      : (which === "end" && startMin !== null ? startMin + 60
+                                              : now.getHours() * 60 + now.getMinutes());
+    let nearest = null, nearestGap = Infinity;
+    timeChoices(which, startMin).forEach((c) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "dropdown-item d-flex justify-content-between gap-3 small font-monospace";
+      item.innerHTML = `<span>${c.label}</span>` +
+        (c.hint ? `<span class="text-muted">${c.hint}</span>` : "");
+      if (c.value === field.value) item.classList.add("active");
+      item.addEventListener("click", () => {
+        menu.remove();
+        field.value = c.value;
+        field.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      menu.appendChild(item);
+      const gap = Math.abs(toMinutes(c.value) - near);
+      if (gap < nearestGap) { nearestGap = gap; nearest = item; }
+    });
+    if (!menu.childElementCount) return;
+
+    const rect = btn.getBoundingClientRect();
+    menu.style.top = `${window.scrollY + rect.bottom + 4}px`;
+    menu.style.left = `${window.scrollX + rect.left - 60}px`;
+    menu.style.minWidth = "9rem";
+    document.body.appendChild(menu);
+    if (nearest) menu.scrollTop = Math.max(0, nearest.offsetTop - menu.clientHeight / 2);
+    setTimeout(() => document.addEventListener("click", function once(ev) {
+      if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener("click", once); }
+    }), 0);
   }
 
   function currentProject(add) {
@@ -383,6 +500,41 @@
       ev.preventDefault();
       if (!confirm("Discard the running timer without logging it?")) return;
       post(discard.dataset.action || (window.TT || {}).discard, {}, contextFor(discard)).catch(() => {});
+      return;
+    }
+
+    const chip = t.closest(".tt-dur-chip");
+    if (chip) {
+      ev.preventDefault();
+      const add = chip.closest(".time-add");
+      setDuration(add && add.querySelector(".time-add-duration"),
+                  parseInt(chip.dataset.minutes, 10) || 0);
+      // The length is settled; the note is the only thing left to say.
+      const note = add && add.querySelector(".time-add-note");
+      if (note) note.focus();
+      return;
+    }
+
+    const step = t.closest(".tt-dur-step");
+    if (step) {
+      ev.preventDefault();
+      const add = step.closest(".time-add");
+      const field = add && add.querySelector(".time-add-duration");
+      if (!field) return;
+      const by = parseInt(step.dataset.step, 10) || 0;
+      const have = parseDuration(field.value) || 0;
+      // Land on the quarter hour rather than beside it: 47m steps up to 1h,
+      // not to 1h2m.
+      const grid = by > 0 ? Math.floor(have / 15) * 15 : Math.ceil(have / 15) * 15;
+      setDuration(field, Math.max(0, grid + by));
+      return;
+    }
+
+    const pick = t.closest(".tt-time-pick");
+    if (pick) {
+      ev.preventDefault();
+      document.querySelectorAll(".tt-time-menu").forEach((m) => m.remove());
+      openTimeMenu(pick);
       return;
     }
 
