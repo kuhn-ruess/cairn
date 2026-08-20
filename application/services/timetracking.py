@@ -720,6 +720,103 @@ def purge_project_entries(project) -> dict:
     return stats
 
 
+def cancelled_entries(*, team, viewer) -> list[dict]:
+    """The team's deleted time, newest first — the trash view's contents.
+
+    "Never delete" is the module's rule, and it is what makes cancelled entries
+    feel lost: they are kept forever, counted nowhere, and visible only in the
+    day sheet of whoever logged them. This gathers them in one place, scoped
+    the same way editing them is (:func:`may_touch_entry`): your own, or
+    everything if you manage or bill for the team. Time imported for an
+    external agent belongs to nobody, so only a manager/biller sees it — which
+    is also the only way it can be seen at all.
+
+    One indexed query (``entries.status``), then a pass over the embedded
+    entries: no lookup per row."""
+    actor = _actor(viewer)
+    privileged = team.is_managed_by(actor) or actor in (team.billers or [])
+    uid = str(actor.id)
+    rows = []
+    for b in TimeBucket.objects(team=team, entries__status="cancelled"):
+        cust_name = None
+        for e in b.entries:
+            if e.status != "cancelled":
+                continue
+            if not privileged and e.user_id != uid:
+                continue
+            if cust_name is None:
+                cust_name = b.customer.name if b.customer else "—"
+            rows.append({
+                "entry_id": e.entry_id,
+                "bucket_id": str(b.id),
+                "customer": cust_name,
+                "project": e.project_name,
+                "project_id": e.project_id,
+                "user_name": e.user_name or "—",
+                "user_id": e.user_id or "",
+                "spent_on": local_date(e.spent_on, actor),
+                "minutes": e.minutes or 0,
+                "note": e.note or "",
+                "source_label": e.source_label or "",
+                "external_ref": e.external_ref or "",
+                "external_url": e.external_url or "",
+                "external_id": e.external_id or "",
+                "locked": bool(e.locked),
+                "cancelled_at": e.cancelled_at,
+                "cancelled_by": (e.cancelled_by.display_name
+                                 or e.cancelled_by.username)
+                if e.cancelled_by else "",
+            })
+    rows.sort(key=lambda r: r["cancelled_at"] or datetime.min.replace(
+        tzinfo=timezone.utc), reverse=True)
+    return rows
+
+
+def purge_entries(*, team, pairs, viewer) -> dict:
+    """Delete cancelled entries for good. Returns a count summary.
+
+    The only way an entry ever leaves a bucket one at a time, and deliberately
+    narrow: **cancelled** entries only (deleting live time is what the ✕ is
+    for, and it is reversible), never locked ones, and only what the viewer may
+    touch. A bucket left with no entries is dropped rather than kept as an
+    empty shell."""
+    out = {"purged": 0, "skipped": 0}
+    by_bucket = {}
+    for bucket_id, entry_id in pairs:
+        by_bucket.setdefault(str(bucket_id), []).append(str(entry_id))
+    for bucket_id, entry_ids in by_bucket.items():
+        bucket = TimeBucket.objects(pk=to_oid(bucket_id), team=team).first()
+        if bucket is None:
+            out["skipped"] += len(entry_ids)
+            continue
+        for entry_id in entry_ids:
+            entry = next((e for e in bucket.entries
+                          if e.entry_id == entry_id), None)
+            if entry is None or entry.locked or entry.status != "cancelled" \
+                    or not may_touch_entry(viewer, team, entry,
+                                           status="cancelled"):
+                out["skipped"] += 1
+                continue
+            # Cancelling already took the minutes out of the cached total, so
+            # only the count moves here.
+            res = TimeBucket.objects(
+                pk=bucket.pk, entries__entry_id=entry_id,
+                entries__status="cancelled", entries__locked=False,
+            ).update_one(
+                pull__entries__entry_id=entry_id,
+                inc__entry_count=-1,
+                set__updated_at=_utcnow(),
+            )
+            if res:
+                out["purged"] += 1
+            else:
+                out["skipped"] += 1
+        bucket.reload()
+        if not bucket.entries:
+            bucket.delete()
+    return out
+
+
 def project_entry_summary(project) -> dict:
     """How much time hangs off ``project`` — what a reset would destroy."""
     pid = str(project.id)
@@ -838,6 +935,12 @@ def move_entries(*, team, pairs, target, actor=None) -> dict:
                 set__updated_at=_utcnow(),
             )
             out["moved"] += 1
+        # A bucket that gave up its last entry is an empty shell — drop it,
+        # the same way a purge does.
+        if not same_customer:
+            bucket.reload()
+            if not bucket.entries:
+                bucket.delete()
     return out
 
 

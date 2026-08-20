@@ -324,6 +324,8 @@ class TimeBucket(Document):
             "entries.external_id",
             # Re-attribution when a Zammad agent is mapped to a Cairn account.
             "entries.external_user",
+            # The trash view: which buckets hold cancelled entries at all.
+            "entries.status",
         ],
     }
 

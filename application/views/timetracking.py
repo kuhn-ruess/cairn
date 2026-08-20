@@ -689,6 +689,82 @@ def _grouped_report(team, f):
     }
 
 
+@timetracking_bp.route("/trash")
+@login_required
+@team_required
+def trash():
+    """Deleted time, gathered in one place — and the only door out of the
+    module's append-only rule.
+
+    Cancelled entries are kept forever and counted nowhere, which makes them
+    invisible rather than gone: this lists them, restores them, or removes them
+    for good."""
+    from application.services.timetracking import cancelled_entries
+
+    team = _team()
+    user = current_user._get_current_object()
+    rows = cancelled_entries(team=team, viewer=user)
+    return render_template(
+        "timetracking/trash.html", team=team, all_teams=_user_teams(user),
+        can_manage=team.is_managed_by(user), rows=rows,
+        total_minutes=sum(r["minutes"] for r in rows))
+
+
+@timetracking_bp.route("/trash/act", methods=["POST"])
+@login_required
+@team_required
+def trash_act():
+    """Restore or permanently delete entries from the trash.
+
+    ``action`` ∈ restore / purge / empty. Everything is scoped by
+    ``may_touch_entry`` inside the services, so "empty" empties what *you* may
+    empty — a member's own deleted time, a manager's whole team."""
+    from application.services.timetracking import cancelled_entries, purge_entries
+
+    team = _team()
+    user = current_user._get_current_object()
+    action = request.form.get("action")
+    if action == "empty":
+        pairs = [(r["bucket_id"], r["entry_id"])
+                 for r in cancelled_entries(team=team, viewer=user)]
+    else:
+        pairs = []
+        for raw in request.form.getlist("entry"):
+            bid, _, eid = raw.partition(":")
+            if bid and eid:
+                pairs.append((bid, eid))
+    if not pairs:
+        flash("Nothing selected.", "info")
+        return redirect(url_for("timetracking.trash", team=team.pk))
+
+    if action == "restore":
+        done = 0
+        for bucket_id, entry_id in pairs:
+            bucket = TimeBucket.objects(pk=to_oid(bucket_id), team=team).first()
+            if bucket is None:
+                continue
+            entry = next((e for e in bucket.entries
+                          if e.entry_id == entry_id), None)
+            if not may_touch_entry(user, team, entry, status="cancelled"):
+                continue
+            if restore_entry(bucket=bucket, entry_id=entry_id, user=user):
+                done += 1
+        flash(f"{done} entr{'y' if done == 1 else 'ies'} restored."
+              if done else "Nothing restored.",
+              "success" if done else "info")
+        return redirect(url_for("timetracking.trash", team=team.pk))
+
+    res = purge_entries(team=team, pairs=pairs, viewer=user)
+    if res["purged"]:
+        flash(f"{res['purged']} entr{'y' if res['purged'] == 1 else 'ies'} "
+              f"deleted for good."
+              + (f" {res['skipped']} left — not yours to delete, or already "
+                 f"billed." if res["skipped"] else ""), "success")
+    else:
+        flash("Nothing deleted.", "info")
+    return redirect(url_for("timetracking.trash", team=team.pk))
+
+
 @timetracking_bp.route("/report")
 @login_required
 @team_required

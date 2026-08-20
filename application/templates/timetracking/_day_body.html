@@ -175,6 +175,11 @@
         <i class="bi bi-arrow-counterclockwise"></i>
         Removed on this day ({{ d.removed|length }})
       </summary>
+      <div class="small text-muted mt-1">
+        Everything you removed — on any day — sits in the
+        <a href="{{ url_for('timetracking.trash') }}">trash</a>, where it can
+        also be deleted for good.
+      </div>
       <div class="list-group mt-1">
         {% for e in d.removed %}
           <div class="list-group-item py-1 d-flex align-items-center gap-2 small text-muted">

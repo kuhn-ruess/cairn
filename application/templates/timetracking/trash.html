@@ -1,0 +1,105 @@
+{% extends "layout/base.html" %}
+{% block title %}Deleted time · Cairn{% endblock %}
+{% block content %}
+{% import "timetracking/_nav.html" as nav with context %}
+{{ nav.tt_nav('trash', team, all_teams, can_manage) }}
+
+<div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+  <h1 class="h4 mb-0 me-auto"><i class="bi bi-trash"></i> Deleted time</h1>
+  {% if rows %}
+    <span class="text-muted small">
+      {{ rows|length }} entr{{ 'y' if rows|length == 1 else 'ies' }} ·
+      {{ total_minutes|duration }}
+    </span>
+  {% endif %}
+</div>
+
+<p class="text-muted small" style="max-width: 60rem;">
+  Time is never dropped when you remove it — it is cancelled, kept, and counted
+  nowhere. This is where it waits: restore what was a mis-click, or delete it
+  for good. Deleting here is the one irreversible step in the module.
+  {% if can_manage %}
+    You manage this team, so you see everyone's — including time imported for an
+    external agent, which belongs to no Cairn account and shows up nowhere else.
+  {% else %}
+    You see the time you logged yourself.
+  {% endif %}
+</p>
+
+{% if not rows %}
+  <p class="text-muted">Nothing deleted. </p>
+{% else %}
+<form method="post" action="{{ url_for('timetracking.trash_act') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="team" value="{{ team.pk }}">
+
+  <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+    <button class="btn btn-sm btn-outline-secondary" name="action" value="restore">
+      <i class="bi bi-arrow-counterclockwise"></i> Restore selected</button>
+    <button class="btn btn-sm btn-outline-danger" name="action" value="purge"
+            onclick="return confirm('Delete the selected entries for good? This cannot be undone.');">
+      <i class="bi bi-trash"></i> Delete selected for good</button>
+    <button class="btn btn-sm btn-danger ms-auto" name="action" value="empty"
+            onclick="return confirm('Empty the trash? All {{ rows|length }} deleted entries are removed for good.');">
+      <i class="bi bi-fire"></i> Empty trash</button>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr class="small text-muted">
+          <th style="width:1.5rem;">
+            <input type="checkbox" class="form-check-input" id="tt-select-all"
+                   title="Select all">
+          </th>
+          <th>Date</th>
+          <th>Customer / project</th>
+          <th>Who</th>
+          <th>Description</th>
+          <th class="text-end">Hours</th>
+          <th>Deleted</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in rows %}
+          <tr>
+            <td>
+              <input type="checkbox" class="form-check-input tt-pick" name="entry"
+                     value="{{ e.bucket_id }}:{{ e.entry_id }}">
+            </td>
+            <td class="small text-muted text-nowrap">{{ e.spent_on.strftime('%d.%m.%Y') }}</td>
+            <td class="small text-nowrap">{{ e.customer }} › {{ e.project }}</td>
+            <td class="small text-nowrap">
+              {% if e.user_id %}{{ e.user_name }}
+              {% else %}
+                <span class="text-warning" title="No Cairn account behind this booking">
+                  {{ e.user_name }}</span>
+              {% endif %}
+            </td>
+            <td class="small">
+              {% if e.external_ref %}
+                {% if e.external_url %}
+                  <a href="{{ e.external_url }}" target="_blank" rel="noopener"
+                     class="text-decoration-none">{{ e.external_ref|ticketref }}</a>
+                {% else %}
+                  <span class="text-muted">{{ e.external_ref|ticketref }}</span>
+                {% endif %}
+              {% endif %}
+              {{ e.note }}
+              {% if e.source_label and e.source_label != e.note %}
+                <span class="text-muted">— {{ e.source_label }}</span>
+              {% endif %}
+            </td>
+            <td class="small text-end text-nowrap">{{ e.minutes|duration }}</td>
+            <td class="small text-muted text-nowrap">
+              {% if e.cancelled_at %}{{ e.cancelled_at|localdt }}{% endif %}
+              {% if e.cancelled_by %}<div>by {{ e.cancelled_by }}</div>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

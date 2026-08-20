@@ -23,6 +23,12 @@
          href="{{ url_for('timetracking.index', team=team.pk if team else none) }}">
         <i class="bi bi-gear"></i> Customers &amp; projects</a>
     </li>
+    <li class="nav-item">
+      <a class="nav-link py-1 {{ 'active' if active == 'trash' }}"
+         href="{{ url_for('timetracking.trash', team=team.pk if team else none) }}"
+         title="Deleted time — restore it, or remove it for good">
+        <i class="bi bi-trash"></i> Trash</a>
+    </li>
     {# Manager-only: a one-off migration has no place in everyone's navigation.
        Passed in rather than derived — inside a macro ``current_user`` is
        already the resolved user, not the proxy. #}
