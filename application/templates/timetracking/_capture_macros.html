@@ -9,14 +9,29 @@
      a closed select shows only the option, and while you are booking, *which
      customer* is the half you must not get wrong. The list is already sorted
      customer-first, so it still reads grouped. #}
-  <select class="form-select form-select-sm time-add-project {{ cls }}"
-          title="Customer and billing project">
-    {% for p in projects %}
-      <option value="{{ p.id }}" {% if p.id == selected %}selected{% endif %}
-              data-mode="{{ p.mode }}"
-              data-fields="{{ p.fields|tojson|forceescape }}">{{ p.customer }} › {{ p.name }}</option>
-    {% endfor %}
-  </select>
+  {# The <select> stays the source of truth — everything else reads its value
+     and its options' field definitions. project-picker.js puts a button and a
+     type-to-find panel in front of it; without JavaScript the select is simply
+     visible and works as it always did. #}
+  <span class="tt-pick {{ cls }}">
+    <button type="button" class="btn btn-sm btn-outline-secondary tt-pick-btn"
+            aria-haspopup="listbox" aria-expanded="false"
+            title="Customer and billing project — click to search">
+      {%- for p in projects if p.id == selected -%}
+        {{ p.customer }} › {{ p.name }}
+      {%- else -%}
+        Pick a project
+      {%- endfor -%}
+    </button>
+    <select class="form-select form-select-sm time-add-project"
+            title="Customer and billing project">
+      {% for p in projects %}
+        <option value="{{ p.id }}" {% if p.id == selected %}selected{% endif %}
+                data-mode="{{ p.mode }}"
+                data-fields="{{ p.fields|tojson|forceescape }}">{{ p.customer }} › {{ p.name }}</option>
+      {% endfor %}
+    </select>
+  </span>
 {%- endmacro -%}
 
 {# Duration, or a start/end pair — the toggle swaps which one is submitted. #}

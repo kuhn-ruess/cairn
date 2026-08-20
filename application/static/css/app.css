@@ -2834,3 +2834,25 @@ body.ps-resizing * {
 .tt-project[open] > summary::before { content: "\F282"; }  /* bi-chevron-down */
 .tt-project > summary:hover { background: var(--bs-tertiary-bg); }
 
+/* Type-to-find picker for the billing project on a capture bar
+   (project-picker.js). The native <select> stays in the DOM as the form's
+   source of truth and is only hidden once the button is in place, so a page
+   without JavaScript keeps a working control. */
+.tt-pick { position: relative; display: inline-block; }
+/* The swap happens only once the script has taken over: no JavaScript, no
+   button, and the native select is left doing its job. */
+.tt-pick-btn { display: none; max-width: 20rem; overflow: hidden;
+               text-overflow: ellipsis; white-space: nowrap; }
+.tt-pick[data-ready] > select { display: none; }
+.tt-pick[data-ready] .tt-pick-btn { display: inline-block; }
+.tt-pick-menu { display: none; position: absolute; z-index: 1060; top: 100%;
+                left: 0; min-width: 22rem; max-width: 90vw; margin-top: .25rem;
+                padding: .4rem; border: 1px solid var(--gv-bg2);
+                border-radius: .375rem; background: var(--gv-bg0-soft);
+                box-shadow: 0 .5rem 1rem rgba(0, 0, 0, .35); }
+.tt-pick-open .tt-pick-menu { display: block; }
+.tt-pick-list { max-height: 16rem; overflow-y: auto; margin-top: .35rem; }
+.tt-pick-opt { display: block; width: 100%; text-align: left; border: 0;
+               background: none; color: var(--gv-fg1); font-size: .85rem;
+               padding: .3rem .45rem; border-radius: .25rem; }
+.tt-pick-opt:hover, .tt-pick-opt.active { background: var(--gv-bg2); }
