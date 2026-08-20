@@ -20,14 +20,27 @@
     <div class="col-12 col-lg-6">
       <div class="card h-100">
         <div class="card-header py-2 d-flex align-items-center">
-          <strong class="me-auto"><i class="bi bi-person-vcard"></i> {{ c.name }}</strong>
+          <strong class="me-auto">
+            <i class="bi bi-person-vcard"></i>
+            {% if c.id in live.customers %}
+              <a class="text-decoration-none"
+                 href="{{ url_for('timetracking.customer_detail', cid=c.id, team=team.pk) }}"
+                 title="Open this customer">{{ c.name }}</a>
+            {% else %}{{ c.name }}{% endif %}
+          </strong>
           <span class="text-muted small me-3">{{ c.minutes|duration }}</span>
           <span class="text-success">{{ c.amount|eur }}</span>
         </div>
         <div class="card-body py-2 small">
           {% for p in c.projects %}
             <div class="d-flex align-items-center">
-              <span class="me-auto">{{ p.name }}</span>
+              <span class="me-auto">
+                {% if p.id in live.projects %}
+                  <a class="text-decoration-none"
+                     href="{{ url_for('timetracking.project_detail', pid=p.id, team=team.pk) }}"
+                     title="Open this project">{{ p.name }}</a>
+                {% else %}{{ p.name }}{% endif %}
+              </span>
               <span class="text-muted me-3">{{ p.minutes|duration }}</span>
               <span class="text-success">{{ p.amount|eur }}</span>
             </div>
@@ -122,7 +135,17 @@
             <td class="small text-muted text-nowrap font-monospace">
               {% if e.start_time %}{{ e.start_time }}–{{ e.end_time }}{% endif %}
             </td>
-            <td class="small text-nowrap">{{ e.customer }} › {{ e.project }}</td>
+            <td class="small text-nowrap">
+              {% if e.customer_id in live.customers %}
+                <a class="text-decoration-none"
+                   href="{{ url_for('timetracking.customer_detail', cid=e.customer_id, team=team.pk) }}">{{ e.customer }}</a>
+              {% else %}{{ e.customer }}{% endif %}
+              ›
+              {% if e.project_id in live.projects %}
+                <a class="text-decoration-none"
+                   href="{{ url_for('timetracking.project_detail', pid=e.project_id, team=team.pk) }}">{{ e.project }}</a>
+              {% else %}{{ e.project }}{% endif %}
+            </td>
             <td class="small text-nowrap">{{ e.user_name }}</td>
             <td class="small">
               {% if e.status == 'cancelled' %}

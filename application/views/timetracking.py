@@ -689,10 +689,12 @@ def _grouped_report(team, f):
         grand_min += r["minutes"]
         grand_amt += r["amount_cents"] or 0
         c = customers.setdefault(r["customer"], {
-            "name": r["customer"], "minutes": 0, "amount": 0, "projects": {}})
+            "name": r["customer"], "id": r["customer_id"],
+            "minutes": 0, "amount": 0, "projects": {}})
         c["minutes"] += r["minutes"]; c["amount"] += r["amount_cents"] or 0
         p = c["projects"].setdefault(r["project_id"], {
-            "name": r["project"], "minutes": 0, "amount": 0, "users": {}})
+            "name": r["project"], "id": r["project_id"],
+            "minutes": 0, "amount": 0, "users": {}})
         p["minutes"] += r["minutes"]; p["amount"] += r["amount_cents"] or 0
         u = p["users"].setdefault(r["user_id"] or "", {
             "name": r["user_name"] or "—", "minutes": 0, "amount": 0, "entries": []})
@@ -723,13 +725,22 @@ def _grouped_report(team, f):
         ({"id": str(p.id), "label": f"{p.customer.name} › {p.name}"}
          for p in projects_list if not p.archived),
         key=lambda r: r["label"].lower())
+    # Which snapshots still have a record behind them: an entry keeps its
+    # project's name and id even after the project is gone, and a link to a
+    # deleted project is a 404 waiting to be clicked.
+    live = {
+        "customers": {str(c["_id"]) for c in Customer.objects(
+            team=team).only("id").as_pymongo()},
+        "projects": {str(p["_id"]) for p in TimeTrackingProject.objects(
+            team=team).only("id").as_pymongo()},
+    }
     return {
         "groups": out, "rows": rows,
         "grand_minutes": grand_min, "grand_amount": grand_amt,
         "hidden_count": len(hidden),
         "hidden_minutes": sum(r["minutes"] for r in hidden),
         "customers": customers_list, "projects": projects_list, "members": members,
-        "move_targets": move_targets,
+        "move_targets": move_targets, "live": live,
     }
 
 
@@ -1036,6 +1047,11 @@ def import_mite():
                 asides.append(f"{stats.entries_empty} with no time booked on them")
             if stats.entries_undated:
                 asides.append(f"{stats.entries_undated} with an unreadable date")
+            if stats.entries_updated:
+                asides.append(f"{stats.entries_updated} updated from mite")
+            if stats.entries_frozen:
+                asides.append(f"{stats.entries_frozen} changed in mite but "
+                              f"already billed here")
             if asides:
                 summary += f" ({', '.join(asides)})"
     else:

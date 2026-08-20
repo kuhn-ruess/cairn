@@ -47,7 +47,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 
 from application.models.timetracking import (
@@ -89,6 +89,8 @@ class MiteStats:
     # before — they are simply nothing to import.
     entries_empty: int = 0
     entries_undated: int = 0  # a date mite gave us that we could not read
+    entries_updated: int = 0  # changed in mite after we imported them
+    entries_frozen: int = 0   # changed in mite, but already billed here
     entries_fetched: int = 0
     users_matched: int = 0
     unmatched_users: list = field(default_factory=list)
@@ -111,6 +113,8 @@ class MiteStats:
             "entries_skipped": self.entries_skipped,
             "entries_empty": self.entries_empty,
             "entries_undated": self.entries_undated,
+            "entries_updated": self.entries_updated,
+            "entries_frozen": self.entries_frozen,
             "entries_fetched": self.entries_fetched,
             "users_matched": self.users_matched,
             "unmatched_users": list(self.unmatched_users),
@@ -205,6 +209,33 @@ class MiteClient:
             if len(rows) < PAGE_SIZE:
                 return
             page += 1
+
+
+# "(10:00 bis 12:00) Abstimmungs-Calls" — mite has no start/end fields, so the
+# times of day live in the note by convention. Cairn *does* have the fields, and
+# the customer's sheet has a column for them, so the convention is decoded on
+# the way in: accepted at the start of the note, in brackets or parens, with
+# "bis" / "to" / "until" / a dash between them, and hours written 10:00 or 10.00.
+_CLOCK_RE = re.compile(
+    r"^\s*[\(\[]\s*(\d{1,2})[:.](\d{2})\s*(?:bis|to|until|-|–|—|until)\s*"
+    r"(\d{1,2})[:.](\d{2})\s*[\)\]]\s*[-–—:]?\s*",
+    re.IGNORECASE)
+
+
+def split_clock(note: str) -> tuple[str, str, str]:
+    """``"(10:00 bis 12:00) Call"`` → ``("10:00", "12:00", "Call")``.
+
+    Returns ``("", "", note)`` when the note doesn't open with a time range —
+    which is most of them. The times are taken out of the text because Cairn
+    shows them in their own column; leaving them in would print every entry's
+    times twice, and the note is what the customer reads."""
+    m = _CLOCK_RE.match(note or "")
+    if not m:
+        return "", "", (note or "")
+    h1, m1, h2, m2 = (int(g) for g in m.groups())
+    if h1 > 23 or h2 > 23 or m1 > 59 or m2 > 59:
+        return "", "", (note or "")
+    return f"{h1:02d}:{m1:02d}", f"{h2:02d}:{m2:02d}", (note or "")[m.end():].strip()
 
 
 def _cents(value) -> int | None:
@@ -398,17 +429,58 @@ def _import_projects(client, team, customers, stats, dry_run,
     return out
 
 
-def _known_entry_ids(team) -> set:
-    """Every ``mite:*`` id already imported into this team — the dedup set.
+def _known_entries(team) -> dict:
+    """Every ``mite:*`` entry already in this team, keyed by its mite id.
 
-    One pass over the team's buckets. It is read once per import rather than
-    per entry, so a re-run of a multi-year history costs a single scan."""
-    known = set()
-    for b in TimeBucket.objects(team=team).only("entries"):
+    One pass over the team's buckets, read once per import rather than per
+    entry, so a re-run of a multi-year history costs a single scan. It carries
+    enough of each entry to answer the only question that matters on a re-run:
+    *has this changed in mite since we took it?* — which is what turns the
+    import from "skip what I have" into "keep what I have correct"."""
+    known = {}
+    for b in TimeBucket.objects(team=team).only("id", "customer", "period",
+                                                "entries"):
         for e in b.entries:
-            if e.external_id and e.external_id.startswith("mite:"):
-                known.add(e.external_id)
+            if not (e.external_id or "").startswith("mite:"):
+                continue
+            known[e.external_id] = {
+                "bucket_pk": b.pk,
+                "period": b.period,
+                "customer_id": str(b.customer.id) if b.customer else "",
+                "entry_id": e.entry_id,
+                "entry": e,
+            }
     return known
+
+
+# What mite owns on an entry it gave us. Compared field by field on a re-run;
+# anything that differs is mite's newer truth and is written back — an entry
+# corrected in mite the day after an import is otherwise silently wrong here
+# forever.
+def _entry_corrections(entry, want: dict) -> dict:
+    changes = {}
+    for field, value in want.items():
+        if getattr(entry, field, None) != value:
+            changes[f"set__entries__S__{field}"] = value
+    return changes
+
+
+def _drop_entry(hit: dict) -> None:
+    """Pull one entry out of its bucket — for an entry whose day or customer
+    changed in mite, which means it belongs in a different bucket document
+    entirely. It is written back through the normal insert path afterwards."""
+    from application.services.timetracking import _utcnow
+
+    e = hit["entry"]
+    TimeBucket.objects(pk=hit["bucket_pk"]).update_one(
+        pull__entries__entry_id=hit["entry_id"],
+        inc__entry_count=-1,
+        inc__total_minutes=-((e.minutes or 0) if e.status == "active" else 0),
+        set__updated_at=_utcnow(),
+    )
+    left = TimeBucket.objects(pk=hit["bucket_pk"]).first()
+    if left is not None and not left.entries:
+        left.delete()
 
 
 def _write_day(team, customer, period: str, entries: list) -> None:
@@ -485,9 +557,9 @@ def import_for_user(user, *, account: str, api_key: str, team,
         params["from"] = "2000-01-01"
         params["to"] = date_to.isoformat()
 
-    # Read even on a dry run: "already imported" is the single most useful
-    # thing a preview can tell you before a re-import.
-    known = _known_entry_ids(team)
+    # Read even on a dry run: what is already here, and what of it mite has
+    # changed since, is the single most useful thing a preview can tell you.
+    known = _known_entries(team)
     # Entries are grouped by their (customer, day) bucket before writing, which
     # is also mite's own sort order — so the grouping stays small in memory even
     # for a multi-year account.
@@ -504,9 +576,6 @@ def import_for_user(user, *, account: str, api_key: str, team,
     for raw in client.paginate("/time_entries.json", params):
         stats.entries_fetched += 1
         ext = f"mite:{raw.get('id')}"
-        if ext in known:
-            stats.entries_skipped += 1
-            continue
         proj = projects.get(str(raw.get("project_id")))
         if proj is None:
             # mite allows time without a project; Cairn always bills to one.
@@ -527,24 +596,74 @@ def import_for_user(user, *, account: str, api_key: str, team,
         billable = bool(raw.get("billable"))
         rate = _cents(raw.get("hourly_rate"))
         revenue = _cents(raw.get("revenue"))
-        entry = TimeEntry(
-            project_id=str(proj.id) if proj.id else "",
-            project_name=proj.name,
-            user_id=uid or None,
-            user_name=uname,
-            minutes=minutes,
-            spent_on=when,
-            note=(raw.get("note") or "")[:1000],
-            service=(raw.get("service_name") or "")[:200],
-            hourly_rate_cents=rate,
-            amount_cents=revenue if billable else None,
-            billable=billable,
-            locked=bool(raw.get("locked")),
-            external_id=ext,
-        )
-        known.add(ext)
-        stats.entries_imported += 1
-        pending.setdefault((proj.customer, when.strftime("%Y-%m-%d")), []).append(entry)
+        # mite keeps no start/end fields — by convention they are written into
+        # the note as "(10:00 bis 12:00) …". Cairn has the fields, so the
+        # convention is decoded here and the note keeps only the words.
+        start, end, note = split_clock(raw.get("note") or "")
+        period = when.strftime("%Y-%m-%d")
+        owned = {
+            "project_id": str(proj.id) if proj.id else "",
+            "project_name": proj.name,
+            "minutes": minutes,
+            "spent_on": when,
+            "note": note[:1000],
+            "service": (raw.get("service_name") or "")[:200],
+            "start_time": start or None,
+            "end_time": end or None,
+            "hourly_rate_cents": rate,
+            "amount_cents": revenue if billable else None,
+            "billable": billable,
+            "locked": bool(raw.get("locked")),
+        }
+
+        hit = known.get(ext)
+        if hit is not None:
+            stored = hit["entry"]
+            if stored.status != "active":
+                # Deleted here on purpose. mite is not allowed to undo that.
+                stats.entries_skipped += 1
+                continue
+            moved = (hit["period"] != period
+                     or hit["customer_id"] != str(proj.customer.id))
+            if not moved:
+                changes = _entry_corrections(stored, owned)
+                if not changes:
+                    stats.entries_skipped += 1
+                    continue
+                if stored.locked and owned["locked"]:
+                    # Settled on both sides — a correction after billing is a
+                    # conversation, not an import.
+                    stats.entries_frozen += 1
+                    stats.errors.append(
+                        f"entry {raw.get('id')} ({raw.get('date_at')}) changed in "
+                        f"mite but is already billed here — left untouched")
+                    continue
+                if not dry_run:
+                    TimeBucket.objects(
+                        pk=hit["bucket_pk"], entries__entry_id=hit["entry_id"],
+                    ).update_one(
+                        inc__total_minutes=minutes - (stored.minutes or 0),
+                        set__updated_at=datetime.now(timezone.utc), **changes)
+                stats.entries_updated += 1
+                continue
+            # Its day or its customer changed, so it belongs in a different
+            # bucket document: take it out here and let it be written below.
+            if stored.locked:
+                stats.entries_frozen += 1
+                stats.errors.append(
+                    f"entry {raw.get('id')} moved in mite but is already billed "
+                    f"here — left where it was")
+                continue
+            if not dry_run:
+                _drop_entry(hit)
+            stats.entries_updated += 1
+        else:
+            stats.entries_imported += 1
+
+        entry = TimeEntry(user_id=uid or None, user_name=uname,
+                          external_id=ext, **owned)
+        known.pop(ext, None)
+        pending.setdefault((proj.customer, period), []).append(entry)
         if len(pending) > 200:
             flush()
     flush()

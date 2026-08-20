@@ -138,7 +138,9 @@
     {% for p in projects %}
       <li class="list-group-item d-flex align-items-center gap-2 py-2">
         <span class="me-auto">
-          {{ p.name }}
+          <a class="text-decoration-none"
+             href="{{ url_for('timetracking.project_detail', pid=p.id, team=team.pk) }}"
+             title="Rate, budget, links, customer link">{{ p.name }}</a>
           {% if p.archived %}<span class="badge text-bg-secondary">archived</span>{% endif %}
         </span>
         <span class="small text-muted">{{ p.hourly_rate_cents|eur }}{% if p.hourly_rate_cents %} / h{% endif %}</span>

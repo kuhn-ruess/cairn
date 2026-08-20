@@ -163,9 +163,11 @@ def import_mite(username, account, key, team_id, date_from, date_to,
                f"{'' if stats.include_archived else '  (current only)'}")
     if stats.with_entries:
         click.echo(f"entries:   {stats.entries_imported} imported, "
-                   f"{stats.entries_skipped} already there, "
+                   f"{stats.entries_updated} updated, "
+                   f"{stats.entries_skipped} unchanged, "
                    f"{stats.entries_empty} with no time on them, "
                    f"{stats.entries_undated} undated, "
+                   f"{stats.entries_frozen} changed but already billed, "
                    f"{stats.entries_fetched} fetched")
     else:
         click.echo("entries:   none requested (--projects-only)")
