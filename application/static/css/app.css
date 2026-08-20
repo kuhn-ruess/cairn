@@ -2812,9 +2812,14 @@ body.ps-resizing * {
    needs rather than squeezing the others out. */
 .time-block .time-add .time-add-project,
 .time-block .time-add .tt-custom-fields { flex: 1 1 100%; }
-/* Logged entries: the note gives way before the badges and the duration. */
+/* Logged entries are two lines: the booking, then what it was about. The
+   description had been the first thing to be truncated away on one line, which
+   is the one part nobody can reconstruct later — so it gets a line of its own
+   and wraps rather than disappearing. */
 .time-list li > .text-truncate,
 .time-list li > span.text-muted.text-truncate { min-width: 0; }
+.time-list .time-row:last-child { border-bottom: 0 !important; }
+.time-list .time-row .small { overflow-wrap: anywhere; }
 
 
 /* ---- Billing project rows (time tracking → customers & projects) --------

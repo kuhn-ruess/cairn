@@ -60,29 +60,47 @@
 {# ---- Logged entries ---- #}
 <ul class="time-list list-unstyled mb-2">
   {% for e in tt.entries %}
-    <li class="d-flex align-items-center gap-2 py-1">
-      <span class="badge text-bg-light text-muted">{{ e.spent_on|date }}</span>
-      <strong>{{ e.minutes|duration }}</strong>
-      {% if e.start_time %}<span class="small text-muted font-monospace">{{ e.start_time }}–{{ e.end_time }}</span>{% endif %}
-      {% for c in e.custom %}<span class="badge text-bg-light text-muted" title="{{ c.label }}">{{ c.value }}</span>{% endfor %}
-      {% if not e.billable %}<span class="badge text-bg-secondary" title="Non-billable">n/b</span>{% endif %}
-      {% if e.external_ref %}
-        {% if e.external_url %}
-          <a href="{{ e.external_url }}" target="_blank" rel="noopener"
-             class="small text-decoration-none" title="Open the ticket">{{ e.external_ref|ticketref }}</a>
-        {% else %}<span class="small text-muted">{{ e.external_ref|ticketref }}</span>{% endif %}
-      {% endif %}
-      {% if e.note %}<span class="text-muted text-truncate" title="{{ e.note }}">{{ e.note }}</span>{% endif %}
-      {% if e.customer %}<span class="small text-muted">· {{ e.customer }} › {{ e.project_name }}</span>{% endif %}
-      {% if e.user_name %}<span class="small text-muted">· {{ e.user_name }}</span>{% endif %}
-      {% if e.locked %}
-        <span class="ms-auto text-muted small" title="Billed — locked"><i class="bi bi-lock"></i></span>
-      {% else %}
-        <button type="button" class="btn btn-link btn-sm p-0 text-muted ms-auto time-delete"
-                data-action="{{ url_for('timetracking.entry_cancel', bucket_id=e.bucket_id, entry_id=e.entry_id) }}"
-                data-confirm="Remove {{ e.minutes|duration }} on {{ e.spent_on|date }}{% if e.note %} — {{ e.note|truncate(60) }}{% endif %}?"
-                title="Cancel entry"><i class="bi bi-x-lg"></i></button>
-      {% endif %}
+    {# Two lines, deliberately: the first is the booking (when, how long, who,
+       what kind), the second is what it was about. Squeezed onto one line the
+       description was the first thing to be truncated away, which is the one
+       part nobody can reconstruct later. #}
+    <li class="time-row py-2 border-bottom">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <strong>{{ e.minutes|duration }}</strong>
+        <span class="text-muted small">{{ e.spent_on|date }}</span>
+        {% if e.start_time %}
+          <span class="small text-muted font-monospace">{{ e.start_time }}–{{ e.end_time }}</span>
+        {% endif %}
+        {% if e.user_name %}<span class="small text-muted">· {{ e.user_name }}</span>{% endif %}
+        {% if not e.billable %}
+          <span class="badge text-bg-secondary" title="Non-billable">n/b</span>
+        {% endif %}
+        {% for c in e.custom %}
+          <span class="badge text-bg-light text-muted" title="{{ c.label }}">
+            {{ c.label }}: {{ c.value }}</span>
+        {% endfor %}
+        {% if e.locked %}
+          <span class="ms-auto text-muted small" title="Billed — locked">
+            <i class="bi bi-lock"></i></span>
+        {% else %}
+          <button type="button" class="btn btn-link btn-sm p-0 text-muted ms-auto time-delete"
+                  data-action="{{ url_for('timetracking.entry_cancel', bucket_id=e.bucket_id, entry_id=e.entry_id) }}"
+                  data-confirm="Remove {{ e.minutes|duration }} on {{ e.spent_on|date }}{% if e.note %} — {{ e.note|truncate(60) }}{% endif %}?"
+                  title="Cancel entry"><i class="bi bi-x-lg"></i></button>
+        {% endif %}
+      </div>
+      <div class="small text-muted mt-1">
+        {% if e.external_ref %}
+          {% if e.external_url %}
+            <a href="{{ e.external_url }}" target="_blank" rel="noopener"
+               class="text-decoration-none" title="Open the ticket">{{ e.external_ref|ticketref }}</a>
+          {% else %}{{ e.external_ref|ticketref }}{% endif %}
+        {% endif %}
+        {% if e.note %}{{ e.note }}{% elif not e.external_ref %}<em>no description</em>{% endif %}
+        {% if e.customer %}
+          <span class="ms-1">· {{ e.customer }} › {{ e.project_name }}</span>
+        {% endif %}
+      </div>
     </li>
   {% else %}
     <li class="text-muted small">No time logged yet.</li>
