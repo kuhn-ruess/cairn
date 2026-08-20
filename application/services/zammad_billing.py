@@ -209,9 +209,8 @@ def assign_agent(team, zammad_id, cairn_user, source: str = "zammad"
     """Point a Zammad agent at a Cairn account (or clear it), and fix history.
 
     Returns ``(agent, entries_reattributed)``. The point of the mapping is the
-    time already booked under the bare Zammad name, so the assignment reaches
-    back: every entry carrying this agent's ``external_user`` is re-attributed,
-    except billed (locked) ones — those are frozen, including their name."""
+    time already booked under the bare name from the source system, so the
+    assignment reaches back over everything they have booked."""
     agent = team.zammad_agent(zammad_id, source) if team else None
     if agent is None:
         return None, 0
@@ -225,12 +224,20 @@ def reattribute(team, agent) -> int:
     """Re-stamp the team's entries booked by ``agent`` with their Cairn name.
 
     Indexed on ``entries.external_user``, so this touches only buckets that
-    actually hold this agent's time — plus, as a second pass, the imported
-    entries that pre-date that field and can only be recognised by the Zammad
-    name they were booked under. That pass is deliberately narrow: Zammad
-    imports (``external_id``), still unattributed (no ``user_id``), and an
-    exact name match."""
+    actually hold this person's time — plus, as a second pass, the entries
+    imported before that field existed, which can only be recognised by the
+    name they were booked under. That pass is deliberately narrow: an import
+    from *this* person's source system, still unattributed, and an exact name
+    match.
+
+    **Billed entries are re-attributed too**, which is the one thing the freeze
+    deliberately does not cover. A lock protects what the work cost and what it
+    says about itself; whose hours they are is neither. Imported history arrives
+    already billed — everything mite ever settled comes across ``locked`` — so
+    refusing here would have meant the mapping silently reached almost nothing,
+    which is exactly how this was found."""
     who = actor_for(agent)
+    src = f"{agent.source or 'zammad'}:"
     fixed = 0
     buckets = list(TimeBucket.objects(team=team, entries__external_user=agent.key))
     seen_ids = {b.pk for b in buckets}
@@ -245,16 +252,15 @@ def reattribute(team, agent) -> int:
                 not entry.external_user
                 and not entry.user_id
                 and entry.user_name == agent.label
-                and (entry.external_id or "").startswith("zammad:")
+                and (entry.external_id or "").startswith(src)
             )
-            if not owned or entry.locked:
+            if not owned:
                 continue
             if (entry.user_id or None) == who["user_id"] and \
                     entry.user_name == who["user_name"]:
                 continue
             res = TimeBucket.objects(
-                pk=bucket.pk, entries__entry_id=entry.entry_id,
-                entries__locked=False,
+                pk=bucket.pk, entries__match={"entry_id": entry.entry_id},
             ).update_one(
                 set__entries__S__user_id=who["user_id"],
                 set__entries__S__user_name=who["user_name"],
@@ -283,11 +289,10 @@ def attribute_name(team, name: str, cairn_user) -> int:
     fixed = 0
     for bucket in TimeBucket.objects(team=team, entries__user_name=name):
         for entry in bucket.entries:
-            if entry.user_id or entry.user_name != name or entry.locked:
+            if entry.user_id or entry.user_name != name:
                 continue
             res = TimeBucket.objects(
-                pk=bucket.pk,
-                entries__match={"entry_id": entry.entry_id, "locked": {"$ne": True}},
+                pk=bucket.pk, entries__match={"entry_id": entry.entry_id},
             ).update_one(
                 set__entries__S__user_id=who["user_id"],
                 set__entries__S__user_name=who["user_name"],

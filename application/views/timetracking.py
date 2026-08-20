@@ -910,12 +910,15 @@ def people_assign():
         if target is None:
             flash("Pick a Cairn account — a name on its own can only be "
                   "assigned, not un-assigned.", "warning")
-        else:
+        elif fixed:
             flash(f"“{name}” → {target.display_name or target.username}: "
-                  f"{fixed} entr{'y' if fixed == 1 else 'ies'} re-filed."
-                  + (" Anything imported later under that name lands correctly "
-                     "only if the importer can match it — check the source "
-                     "system's email address." if fixed else ""), "success")
+                  f"{fixed} entr{'y' if fixed == 1 else 'ies'} re-filed. "
+                  f"Time imported later under that name lands correctly only if "
+                  f"the importer can match it — check the address it uses.",
+                  "success")
+        else:
+            flash(f"Nothing to re-file for “{name}” — its entries already "
+                  f"belong to an account.", "info")
         return redirect(url_for("timetracking.people", team=team.pk))
 
     source, _, ident = key.partition(":user:")
@@ -937,7 +940,8 @@ def people_assign():
     else:
         flash(f"“{agent.label}” → {target.display_name or target.username}"
               + (f" — {fixed} existing entr{'y' if fixed == 1 else 'ies'} "
-                 f"re-attributed." if fixed else "")
+                 f"re-attributed." if fixed
+                 else " — no existing entry needed changing.")
               + " Future imports follow this mapping.", "success")
     return redirect(url_for("timetracking.people", team=team.pk))
 
