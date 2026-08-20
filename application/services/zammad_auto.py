@@ -32,7 +32,10 @@ def due_user_ids(interval_min: int, *, force: bool = False,
     last sync is older than ``interval_min`` (``force`` ignores recency).
     """
     cutoff = _utcnow() - timedelta(minutes=max(interval_min, 0))
-    q = User.objects(zammad_url__nin=[None, ""], zammad_token__nin=[None, ""])
+    # ``zammad_enabled`` off means the user has handed their sync over (to the
+    # team's, usually) — a background run must not quietly keep going.
+    q = User.objects(zammad_url__nin=[None, ""], zammad_token__nin=[None, ""],
+                     zammad_enabled__ne=False)
     if not all_configured:
         q = q.filter(zammad_auto_sync=True)
     out: list[str] = []

@@ -8,8 +8,32 @@
   parent project, tags, or comments are preserved.
 </p>
 
+{% if team_syncs %}
+  <div class="alert alert-info py-2 small" style="max-width: 720px;">
+    <i class="bi bi-people"></i>
+    <strong>{{ team.name }} syncs Zammad centrally.</strong>
+    Your tickets are fetched by the team's connection and filed in your target
+    project — you don't need a sync of your own, and two of them fetch the same
+    tickets twice. Switch yours off below.
+    {% if can_map %}
+      <a href="{{ url_for('teams.zammad') }}">Team settings</a>
+    {% endif %}
+  </div>
+{% endif %}
+
 <form method="post" style="max-width: 720px;">
   {{ form.csrf_token }}
+
+  {# The master switch, first: everything under it only matters while it is on. #}
+  <div class="form-check mb-3">
+    {{ form.enabled(class="form-check-input") }}
+    {{ form.enabled.label(class="form-check-label fw-semibold") }}
+    <div class="form-text small">
+      Off means no background run, no sync button in the toolbar, and the
+      Import button below declines — one switch instead of unpicking every
+      option. Your settings and your token stay as they are.
+    </div>
+  </div>
 
   <div class="mb-3">
     {{ form.url.label(class="form-label") }}

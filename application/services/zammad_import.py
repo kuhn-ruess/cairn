@@ -80,9 +80,10 @@ class ZammadStats:
     # Closed tickets pulled in anyway, because time is booked on them.
     closed_with_time: int = 0
     # Team runs: tickets whose Zammad owner has no Cairn account (filed under
-    # the team's admin), and tickets that changed hands since the last sync.
+    # the team's admin), and tickets already imported by someone whose account
+    # isn't the ticket's Zammad owner — left where they are, on purpose.
     tickets_unowned: int = 0
-    tickets_reowned: int = 0
+    tickets_foreign_owner: int = 0
     time_task_links_cleared: int = 0  # per-task billing links an earlier sync wrote
     # Zammad user id → actor snapshot, cached for the run (not reported).
     actor_cache: dict = field(default_factory=dict)
@@ -130,7 +131,7 @@ class ZammadStats:
             "tickets_unchanged": self.tickets_unchanged,
             "closed_with_time": self.closed_with_time,
             "tickets_unowned": self.tickets_unowned,
-            "tickets_reowned": self.tickets_reowned,
+            "tickets_foreign_owner": self.tickets_foreign_owner,
             "time_task_links_cleared": self.time_task_links_cleared,
             "me_id": self.me_id,
             "fetched_via": self.fetched_via,

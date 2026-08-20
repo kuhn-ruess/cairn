@@ -345,7 +345,7 @@ def zammad():
     from application.services.crypto import decrypt_for, encrypt_for  # noqa: F401
     from application.services.permissions import team_members
     from application.services.zammad_import import ZammadError
-    from application.services.zammad_team import sync_team
+    from application.services.zammad_team import purge_team_import, sync_team
 
     user = current_user._get_current_object()
     team = _select_team(user)
@@ -354,7 +354,7 @@ def zammad():
     if not team.is_managed_by(user):
         abort(403)
 
-    stats = None
+    stats = purge = None
     if request.method == "POST":
         action = request.form.get("action")
         url = (request.form.get("url") or "").strip()
@@ -369,7 +369,28 @@ def zammad():
         team.zammad_include_closed = request.form.get("include_closed") == "1"
         team.zammad_time_from = _valid_day(request.form.get("time_from"))
         team.save()
-        if action == "sync":
+        if action in ("preview-purge", "purge"):
+            # The way back, in two steps: see what would go, then type the
+            # team's name to mean it.
+            what = {"tasks": request.form.get("purge_tasks") == "1",
+                    "time": request.form.get("purge_time") == "1"}
+            if not any(what.values()):
+                flash("Pick what to remove.", "warning")
+            elif action == "preview-purge":
+                purge = purge_team_import(team, dry_run=True, **what)
+            elif (request.form.get("confirm") or "").strip() != team.name:
+                flash(f"Type the team name exactly (“{team.name}”) to remove "
+                      f"the imported data — nothing was deleted.", "warning")
+            else:
+                purge = purge_team_import(team, dry_run=False, **what)
+                flash(f"Removed {purge['tasks']} imported task(s), "
+                      f"{purge['entries']} time entr"
+                      f"{'y' if purge['entries'] == 1 else 'ies'}, "
+                      f"{purge['projects']} project(s) and "
+                      f"{purge['customers']} customer(s). Import again when "
+                      f"you're ready.", "success")
+                purge = None
+        elif action == "sync":
             try:
                 stats = sync_team(team, full=request.form.get("full") == "1",
                                   dry_run=request.form.get("dry_run") == "1")
@@ -395,8 +416,8 @@ def zammad():
                      "target": target.title if target else ""})
     return render_template(
         "teams/zammad.html", team=team, all_teams=_user_teams(user),
-        stats=stats, members=rows, has_token=bool(team.zammad_token),
-        can_manage=True)
+        stats=stats, purge=purge, members=rows,
+        has_token=bool(team.zammad_token), can_manage=True)
 
 
 def _valid_day(raw) -> str:

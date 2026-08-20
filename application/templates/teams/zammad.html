@@ -126,8 +126,8 @@
           </li>
           <li>Tasks created: <strong>{{ stats.tickets_created }}</strong>,
             updated: {{ stats.tickets_updated }}
-            {%- if stats.tickets_reowned %}, moved to their new owner:
-              {{ stats.tickets_reowned }}{% endif %}
+            {%- if stats.tickets_foreign_owner %}, left with their current
+              owner: {{ stats.tickets_foreign_owner }}{% endif %}
             {%- if stats.tickets_dropped %}, closed as gone:
               {{ stats.tickets_dropped }}{% endif %}</li>
           {% if stats.tickets_unowned %}
@@ -200,6 +200,58 @@
     switch their personal auto-sync off once this one is on, or the same tickets
     are fetched twice.
   </p>
+  {# ---- The way back ---------------------------------------------------- #}
+  <div class="card border-danger my-4">
+    <div class="card-header py-2">
+      <strong class="small text-danger">
+        <i class="bi bi-arrow-counterclockwise"></i> Remove what was imported</strong>
+      <span class="text-muted small">— to start the import over</span>
+    </div>
+    <div class="card-body">
+      <p class="form-text small mt-0">
+        Switching a live team over is exactly when you want a way back. This
+        removes only what carries a Zammad identity: tasks imported from Zammad
+        (wherever they now sit, private projects included), time entries stamped
+        <code>zammad:…</code>, and the customers and billing projects the import
+        created — the last two only while nothing else is booked on them, because
+        a customer that has collected hand-logged hours is a customer, not an
+        artefact. Anything anyone typed here stays.
+      </p>
+      <form method="post" class="d-flex gap-2 align-items-center flex-wrap">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="team" value="{{ team.pk }}">
+        <label class="form-check small m-0">
+          <input type="checkbox" name="purge_tasks" value="1" class="form-check-input" checked>
+          imported tasks
+        </label>
+        <label class="form-check small m-0">
+          <input type="checkbox" name="purge_time" value="1" class="form-check-input" checked>
+          imported time
+        </label>
+        <button class="btn btn-sm btn-outline-secondary" name="action" value="preview-purge">
+          Show me what would go</button>
+        <input type="text" name="confirm" class="form-control form-control-sm"
+               style="max-width: 16rem;" autocomplete="off"
+               placeholder="Type “{{ team.name }}” to confirm">
+        <button class="btn btn-sm btn-outline-danger" name="action" value="purge"
+                onclick="return confirm('Remove everything imported from Zammad? This cannot be undone.');">
+          Remove</button>
+      </form>
+      {% if purge %}
+        <div class="alert alert-warning py-2 small mt-3 mb-0">
+          Would remove: <strong>{{ purge.tasks }}</strong> task(s),
+          <strong>{{ purge.entries }}</strong> time entr{{ 'y' if purge.entries == 1 else 'ies' }},
+          <strong>{{ purge.projects }}</strong> billing project(s) and
+          <strong>{{ purge.customers }}</strong> customer(s).
+          {% if purge.kept_projects %}
+            {{ purge.kept_projects }} project(s) stay — other time is booked on them.
+          {% endif %}
+          Nothing has been deleted yet.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
   <a class="btn btn-sm btn-outline-secondary"
      href="{{ url_for('teams.index') }}">Back to {{ team.name }}</a>
 </div>

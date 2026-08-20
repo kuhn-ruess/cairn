@@ -65,7 +65,7 @@
           {% include "layout/_icon_todoist.svg" %}
         </button>
       {% endif %}
-      {% if current_user.show_zammad_sync and current_user.zammad_token and current_user.zammad_url %}
+      {% if current_user.zammad_enabled and current_user.show_zammad_sync and current_user.zammad_token and current_user.zammad_url %}
         <button type="button" class="toolbar-icon brand-zammad" id="navbar-zammad-sync"
                 title="Sync from Zammad now">
           {% include "layout/_icon_zammad.svg" %}

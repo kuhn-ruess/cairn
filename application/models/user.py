@@ -129,6 +129,11 @@ class User(UserMixin, Document):
     # The import options below mirror the user's last manual sync choices so
     # the background run drops tickets in the same place. zammad_sync_project
     # holds a project id ("" = inbox).
+    # The master switch for *this user's own* Zammad sync. Off means: no
+    # background run, no sync button, and the manual import declines — the one
+    # place to say "my team syncs centrally, stop fetching the same tickets
+    # twice" without unpicking every option below it.
+    zammad_enabled = BooleanField(default=True)
     zammad_auto_sync = BooleanField(default=False)
     zammad_sync_project = StringField(default="")
     zammad_assignee_only = BooleanField(default=True)

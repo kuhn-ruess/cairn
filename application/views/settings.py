@@ -62,6 +62,7 @@ class TodoistImportForm(FlaskForm):
 
 
 class ZammadImportForm(FlaskForm):
+    enabled = BooleanField("Sync Zammad for my own account", default=True)
     url = StringField(
         "Zammad URL",
         validators=[Optional(), URL()],
@@ -625,6 +626,7 @@ def zammad():
 
     stats = None
     if request.method == "GET":
+        form.enabled.data = bool(user.zammad_enabled)
         form.url.data = user.zammad_url or ""
         form.save_credentials.data = bool(user.zammad_url and user.zammad_token)
         form.show_sync_button.data = bool(user.show_zammad_sync)
@@ -638,6 +640,7 @@ def zammad():
 
     def _persist_options():
         """The sync options, saved wherever this form was submitted from."""
+        user.zammad_enabled = bool(form.enabled.data)
         user.show_zammad_sync = bool(form.show_sync_button.data)
         # Persist the import options so the background auto-sync replays
         # the same choices (project, scope) the user picked here.
@@ -663,6 +666,14 @@ def zammad():
                 user.zammad_token = encrypt_for_user(user, token)
             _persist_options()
             flash("Settings saved.", "success")
+            return redirect(url_for("settings.zammad"))
+        if not form.enabled.data:
+            # Saying "don't sync for me" and then pressing Import is a
+            # contradiction; the switch wins, and says so.
+            _persist_options()
+            flash("Your own Zammad sync is switched off — nothing was fetched. "
+                  "Turn it back on above if you want to import yourself.",
+                  "warning")
             return redirect(url_for("settings.zammad"))
         if not url or not token:
             flash("Please supply both a Zammad URL and an API token.", "danger")
@@ -734,9 +745,14 @@ def _zammad_agent_context(user) -> dict:
 
     team = default_team(user)
     if team is None:
-        return {"team": None, "agents": [], "members": [], "can_map": False}
+        return {"team": None, "agents": [], "members": [], "can_map": False,
+                "team_syncs": False}
     return {
         "team": team,
+        # Whether this team fetches Zammad centrally — if it does, a personal
+        # sync fetches the same tickets a second time, and the page should say
+        # so rather than let two runs quietly race.
+        "team_syncs": bool(team.zammad_url and team.zammad_token),
         "agents": agent_rows(team),
         "members": sorted(team_members(team),
                           key=lambda m: (m.display_name or m.username or "").lower()),
@@ -786,6 +802,12 @@ def sync_zammad():
     """One-shot Zammad sync triggered by the navbar Sync icon."""
     from application.services.crypto import decrypt_for_user
     user = current_user._get_current_object()
+    if not user.zammad_enabled:
+        return (
+            jsonify({"error": "Your own Zammad sync is switched off "
+                              "(Settings → Import from Zammad)."}),
+            400,
+        )
     if not user.zammad_url or not user.zammad_token:
         return (
             jsonify({"error": "Zammad isn't configured yet — set URL + token in Settings."}),
