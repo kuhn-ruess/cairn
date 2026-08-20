@@ -141,7 +141,7 @@ def _match_user(team, *, email: str, login: str, name: str):
 
 
 def record_agent(team, *, zammad_id, email: str = "", login: str = "",
-                 name: str = "") -> ZammadAgent | None:
+                 name: str = "", source: str = "zammad") -> ZammadAgent | None:
     """Upsert one Zammad agent into the team's roster and return it.
 
     Called once per agent per sync (the caller caches), and only writes when
@@ -151,10 +151,10 @@ def record_agent(team, *, zammad_id, email: str = "", login: str = "",
     if not team or not zammad_id:
         return None
     zid = str(zammad_id)
-    agent = team.zammad_agent(zid)
+    agent = team.zammad_agent(zid, source)
     dirty = False
     if agent is None:
-        agent = ZammadAgent(zammad_id=zid)
+        agent = ZammadAgent(zammad_id=zid, source=source)
         team.zammad_agents.append(agent)
         dirty = True
     for field, value in (("email", (email or "").strip()),
@@ -204,14 +204,15 @@ def actor_for(agent, fallback_user=None) -> dict:
             "external_user": agent.key}
 
 
-def assign_agent(team, zammad_id, cairn_user) -> tuple[ZammadAgent | None, int]:
+def assign_agent(team, zammad_id, cairn_user, source: str = "zammad"
+                 ) -> tuple[ZammadAgent | None, int]:
     """Point a Zammad agent at a Cairn account (or clear it), and fix history.
 
     Returns ``(agent, entries_reattributed)``. The point of the mapping is the
     time already booked under the bare Zammad name, so the assignment reaches
     back: every entry carrying this agent's ``external_user`` is re-attributed,
     except billed (locked) ones — those are frozen, including their name."""
-    agent = team.zammad_agent(zammad_id) if team else None
+    agent = team.zammad_agent(zammad_id, source) if team else None
     if agent is None:
         return None, 0
     agent.user = cairn_user or None
@@ -265,6 +266,38 @@ def reattribute(team, agent) -> int:
     return fixed
 
 
+def attribute_name(team, name: str, cairn_user) -> int:
+    """Re-file every unattributed entry booked under ``name``.
+
+    The escape hatch for time whose author was never identified at all — an
+    import that ran before anyone was matched, or a booking made under a bare
+    name. Matched by exactly that name and only among entries with no Cairn
+    account, so it can never take someone else's hours; billed entries stay
+    frozen."""
+    from application.services.timetracking import _utcnow
+
+    if not name or cairn_user is None:
+        return 0
+    who = {"user_id": str(cairn_user.id),
+           "user_name": (cairn_user.display_name or cairn_user.username or name)}
+    fixed = 0
+    for bucket in TimeBucket.objects(team=team, entries__user_name=name):
+        for entry in bucket.entries:
+            if entry.user_id or entry.user_name != name or entry.locked:
+                continue
+            res = TimeBucket.objects(
+                pk=bucket.pk,
+                entries__match={"entry_id": entry.entry_id, "locked": {"$ne": True}},
+            ).update_one(
+                set__entries__S__user_id=who["user_id"],
+                set__entries__S__user_name=who["user_name"],
+                set__updated_at=_utcnow(),
+            )
+            if res:
+                fixed += 1
+    return fixed
+
+
 def agent_rows(team) -> list[dict]:
     """The roster as the settings page shows it — matched first, newest last.
 
@@ -290,6 +323,7 @@ def agent_rows(team) -> list[dict]:
         uid = str(a["user"]) if a.get("user") else ""
         rows.append({
             "zammad_id": a.get("zammad_id", ""),
+            "source": a.get("source") or "zammad",
             "label": (a.get("name") or a.get("login") or a.get("email")
                       or f"#{a.get('zammad_id', '')}"),
             "email": a.get("email") or "",

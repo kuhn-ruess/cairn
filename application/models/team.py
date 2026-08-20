@@ -59,7 +59,11 @@ class TeamInvite(EmbeddedDocument):
 
 
 class ZammadAgent(EmbeddedDocument):
-    """One Zammad agent the time import has seen, and who they are in Cairn.
+    """One person an import has seen booking time, and who they are in Cairn.
+
+    (The field it lives in is still called ``zammad_agents``: it started with
+    Zammad, and renaming a field under a live database costs more than the
+    tidier name is worth. ``source`` says which system a row came from.)
 
     The roster lives on the *team*, not on the syncing user: a booking made by
     a colleague must be attributed the same way no matter whose sync picks it
@@ -74,7 +78,10 @@ class ZammadAgent(EmbeddedDocument):
     assignment is never overwritten by the automatic matcher on the next sync.
     """
 
+    # The id in the system this person comes from, and which system that is.
+    # Together they form ``key`` — the value stamped on imported entries.
     zammad_id = StringField(required=True, max_length=32)
+    source = StringField(default="zammad", max_length=16)
     login = StringField(max_length=255)
     email = StringField(max_length=255)
     name = StringField(max_length=255)
@@ -84,8 +91,8 @@ class ZammadAgent(EmbeddedDocument):
 
     @property
     def key(self) -> str:
-        """The value stamped on imported entries — ``zammad:user:<id>``."""
-        return f"zammad:user:{self.zammad_id}"
+        """The value stamped on imported entries — ``<source>:user:<id>``."""
+        return f"{self.source or 'zammad'}:user:{self.zammad_id}"
 
     @property
     def label(self) -> str:
@@ -119,12 +126,19 @@ class Team(Document):
     # ZammadAgent.
     zammad_agents = EmbeddedDocumentListField(ZammadAgent)
 
-    def zammad_agent(self, zammad_id):
+    def zammad_agent(self, zammad_id, source: str = "zammad"):
         zid = str(zammad_id or "")
         if not zid:
             return None
         for a in self.zammad_agents or []:
-            if a.zammad_id == zid:
+            if a.zammad_id == zid and (a.source or "zammad") == source:
+                return a
+        return None
+
+    def person_by_key(self, key: str):
+        """Roster entry for a stamped ``<source>:user:<id>``, if we know it."""
+        for a in self.zammad_agents or []:
+            if a.key == key:
                 return a
         return None
 

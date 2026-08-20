@@ -840,6 +840,108 @@ def _grouped_report(team, f):
     }
 
 
+@timetracking_bp.route("/people")
+@login_required
+@team_required
+def people():
+    """Who booked this team's time, and who that is in Cairn.
+
+    Imported hours arrive with the author the source system knew — a mite user,
+    a Zammad agent — and matching them is guesswork until someone says
+    otherwise. Unmatched, their time shows a bare name: it is in the team report
+    but in nobody's day sheet, and the report's user filter can only find it by
+    that name. This is where that gets decided, once, for everything they have
+    booked and everything they will."""
+    from application.services.permissions import team_members
+    from application.services.timetracking import people_in_time
+    from application.services.zammad_billing import agent_rows
+
+    team = _team()
+    user = current_user._get_current_object()
+    rows = people_in_time(team)
+    # The roster holds people an importer met but who may have no time here yet
+    # (or whose time is already attributed) — show them too, so a mapping can be
+    # made or corrected before the next import rather than after.
+    seen = {r["external_user"] for r in rows if r["external_user"]}
+    extra = [{"key": a["zammad_id"] and f"{a['source']}:user:{a['zammad_id']}",
+              "external_user": f"{a['source']}:user:{a['zammad_id']}",
+              "name": a["label"], "user_id": a["user_id"], "entries": 0,
+              "minutes": 0, "locked": 0, "source": a["source"],
+              "first": None, "last": None}
+             for a in agent_rows(team)
+             if f"{a['source']}:user:{a['zammad_id']}" not in seen]
+    return render_template(
+        "timetracking/people.html", team=team, all_teams=_user_teams(user),
+        can_manage=team.is_managed_by(user), rows=rows + extra,
+        members=sorted(team_members(team),
+                       key=lambda m: (m.display_name or m.username or "").lower()))
+
+
+@timetracking_bp.route("/people/assign", methods=["POST"])
+@login_required
+@team_required
+def people_assign():
+    """Point one imported author at a Cairn account — and re-file their time.
+
+    Manager-only: attribution decides whose hours land on an invoice."""
+    from application.models.user import User as UserDoc
+    from application.services.permissions import team_members
+    from application.services.zammad_billing import (
+        assign_agent, attribute_name, record_agent)
+
+    team = _team()
+    user = current_user._get_current_object()
+    if not team.is_managed_by(user):
+        abort(403)
+    key = (request.form.get("key") or "").strip()
+    target_id = (request.form.get("user_id") or "").strip()
+    target = None
+    if target_id:
+        target = UserDoc.objects(pk=target_id).first()
+        if target is None or not any(str(m.pk) == target_id
+                                     for m in team_members(team)):
+            flash("That account isn't a member of this team.", "danger")
+            return redirect(url_for("timetracking.people", team=team.pk))
+
+    if key.startswith("name:"):
+        # No source identity to remember — only the name the time carries.
+        name = key[5:]
+        fixed = attribute_name(team, name, target) if target else 0
+        if target is None:
+            flash("Pick a Cairn account — a name on its own can only be "
+                  "assigned, not un-assigned.", "warning")
+        else:
+            flash(f"“{name}” → {target.display_name or target.username}: "
+                  f"{fixed} entr{'y' if fixed == 1 else 'ies'} re-filed."
+                  + (" Anything imported later under that name lands correctly "
+                     "only if the importer can match it — check the source "
+                     "system's email address." if fixed else ""), "success")
+        return redirect(url_for("timetracking.people", team=team.pk))
+
+    source, _, ident = key.partition(":user:")
+    source = source or "zammad"
+    # The page lists people found in the *entries*, which may include someone no
+    # importer ever wrote to the roster (an import that predates it). Recording
+    # them here is what makes the mapping outlast this one fix-up and reach the
+    # next import.
+    if team.zammad_agent(ident, source) is None:
+        record_agent(team, zammad_id=ident, source=source,
+                     name=(request.form.get("name") or "").strip())
+    agent, fixed = assign_agent(team, ident, target, source)
+    if agent is None:
+        flash("Unknown person.", "warning")
+    elif target is None:
+        flash(f"“{agent.label}” is no longer mapped to a Cairn account"
+              + (f" — {fixed} entr{'y' if fixed == 1 else 'ies'} re-filed under "
+                 f"their {source} name." if fixed else "."), "info")
+    else:
+        flash(f"“{agent.label}” → {target.display_name or target.username}"
+              + (f" — {fixed} existing entr{'y' if fixed == 1 else 'ies'} "
+                 f"re-attributed." if fixed else "")
+              + " Future imports follow this mapping.", "success")
+    return redirect(url_for("timetracking.people", team=team.pk))
+
+
 @timetracking_bp.route("/trash")
 @login_required
 @team_required

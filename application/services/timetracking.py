@@ -798,6 +798,46 @@ def set_custom_value(*, team, pairs, key: str, label: str, value: str,
     return out
 
 
+def people_in_time(team) -> list[dict]:
+    """Everyone who appears as the author of this team's time, matched or not.
+
+    Built from the entries themselves rather than from the roster, because the
+    roster only knows people an *importer* met: time can also carry a bare name
+    from an import that ran before anyone was matched. Each row is one identity
+    — a source key when the entry has one, otherwise the name it was booked
+    under — with what it holds and whether a Cairn account is behind it.
+
+    One pass over the team's buckets, which is the same cost as the report."""
+    rows: dict = {}
+    for b in TimeBucket.objects(team=team).only("entries"):
+        for e in b.entries:
+            if e.status != "active":
+                continue
+            key = e.external_user or f"name:{e.user_name or '—'}"
+            row = rows.setdefault(key, {
+                "key": key,
+                "external_user": e.external_user or "",
+                "name": e.user_name or "—",
+                "user_id": e.user_id or "",
+                "entries": 0, "minutes": 0, "locked": 0,
+                "source": (e.external_id or "").split(":")[0] if e.external_id else "",
+                "first": None, "last": None,
+            })
+            row["entries"] += 1
+            row["minutes"] += e.minutes or 0
+            if e.locked:
+                row["locked"] += 1
+            # A single identity can hold a mix if it was mapped halfway through;
+            # "has an account" is true only when every entry of it does.
+            if not e.user_id:
+                row["user_id"] = ""
+            day = local_date(e.spent_on)
+            row["first"] = min(row["first"] or day, day)
+            row["last"] = max(row["last"] or day, day)
+    out = sorted(rows.values(), key=lambda r: (bool(r["user_id"]), -r["minutes"]))
+    return out
+
+
 def cancelled_entries(*, team, viewer) -> list[dict]:
     """The team's deleted time, newest first — the trash view's contents.
 

@@ -1,0 +1,113 @@
+{% extends "layout/base.html" %}
+{% block title %}Who booked the time · Cairn{% endblock %}
+{% block content %}
+{% import "timetracking/_nav.html" as nav with context %}
+{{ nav.tt_nav('people', team, all_teams, can_manage) }}
+
+<div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+  <h1 class="h4 mb-0 me-auto"><i class="bi bi-people"></i> Who booked the time</h1>
+</div>
+
+<p class="text-muted small" style="max-width: 60rem;">
+  Imported hours arrive with the author the source system knew — a mite user, a
+  Zammad agent — and matching them to an account here is guesswork until someone
+  says otherwise. Unmatched, their time keeps a bare name: it counts in the team
+  report, but it appears in nobody's day sheet and the report can only find it by
+  that name. Assign them once and it is settled — for the hours they have already
+  booked and for every import after this.
+</p>
+
+{% set unmatched = rows | rejectattr('user_id') | list %}
+{% if unmatched %}
+  <div class="alert alert-warning py-2 small" style="max-width: 60rem;">
+    <i class="bi bi-exclamation-triangle"></i>
+    {{ unmatched|length }} of them have no Cairn account.
+  </div>
+{% endif %}
+
+{% if not rows %}
+  <p class="text-muted">No time booked in this team yet.</p>
+{% else %}
+  <div class="table-responsive" style="max-width: 72rem;">
+    <table class="table table-sm align-middle">
+      <thead>
+        <tr class="small text-muted">
+          <th>Booked as</th>
+          <th>From</th>
+          <th class="text-end">Time</th>
+          <th>Period</th>
+          <th style="min-width: 20rem;">Cairn account</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr>
+            <td>
+              <strong>{{ r.name }}</strong>
+              {% if not r.user_id %}
+                <span class="badge text-bg-warning">no account</span>
+              {% endif %}
+              {% if r.external_user %}
+                <div class="text-muted small font-monospace">{{ r.external_user }}</div>
+              {% endif %}
+            </td>
+            <td class="small text-muted">
+              {% if r.source == 'mite' %}<i class="bi bi-box-arrow-in-down"></i> mite
+              {% elif r.source == 'zammad' %}<i class="bi bi-life-preserver"></i> Zammad
+              {% elif r.external_user %}{{ r.external_user.split(':')[0] }}
+              {% else %}<span class="text-muted">booked here</span>{% endif %}
+            </td>
+            <td class="small text-end text-nowrap">
+              {% if r.entries %}
+                {{ r.minutes|duration }}
+                <div class="text-muted">{{ r.entries }} entr{{ 'y' if r.entries == 1 else 'ies' }}
+                  {%- if r.locked %}, {{ r.locked }} billed{% endif %}</div>
+              {% else %}
+                <span class="text-muted">no time here</span>
+              {% endif %}
+            </td>
+            <td class="small text-muted text-nowrap">
+              {% if r.first %}{{ r.first.strftime('%d.%m.%Y') }} – {{ r.last.strftime('%d.%m.%Y') }}{% endif %}
+            </td>
+            <td>
+              <form method="post" action="{{ url_for('timetracking.people_assign') }}"
+                    class="d-flex gap-2 align-items-center">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="team" value="{{ team.pk }}">
+                <input type="hidden" name="key" value="{{ r.key }}">
+                {# Carried so a person the roster never met can be recorded on
+                   the spot — the mapping has to reach the next import too. #}
+                <input type="hidden" name="name" value="{{ r.name }}">
+                <select name="user_id" class="form-select form-select-sm"
+                        style="max-width: 15rem;" {% if not can_manage %}disabled{% endif %}>
+                  <option value="">— no Cairn account —</option>
+                  {% for m in members %}
+                    <option value="{{ m.id }}" {% if r.user_id == m.id|string %}selected{% endif %}>
+                      {{ m.display_name or m.username }}</option>
+                  {% endfor %}
+                </select>
+                {% if can_manage %}
+                  <button class="btn btn-sm btn-outline-primary">Assign</button>
+                {% endif %}
+                {% if r.locked %}
+                  <span class="text-muted small" title="Billed entries are frozen and keep the name they were billed under">
+                    <i class="bi bi-lock"></i></span>
+                {% endif %}
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="form-text small" style="max-width: 60rem;">
+    Billed entries are frozen: they keep the name they were settled under, which
+    is why a row can stay “no account” after an assignment.
+    {% if not can_manage %}
+      Only a team manager can change these — attribution decides whose hours land
+      on an invoice.
+    {% endif %}
+  </p>
+{% endif %}
+{% endblock %}

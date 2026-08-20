@@ -261,7 +261,7 @@ def _spent_on(date_str: str, zone) -> datetime | None:
 
 
 def _match_users(client: MiteClient, stats: MiteStats, team=None) -> dict:
-    """mite user id → ``(cairn_user_id_or_empty, display_name)``.
+    """mite user id → ``(cairn_user_id_or_empty, display_name, mite_user_id)``.
 
     Email first — the one identifier both systems agree on — then, *within the
     team*, the display name. Email alone leaves everyone who signed up here
@@ -292,12 +292,18 @@ def _match_users(client: MiteClient, stats: MiteStats, team=None) -> dict:
                 if key:
                     by_name.setdefault(key, m)
 
+    from application.services.zammad_billing import record_agent
+
     for r in rows:
         mail = (r.get("email") or "").strip().lower()
-        cairn = found.get(mail)
         name = (r.get("name") or mail or "").strip()
+        # The team's roster first: a mapping made by hand on the People page is
+        # someone's decision and outranks anything guessed from an address.
+        person = record_agent(team, zammad_id=r.get("id"), source="mite",
+                              email=mail, name=name) if team else None
+        cairn = person.user if (person is not None and person.user) else None
         if cairn is None:
-            cairn = by_name.get(name.lower())
+            cairn = found.get(mail) or by_name.get(name.lower())
         if cairn is not None:
             out[str(r.get("id"))] = (str(cairn.id),
                                      cairn.display_name or cairn.username or name)
@@ -618,6 +624,7 @@ def import_for_user(user, *, account: str, api_key: str, team,
         start, end, note = split_clock(raw.get("note") or "")
         period = when.strftime("%Y-%m-%d")
         owned = {
+            "external_user": f"mite:user:{raw.get('user_id')}" if raw.get("user_id") else None,
             "project_id": str(proj.id) if proj.id else "",
             "project_name": proj.name,
             "minutes": minutes,

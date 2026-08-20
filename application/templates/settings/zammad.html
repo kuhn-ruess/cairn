@@ -113,6 +113,9 @@
         {{ team.name }}. Matched automatically by email, login, then display
         name. An agent without a Cairn account keeps their Zammad name on every
         entry — assigning them here re-files the time they already booked.
+        <a href="{{ url_for('timetracking.people', team=team.pk) }}">Time tracking
+        → People</a> shows the same thing for every source at once, mite
+        included.
       </p>
       {% if not agents %}
         <p class="text-muted small mb-0">

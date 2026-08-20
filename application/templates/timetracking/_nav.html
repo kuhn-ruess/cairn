@@ -24,6 +24,12 @@
         <i class="bi bi-gear"></i> Customers &amp; projects</a>
     </li>
     <li class="nav-item">
+      <a class="nav-link py-1 {{ 'active' if active == 'people' }}"
+         href="{{ url_for('timetracking.people', team=team.pk if team else none) }}"
+         title="Who booked the time — match imported authors to Cairn accounts">
+        <i class="bi bi-people"></i> People</a>
+    </li>
+    <li class="nav-item">
       <a class="nav-link py-1 {{ 'active' if active == 'trash' }}"
          href="{{ url_for('timetracking.trash', team=team.pk if team else none) }}"
          title="Deleted time — restore it, or remove it for good">
