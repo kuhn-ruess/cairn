@@ -560,6 +560,11 @@ class Item(Document):
         result = super().save(*args, **kwargs)
         if cascade_status:
             self._cascade_close(cascade_status)
+        # An assignment made before the first save had no pk to link to —
+        # now it does (see _notify_assignee).
+        if getattr(self, "_pending_assign_notify", False):
+            self._pending_assign_notify = False
+            self._notify_assignee()
         return result
 
     def _descendant_task_pks(self) -> list:
@@ -1339,8 +1344,22 @@ class Item(Document):
         # Tell the assignee — only on a real (re)assignment, and never for
         # self-assignment (handled above by collapsing to None).
         if new_assignee != old:
-            from application.services.notifications import notify_assigned
-            notify_assigned(self, by_user=self.assigned_by)
+            self._notify_assignee()
+
+    def _notify_assignee(self) -> None:
+        """Push the “you were assigned X” bell entry for ``assigned_to``.
+
+        A brand-new item has no pk yet, so the notification's link would come
+        out empty and the dropdown entry would be dead. Assigning *while*
+        creating is the normal case (the create form runs ``assign_to`` before
+        the first ``save``), so defer the push to just after the insert
+        instead of building a link to nowhere.
+        """
+        if self.pk is None:
+            self._pending_assign_notify = True
+            return
+        from application.services.notifications import notify_assigned
+        notify_assigned(self, by_user=self.assigned_by)
 
     @classmethod
     def note_counts_for(cls, items) -> dict:
