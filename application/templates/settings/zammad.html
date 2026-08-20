@@ -56,6 +56,12 @@
   <div class="form-check mb-2">
     {{ form.assignee_only(class="form-check-input") }}
     {{ form.assignee_only.label(class="form-check-label") }}
+    <div class="form-text small">
+      Scopes the sync to tickets you own or requested. Note what that means for
+      billing: time <em>you</em> booked on a colleague's ticket is not in this
+      set and will not be imported — untick this if your hours can land on
+      anyone's ticket.
+    </div>
   </div>
   <div class="form-check mb-3">
     {{ form.include_closed(class="form-check-input") }}
@@ -72,7 +78,9 @@
         <div class="form-text small">
           Off means the sync never even asks Zammad for booked time. On, every
           agent's booking on a ticket is imported and attributed to that agent's
-          Cairn account (see the mapping below).
+          Cairn account (see the mapping below) — and a ticket that was closed
+          before Cairn ever saw it is pulled in anyway when hours are booked on
+          it, so work finished in one go doesn't take its time with it.
         </div>
       </div>
       <div class="form-check mb-0">
@@ -281,6 +289,12 @@
             <li>Excluded because they're closed/merged/pending close: {{ stats.filtered_closed }}
               <span class="text-warning">— tick "Include closed tickets" to import them too</span>
             </li>
+          {% endif %}
+          {% if stats.closed_with_time %}
+            <li>Closed tickets brought in anyway because time is booked on them:
+              <strong>{{ stats.closed_with_time }}</strong>
+              <span class="text-muted">— a ticket worked on and closed in one go
+                would otherwise take its hours with it</span></li>
           {% endif %}
           {% if stats.tickets_fetched == 0 %}
             <li class="text-danger">

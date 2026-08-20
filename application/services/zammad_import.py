@@ -76,6 +76,8 @@ class ZammadStats:
     # tickets the run therefore never had to look inside.
     since: Any = None
     tickets_unchanged: int = 0
+    # Closed tickets pulled in anyway, because time is booked on them.
+    closed_with_time: int = 0
     time_task_links_cleared: int = 0  # per-task billing links an earlier sync wrote
     # Zammad user id → actor snapshot, cached for the run (not reported).
     actor_cache: dict = field(default_factory=dict)
@@ -120,6 +122,7 @@ class ZammadStats:
             "time_folders_linked": self.time_folders_linked,
             "since": self.since.isoformat() if self.since else "",
             "tickets_unchanged": self.tickets_unchanged,
+            "closed_with_time": self.closed_with_time,
             "time_task_links_cleared": self.time_task_links_cleared,
             "me_id": self.me_id,
             "fetched_via": self.fetched_via,
@@ -260,6 +263,9 @@ def import_for_user(
     # when there is time on it, so walking the whole history every few minutes
     # is the difference between a sync that finishes and one that times out —
     # and on a quiet instance, most runs now do nothing but ask.
+    # Whether this run cares about time at all — decides, among other things,
+    # whether a closed ticket with hours on it is worth pulling in.
+    billing = bool(getattr(user, "zammad_import_time", True))
     since = None
     if not full and user.last_zammad_sync_at:
         since = user.last_zammad_sync_at - timedelta(minutes=_SINCE_OVERLAP_MIN)
@@ -419,9 +425,18 @@ def import_for_user(
                         owner=user, external_id=f"zammad:{zid}"
                     ).first() is not None
                 )
-                if not already:
+                # …with one exception, and it is the important one: a ticket
+                # worked on and closed in the same breath. Its hours are real
+                # and someone will invoice them; refusing it because nobody
+                # imported the ticket *before* it closed would lose the work,
+                # quietly, for exactly the tickets that were finished quickly.
+                # Only when Zammad positively reports booked time — "no idea"
+                # is not a reason to drag a closed history in.
+                if not already and (not billing or not _ticket_books_time(raw)):
                     stats.filtered_closed += 1
                     continue
+                if not already:
+                    stats.closed_with_time += 1
         filtered.append(raw)
     tickets = filtered
 
@@ -795,20 +810,37 @@ def _stamp(value) -> datetime | None:
         return None
 
 
-def _ticket_has_time(raw: dict) -> bool:
-    """Does Zammad say this ticket has accounted time?
+def _ticket_minutes(raw: dict):
+    """``Ticket#time_unit`` as a number, or ``None`` when Zammad didn't say.
 
-    ``Ticket.time_unit`` is the cached sum Zammad maintains whenever a booking
-    is created, and it rides along in the ticket payload (``expand=true``), so
-    it answers "is there anything to fetch" for free. A ticket that doesn't
-    carry the attribute at all is treated as *unknown* and still fetched — an
-    install that doesn't maintain the field must not silently lose its time."""
+    The cached sum Zammad maintains whenever a booking is created, riding along
+    in the ticket payload (``expand=true``) — so "is there anything to fetch" is
+    answered for free. ``None`` means the install doesn't carry the field, which
+    is a different answer from "no time"; the two callers below want it treated
+    differently."""
     if "time_unit" not in raw:
-        return True
+        return None
     try:
-        return float(raw.get("time_unit") or 0) > 0
+        return float(raw.get("time_unit") or 0)
     except (TypeError, ValueError):
-        return True
+        return None
+
+
+def _ticket_has_time(raw: dict) -> bool:
+    """Worth asking ``/time_accountings`` about? Unknown counts as yes — an
+    install that doesn't maintain ``time_unit`` must not silently lose time."""
+    minutes = _ticket_minutes(raw)
+    return minutes is None or minutes > 0
+
+
+def _ticket_books_time(raw: dict) -> bool:
+    """Does Zammad *positively state* that time is booked on this ticket?
+
+    The strict reading, for the one decision that has to be certain: whether to
+    pull in a closed ticket nobody imported. "Unknown" is not a reason to drag
+    an instance's entire closed history in."""
+    minutes = _ticket_minutes(raw)
+    return bool(minutes and minutes > 0)
 
 
 def _team_for(stats: ZammadStats, team):
