@@ -200,6 +200,14 @@
           <li>Customers created from Zammad organisations:
             <strong>{{ stats.time_customers_created }}</strong></li>
         {% endif %}
+        {% if stats.time_folders_linked %}
+          <li>Folders bound to a billing project because they carry the
+            customer's name: <strong>{{ stats.time_folders_linked }}</strong></li>
+        {% endif %}
+        {% if stats.time_task_links_cleared %}
+          <li>Per-task billing links removed (they belong on a folder):
+            {{ stats.time_task_links_cleared }}</li>
+        {% endif %}
         {% if stats.time_skipped_unlinked %}
           <li>Tickets with no billing project (their time was not imported):
             {{ stats.time_skipped_unlinked }}

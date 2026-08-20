@@ -71,6 +71,8 @@ class ZammadStats:
     time_customers_created: int = 0  # Zammad organisations turned into customers
     time_skipped_unlinked: int = 0   # tickets with time but nowhere to book it
     time_skipped_no_time: int = 0    # tickets Zammad reports no accounted time for
+    time_folders_linked: int = 0     # folders bound to a billing project by name
+    time_task_links_cleared: int = 0  # per-task billing links an earlier sync wrote
     # Zammad user id → actor snapshot, cached for the run (not reported).
     actor_cache: dict = field(default_factory=dict)
     # Zammad organisation / customer id → billing project, cached for the run.
@@ -111,6 +113,8 @@ class ZammadStats:
             "time_customers_created": self.time_customers_created,
             "time_skipped_unlinked": self.time_skipped_unlinked,
             "time_skipped_no_time": self.time_skipped_no_time,
+            "time_folders_linked": self.time_folders_linked,
+            "time_task_links_cleared": self.time_task_links_cleared,
             "me_id": self.me_id,
             "fetched_via": self.fetched_via,
             "api_calls": self.api_calls,
@@ -840,15 +844,47 @@ def _zammad_org(base: str, token: str, raw: dict, stats: ZammadStats
     return ext, name
 
 
+def _matching_container(item: "Item", name: str):
+    """The task's nearest folder/project called ``name``, if there is one.
+
+    Billing links belong on containers, not on tasks — that is the whole point
+    of inheriting the link down the subtree. So the only binding a sync may
+    create by itself is the obvious one: the ticket already sits in a folder
+    (or project) named exactly like the customer, and that folder is plainly
+    meant to be that customer's. Anything less obvious is a decision for a
+    person to make on the project page."""
+    want = (name or "").strip().casefold()
+    if not want:
+        return None
+    seen = set()
+    node = item.parent
+    depth = 0
+    while node is not None and depth < 50:
+        if node.pk in seen:
+            break
+        seen.add(node.pk)
+        if (node.kind in ("project", "folder")
+                and (node.title or "").strip().casefold() == want):
+            return node
+        node = node.parent
+        depth += 1
+    return None
+
+
 def _auto_billing_project(user: User, item: "Item", base: str, token: str,
                           raw: dict, stats: ZammadStats):
     """Billing project for a ticket whose Cairn subtree isn't linked to one.
 
     Only reached with ``User.zammad_time_auto_customer`` on. The ticket's Zammad
-    organisation becomes a Cairn customer + project, and the *task* is linked to
-    it — so the binding is visible in the inspector afterwards, editable like
-    any other, and the next sync resolves it the normal way without asking
-    Zammad again."""
+    organisation becomes a Cairn customer + project, and the time books against
+    it — but **no link is written onto the ticket's task**. A link on a task is
+    a dead end: it binds one ticket, has to be repeated for the next one, and
+    turns the tree into a thousand individual bindings instead of a handful of
+    folders. The one link this may create is the unambiguous one — the task
+    already lives in a folder named exactly like the customer (see
+    :func:`_matching_container`), which is the folder someone would have linked
+    by hand anyway. Everything else stays a decision for a person, and costs
+    nothing: the time still lands, resolved fresh on each sync."""
     from application.services.timetracking import default_team
     from application.services.zammad_billing import ensure_billing_target
 
@@ -863,9 +899,11 @@ def _auto_billing_project(user: User, item: "Item", base: str, token: str,
         return None
     if created:
         stats.time_customers_created += 1
-    if item.time_project is None:
-        item.time_project = project
-        item.save()
+    container = _matching_container(item, project.customer.name)
+    if container is not None and container.time_project is None:
+        container.time_project = project
+        container.save()
+        stats.time_folders_linked += 1
     return project
 
 
@@ -895,6 +933,15 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
     if not getattr(user, "zammad_import_time", True) or not has_team(user):
         return
     auto = getattr(user, "zammad_time_auto_customer", False)
+    # Earlier syncs stamped the billing project onto the *task*. Tasks are not
+    # where a link belongs (see _auto_billing_project), and leaving those behind
+    # would keep a thousand one-ticket bindings alive that nobody can maintain —
+    # so the sync takes back what it wrote. The time is unaffected: it resolves
+    # through the folder, or through the customer's project as before.
+    if item.kind == "task" and item.time_project is not None:
+        item.time_project = None
+        item.save()
+        stats.time_task_links_cleared += 1
     project = resolve_time_project(item)
     if project is None and not auto:
         # Counted, not silent: "why is there no time in Cairn" is otherwise a
