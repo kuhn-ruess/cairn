@@ -76,6 +76,11 @@ class MiteStats:
     customers_updated: int = 0
     projects_created: int = 0
     projects_updated: int = 0
+    # Marked archived by this run (from mite's archived lists) — reported
+    # because "where did my projects go" and "why are they all back" are both
+    # questions this number answers.
+    customers_archived: int = 0
+    projects_archived: int = 0
     entries_imported: int = 0
     entries_skipped: int = 0  # already imported by an earlier run
     entries_fetched: int = 0
@@ -94,6 +99,8 @@ class MiteStats:
             "customers_updated": self.customers_updated,
             "projects_created": self.projects_created,
             "projects_updated": self.projects_updated,
+            "customers_archived": self.customers_archived,
+            "projects_archived": self.projects_archived,
             "entries_imported": self.entries_imported,
             "entries_skipped": self.entries_skipped,
             "entries_fetched": self.entries_fetched,
@@ -248,21 +255,47 @@ def _match_users(client: MiteClient, stats: MiteStats) -> dict:
 
 
 def _import_customers(client, team, stats, dry_run, include_archived=True) -> dict:
-    """mite customer id → Cairn :class:`Customer` (created or refreshed)."""
-    rows = list(client.get("/customers.json"))
+    """mite customer id → Cairn :class:`Customer` (created or refreshed).
+
+    Which list a row came from decides ``archived``, not the row's own flag: a
+    customer fetched from ``/customers/archived.json`` is archived by
+    definition."""
+    rows = [(r, False) for r in client.get("/customers.json")]
     if include_archived:
         try:
-            rows += list(client.get("/customers/archived.json"))
+            rows += [(r, True)
+                     for r in client.get("/customers/archived.json")]
         except MiteError as exc:
             stats.errors.append(f"archived customers: {exc}")
 
-    existing = {c.external_id: c for c in Customer.objects(team=team)
-                if c.external_id}
+    # Two indexes over the team's customers: by every key they are known by,
+    # and by name. The second one is what lets a re-import *supplement* what is
+    # already here — a customer Zammad created under its organisation key is the
+    # same client, and mite must adopt it rather than open a second file on it.
+    known = list(Customer.objects(team=team))
+    existing, by_name = {}, {}
+    for c in known:
+        for key in [c.external_id] + list(c.external_ids or []):
+            if key:
+                existing[key] = c
+        by_name.setdefault((c.name or "").strip().lower(), c)
+
     out = {}
-    for r in rows:
+    for r, from_archive in rows:
         ext = f"mite:{r.get('id')}"
         name = (r.get("name") or "").strip()[:200] or f"mite customer {r.get('id')}"
         cust = existing.get(ext)
+        if cust is None:
+            twin = by_name.get(name.strip().lower())
+            if twin is not None:
+                # Adopt it, and remember the mite key on it so the next run goes
+                # straight there.
+                cust = twin
+                if not cust.external_id:
+                    cust.external_id = ext
+                else:
+                    cust.external_ids = list(cust.external_ids or []) + [ext]
+                existing[ext] = cust
         if cust is None:
             # Built even on a dry run (just never saved), so the projects and
             # entries below still resolve and the preview reports real numbers.
@@ -272,7 +305,10 @@ def _import_customers(client, team, stats, dry_run, include_archived=True) -> di
             stats.customers_updated += 1
         cust.name = name
         cust.note = (r.get("note") or "").strip()
-        cust.archived = bool(r.get("archived"))
+        archived = from_archive or bool(r.get("archived"))
+        if archived and not cust.archived:
+            stats.customers_archived += 1
+        cust.archived = archived
         if not dry_run:
             cust.save()
         out[str(r.get("id"))] = cust
@@ -286,19 +322,31 @@ def _import_projects(client, team, customers, stats, dry_run,
     With ``include_archived=False`` the archived ones are simply not fetched:
     anything already imported keeps whatever state it has here (nothing is
     removed or un-archived), so widening to a full import later still lands
-    correctly."""
-    rows = list(client.get("/projects.json"))
+    correctly.
+
+    mite stays authoritative for ``archived``, and *which list a row came from*
+    is what decides it — a project fetched from ``/projects/archived.json`` is
+    archived whether or not the row repeats the flag."""
+    rows = [(r, False) for r in client.get("/projects.json")]
     if include_archived:
         try:
-            rows += list(client.get("/projects/archived.json"))
+            rows += [(r, True) for r in client.get("/projects/archived.json")]
         except MiteError as exc:
             stats.errors.append(f"archived projects: {exc}")
 
-    existing = {p.external_id: p for p in TimeTrackingProject.objects(team=team)
-                if p.external_id}
+    known = list(TimeTrackingProject.objects(team=team))
+    existing, by_name = {}, {}
+    for p in known:
+        for key in [p.external_id] + list(p.external_ids or []):
+            if key:
+                existing[key] = p
+        # Same-name-under-the-same-customer is the identity a person would use;
+        # see _import_customers for why adopting beats duplicating.
+        by_name.setdefault((str(p.customer.id), (p.name or "").strip().lower()), p)
+
     valid_budget = ("minutes", "cents", "minutes_per_month", "cents_per_month")
     out = {}
-    for r in rows:
+    for r, from_archive in rows:
         cust = customers.get(str(r.get("customer_id")))
         if cust is None:
             stats.errors.append(
@@ -307,6 +355,15 @@ def _import_projects(client, team, customers, stats, dry_run,
         ext = f"mite:{r.get('id')}"
         name = (r.get("name") or "").strip()[:200] or f"mite project {r.get('id')}"
         proj = existing.get(ext)
+        if proj is None and cust.id:
+            twin = by_name.get((str(cust.id), name.strip().lower()))
+            if twin is not None:
+                proj = twin
+                if not proj.external_id:
+                    proj.external_id = ext
+                else:
+                    proj.external_ids = list(proj.external_ids or []) + [ext]
+                existing[ext] = proj
         if proj is None:
             proj = TimeTrackingProject(team=team, customer=cust, name=name,
                                        external_id=ext)
@@ -323,7 +380,10 @@ def _import_projects(client, team, customers, stats, dry_run,
         # rather than a wrong one.
         proj.budget_value = budget if (budget and btype in valid_budget) else None
         proj.budget_type = btype if proj.budget_value else None
-        proj.archived = bool(r.get("archived"))
+        archived = from_archive or bool(r.get("archived"))
+        if archived and not proj.archived:
+            stats.projects_archived += 1
+        proj.archived = archived
         if not dry_run:
             proj.save()
         out[str(r.get("id"))] = proj

@@ -57,10 +57,25 @@ def ensure_billing_target(team, *, external_id: str, name: str
         return None, False
     name = (name or "").strip()[:200] or external_id
 
+    from mongoengine import Q
+
     from application.services.timetracking import intake_project
 
     created = False
-    customer = Customer.objects(team=team, external_id=external_id).first()
+    customer = Customer.objects(
+        Q(team=team) & (Q(external_id=external_id)
+                        | Q(external_ids=external_id))).first()
+    if customer is None:
+        # Before inventing one: the same client may already be here under
+        # another key (imported from mite, or typed in by hand). Matching by
+        # name is what a person would do, and it is why "Flughafen München"
+        # must not become two customers. The Zammad key is remembered on the
+        # customer we found, so the next sync goes straight to it and the
+        # original key stays untouched.
+        customer = Customer.objects(team=team, name__iexact=name).first()
+        if customer is not None:
+            customer.external_ids = list(customer.external_ids or []) + [external_id]
+            customer.save()
     if customer is None:
         customer = Customer(team=team, external_id=external_id, name=name,
                             note="Created by the Zammad time import.").save()
@@ -73,6 +88,15 @@ def ensure_billing_target(team, *, external_id: str, name: str
     if project is None:
         project = TimeTrackingProject.objects(
             team=team, customer=customer, external_id=external_id).first()
+    if project is None:
+        # A customer that already had exactly one project doesn't need a second
+        # one just because its time now arrives from Zammad.
+        actives = list(TimeTrackingProject.objects(
+            team=team, customer=customer, archived=False).limit(2))
+        if len(actives) == 1:
+            project = actives[0]
+            project.intake = True
+            project.save()
     if project is None:
         project = TimeTrackingProject(
             team=team, customer=customer, external_id=external_id, name=name,

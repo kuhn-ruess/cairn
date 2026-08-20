@@ -63,6 +63,17 @@ class Customer(Document):
     # repeated import updates instead of duplicating. Empty for customers
     # created in Cairn.
     external_id = StringField()
+    # Further identities the same customer is known by elsewhere — a client
+    # imported from mite that also files tickets in Zammad is one customer with
+    # two keys, and inventing a second Cairn customer for the second key is how
+    # you end up invoicing "Flughafen München" twice. Lookups check both fields;
+    # ``external_id`` stays the one an importer stamps when it creates the
+    # record.
+    external_ids = ListField(StringField(max_length=100))
+
+    def knows_key(self, key: str) -> bool:
+        return bool(key) and (self.external_id == key
+                              or key in (self.external_ids or []))
 
     # Billing details — what an invoice needs, kept with the customer it bills.
     # Plain strings, deliberately: this is data to read off when invoicing (or
@@ -141,8 +152,10 @@ class TimeTrackingProject(Document):
     archived = BooleanField(default=False)
 
     # Identity in the system this was imported from (``mite:<id>``) — see
-    # Customer.external_id.
+    # Customer.external_id. ``external_ids`` carries the further keys the same
+    # project is known by, so mite and Zammad can both feed one project.
     external_id = StringField()
+    external_ids = ListField(StringField(max_length=100))
 
     # Extra fields asked for when booking time on this project (see
     # TimeProjectField). Empty for a project that just wants hours and a note.

@@ -106,6 +106,17 @@ def _project_or_404(pid, team):
     return p
 
 
+def _back(team, **kw):
+    """Where a form on a project's page should return to.
+
+    Only a same-site path is honoured, so ``back`` can never be turned into an
+    open redirect; anything else falls back to the management list."""
+    target = (request.form.get("back") or "").strip()
+    if target.startswith("/") and not target.startswith("//"):
+        return redirect(target)
+    return redirect(url_for("timetracking.index", team=team.pk, **kw))
+
+
 def _parse_budget(form):
     """Form (budget_unit ∈ ''/hours/money, budget_value, budget_recurring) →
     ``(budget_value, budget_type)``. Hours are stored as minutes, money as
@@ -165,9 +176,37 @@ def _parse_rate_cents(raw: str):
 @login_required
 @team_required
 def index():
+    """The management list: customers, their projects, and how to reach them.
+
+    A *list*. Everything about one project — rate, budget, custom fields, the
+    container links, the customer's share link, the destructive bits — lives on
+    that project's own page. Rendering it per row is what turned this page into
+    a wall (each row carried a picker holding every folder the user owns).
+
+    ``?archive=1`` shows what is archived instead of hiding it: archived
+    customers with their projects, and the archived projects of customers that
+    are still active. Archived means "out of the way", so the default view is
+    the working set only."""
     team = _team()
-    customers = list(Customer.objects(team=team).order_by("+archived", "+name"))
-    projects = list(TimeTrackingProject.objects(team=team).order_by("+archived", "+name"))
+    show_archive = request.args.get("archive") == "1"
+    all_customers = list(Customer.objects(team=team).order_by("+archived", "+name"))
+    all_projects = list(TimeTrackingProject.objects(team=team)
+                        .order_by("+archived", "+name"))
+    dead_customers = {str(c.id) for c in all_customers if c.archived}
+
+    def _is_archived(p):
+        return bool(p.archived) or str(p.customer.id) in dead_customers
+
+    archived_count = sum(1 for c in all_customers if c.archived) + \
+        sum(1 for p in all_projects if p.archived)
+    if show_archive:
+        projects = [p for p in all_projects if _is_archived(p)]
+        with_archived = {str(p.customer.id) for p in projects}
+        customers = [c for c in all_customers
+                     if c.archived or str(c.id) in with_archived]
+    else:
+        projects = [p for p in all_projects if not _is_archived(p)]
+        customers = [c for c in all_customers if not c.archived]
 
     # Group projects under their customer, and collect the linked GTD items per
     # project in one query (no per-row lookups in the template).
@@ -187,15 +226,7 @@ def index():
     from application.services.containers import describe_containers
     link_info = describe_containers(linked, team=team)
 
-    # Containers the user can attach, labelled with their full breadcrumb
-    # ("🗂️  Work / Acme / Website") — a bare title doesn't say *which* of the
-    # three "Website" projects you are about to bill. Same picker builder the
-    # task and project inspectors use. Owner-only, matching what link_item
-    # accepts.
     user = current_user._get_current_object()
-    from application.services.containers import container_choices
-    linkable = container_choices(user, selectable_kinds=("project", "folder"))
-
     # Budget vs. actual — one bucket pass for the whole team, then a status per
     # project (None when no budget set).
     from application.services.tz import user_zone
@@ -209,25 +240,17 @@ def index():
     logged = {str(p.id): consumption.get(str(p.id), {}).get("minutes", 0)
               for p in projects}
 
-    # Flat "customer › project" list for the move picker — the target of a
-    # move is usually under a *different* customer, so the per-customer
-    # grouping above can't serve it.
-    all_projects = [{"id": str(p.id),
-                     "label": f"{p.customer.name} › {p.name}"}
-                    for p in projects if not p.archived]
-    all_projects.sort(key=lambda r: r["label"].lower())
-
     return render_template(
         "timetracking/index.html",
         team=team,
         all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user),
         customers=customers,
-        all_projects=all_projects,
+        show_archive=show_archive,
+        archived_count=archived_count,
         by_customer=by_customer,
         links_by_project=links_by_project,
         link_info=link_info,
-        linkable=linkable,
         logged=logged,
         budgets=budgets,
     )
@@ -908,6 +931,32 @@ def import_page():
                            all_teams=_user_teams(user))
 
 
+@timetracking_bp.route("/reset", methods=["POST"])
+@login_required
+@team_required
+def reset_billing():
+    """Wipe the team's customers, projects and logged time, ready for a fresh
+    import. Manager-only, and the team's name has to be typed out."""
+    from application.services.timetracking import reset_team_billing
+
+    team = _team()
+    user = current_user._get_current_object()
+    if not team.is_managed_by(user):
+        abort(403)
+    if (request.form.get("confirm") or "").strip() != team.name:
+        flash(f"Type the team name exactly (“{team.name}”) to reset — nothing "
+              "was deleted.", "warning")
+        return redirect(url_for("timetracking.import_page", team=team.pk))
+    res = reset_team_billing(team)
+    flash(f"Time tracking reset: {res['customers']} customer(s), "
+          f"{res['projects']} project(s) and {res['entries']} time entr"
+          f"{'y' if res['entries'] == 1 else 'ies'} deleted"
+          + (f"; {res['unlinked']} link(s) in your task tree cleared"
+             if res["unlinked"] else "") + ". Import again to rebuild it.",
+          "success")
+    return redirect(url_for("timetracking.import_page", team=team.pk))
+
+
 @timetracking_bp.route("/import/mite", methods=["POST"])
 @login_required
 @team_required
@@ -1083,6 +1132,39 @@ def customer_delete(cid):
 # Billing projects
 # ---------------------------------------------------------------------------
 
+@timetracking_bp.route("/projects/<pid>")
+@login_required
+@team_required
+def project_detail(pid):
+    """One billing project on its own page — everything that used to be a
+    <details> on the management list, where it was rendered for every project
+    whether or not anyone opened it."""
+    from application.services.containers import container_choices, describe_containers
+    from application.services.timetracking import budget_status, team_consumption
+    from application.services.tz import user_zone
+
+    team = _team()
+    user = current_user._get_current_object()
+    p = _project_or_404(pid, team)
+
+    linked = list(Item.objects(time_project=p).only(
+        "id", "title", "kind", "parent", "owner", "shared_teams", "time_project"))
+    today = datetime.now(user_zone(user)).date()
+    consumption = team_consumption(team, f"{today.year:04d}-{today.month:02d}")
+    move_targets = sorted(
+        ({"id": str(o.id), "label": f"{o.customer.name} › {o.name}"}
+         for o in TimeTrackingProject.objects(team=team, archived=False)),
+        key=lambda r: r["label"].lower())
+    return render_template(
+        "timetracking/project.html", team=team, all_teams=_user_teams(user),
+        can_manage=team.is_managed_by(user), p=p,
+        budget=budget_status(p, consumption.get(str(p.id))),
+        logged=consumption.get(str(p.id), {}).get("minutes", 0),
+        links=linked, link_info=describe_containers(linked, team=team),
+        linkable=container_choices(user, selectable_kinds=("project", "folder")),
+        move_targets=move_targets)
+
+
 @timetracking_bp.route("/projects", methods=["POST"])
 @login_required
 @team_required
@@ -1129,7 +1211,7 @@ def project_edit(pid):
     # elsewhere — hence the service call rather than a plain field assignment.
     set_intake_project(p, request.form.get("intake") == "1")
     flash("Project updated.", "success")
-    return redirect(url_for("timetracking.index", team=team.pk))
+    return _back(team)
 
 
 @timetracking_bp.route("/projects/<pid>/purge", methods=["POST"])
@@ -1152,7 +1234,7 @@ def project_purge(pid):
     if (request.form.get("confirm") or "").strip() != p.name:
         flash(f"Type the project name exactly (“{p.name}”) to reset it — "
               "nothing was deleted.", "warning")
-        return redirect(url_for("timetracking.index", team=team.pk))
+        return _back(team)
     stats = purge_project_entries(p)
     if stats["entries"]:
         flash(f"Reset “{p.name}”: {stats['entries']} entr"
@@ -1162,7 +1244,7 @@ def project_purge(pid):
               + "). The project itself is untouched.", "success")
     else:
         flash(f"“{p.name}” had no time logged on it.", "info")
-    return redirect(url_for("timetracking.index", team=team.pk))
+    return _back(team)
 
 
 @timetracking_bp.route("/projects/<pid>/move", methods=["POST"])
@@ -1186,11 +1268,11 @@ def project_move_entries(pid):
     target = _project_or_404(request.form.get("target_id"), team)
     if str(target.id) == str(src.id):
         flash("Pick a different project to move the time to.", "warning")
-        return redirect(url_for("timetracking.index", team=team.pk))
+        return _back(team)
     pairs = project_entries_for_move(src)
     if not pairs:
         flash(f"“{src.name}” has no time logged on it.", "info")
-        return redirect(url_for("timetracking.index", team=team.pk))
+        return _back(team)
     res = move_entries(team=team, pairs=pairs, target=target, actor=user)
     msg = (f"Moved {res['moved']} entr{'y' if res['moved'] == 1 else 'ies'} "
            f"from “{src.name}” to “{target.name}”.")
@@ -1199,7 +1281,7 @@ def project_move_entries(pid):
                 f"{'y' if res['locked'] == 1 else 'ies'} stayed — reopen them "
                 f"first if they should move too.")
     flash(msg, "success")
-    return redirect(url_for("timetracking.index", team=team.pk))
+    return _back(team)
 
 
 @timetracking_bp.route("/projects/<pid>/delete", methods=["POST"])
@@ -1221,7 +1303,7 @@ def project_delete(pid):
     if (request.form.get("confirm") or "").strip() != p.name:
         flash(f"Type the project name exactly (“{p.name}”) to delete it — "
               "nothing was deleted.", "warning")
-        return redirect(url_for("timetracking.index", team=team.pk))
+        return _back(team)
     name = p.name
     res = delete_project(p, purge=request.form.get("purge") == "1")
     if not res["deleted"]:
@@ -1229,6 +1311,7 @@ def project_delete(pid):
               f"{'y' if res['entries'] == 1 else 'ies'} on it. Move them to "
               f"another project first, or tick “delete the time too”.",
               "warning")
+        return _back(team)
     else:
         flash(f"“{name}” deleted"
               + (f" with {res['entries']} entr"
@@ -1264,7 +1347,7 @@ def project_share(pid):
         # Swap the block in place — a redirect here would collapse the panel
         # the link was just created in.
         return render_template("timetracking/_project_share.html", p=p, team=team)
-    return redirect(url_for("timetracking.index", team=team.pk))
+    return _back(team)
 
 
 # ---------------------------------------------------------------------------
@@ -1283,12 +1366,12 @@ def link_item():
     team = _team()
     user = current_user._get_current_object()
     if request.method == "GET":
-        return redirect(url_for("timetracking.index", team=team.pk))
+        return _back(team)
     item_id = to_oid(request.form.get("item_id"))
     if item_id is None:
         # The picker's placeholder option — nothing was chosen.
         flash("Pick a folder or project to link.", "warning")
-        return redirect(url_for("timetracking.index", team=team.pk))
+        return _back(team)
     item = Item.objects(pk=item_id, owner=user,
                         kind__in=["project", "folder"]).first()
     if not item:
@@ -1301,4 +1384,4 @@ def link_item():
         item.time_project = None
         flash(f"“{item.title}” unlinked.", "success")
     item.save()
-    return redirect(url_for("timetracking.index", team=team.pk))
+    return _back(team)

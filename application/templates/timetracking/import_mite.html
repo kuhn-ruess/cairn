@@ -58,4 +58,29 @@
       </p>
     </div>
   </div>
+
+  {# Start over. An import that produced the wrong shape is not worth repairing
+     record by record — everything here came from somewhere and comes back. #}
+  <div class="card border-danger" style="max-width: 720px;">
+    <div class="card-body">
+      <h2 class="h6 mb-2 text-danger">
+        <i class="bi bi-exclamation-triangle"></i> Start over</h2>
+      <p class="small text-muted mb-2">
+        Deletes <strong>every</strong> customer, billing project and logged hour
+        of {{ team.name }}, and clears the billing links in your task tree —
+        then import again. Irreversible, and it also removes time booked by hand
+        in Cairn, which no import will bring back.
+      </p>
+      <form method="post" action="{{ url_for('timetracking.reset_billing') }}"
+            class="d-flex gap-2 flex-wrap align-items-center"
+            onsubmit="return confirm('Delete all time-tracking data of “{{ team.name }}”? This cannot be undone.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="team" value="{{ team.pk }}">
+        <input type="text" name="confirm" autocomplete="off"
+               class="form-control form-control-sm" style="max-width: 18rem;"
+               placeholder="Type “{{ team.name }}” to confirm">
+        <button class="btn btn-sm btn-outline-danger">Delete everything</button>
+      </form>
+    </div>
+  </div>
 {% endblock %}

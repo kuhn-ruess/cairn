@@ -974,6 +974,35 @@ def delete_project(project, *, purge: bool = False) -> dict:
             "buckets": purged.get("buckets", 0)}
 
 
+def reset_team_billing(team) -> dict:
+    """Delete a team's entire time-tracking data: customers, projects, buckets.
+
+    The blunt instrument, and deliberately so: when an import produced the wrong
+    shape — duplicated customers, projects under the wrong client — the honest
+    repair is to throw it away and import again, not to patch record by record.
+    Everything imported comes back from its source; nothing here is the only
+    copy of anything except time booked by hand in Cairn, which is exactly what
+    the confirmation is for.
+
+    Clears the GTD links too (``Item.all_objects`` so trashed items lose them as
+    well), or the tree would keep pointing at projects that no longer exist."""
+    projects = TimeTrackingProject.objects(team=team)
+    buckets = TimeBucket.objects(team=team)
+    summary = {
+        "customers": Customer.objects(team=team).count(),
+        "projects": projects.count(),
+        "buckets": buckets.count(),
+        "entries": sum(len(b.entries or []) for b in buckets),
+        "unlinked": Item.all_objects(
+            time_project__in=[p.id for p in projects.only("id")]
+        ).update(unset__time_project=True) if projects.count() else 0,
+    }
+    buckets.delete()
+    projects.delete()
+    Customer.objects(team=team).delete()
+    return summary
+
+
 def delete_customer(customer) -> dict:
     """Hard-delete a customer and **all** its history: every billing project,
     every monthly bucket (with all logged entries), and the GTD links pointing

@@ -1,0 +1,356 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ p.name }} · Cairn{% endblock %}
+{% block content %}
+{% import "timetracking/_nav.html" as nav with context %}
+{{ nav.tt_nav('manage', team, all_teams, can_manage) }}
+
+{# One billing project on its own page.
+
+   It used to live inline on the management list, inside a <details> per
+   project — which meant the whole editor (rate, budget, custom fields, the
+   container picker with every folder you own, the share panel and three danger
+   zones) was rendered for every project of every customer, open or not. Ten
+   projects made that page unreadable and enormous. The list is now a list; this
+   is where a project is actually worked on. #}
+<div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+  <div class="me-auto">
+    <div class="small text-muted">
+      <a href="{{ url_for('timetracking.index', team=team.pk) }}">Customers &amp; projects</a>
+      ›
+      <a href="{{ url_for('timetracking.customer_detail', cid=p.customer.id, team=team.pk) }}">{{ p.customer.name }}</a>
+    </div>
+    <h1 class="h4 mb-0">
+      {{ p.name }}
+      {% if p.archived %}<span class="badge text-bg-secondary">archived</span>{% endif %}
+      {% if p.intake %}
+        <span class="badge text-bg-info"
+              title="Time imported from Zammad for this customer books here">
+          <i class="bi bi-box-arrow-in-down"></i> intake</span>
+      {% endif %}
+    </h1>
+  </div>
+  <span class="text-muted small">
+    {{ p.hourly_rate_cents|eur }}{% if p.hourly_rate_cents %} / h{% endif %}
+    · {{ logged|duration }} this month
+  </span>
+</div>
+
+
+  {% set bs = budget %}
+  {% if bs %}
+    <div class="mt-1">
+      <div class="d-flex justify-content-between small text-muted">
+        <span>
+          Budget{% if bs.recurring %} <span class="text-muted">(this month)</span>{% endif %}:
+          {% if bs.is_money %}{{ bs.used|eur }} / {{ bs.limit|eur }}{% else %}{{ bs.used|duration }} / {{ bs.limit|duration }}{% endif %}
+        </span>
+        <span class="{% if bs.over %}text-danger fw-semibold{% endif %}">{{ bs.raw_pct }}%</span>
+      </div>
+      <div class="progress" style="height:5px;">
+        <div class="progress-bar {% if bs.over %}bg-danger{% elif bs.raw_pct >= 80 %}bg-warning{% else %}bg-success{% endif %}"
+             style="width: {{ bs.pct }}%;"></div>
+      </div>
+    </div>
+  {% endif %}
+
+
+    <div class="pt-3">
+      <form method="post" action="{{ url_for('timetracking.project_edit', pid=p.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<input type="hidden" name="team" value="{{ team.pk }}">
+        <input type="hidden" name="back" value="{{ request.path }}">
+      {# What the project *is*, as one labelled header line: name,
+         rate, budget and how time is entered belong together and are
+         each a few characters wide. Stacking them in a narrow column
+         only pushed the fields that need room further down. #}
+      <div class="d-flex gap-3 flex-wrap align-items-end mb-3">
+        <div style="flex: 1 1 16rem; min-width: 0;">
+          <label class="form-label small text-muted mb-0">Project</label>
+          <input type="text" name="name" value="{{ p.name }}"
+                 class="form-control form-control-sm">
+        </div>
+        <div style="flex: 0 0 8rem;">
+          <label class="form-label small text-muted mb-0">Rate</label>
+          <div class="input-group input-group-sm">
+            <input type="text" name="hourly_rate"
+                   value="{{ '%.2f'|format(p.hourly_rate_cents/100) if p.hourly_rate_cents else '' }}"
+                   placeholder="—" class="form-control form-control-sm">
+            <span class="input-group-text">€/h</span>
+          </div>
+        </div>
+        {% set b_money = p.budget_type and p.budget_type.startswith('cents') %}
+        {% set b_recur = p.budget_type and p.budget_type.endswith('_per_month') %}
+        <div style="flex: 0 0 auto;">
+          <label class="form-label small text-muted mb-0">Budget</label>
+          <div class="d-flex gap-1 align-items-center">
+            <input type="text" name="budget_value"
+                   value="{{ ('%.2f'|format(p.budget_value/100) if b_money else '%g'|format(p.budget_value/60)) if p.budget_value else '' }}"
+                   placeholder="—" class="form-control form-control-sm" style="max-width:80px;">
+            <select name="budget_unit" class="form-select form-select-sm" style="max-width:88px;">
+              <option value="" {% if not p.budget_type %}selected{% endif %}>none</option>
+              <option value="hours" {% if p.budget_type and not b_money %}selected{% endif %}>hours</option>
+              <option value="money" {% if b_money %}selected{% endif %}>€</option>
+            </select>
+            <label class="form-check small m-0 text-nowrap">
+              <input type="checkbox" name="budget_recurring" value="1" class="form-check-input"
+                     {% if b_recur %}checked{% endif %}> /month
+            </label>
+          </div>
+        </div>
+        <div style="flex: 0 0 auto;">
+          <label class="form-label small text-muted mb-0">Track by</label>
+          <select name="time_mode" class="form-select form-select-sm"
+                  style="max-width:190px;">
+            <option value="duration" {% if p.time_mode != 'clock' %}selected{% endif %}>
+              hours (1h30m)</option>
+            <option value="clock" {% if p.time_mode == 'clock' %}selected{% endif %}>
+              start – end (09:00–10:30)</option>
+          </select>
+        </div>
+        <div style="flex: 1 1 14rem; min-width: 0;">
+          <label class="form-label small text-muted mb-0">Note</label>
+          <input type="text" name="note" value="{{ p.note }}" placeholder="Internal"
+                 class="form-control form-control-sm">
+        </div>
+      </div>
+
+      {# Render the task an entry came from into its description on the
+         report and the customer's sheet. Nothing is written into the
+         note — switching this off takes the reference away again. #}
+      <label class="form-check small mb-2">
+        <input type="checkbox" name="show_source" value="1" class="form-check-input"
+               {% if p.show_source %}checked{% endif %}>
+        Show the task title in the description
+      </label>
+
+      {# Where imported time lands for this customer. One project per
+         customer carries it, so ticking it here unticks it elsewhere —
+         which is how you take the time away from an auto-created
+         project and give it to the one you actually bill. #}
+      <label class="form-check small mb-3">
+        <input type="checkbox" name="intake" value="1" class="form-check-input"
+               {% if p.intake %}checked{% endif %}>
+        Incoming Zammad time books here
+        <span class="text-muted">— for everything of {{ p.customer.name }}</span>
+      </label>
+
+      <div>
+        {# ---- Custom fields asked for on every booking ----
+           Rows are added and removed right here (time-fields.js); the
+           form only carries what is on screen when you save, so a
+           removed row *is* a removed field. The five inputs of a row
+           always travel together, which is what keeps the server's
+           parallel lists aligned. #}
+        <div class="text-muted small mt-2">
+          <i class="bi bi-input-cursor-text"></i> Extra fields asked when booking time
+        </div>
+        <div class="cf-rows d-flex flex-column gap-2">
+          {% for f in p.custom_fields %}
+            <div class="cf-row border rounded p-2">
+              <input type="hidden" name="cf_key" value="{{ f.key }}">
+              <div class="d-flex gap-2 align-items-center flex-wrap">
+                <input type="text" name="cf_label" value="{{ f.label }}"
+                       placeholder="Field name" class="form-control form-control-sm"
+                       style="flex: 1 1 12rem; max-width: 18rem;">
+                <select name="cf_type" class="form-select form-select-sm cf-type"
+                        style="flex: 0 0 8rem;">
+                  <option value="text" {% if f.field_type != 'select' %}selected{% endif %}>text</option>
+                  <option value="select" {% if f.field_type == 'select' %}selected{% endif %}>dropdown</option>
+                </select>
+                <input type="text" name="cf_default" value="{{ f.default }}"
+                       placeholder="Default value" class="form-control form-control-sm cf-default"
+                       list="cf-opts-{{ f.key }}" style="flex: 1 1 10rem; max-width: 16rem;">
+                <datalist id="cf-opts-{{ f.key }}">
+                  {% for o in f.options %}<option value="{{ o }}"></option>{% endfor %}
+                </datalist>
+                <button type="button" class="btn btn-sm btn-link text-danger ms-auto p-0 px-1 cf-remove"
+                        title="Remove this field"><i class="bi bi-x-lg"></i></button>
+              </div>
+              {# Full width on its own line — a list of choices needs the
+                 room, and cramming it beside three inputs was the whole
+                 problem. #}
+              <textarea name="cf_options" rows="{{ [f.options|length + 1, 2]|max }}"
+                        class="form-control form-control-sm cf-options mt-2 {{ 'd-none' if f.field_type != 'select' }}"
+                        placeholder="One choice per line">{{ f.options|join('\n') }}</textarea>
+            </div>
+          {% endfor %}
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary align-self-start cf-add">
+          <i class="bi bi-plus-lg"></i> Add field
+        </button>
+
+        {# The blank row every "Add field" clones. Inside <template>, so
+           its inputs are never submitted. #}
+        <template class="cf-template">
+          <div class="cf-row border rounded p-2">
+            <input type="hidden" name="cf_key" value="">
+            <div class="d-flex gap-2 align-items-center flex-wrap">
+              <input type="text" name="cf_label" value="" placeholder="Field name"
+                     class="form-control form-control-sm"
+                     style="flex: 1 1 12rem; max-width: 18rem;">
+              <select name="cf_type" class="form-select form-select-sm cf-type"
+                      style="flex: 0 0 8rem;">
+                <option value="text">text</option>
+                <option value="select">dropdown</option>
+              </select>
+              <input type="text" name="cf_default" placeholder="Default value"
+                     class="form-control form-control-sm cf-default"
+                     style="flex: 1 1 10rem; max-width: 16rem;">
+              <button type="button" class="btn btn-sm btn-link text-danger ms-auto p-0 px-1 cf-remove"
+                      title="Remove this field"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <textarea name="cf_options" rows="2"
+                      class="form-control form-control-sm cf-options mt-2 d-none"
+                      placeholder="One choice per line"></textarea>
+          </div>
+        </template>
+
+      </div>
+        <div class="d-flex align-items-center gap-3 mt-3">
+          <button class="btn btn-sm btn-primary">Save</button>
+          <label class="form-check small m-0">
+            <input type="checkbox" name="archived" value="1" class="form-check-input"
+                   {% if p.archived %}checked{% endif %}> archived
+          </label>
+        </div>
+      </form>
+
+<h2 class="h6 mt-4"><i class="bi bi-link-45deg"></i> Linked folders &amp; projects</h2>
+<p class="form-text small mt-0">
+  Tasks anywhere below a linked container bill to this project.
+</p>
+
+  <div class="mt-2 ps-2 border-start">
+    {% for it in links %}
+      {% set _info = link_info.get(it.id|string, {}) %}
+      <div class="d-flex align-items-center gap-2 small">
+        {# The full path, so it's obvious which "Website" this is —
+           and, when it sits outside the team's shared area, whose
+           private tree the billing project is drawing time out of. #}
+        <span class="me-auto text-truncate"
+              title="{{ _info.path or it.title }}">
+          <i class="bi bi-{{ 'folder' if it.kind == 'folder' else 'collection' }}"></i>
+          {% set _parts = (_info.path or it.title).split(' / ') %}
+          {% if _parts|length > 1 %}<span class="text-muted">{{ _parts[:-1]|join(' / ') }} / </span>{% endif %}{{ _parts[-1] }}
+          {% if not _info.shared %}
+            <span class="badge text-bg-light text-muted"
+                  title="Private — not shared with {{ team.name }}{{ ', owned by ' ~ _info.owner if _info.owner }}">
+              <i class="bi bi-lock"></i>{{ ' ' ~ _info.owner if _info.owner }}</span>
+          {% endif %}
+        </span>
+        <form method="post" action="{{ url_for('timetracking.link_item') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<input type="hidden" name="team" value="{{ team.pk }}">
+        <input type="hidden" name="back" value="{{ request.path }}">
+          <input type="hidden" name="item_id" value="{{ it.id }}">
+          <button class="btn btn-sm btn-link text-danger p-0" title="Unlink">unlink</button>
+        </form>
+      </div>
+    {% endfor %}
+    <form method="post" action="{{ url_for('timetracking.link_item') }}"
+          class="d-flex gap-1 mt-1">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<input type="hidden" name="team" value="{{ team.pk }}">
+        <input type="hidden" name="back" value="{{ request.path }}">
+      <input type="hidden" name="project_id" value="{{ p.id }}">
+      <select name="item_id" class="form-select form-select-sm"
+              style="max-width:320px;"
+              data-searchable-select="1"
+              data-searchable-placeholder="Search folders / projects…">
+        <option value="">Link a folder / project…</option>
+        {% for pk, label in linkable %}
+          <option value="{{ pk }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-sm btn-outline-primary">Link</button>
+    </form>
+  </div>
+
+<h2 class="h6 mt-4"><i class="bi bi-share"></i> Customer link</h2>
+{% include "timetracking/_project_share.html" %}
+
+
+<hr class="my-4">
+
+      {# Danger zone: wiping a project's time is the one destructive
+         thing here, so it is manager-only, needs the project's name
+         typed out, and says up front what it would destroy. #}
+      {% if can_manage %}
+        {% set _mins = logged %}
+        <details class="mt-2">
+          <summary class="small text-danger" style="cursor:pointer;">
+            <i class="bi bi-exclamation-triangle"></i> Reset logged time
+          </summary>
+          <form method="post" class="d-flex gap-1 mt-2 align-items-center flex-wrap"
+                action="{{ url_for('timetracking.project_purge', pid=p.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="team" value="{{ team.pk }}">
+        <input type="hidden" name="back" value="{{ request.path }}">
+            <span class="small text-muted">
+              Deletes <strong>all</strong> time booked on this project{% if _mins %}
+              ({{ _mins|duration }}, billed entries included){% endif %} —
+              irreversible. The project, its rate and its links stay.
+            </span>
+            <input type="text" name="confirm" class="form-control form-control-sm"
+                   style="max-width: 16rem;" autocomplete="off"
+                   placeholder="Type “{{ p.name }}” to confirm">
+            <button class="btn btn-sm btn-outline-danger"
+                    onclick="return confirm('Delete all time logged on “{{ p.name }}”? This cannot be undone.');">
+              Reset</button>
+          </form>
+        </details>
+
+        {% set _mins = logged %}
+        <details class="mt-2">
+          <summary class="small" style="cursor:pointer;">
+            <i class="bi bi-arrow-left-right"></i> Move logged time to
+            another project
+          </summary>
+          <form method="post" class="d-flex gap-1 mt-2 align-items-center flex-wrap"
+                action="{{ url_for('timetracking.project_move_entries', pid=p.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="team" value="{{ team.pk }}">
+        <input type="hidden" name="back" value="{{ request.path }}">
+            <span class="small text-muted">
+              Moves everything booked here{% if _mins %} ({{ _mins|duration }}){% endif %}
+              onto another project — across customers too. Billed
+              entries stay put.
+            </span>
+            <select name="target_id" class="form-select form-select-sm"
+                    style="max-width: 22rem;">
+              {% for op in move_targets if op.id != p.id|string %}
+                <option value="{{ op.id }}">{{ op.label }}</option>
+              {% endfor %}
+            </select>
+            <button class="btn btn-sm btn-outline-primary">Move</button>
+          </form>
+        </details>
+
+        <details class="mt-2">
+          <summary class="small text-danger" style="cursor:pointer;">
+            <i class="bi bi-trash"></i> Delete this project
+          </summary>
+          <form method="post" class="d-flex gap-1 mt-2 align-items-center flex-wrap"
+                action="{{ url_for('timetracking.project_delete', pid=p.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="team" value="{{ team.pk }}">
+        <input type="hidden" name="back" value="{{ request.path }}">
+            <span class="small text-muted">
+              Removes the project and clears the Cairn links pointing at
+              it. Time still booked here blocks it — move it first, or
+              tick the box to destroy it along with the project.
+            </span>
+            <label class="form-check small m-0">
+              <input type="checkbox" name="purge" value="1" class="form-check-input">
+              delete the time too
+            </label>
+            <input type="text" name="confirm" class="form-control form-control-sm"
+                   style="max-width: 16rem;" autocomplete="off"
+                   placeholder="Type “{{ p.name }}” to confirm">
+            <button class="btn btn-sm btn-outline-danger"
+                    onclick="return confirm('Delete “{{ p.name }}”? This cannot be undone.');">
+              Delete</button>
+          </form>
+        </details>
+      {% endif %}
+{% endblock %}
