@@ -71,6 +71,7 @@ class ZammadStats:
     time_customers_created: int = 0  # Zammad organisations turned into customers
     time_skipped_unlinked: int = 0   # tickets with time but nowhere to book it
     time_skipped_no_time: int = 0    # tickets Zammad reports no accounted time for
+    time_skipped_old: int = 0        # bookings from before the cutoff day
     time_folders_linked: int = 0     # folders bound to a billing project by name
     # Incremental runs: what the ticket list was narrowed to, and how many
     # tickets the run therefore never had to look inside.
@@ -119,6 +120,7 @@ class ZammadStats:
             "time_customers_created": self.time_customers_created,
             "time_skipped_unlinked": self.time_skipped_unlinked,
             "time_skipped_no_time": self.time_skipped_no_time,
+            "time_skipped_old": self.time_skipped_old,
             "time_folders_linked": self.time_folders_linked,
             "since": self.since.isoformat() if self.since else "",
             "tickets_unchanged": self.tickets_unchanged,
@@ -1048,6 +1050,21 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
         stats.time_skipped_no_time += 1
         return
     bookings = _fetch_time_accounting(base, token, zid, stats)
+    # The cutoff: hours booked before the day this team went live here belong to
+    # whatever system they were kept in. Applied before anything is created, so
+    # a ticket whose only bookings are older leaves no trace at all — no
+    # customer, no project, no entry.
+    zone = user_zone(user)
+    cutoff = (getattr(user, "zammad_time_from", "") or "").strip()
+    if cutoff:
+        keep = []
+        for booking in bookings:
+            day = _article_dt(booking).astimezone(zone).date().isoformat()
+            if day < cutoff:
+                stats.time_skipped_old += 1
+                continue
+            keep.append(booking)
+        bookings = keep
     if project is None:
         if not bookings:
             # Nothing to book → don't invent a customer for this organisation.
@@ -1063,7 +1080,6 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
     # can render "#4711" as a link without parsing the text.
     web_url = base.replace("/api/v1", "") + f"/#ticket/zoom/{zid}"
     ticket_note = (item.title or f"Zammad #{znum}")[:1000]
-    zone = user_zone(user)
 
     rows = []
     for booking in bookings:

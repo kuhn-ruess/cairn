@@ -83,6 +83,15 @@
           it, so work finished in one go doesn't take its time with it.
         </div>
       </div>
+      <div class="mb-3">
+        {{ form.time_from.label(class="form-label small text-muted mb-0") }}
+        {{ form.time_from(class="form-control form-control-sm", type="date",
+                          style="max-width: 12rem;") }}
+        <div class="form-text small">{{ form.time_from.description }}
+          Once the logging here is productive, this is what keeps the same month
+          from existing twice.</div>
+      </div>
+
       <div class="form-check mb-0">
         {{ form.auto_customer(class="form-check-input") }}
         {{ form.auto_customer.label(class="form-check-label") }}
@@ -273,7 +282,11 @@
             {% endif %}
           </li>
           <li>Your Zammad user ID (from /users/me): <code>{{ stats.me_id }}</code></li>
-          {% if stats.time_skipped_no_time %}
+          {% if stats.time_skipped_old %}
+          <li>Bookings older than the cutoff, left alone:
+            {{ stats.time_skipped_old }}</li>
+        {% endif %}
+        {% if stats.time_skipped_no_time %}
             <li>Tickets Zammad reports no accounted time for (not fetched):
               {{ stats.time_skipped_no_time }}
               <span class="text-muted">— read from the ticket's own

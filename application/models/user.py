@@ -143,6 +143,11 @@ class User(UserMixin, Document):
     # created on first sight and reused afterwards. See
     # services.zammad_billing.ensure_billing_target.
     zammad_time_auto_customer = BooleanField(default=False)
+    # Only import bookings made on or after this day ("YYYY-MM-DD", read in the
+    # user's timezone). The day you went live: older hours belong to whatever
+    # system you kept them in, and dragging them in once the logging here is
+    # productive means two records of the same month. Empty = no cutoff.
+    zammad_time_from = StringField(max_length=10, default="")
 
     # The billing projects this user last booked time on, newest first (a short
     # list, capped in services.timetracking.remember_project). The capture bar

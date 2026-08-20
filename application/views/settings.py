@@ -79,6 +79,10 @@ class ZammadImportForm(FlaskForm):
     auto_customer = BooleanField(
         "Create customers from Zammad organisations when the ticket's project "
         "isn't linked to a billing project")
+    time_from = StringField(
+        "Import time booked from", validators=[Optional(), Length(max=10)],
+        description="YYYY-MM-DD — the day you went live here. Bookings before "
+                    "it are left where they are. Empty imports everything.")
     full_sync = BooleanField(
         "Check every ticket, not only the ones changed since the last sync")
     dry_run = BooleanField("Dry run (don't write changes)")
@@ -630,6 +634,7 @@ def zammad():
         form.include_closed.data = bool(user.zammad_include_closed)
         form.import_time.data = bool(user.zammad_import_time)
         form.auto_customer.data = bool(user.zammad_time_auto_customer)
+        form.time_from.data = user.zammad_time_from or ""
 
     def _persist_options():
         """The sync options, saved wherever this form was submitted from."""
@@ -642,6 +647,7 @@ def zammad():
         user.zammad_include_closed = bool(form.include_closed.data)
         user.zammad_import_time = bool(form.import_time.data)
         user.zammad_time_auto_customer = bool(form.auto_customer.data)
+        user.zammad_time_from = _valid_day(form.time_from.data)
         user.save()
 
     if form.validate_on_submit():
@@ -669,6 +675,7 @@ def zammad():
         # below once the sync succeeded).
         user.zammad_import_time = bool(form.import_time.data)
         user.zammad_time_auto_customer = bool(form.auto_customer.data)
+        user.zammad_time_from = _valid_day(form.time_from.data)
         try:
             stats = zammad_import_for_user(
                 user, url, token,
@@ -701,6 +708,21 @@ def zammad():
                       "warning")
     return render_template("settings/zammad.html", form=form, stats=stats,
                            **_zammad_agent_context(user))
+
+
+def _valid_day(raw) -> str:
+    """``"2026-08-20"`` or ``""`` — anything unparseable means "no cutoff".
+
+    A silently wrong date here would quietly drop hours, so only a real ISO day
+    is accepted."""
+    from datetime import date as _date
+    value = (raw or "").strip()
+    if not value:
+        return ""
+    try:
+        return _date.fromisoformat(value).isoformat()
+    except ValueError:
+        return ""
 
 
 def _zammad_agent_context(user) -> dict:
