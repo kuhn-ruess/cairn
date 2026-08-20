@@ -1026,7 +1026,18 @@ def import_mite():
         summary += (f", {stats.entries_imported} time "
                     f"entr{'y' if stats.entries_imported == 1 else 'ies'}")
         if stats.entries_skipped:
-            summary += f" ({stats.entries_skipped} already there)"
+            # Each of these means something different, and lumping them
+            # together produced the memorable "487 already there" on an import
+            # into an empty team.
+            asides = []
+            if stats.entries_skipped:
+                asides.append(f"{stats.entries_skipped} already there")
+            if stats.entries_empty:
+                asides.append(f"{stats.entries_empty} with no time booked on them")
+            if stats.entries_undated:
+                asides.append(f"{stats.entries_undated} with an unreadable date")
+            if asides:
+                summary += f" ({', '.join(asides)})"
     else:
         summary += " — current projects only, no time imported"
     flash(f"{'Dry run — nothing written. Would import' if stats.dry_run else 'Imported'}: "

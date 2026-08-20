@@ -83,6 +83,12 @@ class MiteStats:
     projects_archived: int = 0
     entries_imported: int = 0
     entries_skipped: int = 0  # already imported by an earlier run
+    # mite lets an entry exist with no time on it at all (a started-and-never-
+    # filled row, a leftover timer). Those are not "already there" and counting
+    # them as such made a fresh import claim it had seen hundreds of entries
+    # before — they are simply nothing to import.
+    entries_empty: int = 0
+    entries_undated: int = 0  # a date mite gave us that we could not read
     entries_fetched: int = 0
     users_matched: int = 0
     unmatched_users: list = field(default_factory=list)
@@ -103,6 +109,8 @@ class MiteStats:
             "projects_archived": self.projects_archived,
             "entries_imported": self.entries_imported,
             "entries_skipped": self.entries_skipped,
+            "entries_empty": self.entries_empty,
+            "entries_undated": self.entries_undated,
             "entries_fetched": self.entries_fetched,
             "users_matched": self.users_matched,
             "unmatched_users": list(self.unmatched_users),
@@ -507,8 +515,13 @@ def import_for_user(user, *, account: str, api_key: str, team,
             continue
         when = _spent_on(raw.get("date_at"), zone)
         minutes = int(raw.get("minutes") or 0)
-        if when is None or minutes < 1:
-            stats.entries_skipped += 1
+        if when is None:
+            stats.entries_undated += 1
+            continue
+        if minutes < 1:
+            # Nothing was booked. Not a duplicate, not an error — mite simply
+            # keeps rows with no time on them.
+            stats.entries_empty += 1
             continue
         uid, uname = users.get(str(raw.get("user_id")), ("", raw.get("user_name") or ""))
         billable = bool(raw.get("billable"))
