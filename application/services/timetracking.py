@@ -1118,7 +1118,12 @@ def public_project_report(project, month: str | None = None):
         "total_minutes": total,
         "months": [months[k] for k in sorted(months, reverse=True)],
         "month": month or "",
-        "has_times": any(r["start_time"] for r in rows),
+        # A project booked by the clock shows the columns even on a month whose
+        # entries have no times yet — the sheet's shape is a property of the
+        # project, not of what happens to be in it. Otherwise a customer sees a
+        # table that changes columns from month to month.
+        "has_times": (project.time_mode == "clock"
+                      or any(r["start_time"] for r in rows)),
     }
 
 
@@ -1789,6 +1794,52 @@ def parse_clock(start: str, end: str):
     if span <= 0 or span > 24 * 60:
         return None
     return span, f"{a // 60:02d}:{a % 60:02d}", f"{b // 60:02d}:{b % 60:02d}"
+
+
+def split_note_times(*, user=None, dry_run: bool = False) -> dict:
+    """Lift "(10:00 bis 12:00)" out of old notes into the entry's own fields.
+
+    mite has no start/end fields, so the times of day were written into the
+    note. The importer decodes that now, but everything imported before it did
+    still carries the times as text — invisible to the report's time columns and
+    to the customer's sheet, which is where they were wanted in the first place.
+
+    Only touches entries that have no times yet and whose note actually opens
+    with a time range; billed entries are left frozen. Idempotent: once the
+    times are fields, the note no longer matches."""
+    from application.services.mite_import import split_clock
+
+    q = TimeBucket.objects
+    if user is not None:
+        teams = user_teams(user)
+        if not teams:
+            return {"entries": 0, "buckets": 0}
+        q = q.filter(team__in=teams)
+
+    out = {"entries": 0, "buckets": 0}
+    for b in q:
+        touched = False
+        for e in b.entries:
+            if e.status != "active" or e.locked or e.start_time or e.end_time:
+                continue
+            start, end, note = split_clock(e.note or "")
+            if not start:
+                continue
+            out["entries"] += 1
+            touched = True
+            if dry_run:
+                continue
+            TimeBucket.objects(
+                pk=b.pk, entries__entry_id=e.entry_id, entries__locked=False,
+            ).update_one(
+                set__entries__S__start_time=start,
+                set__entries__S__end_time=end,
+                set__entries__S__note=note,
+                set__updated_at=_utcnow(),
+            )
+        if touched:
+            out["buckets"] += 1
+    return out
 
 
 def backfill_entry_references(*, user=None, dry_run: bool = False) -> dict:

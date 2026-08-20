@@ -60,6 +60,7 @@ commands beyond the user-facing ones in the README:
 - `./cairn reset-password <user>` — issues a one-time reset URL (useful when SMTP isn't configured)
 - `./cairn import-todoist <user> --token <todoist-token>` — full import of projects/labels/tasks/comments
 - `./cairn import-mite <user> --account <acct> --key <api-key> [--team <id>] [--from/--to] [--projects-only] [--dry-run]` — migrate a mite.de account (customers, billing projects with rates/budgets, full time history) into a team. `--projects-only` takes the current structure without any time. Idempotent via the stored mite ids, so runs can be repeated or widened
+- `./cairn split-note-times [--user <name>] [--dry-run]` — lift `(10:00 bis 12:00)` out of imported mite notes into `TimeEntry.start_time`/`end_time` (the importer does this now; this fixes what came in before)
 - `./cairn split-time-buckets [--dry-run]` — one-shot: re-file legacy monthly time buckets into the per-day buckets the model now uses
 - `./cairn cleanup-completed-tasks [--dry-run] [--user <name>]` — cron-friendly sweep of done/dropped tasks past each user's retention window
 - `./cairn cleanup-trash [--dry-run] [--user <name>]` — cron-friendly purge of trashed items past each user's `trash_retention_days` (default 30; `0` = keep until emptied)

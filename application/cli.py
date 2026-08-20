@@ -180,6 +180,31 @@ def import_mite(username, account, key, team_id, date_from, date_to,
         click.echo(f"  … and {len(stats.errors) - 20} more")
 
 
+@cairn_cli.command("split-note-times")
+@click.option("--user", "username", help="Only one user's teams (by username).")
+@click.option("--dry-run", is_flag=True, help="Report only, don't write.")
+def split_note_times_cmd(username, dry_run):
+    """Lift "(10:00 bis 12:00)" out of old notes into start/end fields.
+
+    mite keeps no start/end fields, so the times of day live in the note. The
+    import decodes that now; this does the same for everything imported before
+    it did, so the report's time columns and the customer's sheet finally show
+    them. Entries that already have times, and billed ones, are left alone.
+    Idempotent — re-running it finds nothing.
+    """
+    from application.services.timetracking import split_note_times
+
+    user = None
+    if username:
+        user = User.objects(username=username).first()
+        if not user:
+            raise click.ClickException(f"user '{username}' not found")
+    res = split_note_times(user=user, dry_run=dry_run)
+    click.echo(f"{'would move' if dry_run else 'moved'} times on {res['entries']} "
+               f"entr{'y' if res['entries'] == 1 else 'ies'} "
+               f"in {res['buckets']} bucket(s)")
+
+
 @cairn_cli.command("fix-time-references")
 @click.option("--user", "username", help="Only one user's teams (by username).")
 @click.option("--dry-run", is_flag=True, help="Report only, don't write.")
