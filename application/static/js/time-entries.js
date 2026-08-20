@@ -469,6 +469,22 @@
     }
   });
 
+  // The bulk field editor: show the control that belongs to the chosen field.
+  // A dropdown field must be offered as a dropdown, so there is one control per
+  // field and only the active one is enabled — a disabled control is not
+  // submitted, which is what keeps exactly one value in the request.
+  document.addEventListener("change", (ev) => {
+    const picker = ev.target.closest(".tt-field-key");
+    if (!picker) return;
+    const key = (picker.value || "").split("|")[0];
+    const scope = picker.closest("form") || document;
+    scope.querySelectorAll(".tt-field-value").forEach((el) => {
+      const mine = el.dataset.field === key;
+      el.disabled = !mine;
+      el.hidden = !mine;
+    });
+  });
+
   // "Mark selected billed" needs something to select — one tick for the lot.
   document.addEventListener("change", (ev) => {
     const all = ev.target.closest("#tt-select-all");

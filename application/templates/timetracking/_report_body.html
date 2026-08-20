@@ -97,18 +97,38 @@
         {# Set one of the projects' own fields on everything ticked — the same
            edit twenty times is what the per-row editor made of this. #}
         <span class="vr d-none d-md-inline"></span>
-        <select name="field_key" class="form-select form-select-sm"
+        <select name="field_key" class="form-select form-select-sm tt-field-key"
                 style="max-width: 12rem;">
           {% for fd in field_columns %}
             <option value="{{ fd.key }}|{{ fd.label }}">{{ fd.label }}</option>
           {% endfor %}
         </select>
-        <input type="text" name="field_value" class="form-control form-control-sm"
-               style="max-width: 12rem;" list="tt-field-values"
-               placeholder="Value (empty = clear)">
-        <datalist id="tt-field-values">
-          {% for v in field_values %}<option value="{{ v }}"></option>{% endfor %}
-        </datalist>
+        {# One value control per field, because a field that *is* a dropdown has
+           to be offered as one — a free text box is how "Pauschal" acquires a
+           fourth spelling. Only the selected field's control is enabled, and a
+           disabled control is not submitted, so exactly one value arrives.
+           Switching is done in time-entries.js (delegated on document: this
+           block is swapped in place after every edit). #}
+        {% for fd in field_columns %}
+          {% if fd.type == 'select' %}
+            <select name="field_value" data-field="{{ fd.key }}"
+                    class="form-select form-select-sm tt-field-value"
+                    style="max-width: 12rem;"
+                    {% if not loop.first %}disabled hidden{% endif %}>
+              <option value="">— clear —</option>
+              {% for o in fd.options %}<option value="{{ o }}">{{ o }}</option>{% endfor %}
+            </select>
+          {% else %}
+            <input type="text" name="field_value" data-field="{{ fd.key }}"
+                   class="form-control form-control-sm tt-field-value"
+                   style="max-width: 12rem;" list="tt-values-{{ fd.key }}"
+                   placeholder="Value (empty = clear)"
+                   {% if not loop.first %}disabled hidden{% endif %}>
+            <datalist id="tt-values-{{ fd.key }}">
+              {% for v in field_values.get(fd.key, []) %}<option value="{{ v }}"></option>{% endfor %}
+            </datalist>
+          {% endif %}
+        {% endfor %}
         <button class="btn btn-sm btn-outline-primary" name="action" value="field">
           Set on selected</button>
       {% endif %}

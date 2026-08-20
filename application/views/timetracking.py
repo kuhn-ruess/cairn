@@ -655,7 +655,12 @@ def _field_columns(rows):
         for fd in p.custom_fields or []:
             if fd.key not in seen:
                 seen.add(fd.key)
-                out.append({"key": fd.key, "label": fd.label})
+                # Type and choices ride along so the bulk editor can offer a
+                # field's actual dropdown instead of a text box that invites a
+                # fourth spelling of "Pauschal".
+                out.append({"key": fd.key, "label": fd.label,
+                            "type": fd.field_type or "text",
+                            "options": list(fd.options or [])})
     # A value can outlive its definition (the field was removed from the
     # project after it was booked); those keep their own column too, labelled
     # as the entry remembers them.
@@ -663,7 +668,18 @@ def _field_columns(rows):
         for c in r.get("custom", []):
             if c["key"] not in seen:
                 seen.add(c["key"])
-                out.append({"key": c["key"], "label": c["label"] or c["key"]})
+                out.append({"key": c["key"], "label": c["label"] or c["key"],
+                            "type": "text", "options": []})
+    return out
+
+
+def _values_by_field(rows) -> dict:
+    """field key → the values already booked under it in this result."""
+    out: dict = {}
+    for r in rows:
+        for c in r.get("custom", []):
+            if c["value"]:
+                out.setdefault(c["key"], set()).add(c["value"])
     return out
 
 
@@ -817,10 +833,10 @@ def _grouped_report(team, f):
         "authors": authors,
         "move_targets": move_targets, "live": live,
         "field_columns": _field_columns(rows),
-        # Values already in use, so setting one is a pick rather than a typo
-        # waiting to happen.
-        "field_values": sorted({c["value"] for r in rows
-                                for c in r.get("custom", []) if c["value"]}),
+        # Values already in use, per field, so setting one is a pick rather
+        # than a typo waiting to happen.
+        "field_values": {
+            k: sorted(v) for k, v in _values_by_field(rows).items()},
     }
 
 
