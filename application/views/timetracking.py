@@ -11,7 +11,9 @@ from bson import ObjectId
 from flask_login import current_user, login_required
 from mongoengine import Q
 
+import re
 from datetime import datetime
+from urllib.parse import quote
 
 from application.models.item import Item
 from application.models.timetracking import Customer, TimeBucket, TimeTrackingProject
@@ -634,17 +636,50 @@ def _report_context(args=None):
         **data)
 
 
+def _field_columns(rows):
+    """The custom fields worth a column of their own, in a stable order.
+
+    Taken from the projects the result actually contains, not from the whole
+    team: a report filtered to one customer then carries exactly that
+    customer's fields. They used to be crammed into the description as badges
+    and squashed into one semicolon-separated cell in the export, which is the
+    same as not having them — a "Ticket-Nr." column you can sort by is the
+    entire point of defining the field."""
+    pids = {r["project_id"] for r in rows if r.get("project_id")}
+    if not pids:
+        return []
+    out, seen = [], set()
+    for p in TimeTrackingProject.objects(
+            id__in=[to_oid(i) for i in pids if to_oid(i)]
+    ).only("id", "name", "custom_fields").order_by("+name"):
+        for fd in p.custom_fields or []:
+            if fd.key not in seen:
+                seen.add(fd.key)
+                out.append({"key": fd.key, "label": fd.label})
+    # A value can outlive its definition (the field was removed from the
+    # project after it was booked); those keep their own column too, labelled
+    # as the entry remembers them.
+    for r in rows:
+        for c in r.get("custom", []):
+            if c["key"] not in seen:
+                seen.add(c["key"])
+                out.append({"key": c["key"], "label": c["label"] or c["key"]})
+    return out
+
+
 def _export_table(data):
     """``(header, rows)`` for the report export — one flat table.
 
     The CSV, the Excel-flavoured CSV and the on-page preview all render this,
     so what you see before downloading is what the file contains."""
     from application.services.timetracking import ref_label
+    fields = data.get("field_columns") or []
     header = ["Date", "Start", "End", "Customer", "Project", "Service", "User",
               "Minutes", "Hours", "Billable", "Billed", "Amount (EUR)",
-              "Description", "Fields"]
+              "Description"] + [f["label"] for f in fields]
     rows = []
     for r in sorted(data["rows"], key=lambda r: (r["spent_on"], r.get("start_time") or "")):
+        values = {c["key"]: c["value"] for c in r.get("custom", [])}
         rows.append([
             r["spent_on"].isoformat(), r.get("start_time", ""), r.get("end_time", ""),
             r["customer"], r["project"], r.get("service", ""), r["user_name"],
@@ -653,8 +688,7 @@ def _export_table(data):
             f"{(r['amount_cents'] or 0) / 100:.2f}",
             (ref_label(r["external_ref"]) + " " if r.get("external_ref") else "")
             + r.get("description", r["note"]),
-            "; ".join(f"{c['label']}: {c['value']}" for c in r.get("custom", [])),
-        ])
+        ] + [values.get(f["key"], "") for f in fields])
     return header, rows
 
 
@@ -758,6 +792,7 @@ def _grouped_report(team, f):
         "customers": customers_list, "projects": projects_list,
         "project_groups": project_groups, "members": members,
         "move_targets": move_targets, "live": live,
+        "field_columns": _field_columns(rows),
     }
 
 
@@ -955,11 +990,38 @@ def report_csv():
         w.writerow(row)
 
     body = ("\ufeff" + buf.getvalue()) if excel else buf.getvalue()
-    name = (f"cairn-time-{f['date_from']:%Y%m%d}-{f['date_to']:%Y%m%d}"
-            f"{'-excel' if excel else ''}.csv")
+    name = _export_name(team, f)
+    # Both forms: the plain one for anything old, and RFC 5987 for the name as
+    # it really reads. A header is latin-1 on the wire, so "Flughafen München"
+    # would otherwise be a 500 rather than a download.
+    fallback = name.encode("ascii", "replace").decode("ascii")
     return Response(body, mimetype="text/csv; charset=utf-8", headers={
-        "Content-Disposition": f"attachment; filename={name}",
+        "Content-Disposition": (f'attachment; filename="{fallback}"; '
+                                f"filename*=UTF-8''{quote(name)}"),
     })
+
+
+def _export_name(team, f) -> str:
+    """``"2026-08 Flughafen München.csv"`` — the name the file is filed under.
+
+    Month and customer, because that is what an export *is*: one client's month,
+    the thing you attach to an invoice. Whoever downloads it should not have to
+    rename it before saving. Without a customer filter the team stands in, and a
+    range that isn't one month says so rather than pretending."""
+    lo, hi = f["date_from"], f["date_to"]
+    if (lo.year, lo.month) == (hi.year, hi.month):
+        period = f"{lo:%Y-%m}"
+    else:
+        period = f"{lo:%Y-%m-%d}_{hi:%Y-%m-%d}"
+    who = team.name
+    if f["customer_id"]:
+        c = Customer.objects(pk=to_oid(f["customer_id"]), team=team).first()
+        if c is not None:
+            who = c.name
+    # Only the characters a filesystem (and a Content-Disposition header)
+    # tolerate everywhere; umlauts are fine, slashes and quotes are not.
+    who = re.sub(r'[\\/:*?"<>|\r\n]+', " ", who).strip() or "export"
+    return f"{period} {who}.csv"
 
 
 # ---------------------------------------------------------------------------

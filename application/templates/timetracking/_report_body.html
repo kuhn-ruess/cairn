@@ -115,6 +115,7 @@
           <th>Customer / project</th>
           <th>Who</th>
           <th>Description</th>
+          {% for fd in field_columns %}<th>{{ fd.label }}</th>{% endfor %}
           <th class="text-end">Hours</th>
           <th class="text-end">Amount</th>
           <th></th>
@@ -154,7 +155,6 @@
               {% if e.locked %}<i class="bi bi-lock text-muted" title="Billed"></i> {% endif %}
               {% if not e.billable %}<span class="badge text-bg-secondary">n/b</span> {% endif %}
               {% if e.service %}<span class="badge text-bg-light text-muted">{{ e.service }}</span> {% endif %}
-              {% for c in e.custom %}<span class="badge text-bg-light text-muted">{{ c.label }}: {{ c.value }}</span> {% endfor %}
               {% if e.external_ref %}
                 {% if e.external_url %}<a href="{{ e.external_url }}" target="_blank"
                     rel="noopener" class="text-decoration-none"
@@ -163,6 +163,14 @@
               {% endif %}
               {{ e.description }}
             </td>
+            {# One column per custom field — a "Ticket-Nr." you can read down
+               the page, instead of a badge buried in the description. #}
+            {% for fd in field_columns %}
+              <td class="small text-nowrap">
+                {{ (e.custom | selectattr('key', 'equalto', fd.key)
+                             | map(attribute='value') | first) or '' }}
+              </td>
+            {% endfor %}
             <td class="small text-end text-nowrap">{{ e.minutes|duration }}</td>
             <td class="small text-success text-end text-nowrap">{{ e.amount_cents|eur }}</td>
             <td class="text-end" style="width:2rem;">
@@ -176,7 +184,7 @@
             {# Deleted time is kept, so it can come back — and this is the only
                view that shows an entry whose booker has no Cairn account. #}
             <tr>
-              <td colspan="{{ 9 if can_bill else 8 }}" class="pt-0">
+              <td colspan="{{ (9 if can_bill else 8) + field_columns|length }}" class="pt-0">
                 <div class="small text-muted d-flex align-items-center gap-2">
                   Deleted{% if e.external_ref %} — imported from ticket
                   {{ e.external_ref|ticketref }}{% endif %}.
@@ -191,7 +199,7 @@
                and endpoint as the day sheet; none of these inputs carry a name,
                so the bulk-billing form above never submits them. #}
             <tr class="tt-edit d-none">
-              <td colspan="{{ 9 if can_bill else 8 }}">
+              <td colspan="{{ (9 if can_bill else 8) + field_columns|length }}">
                 <div class="d-flex gap-2 flex-wrap align-items-center"
                      data-action="{{ url_for('timetracking.entry_edit', bucket_id=e.bucket_id, entry_id=e.entry_id) }}">
                   <input type="text" class="form-control form-control-sm tt-edit-duration"
@@ -239,7 +247,7 @@
       </tbody>
       <tfoot>
         <tr class="fw-semibold">
-          <td colspan="{{ 6 if can_bill else 5 }}" class="text-end">Total</td>
+          <td colspan="{{ (6 if can_bill else 5) + field_columns|length }}" class="text-end">Total</td>
           <td class="text-end text-nowrap">{{ grand_minutes|duration }}</td>
           <td class="text-end text-success text-nowrap">{{ grand_amount|eur }}</td>
           <td></td>
