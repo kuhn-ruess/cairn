@@ -31,6 +31,12 @@ celery.conf.update(
             "task": "zammad.enqueue_due",
             "schedule": 60.0,  # tick every minute; due-check spaces real syncs
         },
+        # Teams that hold their own connection: one run for everyone, instead
+        # of every member fetching the same instance (services.zammad_team).
+        "enqueue-due-zammad-team-syncs": {
+            "task": "zammad.enqueue_due_teams",
+            "schedule": 60.0,
+        },
     },
 )
 

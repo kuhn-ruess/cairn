@@ -46,6 +46,49 @@ def enqueue_due_zammad_syncs() -> int:
     return enqueued
 
 
+@shared_task(name="zammad.enqueue_due_teams")
+def enqueue_due_team_syncs() -> int:
+    """Same fan-out for teams that hold their own Zammad connection.
+
+    A team sync replaces its members' individual ones: one run reads the
+    instance and files each ticket under its owner (services.zammad_team)."""
+    from application.services import zammad_team
+
+    interval = int(current_app.config.get("ZAMMAD_SYNC_INTERVAL_MIN", 5))
+    r = _redis()
+    enqueued = 0
+    for tid in zammad_team.due_team_ids(interval):
+        if not r.set(f"zammad:team-queued:{tid}", "1", nx=True, ex=interval * 60):
+            continue
+        sync_team_zammad.delay(tid)
+        enqueued += 1
+    return enqueued
+
+
+@shared_task(name="zammad.sync_team", bind=True, max_retries=2,
+             default_retry_delay=120)
+def sync_team_zammad(self, team_id: str):
+    """Sync one team. Locked per team like the per-user task, for the same
+    reason: beat must not start a second run over a slow one."""
+    from application.models.team import Team
+    from application.services.zammad_import import ZammadError
+    from application.services.zammad_team import sync_team
+
+    r = _redis()
+    lock = f"zammad:team-lock:{team_id}"
+    if not r.set(lock, "1", nx=True, ex=_LOCK_TTL):
+        return None
+    try:
+        team = Team.objects(pk=team_id).first()
+        if team is None:
+            return None
+        return sync_team(team).as_dict()
+    except ZammadError as exc:
+        raise self.retry(exc=exc)
+    finally:
+        r.delete(lock)
+
+
 @shared_task(name="zammad.sync_user", bind=True, max_retries=2,
              default_retry_delay=120)
 def sync_user_zammad(self, user_id: str):

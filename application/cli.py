@@ -180,6 +180,50 @@ def import_mite(username, account, key, team_id, date_from, date_to,
         click.echo(f"  … and {len(stats.errors) - 20} more")
 
 
+@cairn_cli.command("sync-zammad-team")
+@click.option("--team", "team_id", help="Only this team (id). Default: all due.")
+@click.option("--full", is_flag=True, help="Check every ticket, not only changes.")
+@click.option("--force", is_flag=True, help="Ignore the interval.")
+@click.option("--dry-run", is_flag=True, help="Report only, don't write.")
+def sync_zammad_team(team_id, full, force, dry_run):
+    """Sync a team's Zammad once for everyone: tickets to their owners, time to
+    the team's billing.
+
+    The no-broker equivalent of the background team sync — same code path.
+    """
+    from flask import current_app
+
+    from application.models.team import Team
+    from application.services.zammad_import import ZammadError
+    from application.services.zammad_team import due_team_ids, sync_team
+
+    if team_id:
+        ids = [team_id]
+    else:
+        interval = int(current_app.config.get("ZAMMAD_SYNC_INTERVAL_MIN", 5))
+        ids = due_team_ids(interval, force=force)
+    if not ids:
+        click.echo("no team due")
+        return
+    for tid in ids:
+        team = Team.objects(pk=tid).first()
+        if team is None:
+            click.echo(f"{tid}: not found")
+            continue
+        try:
+            st = sync_team(team, full=full, dry_run=dry_run)
+        except ZammadError as exc:
+            click.echo(f"{team.name}: {exc}")
+            continue
+        click.echo(f"{team.name}: {st.tickets_created} created, "
+                   f"{st.tickets_updated} updated, "
+                   f"{st.time_entries_imported} time entr"
+                   f"{'y' if st.time_entries_imported == 1 else 'ies'}, "
+                   f"{st.api_calls} requests")
+        for err in st.errors[:5]:
+            click.echo(f"  ! {err}")
+
+
 @cairn_cli.command("split-note-times")
 @click.option("--user", "username", help="Only one user's teams (by username).")
 @click.option("--dry-run", is_flag=True, help="Report only, don't write.")

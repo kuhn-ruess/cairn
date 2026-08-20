@@ -79,6 +79,10 @@ class ZammadStats:
     tickets_unchanged: int = 0
     # Closed tickets pulled in anyway, because time is booked on them.
     closed_with_time: int = 0
+    # Team runs: tickets whose Zammad owner has no Cairn account (filed under
+    # the team's admin), and tickets that changed hands since the last sync.
+    tickets_unowned: int = 0
+    tickets_reowned: int = 0
     time_task_links_cleared: int = 0  # per-task billing links an earlier sync wrote
     # Zammad user id → actor snapshot, cached for the run (not reported).
     actor_cache: dict = field(default_factory=dict)
@@ -125,6 +129,8 @@ class ZammadStats:
             "since": self.since.isoformat() if self.since else "",
             "tickets_unchanged": self.tickets_unchanged,
             "closed_with_time": self.closed_with_time,
+            "tickets_unowned": self.tickets_unowned,
+            "tickets_reowned": self.tickets_reowned,
             "time_task_links_cleared": self.time_task_links_cleared,
             "me_id": self.me_id,
             "fetched_via": self.fetched_via,
@@ -556,6 +562,7 @@ def _upsert_ticket(
     dry_run: bool,
     me_id=None,
     debug: bool = False,
+    opts: "TimeOptions | None" = None,
 ) -> "Item | None":
     """Create or update a Cairn task for a Zammad ticket and return it.
 
@@ -739,7 +746,7 @@ def _upsert_ticket(
         # task / project into a specific place after the first import.
         existing.save()
         _import_time_accounting(user, existing, base, token, zid, znum, stats,
-                                me_id, raw=raw)
+                                me_id, raw=raw, opts=opts)
         stats.tickets_updated += 1
         return existing
     else:
@@ -761,7 +768,7 @@ def _upsert_ticket(
         _sync_article_comments(item, articles, stats, user, me_id)
         item.save()
         _import_time_accounting(user, item, base, token, zid, znum, stats,
-                                me_id, raw=raw)
+                                me_id, raw=raw, opts=opts)
         stats.tickets_created += 1
         return item
 
@@ -843,6 +850,42 @@ def _ticket_books_time(raw: dict) -> bool:
     an instance's entire closed history in."""
     minutes = _ticket_minutes(raw)
     return bool(minutes and minutes > 0)
+
+
+@dataclass
+class TimeOptions:
+    """The three decisions the time import needs, and whose timezone reads a
+    booking's day. A per-user run takes them from the user, a team run from the
+    team — the import itself no longer has to know which kind of run it is in."""
+
+    enabled: bool = True
+    auto_customer: bool = False
+    since: str = ""          # "YYYY-MM-DD", the day this team went live
+    zone: Any = None         # tzinfo the booking's local day is read in
+    team: Any = None         # the team to book into (None = the user's default)
+
+    @classmethod
+    def for_user(cls, user):
+        from application.services.tz import user_zone
+        return cls(
+            enabled=bool(getattr(user, "zammad_import_time", True)),
+            auto_customer=bool(getattr(user, "zammad_time_auto_customer", False)),
+            since=(getattr(user, "zammad_time_from", "") or "").strip(),
+            zone=user_zone(user),
+        )
+
+    @classmethod
+    def for_team(cls, team):
+        from application.services.tz import user_zone
+        return cls(
+            enabled=bool(getattr(team, "zammad_import_time", True)),
+            auto_customer=bool(getattr(team, "zammad_time_auto_customer", False)),
+            since=(getattr(team, "zammad_time_from", "") or "").strip(),
+            # A team's hours are read in the deployment's timezone: the same
+            # booking must land on the same day for everyone who looks at it.
+            zone=user_zone(None),
+            team=team,
+        )
 
 
 def _team_for(stats: ZammadStats, team):
@@ -965,7 +1008,7 @@ def _matching_container(item: "Item", name: str):
 
 
 def _auto_billing_project(user: User, item: "Item", base: str, token: str,
-                          raw: dict, stats: ZammadStats):
+                          raw: dict, stats: ZammadStats, team=None):
     """Billing project for a ticket whose Cairn subtree isn't linked to one.
 
     Only reached with ``User.zammad_time_auto_customer`` on. The ticket's Zammad
@@ -981,7 +1024,7 @@ def _auto_billing_project(user: User, item: "Item", base: str, token: str,
     from application.services.timetracking import default_team
     from application.services.zammad_billing import ensure_billing_target
 
-    team = _team_for(stats, default_team(user))
+    team = _team_for(stats, team or default_team(user))
     if team is None:
         return None
     ext, name = _zammad_org(base, token, raw, stats)
@@ -1002,7 +1045,8 @@ def _auto_billing_project(user: User, item: "Item", base: str, token: str,
 
 def _import_time_accounting(user: User, item: "Item", base: str, token: str,
                             zid: str, znum: str, stats: ZammadStats,
-                            me_id=None, raw: dict | None = None) -> None:
+                            me_id=None, raw: dict | None = None,
+                            opts: "TimeOptions | None" = None) -> None:
     """Mirror the time booked on a Zammad ticket into Cairn's time tracking.
 
     Two gates, in order. ``User.zammad_import_time`` is the master switch — off
@@ -1023,9 +1067,10 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
     from application.services.tz import user_zone
 
     raw = raw or {}
-    if not getattr(user, "zammad_import_time", True) or not has_team(user):
+    opts = opts or TimeOptions.for_user(user)
+    if not opts.enabled or not (opts.team or has_team(user)):
         return
-    auto = getattr(user, "zammad_time_auto_customer", False)
+    auto = opts.auto_customer
     # Earlier syncs stamped the billing project onto the *task*. Tasks are not
     # where a link belongs (see _auto_billing_project), and leaving those behind
     # would keep a thousand one-ticket bindings alive that nobody can maintain —
@@ -1054,8 +1099,8 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
     # whatever system they were kept in. Applied before anything is created, so
     # a ticket whose only bookings are older leaves no trace at all — no
     # customer, no project, no entry.
-    zone = user_zone(user)
-    cutoff = (getattr(user, "zammad_time_from", "") or "").strip()
+    zone = opts.zone or user_zone(user)
+    cutoff = opts.since
     if cutoff:
         keep = []
         for booking in bookings:
@@ -1070,7 +1115,8 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
             # Nothing to book → don't invent a customer for this organisation.
             stats.time_skipped_unlinked += 1
             return
-        project = _auto_billing_project(user, item, base, token, raw, stats)
+        project = _auto_billing_project(user, item, base, token, raw, stats,
+                                        team=opts.team)
         if project is None:
             stats.time_skipped_unlinked += 1
             return
@@ -1110,7 +1156,7 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
         })
     if rows:
         added, fixed = sync_external_entries(user=user, item=item, rows=rows,
-                                             project=project)
+                                             project=project, team=opts.team)
         stats.time_entries_imported += added
         stats.time_entries_repaired += fixed
     # Entries whose Zammad booking no longer exists are never in ``rows``, so

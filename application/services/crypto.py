@@ -31,6 +31,29 @@ def _key_for(user_id: str) -> bytes:
     return base64.urlsafe_b64encode(digest)
 
 
+def encrypt_for(scope, plaintext: str | None) -> str:
+    """Encrypt against any document's id — a user, a team.
+
+    The key ingredients are unchanged (server secret + the document's id); only
+    the assumption that the document is a *user* is gone, because a team now
+    holds a Zammad token too."""
+    if not plaintext:
+        return ""
+    return Fernet(_key_for(str(scope.pk))).encrypt(
+        plaintext.encode("utf-8")).decode("ascii")
+
+
+def decrypt_for(scope, ciphertext: str | None) -> str:
+    if not ciphertext:
+        return ""
+    try:
+        return Fernet(_key_for(str(scope.pk))).decrypt(
+            ciphertext.encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError):
+        # Legacy plaintext (see the module docstring) — hand it back as-is.
+        return ciphertext
+
+
 def encrypt_for_user(user, plaintext: str | None) -> str:
     if not plaintext:
         return ""

@@ -1876,7 +1876,8 @@ def imported_entry_ids(user, item) -> set:
     return out
 
 
-def sync_external_entries(*, user, item, rows, project=None) -> tuple[int, int]:
+def sync_external_entries(*, user, item, rows, project=None,
+                          team=None) -> tuple[int, int]:
     """Mirror an external system's time for ``item``. Returns ``(added, fixed)``.
 
     Each row is ``{external_id, minutes, spent_on, note, external_ref,
@@ -1897,10 +1898,14 @@ def sync_external_entries(*, user, item, rows, project=None) -> tuple[int, int]:
     ``project`` overrides where the time books; without it the item's subtree
     link is resolved, and no link means nothing happens — that link *is* the
     opt-in."""
-    if not rows or not has_team(user):
+    if not rows or not (team or has_team(user)):
         return 0, 0
     project = project or resolve_time_project(item)
-    if project is None or str(project.team.id) not in user_team_ids(user):
+    if project is None:
+        return 0, 0
+    # A team run books on the team's own authority (one connection, one team);
+    # a user run may only book into a team they belong to.
+    if team is None and str(project.team.id) not in user_team_ids(user):
         return 0, 0
     team = project.team
 

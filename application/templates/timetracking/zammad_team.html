@@ -1,0 +1,204 @@
+{% extends "layout/base.html" %}
+{% block title %}Zammad for {{ team.name }} · Cairn{% endblock %}
+{% block content %}
+{% import "timetracking/_nav.html" as nav with context %}
+{{ nav.tt_nav('zammad', team, all_teams, can_manage) }}
+
+<div style="max-width: 60rem;">
+  <h1 class="h4 mb-1"><i class="bi bi-life-preserver"></i> Zammad for {{ team.name }}</h1>
+  <p class="text-muted small">
+    One connection for the whole team instead of one per member. A service token
+    reads the instance once; every ticket is filed under the person who owns it
+    in Zammad — in <em>their</em> own area — and the time booked on it goes to
+    this team's billing, whoever booked it. That is also what closes the gaps a
+    per-member sync cannot: hours on a colleague's ticket, and tickets that open
+    and close between two runs.
+  </p>
+
+  <form method="post" class="card mb-4">
+    <div class="card-body">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="team" value="{{ team.pk }}">
+
+      <div class="row g-3">
+        <div class="col-12 col-md-7">
+          <label class="form-label small text-muted mb-0">Zammad URL</label>
+          <input type="url" name="url" value="{{ team.zammad_url or '' }}"
+                 class="form-control form-control-sm"
+                 placeholder="https://zammad.example.com">
+        </div>
+        <div class="col-12 col-md-5">
+          <label class="form-label small text-muted mb-0">Service token</label>
+          <input type="password" name="token" autocomplete="off"
+                 class="form-control form-control-sm"
+                 placeholder="{{ 'stored — leave blank to keep it' if has_token else 'Zammad → Profile → Token Access' }}">
+          <div class="form-text small">
+            Needs to read tickets in every group and their time accounting
+            (<code>ticket.agent</code> + <code>admin.time_accounting</code>).
+            Encrypted at rest.
+          </div>
+        </div>
+      </div>
+
+      <hr class="my-3">
+
+      <label class="form-check small mb-2">
+        <input type="checkbox" name="auto_sync" value="1" class="form-check-input"
+               {% if team.zammad_auto_sync %}checked{% endif %}>
+        <strong>Sync in the background</strong>
+        <div class="text-muted">
+          The worker runs this every few minutes — one run for the team, instead
+          of every member syncing their own slice.
+        </div>
+      </label>
+
+      <label class="form-check small mb-2">
+        <input type="checkbox" name="import_time" value="1" class="form-check-input"
+               {% if team.zammad_import_time %}checked{% endif %}>
+        <strong>Import booked time</strong>
+        <div class="text-muted">
+          Every agent's bookings, attributed through
+          <a href="{{ url_for('timetracking.people', team=team.pk) }}">People</a>.
+        </div>
+      </label>
+
+      <label class="form-check small mb-2">
+        <input type="checkbox" name="auto_customer" value="1" class="form-check-input"
+               {% if team.zammad_time_auto_customer %}checked{% endif %}>
+        <strong>Create customers from Zammad organisations</strong>
+        <div class="text-muted">
+          For tickets whose folder isn't linked to a billing project yet.
+        </div>
+      </label>
+
+      <label class="form-check small mb-3">
+        <input type="checkbox" name="include_closed" value="1" class="form-check-input"
+               {% if team.zammad_include_closed %}checked{% endif %}>
+        <strong>Import closed tickets too</strong>
+        <div class="text-muted">
+          Off, a closed ticket nobody has imported still comes in when hours are
+          booked on it — work finished in one go must not take its time with it.
+        </div>
+      </label>
+
+      <div class="mb-3" style="max-width: 14rem;">
+        <label class="form-label small text-muted mb-0">Import time booked from</label>
+        <input type="date" name="time_from" value="{{ team.zammad_time_from or '' }}"
+               class="form-control form-control-sm">
+        <div class="form-text small">
+          The day this team went live here. Older bookings stay where they are.
+        </div>
+      </div>
+
+      <div class="d-flex gap-2 align-items-center flex-wrap">
+        <button class="btn btn-sm btn-primary" name="action" value="save">
+          Save connection</button>
+        <button class="btn btn-sm btn-outline-primary" name="action" value="sync">
+          <i class="bi bi-arrow-repeat"></i> Sync now</button>
+        <label class="form-check small m-0">
+          <input type="checkbox" name="full" value="1" class="form-check-input">
+          check every ticket
+        </label>
+        <label class="form-check small m-0">
+          <input type="checkbox" name="dry_run" value="1" class="form-check-input">
+          dry run
+        </label>
+        {% if team.last_zammad_sync_at %}
+          <span class="text-muted small ms-auto">
+            Last sync: {{ team.last_zammad_sync_at|localdt }}</span>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+
+  {% if stats %}
+    <div class="card mb-4">
+      <div class="card-body small">
+        <h2 class="h6 mb-2">Result</h2>
+        <ul class="mb-2">
+          <li>Tickets fetched: <strong>{{ stats.tickets_fetched }}</strong>
+            {% if stats.since %}
+              <span class="text-muted">— only those changed since
+                <code>{{ stats.since }}</code></span>
+            {% else %}
+              <span class="text-muted">— full pass</span>
+            {% endif %}
+          </li>
+          <li>Tasks created: <strong>{{ stats.tickets_created }}</strong>,
+            updated: {{ stats.tickets_updated }}
+            {%- if stats.tickets_reowned %}, moved to their new owner:
+              {{ stats.tickets_reowned }}{% endif %}
+            {%- if stats.tickets_dropped %}, closed as gone:
+              {{ stats.tickets_dropped }}{% endif %}</li>
+          {% if stats.tickets_unowned %}
+            <li class="text-warning">
+              {{ stats.tickets_unowned }} ticket(s) whose Zammad owner has no
+              Cairn account — filed under {{ team.admin.display_name or team.admin.username }}.
+              <a href="{{ url_for('timetracking.people', team=team.pk) }}">Match them</a>
+              and the next sync files them properly.</li>
+          {% endif %}
+          {% if stats.time_entries_imported %}
+            <li>Time bookings imported: <strong>{{ stats.time_entries_imported }}</strong></li>
+          {% endif %}
+          {% if stats.time_skipped_old %}
+            <li>Bookings before the cutoff, left alone: {{ stats.time_skipped_old }}</li>
+          {% endif %}
+          {% if stats.time_customers_created %}
+            <li>Customers created from organisations: {{ stats.time_customers_created }}</li>
+          {% endif %}
+          {% if stats.time_users_unmatched %}
+            <li class="text-warning">No Cairn account:
+              {{ stats.time_users_unmatched|join(', ') }} —
+              <a href="{{ url_for('timetracking.people', team=team.pk) }}">assign them</a>.</li>
+          {% endif %}
+          <li class="text-muted">{{ stats.api_calls }} Zammad requests
+            {%- if stats.tickets_unchanged %}, {{ stats.tickets_unchanged }} untouched
+              ticket(s) skipped without looking inside{% endif %}.</li>
+        </ul>
+        {% if stats.errors %}
+          <h3 class="h6">Errors</h3>
+          <ul class="mb-0 text-danger">
+            {% for e in stats.errors[:10] %}<li>{{ e }}</li>{% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+
+  {# Where each member's tickets land. The two things a central sync needs per
+     person: an agent it can recognise them by, and a place to put their work. #}
+  <h2 class="h6"><i class="bi bi-people"></i> Where each member's tickets land</h2>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle small">
+      <thead class="text-muted">
+        <tr><th>Member</th><th>Zammad agent</th><th>Their tickets go to</th></tr>
+      </thead>
+      <tbody>
+        {% for r in members %}
+          <tr>
+            <td>{{ r.user.display_name or r.user.username }}</td>
+            <td>
+              {% if r.matched %}
+                <span class="text-success"><i class="bi bi-check2"></i> matched</span>
+              {% else %}
+                <span class="text-warning">not matched —
+                  <a href="{{ url_for('timetracking.people', team=team.pk) }}">assign</a></span>
+              {% endif %}
+            </td>
+            <td>
+              {% if r.target %}{{ r.target }}
+              {% else %}<span class="text-muted">their inbox</span>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="form-text small">
+    Each member picks their own target under Settings → Import from Zammad; the
+    team sync files their tickets there. Nobody has to run that sync any more —
+    switch their personal auto-sync off once this one is on, or the same tickets
+    are fetched twice.
+  </p>
+</div>
+{% endblock %}

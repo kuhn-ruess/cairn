@@ -121,6 +121,27 @@ class Team(Document):
     # False the team is an organisation (every member seat billed). The choice
     # is made by the payer at checkout; see application.services.billing.
     family = BooleanField(default=False)
+    # ---- Zammad, for the whole team -------------------------------------
+    # One connection instead of one per member: everyone who books time in
+    # Zammad is in this team anyway, and a per-member sync means every member
+    # walking the same instance to find their own slice. The token is a service
+    # token that can read every group's tickets and their time accounting;
+    # it is encrypted at rest against the team's id (services.crypto).
+    zammad_url = StringField()
+    zammad_token = StringField()
+    zammad_auto_sync = BooleanField(default=False)
+    last_zammad_sync_at = DateTimeField()
+    # Same three time-import decisions as the per-user import, made once for
+    # the team: whether to take booked time at all, whether an unknown
+    # organisation may become a customer, and the day from which bookings are
+    # ours (see User.zammad_time_from — going live is a date, not a feeling).
+    zammad_import_time = BooleanField(default=True)
+    zammad_time_auto_customer = BooleanField(default=False)
+    zammad_time_from = StringField(max_length=10, default="")
+    # Tickets already closed when the sync first sees them: kept out of
+    # everyone's task list unless they carry time (see zammad_import).
+    zammad_include_closed = BooleanField(default=False)
+
     # Zammad agents seen by the time import, and their Cairn counterpart.
     # Embedded because it is read on every sync and written rarely — see
     # ZammadAgent.

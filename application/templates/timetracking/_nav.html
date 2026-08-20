@@ -40,6 +40,12 @@
        already the resolved user, not the proxy. #}
     {% if team and can_manage %}
       <li class="nav-item">
+        <a class="nav-link py-1 {{ 'active' if active == 'zammad' }}"
+           href="{{ url_for('timetracking.zammad_team', team=team.pk) }}"
+           title="One Zammad connection for the whole team">
+          <i class="bi bi-life-preserver"></i> Zammad</a>
+      </li>
+      <li class="nav-item">
         <a class="nav-link py-1 {{ 'active' if active == 'import' }}"
            href="{{ url_for('timetracking.import_page', team=team.pk) }}"
            title="One-off migration from a mite account">
