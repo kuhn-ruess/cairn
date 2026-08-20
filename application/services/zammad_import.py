@@ -69,6 +69,7 @@ class ZammadStats:
     time_users_unmatched: list = field(default_factory=list)
     time_customers_created: int = 0  # Zammad organisations turned into customers
     time_skipped_unlinked: int = 0   # tickets with time but nowhere to book it
+    time_skipped_no_time: int = 0    # tickets Zammad reports no accounted time for
     # Zammad user id → actor snapshot, cached for the run (not reported).
     actor_cache: dict = field(default_factory=dict)
     # Zammad organisation / customer id → billing project, cached for the run.
@@ -102,6 +103,7 @@ class ZammadStats:
             "time_users_unmatched": list(self.time_users_unmatched),
             "time_customers_created": self.time_customers_created,
             "time_skipped_unlinked": self.time_skipped_unlinked,
+            "time_skipped_no_time": self.time_skipped_no_time,
             "me_id": self.me_id,
             "fetched_via": self.fetched_via,
             "errors": list(self.errors),
@@ -707,6 +709,22 @@ def _fetch_time_accounting(base: str, token: str, ticket_id: str,
     return rows if isinstance(rows, list) else []
 
 
+def _ticket_has_time(raw: dict) -> bool:
+    """Does Zammad say this ticket has accounted time?
+
+    ``Ticket.time_unit`` is the cached sum Zammad maintains whenever a booking
+    is created, and it rides along in the ticket payload (``expand=true``), so
+    it answers "is there anything to fetch" for free. A ticket that doesn't
+    carry the attribute at all is treated as *unknown* and still fetched — an
+    install that doesn't maintain the field must not silently lose its time."""
+    if "time_unit" not in raw:
+        return True
+    try:
+        return float(raw.get("time_unit") or 0) > 0
+    except (TypeError, ValueError):
+        return True
+
+
 def _team_for(stats: ZammadStats, team):
     """The one in-memory ``Team`` a run mutates (see ``stats.team_cache``)."""
     if team is None:
@@ -850,18 +868,32 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
     )
     from application.services.tz import user_zone
 
+    raw = raw or {}
     if not getattr(user, "zammad_import_time", True) or not has_team(user):
         return
-    # Cheap gate first: no billing link → no API call at all, unless the user
-    # asked us to create the customer from Zammad.
+    auto = getattr(user, "zammad_time_auto_customer", False)
     project = resolve_time_project(item)
+    if project is None and not auto:
+        # Counted, not silent: "why is there no time in Cairn" is otherwise a
+        # question with no answer on the result page.
+        stats.time_skipped_unlinked += 1
+        return
+    # Zammad keeps the ticket's total accounted time on the ticket itself, so a
+    # ticket nobody booked on costs no request at all. This is the difference
+    # between one extra API call for the handful of tickets that have time and
+    # one for *every* ticket in the instance — the latter is what made a manual
+    # import time out at the gateway.
+    if not _ticket_has_time(raw):
+        stats.time_skipped_no_time += 1
+        return
+    bookings = _fetch_time_accounting(base, token, zid, stats)
     if project is None:
-        if getattr(user, "zammad_time_auto_customer", False):
-            project = _auto_billing_project(user, item, base, token,
-                                            raw or {}, stats)
+        if not bookings:
+            # Nothing to book → don't invent a customer for this organisation.
+            stats.time_skipped_unlinked += 1
+            return
+        project = _auto_billing_project(user, item, base, token, raw, stats)
         if project is None:
-            # Counted, not silent: "why is there no time in Cairn" is otherwise
-            # a question with no answer on the result page.
             stats.time_skipped_unlinked += 1
             return
     team = _team_for(stats, project.team)
@@ -873,7 +905,7 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
     zone = user_zone(user)
 
     rows = []
-    for booking in _fetch_time_accounting(base, token, zid, stats):
+    for booking in bookings:
         try:
             minutes = round(float(booking.get("time_unit") or 0))
         except (TypeError, ValueError):

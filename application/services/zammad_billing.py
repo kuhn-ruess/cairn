@@ -242,18 +242,38 @@ def reattribute(team, agent) -> int:
 
 
 def agent_rows(team) -> list[dict]:
-    """The roster as the settings page shows it — matched first, newest last."""
+    """The roster as the settings page shows it — matched first, newest last.
+
+    The mapped accounts are resolved in one query rather than by dereferencing
+    each agent's ``user``, so a roster of thirty agents costs one lookup."""
+    from application.models.team import Team
+
+    if team is None:
+        return []
+    # Raw read: touching ``agent.user`` on the mongoengine document would
+    # dereference one account per agent. The ids come back as ids, and the
+    # accounts behind them in a single query.
+    doc = Team.objects(pk=team.pk).only("zammad_agents").as_pymongo().first() or {}
+    agents = doc.get("zammad_agents") or []
+    ids = {a["user"] for a in agents if a.get("user")}
+    names = {}
+    if ids:
+        for u in User.objects(id__in=list(ids)).only(
+                "id", "username", "display_name"):
+            names[str(u.id)] = u.display_name or u.username
     rows = []
-    for a in (team.zammad_agents or []) if team else []:
+    for a in agents:
+        uid = str(a["user"]) if a.get("user") else ""
         rows.append({
-            "zammad_id": a.zammad_id,
-            "label": a.label,
-            "email": a.email or "",
-            "login": a.login or "",
-            "user_id": str(a.user.id) if a.user else "",
-            "user_name": (a.user.display_name or a.user.username) if a.user else "",
-            "matched_by": a.matched_by or "",
-            "last_seen_at": a.last_seen_at,
+            "zammad_id": a.get("zammad_id", ""),
+            "label": (a.get("name") or a.get("login") or a.get("email")
+                      or f"#{a.get('zammad_id', '')}"),
+            "email": a.get("email") or "",
+            "login": a.get("login") or "",
+            "user_id": uid,
+            "user_name": names.get(uid, ""),
+            "matched_by": a.get("matched_by") or "",
+            "last_seen_at": a.get("last_seen_at"),
         })
     rows.sort(key=lambda r: (bool(r["user_id"]), r["label"].lower()))
     return rows

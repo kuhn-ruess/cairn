@@ -220,6 +220,13 @@
             {% if stats.fetched_via %}<span class="text-muted">via {{ stats.fetched_via }}</span>{% endif %}
           </li>
           <li>Your Zammad user ID (from /users/me): <code>{{ stats.me_id }}</code></li>
+          {% if stats.time_skipped_no_time %}
+            <li>Tickets Zammad reports no accounted time for (not fetched):
+              {{ stats.time_skipped_no_time }}
+              <span class="text-muted">— read from the ticket's own
+                <code>time_unit</code>, which is what keeps a sync from asking
+                about every ticket in the instance</span></li>
+          {% endif %}
           {% if stats.filtered_assignee %}
             <li>Excluded because they aren't assigned to you: {{ stats.filtered_assignee }}
               <span class="text-warning">— uncheck "Only tickets assigned to me" if you want all of them</span>
