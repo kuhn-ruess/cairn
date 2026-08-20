@@ -590,7 +590,9 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
     deleted — nothing in this module is ever really gone, so it must be
     *findable*) or ``all``. ``user_id="none"`` selects the entries with no
     Cairn account behind them: time imported for an external agent nobody has
-    mapped yet, which no personal day sheet can show.
+    mapped yet, which no personal day sheet can show. (The report view leaves
+    ``user_id`` unset and filters afterwards, so its picker can list the
+    authors the result actually contains — see ``_grouped_report``.)
 
     Deref-free over the embedded entries — every field used is a snapshot — so
     a month of team activity is a handful of bucket reads, no per-entry queries.
@@ -1144,8 +1146,10 @@ def public_project_report(project, month: str | None = None,
         "columns": columns,
         "group_by": group_by,
         "group_options": options,
-        # One bar says nothing that the total above it doesn't already say.
-        "groups": groups if len(groups) > 1 else [],
+        # Always returned, even when it is a single value: the page needs to be
+        # able to say "all of it is X" instead of dropping the whole block —
+        # which took the split switcher with it and left no way back.
+        "groups": groups,
         "total_minutes": total,
         "months": [months[k] for k in sorted(months, reverse=True)],
         "month": month or "",

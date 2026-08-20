@@ -79,7 +79,7 @@
     </a>
   </div>
 
-  {% if groups %}
+  {% if rows %}
     {# Where the hours went, before the list of what they were. Broken down by
        whoever did the work, or — when the project asks for extra fields on
        every booking — by one of those, which is the reason for asking. #}
@@ -94,7 +94,19 @@
           {% endfor %}
         </div>
       {% endif %}
-      {% for g in groups %}
+      {% if groups|length < 2 %}
+        {# One value is not a comparison — say it in a line instead of drawing a
+           bar at 100%. The switcher above stays, so the next split is one click
+           away rather than gone. #}
+        <p class="text-muted small mb-0">
+          {% if groups %}
+            All of it: <strong>{{ groups[0].label }}</strong> ({{ groups[0].minutes|duration }}).
+          {% else %}
+            Nothing to split up here.
+          {% endif %}
+        </p>
+      {% endif %}
+      {% for g in groups if groups|length > 1 %}
         <div class="chart-row">
           <div class="chart-name" title="{{ g.label }}">{{ g.label }}</div>
           <div class="chart-track">

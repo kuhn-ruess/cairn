@@ -707,9 +707,32 @@ def _grouped_report(team, f):
         team=team, scope_ids=scope,
         date_from=f["date_from"], date_to=f["date_to"],
         customer_id=f["customer_id"], project_id=f["project_id"],
-        user_id=f["user_id"], billable=f["billable"], locked=f["locked"],
+        billable=f["billable"], locked=f["locked"],
         state=f["state"], archived_ids=dead, viewer=user,
     )
+    # Who actually appears in this result. Imported time can carry an author
+    # with no Cairn account behind it (a mite or Zammad user nobody matched) —
+    # they show up in the "Who" column but a member-only filter can never find
+    # them, which reads as "the user filter is broken". They are offered by
+    # name, and picked by name.
+    authors = []
+    seen_names = set()
+    for r in rows:
+        if r["user_id"] or not r["user_name"] or r["user_name"] in seen_names:
+            continue
+        seen_names.add(r["user_name"])
+        authors.append({"key": f"name:{r['user_name']}", "label": r["user_name"]})
+    authors.sort(key=lambda a: a["label"].lower())
+    # The user filter is a plain post-filter, applied here so the options above
+    # describe the whole result rather than what survived the filter.
+    pick = f["user_id"]
+    if pick == "none":
+        rows = [r for r in rows if not r["user_id"]]
+    elif (pick or "").startswith("name:"):
+        want = pick[5:]
+        rows = [r for r in rows if not r["user_id"] and r["user_name"] == want]
+    elif pick:
+        rows = [r for r in rows if r["user_id"] == pick]
     # Held back rather than dropped: the count and the hours are reported next
     # to the totals, so an invoice is never short by a number nobody mentioned.
     hidden = []
@@ -791,6 +814,7 @@ def _grouped_report(team, f):
         "hidden_minutes": sum(r["minutes"] for r in hidden),
         "customers": customers_list, "projects": projects_list,
         "project_groups": project_groups, "members": members,
+        "authors": authors,
         "move_targets": move_targets, "live": live,
         "field_columns": _field_columns(rows),
     }

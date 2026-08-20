@@ -73,12 +73,21 @@
       <select name="user" class="form-select form-select-sm">
         <option value="">All</option>
         {% for m in members %}
-          <option value="{{ m.id }}" {% if f.user_id == m.id|string %}selected{% endif %}>{{ m.username }}</option>
+          <option value="{{ m.id }}" {% if f.user_id == m.id|string %}selected{% endif %}>
+            {{ m.display_name or m.username }}</option>
         {% endfor %}
-        {# Imported time whose booker has no Cairn account: it shows up here
-           and in no personal day sheet, so this is the only way to find it. #}
-        <option value="none" {% if f.user_id == 'none' %}selected{% endif %}>
-          — no Cairn account —</option>
+        {# Imported time whose booker has no Cairn account: it shows up in the
+           Who column but a member-only list can never select it. The names
+           actually present in this result are offered by name, and the group
+           option finds all of them at once. #}
+        {% if authors %}
+          <optgroup label="No Cairn account">
+            {% for a in authors %}
+              <option value="{{ a.key }}" {% if f.user_id == a.key %}selected{% endif %}>{{ a.label }}</option>
+            {% endfor %}
+            <option value="none" {% if f.user_id == 'none' %}selected{% endif %}>— all of them —</option>
+          </optgroup>
+        {% endif %}
       </select>
     </div>
     <div class="col-auto">

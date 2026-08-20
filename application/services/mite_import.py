@@ -260,12 +260,16 @@ def _spent_on(date_str: str, zone) -> datetime | None:
     return datetime(d.year, d.month, d.day, 12, 0, tzinfo=zone)
 
 
-def _match_users(client: MiteClient, stats: MiteStats) -> dict:
+def _match_users(client: MiteClient, stats: MiteStats, team=None) -> dict:
     """mite user id → ``(cairn_user_id_or_empty, display_name)``.
 
-    Matching is by email: it is the one identifier both systems agree on.
-    Nobody is created — an unmatched author keeps their mite name as the
-    entry's snapshot, which is all the reports ever need."""
+    Email first — the one identifier both systems agree on — then, *within the
+    team*, the display name. Email alone leaves everyone who signed up here
+    under a different address unattributed: their hours then show their mite
+    name in every report and belong to no account, so the report's user filter
+    can never find them and their own day sheet never shows them. Nobody is
+    created; an unmatched author still keeps their mite name as the entry's
+    snapshot, which is all a report strictly needs."""
     out = {}
     rows = list(client.get("/users.json"))
     try:
@@ -278,10 +282,22 @@ def _match_users(client: MiteClient, stats: MiteStats) -> dict:
         for u in User.objects(email__in=list(emails)).only("id", "email",
                                                            "display_name", "username"):
             found[(u.email or "").lower()] = u
+    # Display names of the team, for the second pass.
+    by_name = {}
+    if team is not None:
+        from application.services.permissions import team_members
+        for m in team_members(team):
+            for key in ((m.display_name or "").strip().lower(),
+                        (m.username or "").strip().lower()):
+                if key:
+                    by_name.setdefault(key, m)
+
     for r in rows:
         mail = (r.get("email") or "").strip().lower()
         cairn = found.get(mail)
         name = (r.get("name") or mail or "").strip()
+        if cairn is None:
+            cairn = by_name.get(name.lower())
         if cairn is not None:
             out[str(r.get("id"))] = (str(cairn.id),
                                      cairn.display_name or cairn.username or name)
@@ -542,7 +558,7 @@ def import_for_user(user, *, account: str, api_key: str, team,
     zone = user_zone(user)
 
     # Users are only needed to attribute time entries.
-    users = _match_users(client, stats) if with_entries else {}
+    users = _match_users(client, stats, team) if with_entries else {}
     customers = _import_customers(client, team, stats, dry_run, include_archived)
     projects = _import_projects(client, team, customers, stats, dry_run,
                                 include_archived)
