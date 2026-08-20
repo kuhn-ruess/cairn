@@ -72,7 +72,7 @@ def sync_user(user_id: str):
     # import_for_user stamps last_zammad_sync_at + saves on a real (non-dry)
     # run, so the next due-check naturally skips this user until interval.
     return import_for_user(
-        user, user.zammad_url, token,
+        user, user.zammad_url, token, trigger="background",
         project=project,
         assignee_only=bool(user.zammad_assignee_only),
         include_closed=bool(user.zammad_include_closed),

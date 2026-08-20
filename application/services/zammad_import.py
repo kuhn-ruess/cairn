@@ -246,6 +246,7 @@ def import_for_user(
     dry_run: bool = False,
     debug: bool = False,
     full: bool = False,
+    trigger: str = "manual",
 ) -> ZammadStats:
     """Pull tickets from Zammad and merge them into Cairn for ``user``.
 
@@ -491,6 +492,12 @@ def import_for_user(
         user.save()
     stats.api_calls = next(_CALLS)
     stats.elapsed_s = time.monotonic() - started
+    if not dry_run:
+        # One note per run, kept for 90 days — see services.sync_log.
+        from application.services import sync_log
+        sync_log.record("zammad-user", team=getattr(user, "team", None),
+                        user=user, trigger=trigger, stats=stats,
+                        seconds=stats.elapsed_s)
     return stats
 
 

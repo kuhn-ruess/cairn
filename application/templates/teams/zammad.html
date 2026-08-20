@@ -200,6 +200,75 @@
     switch their personal auto-sync off once this one is on, or the same tickets
     are fetched twice.
   </p>
+  {# ---- What the syncs have been doing ---------------------------------- #}
+  <h2 class="h6 mt-4"><i class="bi bi-clock-history"></i> Recent runs</h2>
+  <p class="form-text small mt-0">
+    Every sync leaves a note here — the team's own and each member's personal
+    one. Kept for 90 days, then removed by the database itself.
+  </p>
+  {% if not runs %}
+    <p class="text-muted small">Nothing has run yet.</p>
+  {% else %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle small">
+        <thead class="text-muted">
+          <tr><th>When</th><th>What</th><th>For</th><th>Took</th><th>Result</th></tr>
+        </thead>
+        <tbody>
+          {% for r in runs %}
+            <tr class="{{ 'table-danger' if not r.ok }}">
+              <td class="text-nowrap">{{ r.created_at|localdt }}</td>
+              <td class="text-nowrap">
+                {{ 'Team' if r.kind == 'zammad-team' else ('mite' if r.kind == 'mite' else 'Personal') }}
+                <span class="text-muted">· {{ r.trigger }}</span>
+              </td>
+              <td class="text-nowrap">
+                {% if r.user %}{{ r.user.display_name or r.user.username }}
+                {% else %}<span class="text-muted">{{ team.name }}</span>{% endif %}
+              </td>
+              <td class="text-nowrap text-muted">{{ '%.1f'|format(r.seconds) }}s</td>
+              <td>
+                {% if not r.ok %}
+                  <span class="text-danger">{{ r.error }}</span>
+                {% else %}
+                  {% set s = r.stats %}
+                  {% if s.tickets_created or s.tickets_updated %}
+                    {{ s.get('tickets_created', 0) }} new,
+                    {{ s.get('tickets_updated', 0) }} updated
+                  {% endif %}
+                  {% if s.time_entries_imported %}
+                    · <strong>{{ s.time_entries_imported }}</strong> time entr{{ 'y' if s.time_entries_imported == 1 else 'ies' }}
+                  {% endif %}
+                  {% if s.entries_imported %}
+                    · {{ s.entries_imported }} mite entr{{ 'y' if s.entries_imported == 1 else 'ies' }}
+                  {% endif %}
+                  {% if s.time_customers_created %}· {{ s.time_customers_created }} customer(s){% endif %}
+                  {% if s.tickets_unowned %}
+                    · <span class="text-warning">{{ s.tickets_unowned }} unowned</span>
+                  {% endif %}
+                  {% if s.unmatched_users %}
+                    · <span class="text-warning" title="{{ s.unmatched_users|join(', ') }}">
+                        {{ s.unmatched_users|length }} without an account</span>
+                  {% endif %}
+                  {% if s.errors %}
+                    · <span class="text-danger" title="{{ s.errors|join(' · ') }}">
+                        {{ s.errors|length }} problem(s)</span>
+                  {% endif %}
+                  {% if not (s.tickets_created or s.tickets_updated or s.time_entries_imported
+                             or s.entries_imported or s.errors) %}
+                    <span class="text-muted">nothing to do
+                      {%- if s.tickets_unchanged %} ({{ s.tickets_unchanged }} unchanged){% endif %}</span>
+                  {% endif %}
+                  <span class="text-muted">· {{ s.get('api_calls', 0) }} requests</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
   {# ---- The way back ---------------------------------------------------- #}
   <div class="card border-danger my-4">
     <div class="card-header py-2">

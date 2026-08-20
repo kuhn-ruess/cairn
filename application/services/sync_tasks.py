@@ -82,7 +82,7 @@ def sync_team_zammad(self, team_id: str):
         team = Team.objects(pk=team_id).first()
         if team is None:
             return None
-        return sync_team(team).as_dict()
+        return sync_team(team, trigger="background").as_dict()
     except ZammadError as exc:
         raise self.retry(exc=exc)
     finally:

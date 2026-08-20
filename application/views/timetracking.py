@@ -1273,6 +1273,7 @@ def import_mite():
     used for this request and never stored. Runs inline — a big account is
     better served by ``cairn import-mite``, which reports as it goes."""
     from datetime import date as _date
+    from application.services import sync_log
     from application.services.mite_import import MiteError, import_for_user
 
     team = _team()
@@ -1302,8 +1303,10 @@ def import_mite():
             dry_run=request.form.get("dry_run") == "1",
         )
     except MiteError as exc:
+        sync_log.record("mite", team=team, user=user, error=str(exc))
         flash(str(exc), "danger")
         return redirect(url_for("timetracking.import_page", team=team.pk))
+    sync_log.record("mite", team=team, user=user, stats=stats)
 
     summary = (f"{stats.customers_created} new customer(s), "
                f"{stats.projects_created} new project(s)")

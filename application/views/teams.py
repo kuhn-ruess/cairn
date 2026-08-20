@@ -414,9 +414,14 @@ def zammad():
             if getattr(m, "zammad_sync_project", "") else None
         rows.append({"user": m, "matched": str(m.pk) in mapped,
                      "target": target.title if target else ""})
+    from application.services import sync_log
     return render_template(
         "teams/zammad.html", team=team, all_teams=_user_teams(user),
         stats=stats, purge=purge, members=rows,
+        # What the syncs have been doing — the team's own runs and its members'
+        # personal ones, because "why is there no time from Tuesday" is the same
+        # question whichever of them ran.
+        runs=sync_log.recent(team=team, users=members, limit=40),
         has_token=bool(team.zammad_token), can_manage=True)
 
 

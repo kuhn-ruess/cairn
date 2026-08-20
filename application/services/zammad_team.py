@@ -68,21 +68,30 @@ def _existing_task(team_members, external_id):
 
 
 def sync_team(team, *, full: bool = False, dry_run: bool = False,
-              debug: bool = False) -> zi.ZammadStats:
+              debug: bool = False, trigger: str = "manual") -> zi.ZammadStats:
     """Pull the team's Zammad once: tickets to their owners, time to the team.
 
     Incremental like the per-user run (``Team.last_zammad_sync_at``), and with
     the same rule for closed tickets — kept out unless hours are booked on them,
-    because those hours are real and somebody will invoice them."""
+    because those hours are real and somebody will invoice them.
+
+    Every run leaves a note behind (:mod:`application.services.sync_log`), which
+    is how a manager finds out what happened at four in the morning."""
+    import time as _time
+
     from application.services.crypto import decrypt_for
     from application.services.permissions import team_members
+    from application.services import sync_log
+
+    began = _time.monotonic()
 
     stats = zi.ZammadStats()
     url = (team.zammad_url or "").strip()
     token = decrypt_for(team, team.zammad_token)
     if not url or not token:
-        raise zi.ZammadError(
-            "This team has no Zammad connection — set a URL and a service token.")
+        error = "This team has no Zammad connection — set a URL and a service token."
+        sync_log.record("zammad-team", team=team, trigger=trigger, error=error)
+        raise zi.ZammadError(error)
 
     base = url.rstrip("/")
     if not base.endswith("/api/v1"):
@@ -161,6 +170,9 @@ def sync_team(team, *, full: bool = False, dry_run: bool = False,
         team.last_zammad_sync_at = _utcnow()
         team.save()
     stats.api_calls = next(zi._CALLS)
+    if not dry_run:
+        sync_log.record("zammad-team", team=team, trigger=trigger, stats=stats,
+                        seconds=_time.monotonic() - began)
     return stats
 
 

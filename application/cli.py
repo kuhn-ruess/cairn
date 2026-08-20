@@ -211,7 +211,7 @@ def sync_zammad_team(team_id, full, force, dry_run):
             click.echo(f"{tid}: not found")
             continue
         try:
-            st = sync_team(team, full=full, dry_run=dry_run)
+            st = sync_team(team, full=full, dry_run=dry_run, trigger="cli")
         except ZammadError as exc:
             click.echo(f"{team.name}: {exc}")
             continue

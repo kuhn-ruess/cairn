@@ -174,6 +174,14 @@ Non-trivial logic that doesn't belong in a view or model lives here:
 - `permissions.py` — sharing/visibility checks
 - `mail.py` / `crypto.py` — SMTP for password resets, token signing
 
+### Sync log
+
+Every import run leaves a row in `sync_runs` (`models/sync_run.py`,
+`services/sync_log.py`): kind, trigger (manual / background / cli), duration,
+the counters worth reading and the first ten errors. Shown on Team → Zammad.
+**Retention is a MongoDB TTL index** on `created_at` (90 days) — there is no
+sweep to schedule and no cron that can quietly stop running.
+
 ### Configuration
 
 All settings are overridable via `BKTODO_*` env vars (see `.env.example`).
