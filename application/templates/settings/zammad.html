@@ -219,6 +219,15 @@
           <li>Tickets fetched from Zammad: <strong>{{ stats.tickets_fetched }}</strong>
             {% if stats.fetched_via %}<span class="text-muted">via {{ stats.fetched_via }}</span>{% endif %}
           </li>
+          <li>Cost of this run: <strong>{{ stats.api_calls }}</strong> Zammad
+            requests in <strong>{{ '%.1f'|format(stats.elapsed_s) }}s</strong>
+            {% if stats.elapsed_s > 30 %}
+              <span class="text-warning">— the import runs inside this request,
+                so a run approaching your gateway's timeout (usually 60s) will
+                end in a 504. Switch on background sync above and let the worker
+                do it.</span>
+            {% endif %}
+          </li>
           <li>Your Zammad user ID (from /users/me): <code>{{ stats.me_id }}</code></li>
           {% if stats.time_skipped_no_time %}
             <li>Tickets Zammad reports no accounted time for (not fetched):

@@ -24,6 +24,7 @@ Mapping
 """
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 import time
@@ -80,6 +81,12 @@ class ZammadStats:
     team_cache: dict = field(default_factory=dict)
     me_id: Any = None
     fetched_via: str = ""
+    # What the run cost. A sync happens inside one web request, so "how many
+    # round trips did that take and how long did it run" is the number that
+    # decides whether the next one ends at a result page or at the gateway's
+    # timeout — worth reporting rather than guessing at.
+    api_calls: int = 0
+    elapsed_s: float = 0.0
     errors: list[str] = field(default_factory=list)
     # Per-ticket decision log for the debug console. Only populated when a
     # sync is run with ``debug=True`` (the Settings → Zammad page), so the
@@ -106,13 +113,24 @@ class ZammadStats:
             "time_skipped_no_time": self.time_skipped_no_time,
             "me_id": self.me_id,
             "fetched_via": self.fetched_via,
+            "api_calls": self.api_calls,
+            "elapsed_s": round(self.elapsed_s, 1),
             "errors": list(self.errors),
             "trace": list(self.trace),
         }
 
 
+# Round trips made by the current run. A module-level counter rather than a
+# threaded-through argument: _request is called from a dozen places and the
+# number is diagnostics, not logic — two syncs sharing a process would share the
+# count, which is a wrong number in a report, never a wrong import. Reset at the
+# start of every import.
+_CALLS = itertools.count()
+
+
 def _request(url: str, token: str, *, params: dict | None = None,
              method: str = "GET", body: dict | None = None) -> Any:
+    next(_CALLS)
     from application.services.http_safety import (
         UnsafeURLError, safe_urlopen, validate_outbound_url,
     )
@@ -214,6 +232,9 @@ def import_for_user(
         base = base + "/api/v1"
 
     stats = ZammadStats()
+    global _CALLS
+    _CALLS = itertools.count()
+    started = time.monotonic()
 
     # /tickets/search needs Elasticsearch on the Zammad side. Plenty
     # of self-hosted installs don't have ES wired up, in which case
@@ -394,6 +415,8 @@ def import_for_user(
     if not dry_run:
         user.last_zammad_sync_at = datetime.now(timezone.utc)
         user.save()
+    stats.api_calls = next(_CALLS)
+    stats.elapsed_s = time.monotonic() - started
     return stats
 
 
