@@ -1063,7 +1063,8 @@ def described(note: str, source_label: str, show_source: bool) -> str:
     return ref or note
 
 
-def public_project_report(project, month: str | None = None):
+def public_project_report(project, month: str | None = None,
+                          group_by: str = "user"):
     """Read-only time sheet for the customer share link.
 
     Hours, clock times, notes and the project's custom fields — never rates or
@@ -1112,9 +1113,39 @@ def public_project_report(project, month: str | None = None):
             if k not in seen:
                 seen.add(k)
                 columns.append({"key": k, "label": k.replace("_", " ").title()})
+    # What the sheet can be broken down by: who did the work, and — because a
+    # project that asks for "Abrechnungsart" on every booking is asking exactly
+    # so it can be read back that way — each of its custom fields.
+    options = [{"key": "user", "label": "Who"}] + [
+        {"key": f"cf:{c['key']}", "label": c["label"]} for c in columns]
+    if group_by not in {o["key"] for o in options}:
+        group_by = "user"
+    tally: dict = {}
+    for r in rows:
+        if group_by == "user":
+            label = r["user_name"] or "—"
+        else:
+            label = r["custom"].get(group_by[3:]) or "—"
+        tally[label] = tally.get(label, 0) + r["minutes"]
+    top = max(tally.values(), default=0)
+    groups = [{
+        "label": label,
+        "minutes": minutes,
+        # Two different jobs: the bar's length compares the entries with each
+        # other (longest fills the row), the percentage says what share of the
+        # month this is.
+        "width": round(100 * minutes / top) if top else 0,
+        "share": round(100 * minutes / total) if total else 0,
+    } for label, minutes in sorted(tally.items(),
+                                   key=lambda kv: (-kv[1], kv[0].lower()))]
+
     return {
         "rows": rows,
         "columns": columns,
+        "group_by": group_by,
+        "group_options": options,
+        # One bar says nothing that the total above it doesn't already say.
+        "groups": groups if len(groups) > 1 else [],
         "total_minutes": total,
         "months": [months[k] for k in sorted(months, reverse=True)],
         "month": month or "",

@@ -34,6 +34,21 @@
                              padding-top: .7rem; }
     .public-footer { text-align: center; color: var(--gv-fg4);
                      font-size: .75rem; margin-top: 3rem; }
+    /* One measure across a handful of named things — a ranked bar list, which
+       is a chart that needs no axis: every bar is labelled and carries its own
+       number. One hue throughout, because the bars are one series; the labels
+       carry identity, so nothing here depends on telling colours apart. */
+    .chart { margin: 0 0 1.75rem; }
+    .chart-row { display: grid; grid-template-columns: minmax(6rem, 12rem) 1fr auto;
+                 gap: .6rem; align-items: center; padding: .18rem 0; }
+    .chart-name { color: var(--gv-fg2); font-size: .85rem;
+                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chart-track { background: var(--gv-bg1); border-radius: 4px; height: 10px; }
+    .chart-fill { background: var(--gv-aqua-br); height: 10px; border-radius: 4px;
+                  min-width: 2px; }
+    .chart-value { color: var(--gv-fg3); font-size: .8rem;
+                   font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .chart-value .share { color: var(--gv-fg4); }
   </style>
 </head>
 <body class="bg-body">
@@ -51,10 +66,10 @@
   <div class="public-bar">
     {# Month filter — plain links, so the view is shareable and bookmarkable. #}
     <a class="btn btn-sm {{ 'btn-primary' if not month else 'btn-outline-secondary' }}"
-       href="{{ url_for('public.project_time', token=token) }}">All</a>
+       href="{{ url_for('public.project_time', token=token, month='all', by=group_by) }}">All</a>
     {% for mo in months %}
       <a class="btn btn-sm {{ 'btn-primary' if month == mo.key else 'btn-outline-secondary' }}"
-         href="{{ url_for('public.project_time', token=token, month=mo.key) }}">
+         href="{{ url_for('public.project_time', token=token, month=mo.key, by=group_by) }}">
         {{ mo.label }} <span class="text-muted">· {{ mo.minutes|duration }}</span>
       </a>
     {% endfor %}
@@ -63,6 +78,36 @@
       <i class="bi bi-file-earmark-spreadsheet"></i> Excel / CSV
     </a>
   </div>
+
+  {% if groups %}
+    {# Where the hours went, before the list of what they were. Broken down by
+       whoever did the work, or — when the project asks for extra fields on
+       every booking — by one of those, which is the reason for asking. #}
+    <div class="chart">
+      {% if group_options|length > 1 %}
+        <div class="public-bar">
+          <span class="text-muted small align-self-center me-1">Split by</span>
+          {% for o in group_options %}
+            <a class="btn btn-sm {{ 'btn-primary' if group_by == o.key else 'btn-outline-secondary' }}"
+               href="{{ url_for('public.project_time', token=token,
+                                month=(month or 'all'), by=o.key) }}">{{ o.label }}</a>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% for g in groups %}
+        <div class="chart-row">
+          <div class="chart-name" title="{{ g.label }}">{{ g.label }}</div>
+          <div class="chart-track">
+            <div class="chart-fill" style="width: {{ g.width }}%;"
+                 title="{{ g.label }}: {{ g.minutes|duration }}"></div>
+          </div>
+          <div class="chart-value">
+            {{ g.minutes|duration }} <span class="share">{{ g.share }}%</span>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
 
   {% if not rows %}
     <p class="text-muted">No time logged{% if month %} in this month{% endif %}.</p>

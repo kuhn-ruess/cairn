@@ -5,6 +5,7 @@ tasks grouped by status, plus their non-internal comments. The token is
 revealed only to the project owner via the project detail page.
 """
 from collections import OrderedDict
+from datetime import datetime
 
 from flask import Blueprint, abort, render_template, request
 from application.models.item import Item
@@ -104,8 +105,20 @@ def project_time(token):
         share_token=token, share_enabled=True).first()
     if not proj:
         abort(404)
-    month = (request.args.get("month") or "").strip()
-    data = public_project_report(proj, month if len(month) == 7 else None)
+    # The running month is what a customer opens this for; "all" is a click
+    # away and stays bookmarkable. No argument at all therefore means *now*,
+    # not "everything ever", which used to open on years of history.
+    from application.services.tz import user_zone
+
+    raw = (request.args.get("month") or "").strip()
+    if raw == "all":
+        month = None
+    elif len(raw) == 7:
+        month = raw
+    else:
+        month = datetime.now(user_zone(None)).strftime("%Y-%m")
+    data = public_project_report(
+        proj, month, group_by=(request.args.get("by") or "user").strip())
     return render_template("public/project_time.html", project=proj,
                            token=token, **data)
 
