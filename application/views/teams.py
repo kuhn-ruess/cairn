@@ -331,3 +331,82 @@ def revoke_invite(invite_id):
         abort(404)
     flash("Invite revoked.", "info")
     return redirect(url_for("teams.index", team=str(team.pk)))
+
+
+@teams_bp.route("/zammad", methods=["GET", "POST"])
+@login_required
+def zammad():
+    """The team's Zammad connection — one sync for everyone in it.
+
+    A team setting, not a time-tracking one: it holds a service token that
+    reads the whole instance and decides where every member's tickets land.
+    That the hours it finds end up in the billing module is a consequence, not
+    the reason it lives somewhere."""
+    from application.services.crypto import decrypt_for, encrypt_for  # noqa: F401
+    from application.services.permissions import team_members
+    from application.services.zammad_import import ZammadError
+    from application.services.zammad_team import sync_team
+
+    user = current_user._get_current_object()
+    team = _select_team(user)
+    if not team:
+        return render_template("teams/none.html")
+    if not team.is_managed_by(user):
+        abort(403)
+
+    stats = None
+    if request.method == "POST":
+        action = request.form.get("action")
+        url = (request.form.get("url") or "").strip()
+        if url or request.form.get("token"):
+            team.zammad_url = url
+        token_in = (request.form.get("token") or "").strip()
+        if token_in:
+            team.zammad_token = encrypt_for(team, token_in)
+        team.zammad_auto_sync = request.form.get("auto_sync") == "1"
+        team.zammad_import_time = request.form.get("import_time") == "1"
+        team.zammad_time_auto_customer = request.form.get("auto_customer") == "1"
+        team.zammad_include_closed = request.form.get("include_closed") == "1"
+        team.zammad_time_from = _valid_day(request.form.get("time_from"))
+        team.save()
+        if action == "sync":
+            try:
+                stats = sync_team(team, full=request.form.get("full") == "1",
+                                  dry_run=request.form.get("dry_run") == "1")
+            except ZammadError as exc:
+                flash(str(exc), "danger")
+            else:
+                flash("Team sync finished.", "success")
+        else:
+            flash("Connection saved.", "success")
+
+    members = sorted(team_members(team),
+                     key=lambda m: (m.display_name or m.username or "").lower())
+    # Where each member's tickets land, and whether they are matched to a
+    # Zammad agent at all — the two things that decide whether a central sync
+    # can file a ticket in the right person's area.
+    mapped = {str(a.user.pk) for a in (team.zammad_agents or [])
+              if a.user and (a.source or "zammad") == "zammad"}
+    rows = []
+    for m in members:
+        target = Item.objects(pk=m.zammad_sync_project, owner=m).first() \
+            if getattr(m, "zammad_sync_project", "") else None
+        rows.append({"user": m, "matched": str(m.pk) in mapped,
+                     "target": target.title if target else ""})
+    return render_template(
+        "teams/zammad.html", team=team, all_teams=_user_teams(user),
+        stats=stats, members=rows, has_token=bool(team.zammad_token),
+        can_manage=True)
+
+
+def _valid_day(raw) -> str:
+    """``"2026-08-20"`` or ``""`` — anything unparseable means "no cutoff",
+    because a silently wrong date here quietly drops hours."""
+    from datetime import date as _date
+    value = (raw or "").strip()
+    if not value:
+        return ""
+    try:
+        return _date.fromisoformat(value).isoformat()
+    except ValueError:
+        return ""

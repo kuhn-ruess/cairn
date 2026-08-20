@@ -1,10 +1,10 @@
 {% extends "layout/base.html" %}
 {% block title %}Zammad for {{ team.name }} · Cairn{% endblock %}
 {% block content %}
-{% import "timetracking/_nav.html" as nav with context %}
-{{ nav.tt_nav('zammad', team, all_teams, can_manage) }}
-
 <div style="max-width: 60rem;">
+  <div class="small text-muted mb-1">
+    <a href="{{ url_for('teams.index') }}">{{ team.name }}</a> › Zammad
+  </div>
   <h1 class="h4 mb-1"><i class="bi bi-life-preserver"></i> Zammad for {{ team.name }}</h1>
   <p class="text-muted small">
     One connection for the whole team instead of one per member. A service token
@@ -200,5 +200,7 @@
     switch their personal auto-sync off once this one is on, or the same tickets
     are fetched twice.
   </p>
+  <a class="btn btn-sm btn-outline-secondary"
+     href="{{ url_for('teams.index') }}">Back to {{ team.name }}</a>
 </div>
 {% endblock %}
