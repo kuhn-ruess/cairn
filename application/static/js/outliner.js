@@ -277,7 +277,13 @@
     ta.addEventListener("keydown", (e) => onKey(e, node, ta));
     // Moving the caret can open or close the popups too ("[[" is now behind
     // me"), which is what CodeMirror's cursorActivity used to cover.
+    //
+    // But NOT after a key the popup itself consumed. Arrowing down their list
+    // never moved the caret, and re-reading the token would put the highlight
+    // back on the first row — so the list looked stuck at the top no matter
+    // how often you pressed down.
     ta.addEventListener("keyup", () => {
+      if (popupAte) { popupAte = false; return; }
       if (window.CairnNoteEditing) window.CairnNoteEditing.changed();
     });
     if (window.CairnNoteEditing) window.CairnNoteEditing.opened();
@@ -404,8 +410,15 @@
 
   // ---- keys ----------------------------------------------------------------
 
+  // Did an open popup take the last key? Its keyup must then be left alone.
+  let popupAte = false;
+
   function onKey(e, node, ta) {
-    if (window.CairnNoteEditing && window.CairnNoteEditing.handleKey(e)) return;
+    popupAte = false;
+    if (window.CairnNoteEditing && window.CairnNoteEditing.handleKey(e)) {
+      popupAte = true;
+      return;
+    }
 
     const at = ta.selectionStart;
     const atStart = at === 0 && ta.selectionEnd === 0;

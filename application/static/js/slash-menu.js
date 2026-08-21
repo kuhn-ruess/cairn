@@ -98,9 +98,14 @@
     }
 
     function show(next) {
+      // check() runs again on every keystroke. Resetting the highlight each
+      // time would undo an arrow press the instant it happened, so it only
+      // moves back to the top when the list itself changed.
+      const same = next.length === rows.length
+        && next.every((r, i) => r.label === rows[i].label);
       rows = next;
       if (!rows.length) { hide(); return; }
-      active = 0;
+      active = same && active >= 0 ? Math.min(active, rows.length - 1) : 0;
       render();
       place();
     }
