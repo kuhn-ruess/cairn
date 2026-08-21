@@ -232,7 +232,12 @@
             {% endif %}
           </div>
           {% if task.note and current_user.show_field('note', view_key=_vk) %}
-            <div class="task-note small text-muted mt-1">{{ task.note|markdown }}</div>
+            {# ``md-body`` is what keeps a rendered note inside a row: headings
+               at the row's own size, images out, code and quotes compact. The
+               excerpt is Markdown like everywhere else — a note that opens
+               with "# …", or a pasted shell script whose "#" comments Markdown
+               reads as headings, must not turn one row into a billboard. #}
+            <div class="task-note md-body small text-muted mt-1">{{ task.note|markdown }}</div>
           {% endif %}
           {% if show_last_comment and task.comments %}
             {% set _lc = task.comments[-1] %}

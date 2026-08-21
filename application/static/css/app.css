@@ -899,7 +899,9 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
 .inspector-title-link:focus { color: var(--gv-blue-br); text-decoration: underline; }
 
 .task-note {
-  white-space: pre-wrap;
+  /* No pre-wrap: this is rendered Markdown, and the renderer already turns the
+     note's own line breaks into <br>. Honouring the source newlines on top of
+     that put a blank line between every pair of lines in the excerpt. */
   margin-top: .1rem;
   font-size: .72rem;
   color: var(--gv-fg4);
