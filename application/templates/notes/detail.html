@@ -29,6 +29,11 @@
     overflow-y: auto; display: none;
   }
   #wiki-complete .active { background: var(--bs-primary-bg-subtle); }
+  /* "/" command menu, same treatment as the [[ ]] completion. */
+  .slash-menu {
+    position: absolute; z-index: 2000; min-width: 19rem; max-height: 16rem;
+    overflow-y: auto;
+  }
 </style>
 
 <div class="notes-wrap">
@@ -118,7 +123,9 @@
     {% if can_edit %}
       <p class="small text-muted mb-4">
         Changes save themselves. <kbd>Esc</kbd> closes the editor,
-        <kbd>{{ '⌘' }}/Ctrl+S</kbd> saves right away.
+        <kbd>{{ '⌘' }}/Ctrl+S</kbd> saves right away. Type <code>/</code> for
+        commands — <code>/link</code> searches your notes, tasks and projects
+        and writes the Markdown link.
       </p>
     {% endif %}
     {% with item=note %}{% include "layout/_storage_meter.html" %}{% endwith %}
@@ -292,6 +299,7 @@
 {% include "layout/_capture_modals.html" %}
 
 <script src="{{ asset('js/notes-list.js') }}"></script>
+<script src="{{ asset('js/slash-menu.js') }}"></script>
 <script>
 /* Notes detail — autosaving EasyMDE body, [[wiki link]] completion, tag
    editing, task/project linking, event linking. Notes pages are full reloads
@@ -327,6 +335,7 @@
   let savedTitle = titleInput ? titleInput.value : "";
   let savedNote = editor ? editor.value : "";
   let easymde = null;
+  let slash = null;             // the "/" command menu, once the editor exists
   let saveTimer = null;
   let inflight = null;
   let conflicted = false;
@@ -425,12 +434,18 @@
                 "preview", "side-by-side", "fullscreen", "|", "guide"],
     });
     const cm = easymde.codemirror;
-    cm.on("change", () => { if (!conflicted) scheduleSave(); wiki.check(); });
-    cm.on("cursorActivity", () => wiki.check());
+    // "/" command menu (slash-menu.js) — same two hooks as the [[ ]] one.
+    slash = window.CairnSlashMenu ? window.CairnSlashMenu.attach(cm) : null;
+    cm.on("change", () => {
+      if (!conflicted) scheduleSave();
+      wiki.check();
+      if (slash) slash.check();
+    });
+    cm.on("cursorActivity", () => { wiki.check(); if (slash) slash.check(); });
     // Blur SAVES but does not close: EasyMDE's own toolbar buttons blur the
     // editor, and folding it away mid-click would be maddening. Closing is
     // Escape, or a click somewhere else on the page (below).
-    cm.on("blur", () => { wiki.hide(); save(); });
+    cm.on("blur", () => { wiki.hide(); if (slash) slash.hide(); save(); });
 
     // Drag a Mail message / link into the editor → Markdown link (images fall
     // through to EasyMDE's own upload). Capture so we beat EasyMDE's handler.
@@ -463,6 +478,7 @@
     wrap.addEventListener("keydown", (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); return; }
       if (wiki.handleKey(e)) return;
+      if (slash && slash.handleKey(e)) return;
       if (e.key === "Escape") { e.preventDefault(); save({ close: true }); }
     }, true);
   }
