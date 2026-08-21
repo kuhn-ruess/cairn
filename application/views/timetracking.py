@@ -335,6 +335,10 @@ def _capture_response(user, task=None, fallback=None):
     if request.headers.get("X-Partial"):
         return jsonify(_ajax_payload(user, task))
     if task is not None:
+        # Time books against any item — a note tracks its own hours too, and
+        # sending that one back to the task page would 404.
+        if task.kind == "note":
+            return redirect(url_for("notes.detail", note_id=str(task.pk)) + "#time")
         return redirect(url_for("tasks.detail", task_id=str(task.pk)) + "#time")
     return redirect(fallback or url_for("timetracking.day"))
 
