@@ -417,7 +417,8 @@
             <i class="bi bi-pencil"></i>
           </button>
         </div>
-        <div class="md-body">{{ project.note|markdown }}</div>
+        <div class="md-body"
+             data-md-toggle-url="{{ url_for('tasks.toggle_note_task', task_id=project.pk) }}">{{ project.note|markdown(True) }}</div>
       </div>
     </div>
   {% else %}

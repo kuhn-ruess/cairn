@@ -3178,6 +3178,27 @@ def _checklist_response(task):
     return redirect(url_for("tasks.detail", task_id=str(task.pk)) + "#checklist")
 
 
+@tasks_bp.route("/<task_id>/toggle-note-task", methods=["POST"])
+@login_required
+def toggle_note_task(task_id):
+    """Tick/untick a checklist line in an item's note straight from the
+    rendered body — the same move the standalone notes offer. Works for any
+    item with a note (task, project, section), since that is where checklists
+    written in the braindump or the note editor end up."""
+    from application.services import md_tasks
+    task = _editable_task_or_404(task_id)
+    try:
+        idx = int(request.form.get("index", ""))
+    except ValueError:
+        return jsonify({"error": "bad index"}), 400
+    result = md_tasks.toggle(task.note or "", idx)
+    if result is None:
+        return jsonify({"error": "no such checkbox"}), 404
+    task.note, checked = result
+    task.save()
+    return jsonify({"ok": True, "checked": checked})
+
+
 @tasks_bp.route("/<task_id>/note", methods=["POST"])
 @login_required
 def note_edit(task_id):

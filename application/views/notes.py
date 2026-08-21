@@ -536,31 +536,23 @@ def titles():
     return jsonify({"results": out[:12]})
 
 
-# The nth ``- [ ]`` / ``- [x]`` line of a Markdown body, in the same order the
-# renderer numbers its checkboxes (see filters._checkboxes).
-_TASK_LINE_RE = re.compile(r"^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\]", re.M)
-
-
 @notes_bp.route("/<note_id>/toggle-task", methods=["POST"])
 @login_required
 def toggle_task(note_id):
     """Tick/untick a checklist line straight from the rendered note, without
     dropping into the editor."""
+    from application.services import md_tasks
     item = _editable_note_or_404(note_id, kinds=("note",))
     try:
         idx = int(request.form.get("index", ""))
     except ValueError:
         return jsonify({"error": "bad index"}), 400
-    matches = list(_TASK_LINE_RE.finditer(item.note or ""))
-    if not 0 <= idx < len(matches):
+    result = md_tasks.toggle(item.note or "", idx)
+    if result is None:
         return jsonify({"error": "no such checkbox"}), 404
-    m = matches[idx]
-    checked = m.group(2).lower() == "x"
-    body = item.note
-    item.note = (body[:m.start()] + m.group(1) + ("[ ]" if checked else "[x]")
-                 + body[m.end():])
+    item.note, checked = result
     item.save()
-    return jsonify({"ok": True, "checked": not checked,
+    return jsonify({"ok": True, "checked": checked,
                     "stamp": _stamp(item.updated_at)})
 
 

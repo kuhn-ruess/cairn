@@ -1,6 +1,10 @@
-{# Rendered note body — swapped in after an inline note edit. #}
+{# Rendered note body — swapped in after an inline note edit.
+   ``data-md-toggle-url`` is what makes the "- [ ]" boxes tickable in place
+   (md-tasks.js). Anyone who can open this page can edit the item
+   (can_be_edited_by == can_be_viewed_by), so there is nothing to gate. #}
 {% if task.note %}
-  <div class="md-body">{{ task.note|markdown }}</div>
+  <div class="md-body"
+       data-md-toggle-url="{{ url_for('tasks.toggle_note_task', task_id=task.pk) }}">{{ task.note|markdown(True) }}</div>
 {% else %}
   <p class="text-muted small fst-italic mb-0">No note yet — click Edit to add one.</p>
 {% endif %}
