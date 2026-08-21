@@ -47,6 +47,24 @@
   {% endif %}
 </div>
 
+{% if customers %}
+  {# Type-to-find over what is already on the page. The list is rendered in
+     full anyway (one query per section, see the view), so filtering it in the
+     browser costs nothing and answers on every keystroke — no round-trip, no
+     lost scroll position. A customer that matches keeps all its projects; a
+     project that matches pulls its customer along. #}
+  <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    <div class="input-group input-group-sm" style="flex: 0 1 26rem; min-width: 12rem;">
+      <span class="input-group-text"><i class="bi bi-search"></i></span>
+      {# name="q" is what the global "/" shortcut looks for (static/js/shortcuts.js);
+         the box is in no form, so the name only serves that. #}
+      <input type="search" id="tt-search" name="q" class="form-control" autocomplete="off"
+             placeholder="Find a customer or project…" aria-label="Find a customer or project">
+    </div>
+    <span id="tt-search-count" class="small text-muted"></span>
+  </div>
+{% endif %}
+
 {% if can_manage and customers %}
   {# The bulk form is a *sibling* of the list, not a wrapper: the list already
      contains forms (add project), and forms cannot nest. Each checkbox and the
@@ -82,7 +100,8 @@
 {% endif %}
 
 {% for c in customers %}
-  <div class="card mb-3 {% if c.archived %}opacity-75{% endif %}">
+  <div class="card mb-3 tt-cust {% if c.archived %}opacity-75{% endif %}"
+       data-name="{{ c.name|lower }}">
     <div class="card-header py-2 d-flex align-items-center gap-2 flex-wrap">
       {% if can_manage %}
         <input type="checkbox" class="form-check-input tt-pick m-0" form="tt-bulk"
@@ -105,7 +124,7 @@
       {% for p in by_customer.get(c.id|string, []) %}
         {% set bs = budgets.get(p.id|string) %}
         {% set links = links_by_project.get(p.id|string, []) %}
-        <li class="list-group-item py-2">
+        <li class="list-group-item py-2 tt-proj" data-name="{{ p.name|lower }}">
           <div class="d-flex align-items-center gap-2 flex-wrap">
             {% if can_manage %}
               <input type="checkbox" class="form-check-input tt-pick m-0" form="tt-bulk"
@@ -169,14 +188,14 @@
           {% endif %}
         </li>
       {% else %}
-        <li class="list-group-item small text-muted">
+        <li class="list-group-item small text-muted tt-hide-on-search">
           {% if show_archive %}Nothing archived here.{% else %}No projects yet.{% endif %}
         </li>
       {% endfor %}
 
       {% if not show_archive and not c.archived %}
         {# New project under this customer #}
-        <li class="list-group-item bg-body-tertiary">
+        <li class="list-group-item bg-body-tertiary tt-hide-on-search">
           <form method="post" action="{{ url_for('timetracking.project_create') }}"
                 class="d-flex gap-1 flex-wrap align-items-center">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -199,6 +218,58 @@
   </div>
 {% endfor %}
 
+{% if customers %}
+  <script>
+    (() => {
+    // Type-to-find over the rendered list. Delegated on document, like the
+    // rest of the module's JS, so it survives a swapped <main>.
+    // Nothing you cannot see may stay ticked for deletion: filtering something
+    // out of view also takes it out of the bulk selection.
+    const ttUntick = (el) => {
+      el.querySelectorAll(".tt-pick:checked").forEach((cb) => { cb.checked = false; });
+    };
+    const ttFilter = (q) => {
+      q = q.trim().toLowerCase();
+      let cust = 0, proj = 0;
+      document.querySelectorAll(".tt-cust").forEach((card) => {
+        const hit = !q || card.dataset.name.includes(q);
+        let shown = 0;
+        card.querySelectorAll(".tt-proj").forEach((li) => {
+          const keep = hit || li.dataset.name.includes(q);
+          li.classList.toggle("d-none", !keep);
+          if (keep) shown += 1; else ttUntick(li);
+        });
+        // While filtering, the "add project" and "no projects yet" rows are
+        // noise — they say nothing about what was searched for.
+        card.querySelectorAll(".tt-hide-on-search").forEach((li) => {
+          li.classList.toggle("d-none", !!q);
+        });
+        const keepCard = !q || hit || shown > 0;
+        card.classList.toggle("d-none", !keepCard);
+        if (keepCard) { cust += 1; proj += shown; } else ttUntick(card);
+      });
+      const out = document.getElementById("tt-search-count");
+      if (out) {
+        out.textContent = q
+          ? (cust ? `${cust} customer${cust === 1 ? "" : "s"}, ${proj} project${proj === 1 ? "" : "s"}`
+                  : "Nothing matches.")
+          : "";
+      }
+    };
+    document.addEventListener("input", (ev) => {
+      if (ev.target.closest("#tt-search")) ttFilter(ev.target.value);
+    });
+    document.addEventListener("keydown", (ev) => {
+      // Escape empties the box rather than leaving a filtered page behind.
+      if (ev.key === "Escape" && ev.target.closest("#tt-search")) {
+        ev.target.value = "";
+        ttFilter("");
+      }
+    });
+    })();
+  </script>
+{% endif %}
+
 {% if can_manage and customers %}
   <script>
     // "select all" for the bulk form. Delegated on document, like the rest of
@@ -206,7 +277,10 @@
     document.addEventListener("change", (ev) => {
       const all = ev.target.closest("#tt-pick-all");
       if (!all) return;
+      // Only what is on screen — a filtered-away customer must not be swept
+      // into a delete the user never saw.
       document.querySelectorAll(".tt-pick").forEach((cb) => {
+        if (cb.closest(".d-none")) return;
         cb.checked = all.checked;
       });
     });
