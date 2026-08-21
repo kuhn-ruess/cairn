@@ -171,8 +171,10 @@
           </li>
           <li>Tasks created: <strong>{{ stats.tickets_created }}</strong>,
             updated: {{ stats.tickets_updated }}
-            {%- if stats.tickets_foreign_owner %}, left with their current
-              owner: {{ stats.tickets_foreign_owner }}{% endif %}
+            {%- if stats.tickets_assigned %}, assigned to their new Zammad
+              owner: {{ stats.tickets_assigned }}{% endif %}
+            {%- if stats.tickets_foreign_owner %}, owned by someone other than
+              their Zammad owner: {{ stats.tickets_foreign_owner }}{% endif %}
             {%- if stats.tickets_dropped %}, closed as gone:
               {{ stats.tickets_dropped }}{% endif %}</li>
           {% if stats.tickets_unowned %}

@@ -62,6 +62,46 @@ def _target_project(user):
     return Item.objects(pk=pid, owner=user, kind="project").first()
 
 
+def _mirror_ticket_assignment(item, raw, owners: dict, roster_pks: set,
+                              *, dry_run: bool) -> int:
+    """Mirror a ticket that changed hands in Zammad into Cairn's *assignment*.
+
+    Reassigning a ticket is the same statement as assigning a task here — it
+    is still filed where it was, somebody else is now doing it — so it is
+    written the same way: :meth:`Item.assign_to`, the method the UI calls. The
+    assignee gets the same bell entry, the task turns up in their Inbox, their
+    own filing of it survives a round trip, and the owner keeps it in sight.
+
+    The owner deliberately does not move. An imported task may sit in a project
+    this team cannot even see, put there by a person; taking it out from under
+    them is a decision a sync doesn't get to make.
+
+    Only what the roster can answer is mirrored:
+
+    * a Zammad owner with no Cairn account leaves the assignment alone — there
+      is nobody to name, and clearing it would lose a real one,
+    * the ticket coming back to the task's own owner clears the assignment, but
+      only when the current assignee is somebody this sync could have set;
+      an assignment to anyone else was somebody's decision here.
+
+    Returns 1 when the assignment changed, so a run can report it."""
+    wanted = owners.get(str(raw.get("owner_id") or ""))
+    if wanted is None:
+        return 0
+    current = item.assigned_to
+    if str(wanted.pk) == str(item.owner.pk):
+        if current is None or str(current.pk) not in roster_pks:
+            return 0
+        wanted = None                      # handed back → undo the delegation
+    elif current is not None and str(current.pk) == str(wanted.pk):
+        return 0                           # already says so
+    if dry_run:
+        return 1
+    item.assign_to(wanted, by_user=item.owner)
+    item.save()
+    return 1
+
+
 def _existing_task(team_members, external_id):
     """The task for this ticket, whoever in the team happens to own it."""
     return Item.objects(owner__in=team_members, external_id=external_id).first()
@@ -130,6 +170,9 @@ def sync_team(team, *, full: bool = False, dry_run: bool = False,
     opts = zi.TimeOptions.for_team(team)
     members = team_members(team)
     owners = _owner_map(team)
+    # Who this sync is allowed to have assigned: an assignment to anyone else
+    # came from a person here and is not ours to clear.
+    roster_pks = {str(u.pk) for u in owners.values()}
     fallback = team.admin
     targets: dict = {}
 
@@ -179,11 +222,20 @@ def sync_team(team, *, full: bool = False, dry_run: bool = False,
             target = _cached_target(targets, owner)
 
         try:
-            zi._upsert_ticket(owner, raw, base, token, target, stats, dry_run,
-                              me_id=None, debug=debug, opts=opts)
+            item = zi._upsert_ticket(owner, raw, base, token, target, stats,
+                                     dry_run, me_id=None, debug=debug,
+                                     opts=opts)
         except zi.ZammadError as exc:
             stats.errors.append(f"ticket {raw.get('id')}: {exc}")
             stats.tickets_skipped += 1
+        else:
+            # A ticket that changed hands in Zammad: the task stays where it is
+            # and the new agent is assigned it, exactly as a hand-off here
+            # would read. Only for tasks we already had — a new one is filed
+            # under its owner in the first place.
+            if existing is not None:
+                stats.tickets_assigned += _mirror_ticket_assignment(
+                    item or existing, raw, owners, roster_pks, dry_run=dry_run)
 
     # Orphan reconcile is a full-pass decision, exactly as in the per-user run:
     # an incremental one asked for a slice, so "didn't come back" means "wasn't

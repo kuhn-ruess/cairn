@@ -84,6 +84,9 @@ class ZammadStats:
     # isn't the ticket's Zammad owner — left where they are, on purpose.
     tickets_unowned: int = 0
     tickets_foreign_owner: int = 0
+    # Tickets whose Zammad owner changed hands: mirrored into Cairn's own
+    # assignment rather than moved (see zammad_team._mirror_ticket_assignment).
+    tickets_assigned: int = 0
     time_task_links_cleared: int = 0  # per-task billing links an earlier sync wrote
     # Zammad user id → actor snapshot, cached for the run (not reported).
     actor_cache: dict = field(default_factory=dict)
@@ -132,6 +135,7 @@ class ZammadStats:
             "closed_with_time": self.closed_with_time,
             "tickets_unowned": self.tickets_unowned,
             "tickets_foreign_owner": self.tickets_foreign_owner,
+            "tickets_assigned": self.tickets_assigned,
             "time_task_links_cleared": self.time_task_links_cleared,
             "me_id": self.me_id,
             "fetched_via": self.fetched_via,

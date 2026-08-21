@@ -16,12 +16,15 @@ from flask import url_for
 
 
 def _task_link(task) -> str:
+    if not getattr(task, "pk", None):
+        return ""
     try:
-        if task.pk:
-            return url_for("tasks.detail", task_id=task.pk)
+        return url_for("tasks.detail", task_id=task.pk)
     except Exception:
-        pass
-    return ""
+        # No request to build against — a background sync, the CLI. url_for
+        # needs SERVER_NAME for that and raises without it, which used to leave
+        # the bell entry linking nowhere. The route is stable; write the path.
+        return f"/tasks/{task.pk}"
 
 
 def _push(recipient, *, kind, text, link="", icon="bi-bell", actor=""):
