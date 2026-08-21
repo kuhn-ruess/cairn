@@ -293,6 +293,54 @@
     </div>
   {% endif %}
 
+  {# ---- The first import, before anyone was matched ---------------------- #}
+  <div class="card my-4">
+    <div class="card-header py-2">
+      <strong class="small">
+        <i class="bi bi-person-check"></i> Hand tickets to their Zammad owner</strong>
+      <span class="text-muted small">— after matching the agents</span>
+    </div>
+    <div class="card-body">
+      <p class="form-text small mt-0">
+        A run files each new ticket under the person who owns it in Zammad, as
+        the roster stands when the run starts — so everything imported before
+        the agents were matched went to {{ team.admin.display_name or team.admin.username if team.admin }}
+        as the fallback, and no later run moves it, because an imported ticket
+        is recognised and never re-filed. This is the one-off that catches up:
+        tickets still sitting where the import put them go to the account their
+        Zammad owner maps to, into that person's own target project. Anything
+        somebody has filed into a project since stays where it is.
+      </p>
+      <form method="post" class="d-flex gap-2 align-items-center flex-wrap">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="team" value="{{ team.pk }}">
+        <button class="btn btn-sm btn-outline-secondary" name="action" value="preview-refile">
+          Show me what would move</button>
+        <button class="btn btn-sm btn-outline-primary" name="action" value="refile"
+                onclick="return confirm('Move the imported tickets to their Zammad owner?');">
+          Move them</button>
+      </form>
+      {% if refiled %}
+        <div class="alert alert-info py-2 small mt-3 mb-0">
+          {{ refiled.moved }} of {{ refiled.checked }} imported task(s)
+          {{ 'would go' if refiled.dry_run else 'went' }} to another owner
+          {%- if refiled.kept %}, {{ refiled.kept }} stay where somebody filed them{% endif %}
+          {%- if refiled.unmatched %}, {{ refiled.unmatched }} have no matched agent in Zammad{% endif %}.
+          {% if refiled.examples %}
+            <ul class="mb-0 mt-1">
+              {% for e in refiled.examples %}
+                <li>{{ e.title }} — {{ e.from }} → <strong>{{ e.to }}</strong></li>
+              {% endfor %}
+              {% if refiled.moved > refiled.examples|length %}
+                <li class="text-muted">… and {{ refiled.moved - refiled.examples|length }} more</li>
+              {% endif %}
+            </ul>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
   {# ---- Configured under the wrong team? --------------------------------- #}
   {% if move_targets and (team.zammad_url or has_token or team.zammad_agents) %}
     <div class="card my-4">

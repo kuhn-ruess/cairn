@@ -224,6 +224,39 @@ def sync_zammad_team(team_id, full, force, dry_run):
             click.echo(f"  ! {err}")
 
 
+@cairn_cli.command("refile-zammad-owners")
+@click.option("--team", "team_id", required=True, help="The team (id).")
+@click.option("--dry-run", is_flag=True, help="Report only, don't write.")
+def refile_zammad_owners_cmd(team_id, dry_run):
+    """Hand imported tickets to the Cairn account their Zammad owner maps to.
+
+    The one-off after matching the agents: the first run on a new connection
+    had nobody in the roster yet, so every ticket went to the team's admin, and
+    no later run moves it. Only touches tasks still sitting where the import
+    put them.
+    """
+    from application.models.team import Team
+    from application.services.zammad_import import ZammadError
+    from application.services.zammad_team import refile_team_owners
+
+    team = Team.objects(pk=team_id).first()
+    if team is None:
+        click.echo(f"{team_id}: not found")
+        return
+    try:
+        out = refile_team_owners(team, dry_run=dry_run)
+    except ZammadError as exc:
+        click.echo(f"{team.name}: {exc}")
+        return
+    verb = "would move" if dry_run else "moved"
+    click.echo(f"{team.name}: {verb} {out['moved']} of {out['checked']} "
+               f"imported task(s) — {out['kept']} filed by hand stay, "
+               f"{out['unmatched']} without a matched agent "
+               f"({out['tickets']} tickets read)")
+    for e in out["examples"]:
+        click.echo(f"  {e['title']}: {e['from']} → {e['to']}")
+
+
 @cairn_cli.command("split-note-times")
 @click.option("--user", "username", help="Only one user's teams (by username).")
 @click.option("--dry-run", is_flag=True, help="Report only, don't write.")

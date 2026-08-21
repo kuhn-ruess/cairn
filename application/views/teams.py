@@ -351,7 +351,7 @@ def zammad():
     from application.services.permissions import team_members
     from application.services.zammad_import import ZammadError, default_time_from
     from application.services.zammad_team import (
-        move_team_connection, purge_team_import, sync_team,
+        move_team_connection, purge_team_import, refile_team_owners, sync_team,
     )
 
     user = current_user._get_current_object()
@@ -361,7 +361,7 @@ def zammad():
     if not team.is_managed_by(user):
         abort(403)
 
-    stats = purge = None
+    stats = purge = refiled = None
     if request.method == "POST":
         # Every form here says which team it means. Refuse the ones that don't
         # rather than fall back to the default team — writing a connection into
@@ -383,20 +383,26 @@ def zammad():
                   f"{'' if moved['agents'] == 1 else 's'}). What was already "
                   f"imported stayed with {team.name}.", "success")
             return redirect(url_for("teams.zammad", team=str(target.pk)))
-        url = (request.form.get("url") or "").strip()
-        if url or request.form.get("token"):
-            team.zammad_url = url
-        token_in = (request.form.get("token") or "").strip()
-        if token_in:
-            team.zammad_token = encrypt_for(team, token_in)
-        team.zammad_auto_sync = request.form.get("auto_sync") == "1"
-        team.zammad_import_time = request.form.get("import_time") == "1"
-        team.zammad_time_auto_customer = request.form.get("auto_customer") == "1"
-        team.zammad_include_closed = request.form.get("include_closed") == "1"
-        # Empty is not "import everything" — see zammad_import.default_time_from.
-        team.zammad_time_from = (_valid_day(request.form.get("time_from"))
-                                 or default_time_from())
-        team.save()
+        def _save_settings():
+            """Take the connection form's fields — and *only* when they were on
+            the form that was sent. The purge and re-file forms don't carry the
+            checkboxes; reading them anyway meant every preview click silently
+            switched auto-sync off, which is how a team quietly stops syncing."""
+            url = (request.form.get("url") or "").strip()
+            if url or request.form.get("token"):
+                team.zammad_url = url
+            token_in = (request.form.get("token") or "").strip()
+            if token_in:
+                team.zammad_token = encrypt_for(team, token_in)
+            team.zammad_auto_sync = request.form.get("auto_sync") == "1"
+            team.zammad_import_time = request.form.get("import_time") == "1"
+            team.zammad_time_auto_customer = request.form.get("auto_customer") == "1"
+            team.zammad_include_closed = request.form.get("include_closed") == "1"
+            # Empty is not "import everything" — see default_time_from.
+            team.zammad_time_from = (_valid_day(request.form.get("time_from"))
+                                     or default_time_from())
+            team.save()
+
         if action in ("preview-purge", "purge"):
             # The way back, in two steps: see what would go, then type the
             # team's name to mean it.
@@ -418,7 +424,20 @@ def zammad():
                       f"{purge['customers']} customer(s). Import again when "
                       f"you're ready.", "success")
                 purge = None
+        elif action in ("preview-refile", "refile"):
+            # After matching the agents: hand the first import's tickets to the
+            # people who own them in Zammad. Preview first, like the purge.
+            try:
+                refiled = refile_team_owners(
+                    team, dry_run=action == "preview-refile")
+            except ZammadError as exc:
+                flash(str(exc), "danger")
+            else:
+                if action == "refile":
+                    flash(f"Moved {refiled['moved']} task(s) to their Zammad "
+                          f"owner.", "success")
         elif action == "sync":
+            _save_settings()
             try:
                 stats = sync_team(team, full=request.form.get("full") == "1",
                                   dry_run=request.form.get("dry_run") == "1")
@@ -427,6 +446,7 @@ def zammad():
             else:
                 flash("Team sync finished.", "success")
         else:
+            _save_settings()
             flash("Connection saved.", "success")
 
     members = sorted(team_members(team),
@@ -449,7 +469,7 @@ def zammad():
         # Where the connection could be moved to: the other teams this user
         # manages — moving it into a team you can't administer is not a fix.
         move_targets=[t for t in teams if t != team and t.is_managed_by(user)],
-        stats=stats, purge=purge, members=rows,
+        stats=stats, purge=purge, refiled=refiled, members=rows,
         # What the syncs have been doing — the team's own runs and its members'
         # personal ones, because "why is there no time from Tuesday" is the same
         # question whichever of them ran.

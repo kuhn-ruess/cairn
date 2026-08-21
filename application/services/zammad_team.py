@@ -122,7 +122,6 @@ def sync_team(team, *, full: bool = False, dry_run: bool = False,
     tickets = _fetch_tickets(base, token, stats, since)
 
     stats.tickets_fetched = len(tickets)
-    stats.fetched_via = "team connection"
 
     seen_ids = {f"zammad:{t.get('id')}" for t in tickets if t.get("id")}
     for raw in tickets:
@@ -199,7 +198,15 @@ def _fetch_tickets(base: str, token: str, stats: zi.ZammadStats,
 
     Search first (Elasticsearch carries the cutoff for us), the plain list as
     the fallback — the same two paths the per-user import uses, minus the
-    owner filter, which is the entire point of a team run."""
+    owner filter, which is the entire point of a team run.
+
+    An **empty** search result is not evidence that nothing changed:
+    ``/tickets/search`` needs Elasticsearch, and an install without it answers
+    a Lucene-style ``updated_at:>=…`` query with a cheerful empty list rather
+    than an error. Trusting that made every incremental run a no-op — the sync
+    ran, said it was fine, and fetched nothing. Only a page that actually
+    carries rows proves the search can answer; otherwise we fall through to the
+    list and filter here."""
     import itertools
 
     zi._CALLS = itertools.count()
@@ -220,10 +227,13 @@ def _fetch_tickets(base: str, token: str, stats: zi.ZammadStats,
                 tickets = []
                 break
             if not chunk:
-                return tickets
+                # End of the results — or a search that cannot answer. Both
+                # look the same, so only a non-empty page counts.
+                break
             tickets.extend(chunk)
             page += 1
         if tickets:
+            stats.fetched_via = "team connection (search)"
             return tickets
 
     page = 1
@@ -239,6 +249,7 @@ def _fetch_tickets(base: str, token: str, stats: zi.ZammadStats,
             break
         tickets.extend(rows)
         page += 1
+    stats.fetched_via = "team connection (full list)"
     if since is not None:
         # No search index: drop the untouched ones before they cost a request
         # each for articles, tags and time.
@@ -423,3 +434,88 @@ def move_team_connection(src, dst) -> dict:
     src.zammad_agents = []
     src.save()
     return {"agents": len(dst.zammad_agents or [])}
+
+
+def refile_team_owners(team, *, dry_run: bool = True) -> dict:
+    """Hand the imported tickets to the Cairn account their Zammad owner maps
+    to. The one-time correction for what the roster couldn't answer yet.
+
+    A run files each *new* ticket under its Zammad owner, read from the roster
+    as it stands **when the run starts**. Before anybody is matched — the first
+    run on a new connection — that answer is "nobody", so everything lands with
+    the team's admin, and the next run won't touch it again: an imported ticket
+    is recognised, never moved, because it may well have been filed by hand in
+    the meantime.
+
+    That is right as a sync rule and wrong as a one-off: after matching the
+    agents, a whole import can be sitting in the wrong person's Inbox. This
+    reaches back over exactly those — and only while they are still where the
+    import put them:
+
+    * unfiled (the fallback's Inbox), or still in the current owner's own
+      Zammad target project — anything moved into a project by a person stays
+      put, and is reported as kept,
+    * owned by someone other than the account their Zammad owner maps to.
+
+    Needs the connection, because the ticket's owner is in Zammad, not here."""
+    from application.services.crypto import decrypt_for
+    from application.services.external_tags import ensure_user_has_tags
+    from application.services.permissions import team_members
+
+    out = {"checked": 0, "moved": 0, "kept": 0, "unmatched": 0,
+           "tickets": 0, "examples": [], "dry_run": dry_run}
+
+    url = (team.zammad_url or "").strip()
+    token = decrypt_for(team, team.zammad_token)
+    if not url or not token:
+        raise zi.ZammadError(
+            "This team has no Zammad connection — the ticket owners are in "
+            "Zammad, so there is nothing to read them from.")
+    base = url.rstrip("/")
+    if not base.endswith("/api/v1"):
+        base = base + "/api/v1"
+
+    owners = _owner_map(team)
+    stats = zi.ZammadStats()
+    ticket_owner = {}
+    for raw in _fetch_tickets(base, token, stats, None):
+        if raw.get("id") is not None:
+            ticket_owner[str(raw["id"])] = str(raw.get("owner_id") or "")
+    out["tickets"] = len(ticket_owner)
+
+    members = team_members(team)
+    targets: dict = {}
+    for item in Item.objects(owner__in=members, kind="task", source="zammad",
+                             external_id__startswith="zammad:"):
+        out["checked"] += 1
+        wanted = owners.get(ticket_owner.get(
+            (item.external_id or "").split(":", 1)[-1], ""))
+        if wanted is None:
+            # Nobody in the roster owns this ticket in Zammad — leave it with
+            # whoever has it rather than guess.
+            out["unmatched"] += 1
+            continue
+        if str(wanted.pk) == str(item.owner.pk):
+            continue
+        # Still where the import put it, or filed by a person since?
+        here = _cached_target(targets, item.owner)
+        if item.parent is not None and (here is None
+                                        or str(item.parent.pk) != str(here.pk)):
+            out["kept"] += 1
+            continue
+        out["moved"] += 1
+        if len(out["examples"]) < 10:
+            out["examples"].append({
+                "title": item.title, "from": item.owner.display_name
+                or item.owner.username, "to": wanted.display_name
+                or wanted.username})
+        if dry_run:
+            continue
+        item.owner = wanted
+        item.parent = _cached_target(targets, wanted)
+        item.updated_at = _utcnow()
+        item.save()
+        # The tag names travel with the task, but they are the *owner's* tags —
+        # without this the chips render as bare strings for their new owner.
+        ensure_user_has_tags(wanted, item.external_tags or [], group="Zammad")
+    return out
