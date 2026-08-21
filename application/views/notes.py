@@ -256,8 +256,8 @@ def _wiki_index(tree):
     """``[[Title]]`` → note lookup built from the tree that's already loaded,
     so wiki links cost no extra query (see services/note_links)."""
     from application.services import note_links
-    # Folders are pages with bodies now, so "[[Arbeit]]" has to find one.
-    return note_links.title_index(None, notes=[it for _d, it in tree])
+    return note_links.title_index(
+        None, notes=[it for _d, it in tree if it.kind == "note"])
 
 
 # ---------- views ----------
@@ -320,8 +320,6 @@ def detail(note_id):
             note=item,
             folder=item,
             children=children,
-            wiki_index=_wiki_index(tree),
-            **_outline_context(item, user),
             linked_from=linked_from,
             linked_paths=linked_paths,
             linkable=linkable,

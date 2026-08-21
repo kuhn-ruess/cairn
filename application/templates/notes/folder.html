@@ -1,6 +1,5 @@
 {% extends "layout/base.html" %}
 {% import "favorites_macros.html" as fav with context %}
-{% import "notes/_outline.html" as ol with context %}
 {% block title %}{{ folder.name }} · Notes · Cairn{% endblock %}
 {% block content %}
 <style>
@@ -14,9 +13,8 @@
   {% include "notes/_nav.html" %}
   <div class="notes-content">
     <div class="d-flex align-items-center mb-3">
-      {# The name is editable here, the way a note's title is: a folder is a
-         page, and a page whose name you cannot change is a strange page. Saved
-         through the same route by the same editor (static/js/outliner.js). #}
+      {# The name stays editable — a container you cannot rename is a nuisance
+         — but that is all this page writes. #}
       <h1 class="h4 mb-0 me-auto d-flex align-items-center gap-2" style="min-width: 0;">
         {{ item_icon(folder) }}
         <input type="text" id="note-title" class="form-control border-0 px-0 h4 mb-0"
@@ -130,46 +128,6 @@
       {% endif %}
     </div>
 
-    {# ---- The folder's own body. A folder is where things are filed AND a
-           page you can write on, so there is no place where filing something
-           and writing about it are different acts. Same outline, same editor,
-           same save route as a note (services/outline.py). ---- #}
-    {% if blocks or can_edit %}
-    <div class="note-doc note-doc-inline mb-4">
-      {% if zoom %}
-        <nav class="ol-crumbs small mb-2">
-          <a href="{{ url_for('notes.detail', note_id=folder.pk) }}">{{ folder.name }}</a>
-          {% for b in zoom_trail %}
-            <span class="mx-1">›</span>
-            {% if b.uuid %}
-              <a href="{{ url_for('notes.detail', note_id=folder.pk, zoom=b.uuid) }}">{{ b.label }}</a>
-            {% else %}<span>{{ b.label }}</span>{% endif %}
-          {% endfor %}
-        </nav>
-      {% endif %}
-      <div class="alert alert-warning d-none py-2 px-3 small" id="note-conflict">
-        This folder changed somewhere else, so your edit wasn't saved. Copy what
-        you need, then
-        <button type="button" class="btn btn-sm btn-warning ms-1" id="note-conflict-reload">reload</button>.
-      </div>
-      <div id="note-outline" class="note-body"
-           data-note-id="{{ folder.pk }}" data-stamp="{{ base_stamp }}"
-           data-zoom="{{ zoom }}"
-           data-can-edit="{{ '1' if can_edit else '0' }}">
-        {{ ol.outline(blocks, wiki_index, block_index, embed_of) }}
-      </div>
-      <script type="application/json" id="note-blocks">{{ blocks_json|safe }}</script>
-      <ul class="list-group shadow-sm" id="wiki-complete"></ul>
-      {% if can_edit and not blocks %}
-        <p class="text-muted fst-italic small mb-0" id="folder-body-hint">
-          Click here to write on this folder.
-        </p>
-      {% endif %}
-    </div>
-    {% endif %}
-
-    {% include "notes/_references.html" %}
-
     {% if children %}
       <h2 class="h6 text-uppercase text-muted mb-2"
           style="font-size: .72rem; letter-spacing: .08em;">Contains</h2>
@@ -207,8 +165,36 @@
 
 {# ---- Share modal ---- #}
 {% include "notes/_share_modal.html" %}
-<script src="{{ asset('js/slash-menu.js') }}"></script>
-{# Order matters: note-popups.js installs the bridge outliner.js calls into. #}
-<script src="{{ asset('js/note-popups.js') }}"></script>
-<script src="{{ asset('js/outliner.js') }}"></script>
+{# A folder is a container, not a page: no outline, no editor. Only its name
+   is editable, and that is a field and a fetch, not a whole editor. #}
+<script>
+(function () {
+  const input = document.getElementById("note-title");
+  if (!input || input.readOnly) return;
+  const status = document.getElementById("note-save-status");
+  let saved = input.value, timer = null;
+  async function save() {
+    if (input.value === saved) return;
+    if (status) status.textContent = "Saving…";
+    const fd = new FormData();
+    const csrf = document.querySelector('input[name="csrf_token"]');
+    if (csrf) fd.append("csrf_token", csrf.value);
+    fd.append("title", input.value);
+    const resp = await fetch(window.location.pathname + "/edit", {
+      method: "POST", body: fd, credentials: "same-origin",
+      headers: { "X-Requested-With": "XMLHttpRequest", "X-Partial": "1" },
+    }).catch(() => null);
+    const data = resp && resp.ok ? await resp.json().catch(() => null) : null;
+    if (!data || !data.ok) { if (status) status.textContent = "Save failed"; return; }
+    saved = data.title;
+    input.value = data.title;
+    document.title = data.title + " · Notes · Cairn";
+    const row = document.querySelector(".nn-row.active .nn-name");
+    if (row) row.textContent = data.title;
+    if (status) { status.textContent = "Saved"; setTimeout(() => { status.textContent = ""; }, 2000); }
+  }
+  input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(save, 800); });
+  input.addEventListener("blur", save);
+})();
+</script>
 {% endblock %}

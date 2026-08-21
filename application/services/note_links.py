@@ -37,12 +37,14 @@ APP_LINK_RE = re.compile(r"\]\(/notes/([0-9a-fA-F]{24})\)")
 
 
 def pages_q():
-    """Everything in the notes tree that HAS a body: a note, or a notes-folder.
+    """Everything in the notes tree that HAS a body — which is notes.
 
-    A folder is a container for filing and for access and also a page you can
-    write on, so it can hold links and be linked to like any other. Same
-    expression the sidebar tree uses, so the two cannot drift apart."""
-    return Q(kind="note") | Q(kind="folder", folder_domain="notes")
+    A notes-FOLDER is a container for filing and for access, and nothing else:
+    clicking one should show what is inside it, not a sheet to write on. So it
+    is not a link target, has no backlinks, and holds no referenceable blocks.
+    Kept as a function rather than inlined because every query that means
+    "a page" has to mean the same thing."""
+    return Q(kind="note")
 
 
 def title_index(user, notes=None) -> dict:

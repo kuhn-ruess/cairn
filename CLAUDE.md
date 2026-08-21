@@ -244,7 +244,7 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   an outline as well (`User.braindump`), and takes `parse_lines()` rather than
   `parse()`: in a pad a LINE was always an item, where a note reads four
   unbroken lines as one paragraph.
-  `linked_references()` is what a page shows underneath itself: the BLOCKS
+  `linked_references()` is what a note shows underneath itself: the BLOCKS
   pointing at it (by `[[Title]]` or by `((id))` at one of its blocks), grouped
   by page and read under the chain of parents they live in — Logseq's Linked
   References. The pages come from one indexed query on `note_links`; only their
