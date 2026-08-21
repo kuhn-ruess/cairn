@@ -19,7 +19,7 @@ Design constraints (decided with the user):
 
 Hierarchy of the billing entities (mite-shaped):
 
-    Team → Customer → TimeTrackingProject → (entries live in the monthly bucket)
+    Team → Customer → TimeTrackingProject → (entries live in the day's bucket)
 
 The GTD tree (``Item``) is linked *in*, not merged: a Cairn folder/project sets
 ``Item.time_project``; tasks inherit it by climbing parents. When time is logged
@@ -221,7 +221,7 @@ class TimeEntryValue(EmbeddedDocument):
 
 
 class TimeEntry(EmbeddedDocument):
-    """One logged chunk of time, embedded in a customer's monthly bucket.
+    """One logged chunk of time, embedded in the customer's bucket for that day.
 
     Append-only: never popped. ``status`` flips to ``cancelled`` for soft
     delete; ``locked`` marks it billed and freezes it. ``entry_id`` is a stable

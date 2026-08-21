@@ -20,6 +20,19 @@ def users():
                            levels=LEVELS)
 
 
+# Which part of the product a model module belongs to, in the order the tabs
+# should read. A module that isn't named here still shows up — under "Other" —
+# because the model set is discovered, not listed, and a new model appearing
+# in the wrong tab is a smaller problem than one that doesn't appear at all.
+MODEL_GROUPS = (
+    ("Tasks & notes", ("item",)),
+    ("Time tracking", ("timetracking", "timer")),
+    ("People & teams", ("user", "team")),
+    ("Organising", ("tag", "perspective", "habit")),
+    ("Integrations", ("calendar", "sync_run", "notification")),
+)
+
+
 @admin_bp.route("/data-model")
 @login_required
 @global_admin_required
@@ -30,7 +43,10 @@ def data_model():
     types, indexes, and collection name pulled live from the class
     metadata (so it can't drift from the code). The model *set* is
     auto-discovered from the mongoengine registry, so newly added models
-    (and embedded docs) appear here automatically — no hand-kept list."""
+    (and embedded docs) appear here automatically — no hand-kept list.
+
+    Grouped into tabs by module (``MODEL_GROUPS``) because 28 documents in one
+    scroll is a list, not a map."""
     import importlib
     import pkgutil
 
@@ -82,6 +98,7 @@ def data_model():
         is_embedded = not issubclass(doc, _D)
         return {
             "name": doc.__name__,
+            "field_count": len(fields),
             "collection": meta.get("collection") or ("(embedded)" if is_embedded else "—"),
             "module": doc.__module__,
             "doc": (doc.__doc__ or "").strip(),
@@ -90,9 +107,29 @@ def data_model():
             "embedded": is_embedded,
         }
 
+    described = [describe(d) for d in docs]
+
+    # Group for the tabs, keeping the order above; anything from a module the
+    # map doesn't know lands in "Other" rather than disappearing.
+    where = {mod: title for title, mods in MODEL_GROUPS for mod in mods}
+    groups = {title: [] for title, _ in MODEL_GROUPS}
+    for m in described:
+        title = where.get(m["module"].rsplit(".", 1)[-1], "Other")
+        groups.setdefault(title, []).append(m)
+    def slug(title):
+        out = "".join(c if c.isalnum() else "-" for c in title.lower())
+        while "--" in out:
+            out = out.replace("--", "-")
+        return out.strip("-")
+
+    tabs = [{"title": t, "models": ms, "slug": slug(t)}
+            for t, ms in groups.items() if ms]
+
     return render_template(
         "admin/data_model.html",
-        models=[describe(d) for d in docs],
+        models=described, tabs=tabs,
+        collections=sum(1 for m in described if not m["embedded"]),
+        embedded=sum(1 for m in described if m["embedded"]),
     )
 
 

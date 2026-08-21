@@ -150,7 +150,7 @@ def resolve_time_project(item) -> TimeTrackingProject | None:
 
 
 # ---------------------------------------------------------------------------
-# Logging time into the monthly bucket
+# Logging time into the day's bucket
 # ---------------------------------------------------------------------------
 
 def period_for(spent_on) -> str:
@@ -1255,7 +1255,7 @@ def reset_team_billing(team) -> dict:
 
 def delete_customer(customer) -> dict:
     """Hard-delete a customer and **all** its history: every billing project,
-    every monthly bucket (with all logged entries), and the GTD links pointing
+    every day's bucket (with all logged entries), and the GTD links pointing
     at those projects. Irreversible — there is no trash for billing data. Returns
     a count summary. Uses ``Item.all_objects`` so links on trashed items clear too."""
     team = customer.team

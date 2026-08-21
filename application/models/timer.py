@@ -30,7 +30,7 @@ class RunningTimer(EmbeddedDocument):
     elapsed value: only ``started_at``. Elapsed time is derived on read, which
     is why the clock keeps running when the browser is closed — exactly like
     mite's server-side stopwatch. Stopping converts it into a regular
-    :class:`TimeEntry` in the monthly bucket; nothing is ever logged while it
+    :class:`TimeEntry` in that day's bucket; nothing is ever logged while it
     runs. Same soft snapshots as ``TimeEntry`` (project/source as plain ids)
     so a deleted project or task can never break the navbar.
     """

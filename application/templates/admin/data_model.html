@@ -8,53 +8,82 @@
   </a>
 </div>
 <p class="text-muted small">
-  Live introspection of mongoengine documents. Fields, types and indexes
-  are pulled straight from the model classes.
+  Live introspection of mongoengine documents — fields, types and indexes are
+  read from the model classes on every request, so this page cannot drift from
+  the code. {{ collections }} collections and {{ embedded }} embedded documents,
+  grouped by what they are part of.
 </p>
 
-<nav class="mb-3">
-  {% for m in models %}
-    <a class="badge text-bg-secondary text-decoration-none me-1" href="#m-{{ m.name }}">{{ m.name }}</a>
-  {% endfor %}
-</nav>
+<div id="data-model" data-role="data-model">
+  <ul class="nav nav-tabs mb-3" role="tablist">
+    {% for tab in tabs %}
+      <li class="nav-item" role="presentation">
+        <button class="nav-link {% if loop.first %}active{% endif %}"
+                id="tab-{{ tab.slug }}" data-bs-toggle="tab" type="button"
+                role="tab" data-bs-target="#pane-{{ tab.slug }}">
+          {{ tab.title }}
+          <span class="badge text-bg-secondary ms-1">{{ tab.models|length }}</span>
+        </button>
+      </li>
+    {% endfor %}
+  </ul>
 
-{% for m in models %}
-  <div class="card mb-4" id="m-{{ m.name }}">
-    <div class="card-header py-2 d-flex align-items-center gap-2">
-      <h2 class="h6 mb-0 me-auto">
-        <i class="bi {% if m.embedded %}bi-box-arrow-in-down{% else %}bi-box{% endif %}"></i> {{ m.name }}
-        <span class="text-muted small">— <code>{{ m.collection }}</code></span>
-        {% if m.embedded %}<span class="badge text-bg-secondary ms-1">embedded</span>{% endif %}
-      </h2>
-      <span class="text-muted small">{{ m.module }}</span>
-    </div>
-    {% if m.doc %}
-      <div class="card-body py-2 small text-muted" style="white-space: pre-wrap;">{{ m.doc }}</div>
-    {% endif %}
-    <div class="table-responsive">
-      <table class="table table-sm mb-0">
-        <thead class="text-muted small">
-          <tr><th>Field</th><th>Type</th><th>Details</th></tr>
-        </thead>
-        <tbody>
-          {% for name, ftype, extra in m.fields %}
-            <tr>
-              <td><code>{{ name }}</code></td>
-              <td><span class="badge text-bg-light">{{ ftype }}</span></td>
-              <td class="small text-muted">{{ extra }}</td>
-            </tr>
+  <div class="tab-content">
+    {% for tab in tabs %}
+      <div class="tab-pane fade {% if loop.first %}show active{% endif %}"
+           id="pane-{{ tab.slug }}" role="tabpanel">
+
+        <nav class="mb-3">
+          {% for m in tab.models %}
+            <a class="badge text-decoration-none me-1
+                      {{ 'text-bg-secondary' if not m.embedded else 'text-bg-dark' }}"
+               href="#m-{{ m.name }}">{{ m.name }}</a>
           {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% if m.indexes %}
-      <div class="card-footer py-2 small">
-        <strong class="text-muted">Indexes:</strong>
-        {% for idx in m.indexes %}
-          <code class="me-2">{{ idx }}</code>
+        </nav>
+
+        {% for m in tab.models %}
+          <div class="card mb-4" id="m-{{ m.name }}">
+            <div class="card-header py-2 d-flex align-items-center gap-2 flex-wrap">
+              <h2 class="h6 mb-0 me-auto">
+                <i class="bi {% if m.embedded %}bi-box-arrow-in-down{% else %}bi-box{% endif %}"></i>
+                {{ m.name }}
+                <span class="text-muted small">— <code>{{ m.collection }}</code></span>
+                {% if m.embedded %}<span class="badge text-bg-secondary ms-1">embedded</span>{% endif %}
+              </h2>
+              <span class="text-muted small">{{ m.field_count }} fields</span>
+              <span class="text-muted small">{{ m.module }}</span>
+            </div>
+            {% if m.doc %}
+              <div class="card-body py-2 small text-muted" style="white-space: pre-wrap;">{{ m.doc }}</div>
+            {% endif %}
+            <div class="table-responsive">
+              <table class="table table-sm mb-0">
+                <thead class="text-muted small">
+                  <tr><th>Field</th><th>Type</th><th>Details</th></tr>
+                </thead>
+                <tbody>
+                  {% for name, ftype, extra in m.fields %}
+                    <tr>
+                      <td><code>{{ name }}</code></td>
+                      <td><span class="badge text-bg-light">{{ ftype }}</span></td>
+                      <td class="small text-muted">{{ extra }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% if m.indexes %}
+              <div class="card-footer py-2 small">
+                <strong class="text-muted">Indexes:</strong>
+                {% for idx in m.indexes %}
+                  <code class="me-2">{{ idx }}</code>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
         {% endfor %}
       </div>
-    {% endif %}
+    {% endfor %}
   </div>
-{% endfor %}
+</div>
 {% endblock %}
