@@ -3014,7 +3014,10 @@ body.ps-resizing * {
      the sheet's, not a control's: editing a block swaps in a textarea that
      inherits the very same face, size and measure, so the page never jumps
      between "reading" and "writing". */
-  #note-outline { font-family: var(--doc-face); font-size: 1.05rem; line-height: 1.7; }
+  #note-outline { font-family: var(--doc-face); font-size: 1.05rem; line-height: 1.7;
+                  /* Room under the last block to click into it. A page with
+                     one short line would otherwise be mostly dead surface. */
+                  min-height: 8rem; }
   .ol-block { position: relative; }
   .ol-row { display: flex; align-items: flex-start; }
 
@@ -3059,6 +3062,10 @@ body.ps-resizing * {
   #note-outline .ol-content pre, #note-outline .ol-content blockquote,
   #note-outline .ol-content table, #note-outline .ol-content img { margin: .2em 0; }
   #note-outline .ol-content > :last-child { margin-bottom: 0; }
+  /* An empty block is still a line you must be able to put the caret in.
+     Without a floor it collapses to about two pixels, and a note you have just
+     created — whose only block is empty — has nothing to click at all. */
+  #note-outline .ol-content { min-height: 1.4em; }
 
   /* The keyword chip and the checkbox lead the block's first line, so that
      line has to run on beside them — as a paragraph of its own it would drop

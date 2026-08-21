@@ -530,7 +530,20 @@
       return;
     }
 
-    const box = e.target.closest(".ol-content");
+    // Anywhere on the row edits its block: to the right of a short line, or on
+    // the empty line of a block with nothing in it yet.
+    const row = e.target.closest(".ol-row");
+    if (!row) {
+      // The space under the outline puts the caret in the last block, which is
+      // where writing continues.
+      if (canEdit && !editing
+          && (e.target === root || e.target.classList.contains("ol-list"))) {
+        const order = visible(model);
+        if (order.length) focusBlock(order[order.length - 1], "end");
+      }
+      return;
+    }
+    const box = row.querySelector(":scope > .ol-content");
     if (!box || !canEdit) return;
     // Things that are meant to be clicked stay clickable.
     if (e.target.closest("a, img, input")) return;
