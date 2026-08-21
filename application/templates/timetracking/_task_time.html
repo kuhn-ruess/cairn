@@ -2,8 +2,9 @@
 {# Task time tracking — re-rendered server-side and swapped in via
    time-entries.js after every log / start / stop / cancel. Shown for every
    team user: when the task's subtree isn't linked to a billing project the
-   picker below chooses one on the spot (and that choice becomes the next
-   default), so time can be logged from any task without any setup detour.
+   picker below chooses one on the spot, so time can be logged from any task
+   without any setup detour. Choosing binds nothing to the task: the entry it
+   writes is what makes that project the default here next time.
    No nested <form>: the inspector wraps everything in one form, so each action
    is a button carrying its endpoint in data-action. #}
 {% if tt %}
@@ -14,12 +15,9 @@
   </button>
   Time tracking
   <span class="text-muted">({{ tt.total_minutes|duration }})</span>
-  {% if tt.project %}
-    <span class="badge tt-chip"
-          title="Billing project inherited from this task's project/folder">
-      <i class="bi bi-receipt"></i>
-      {% if tt.project_customer %}{{ tt.project_customer }} › {% endif %}{{ tt.project.name }}</span>
-  {% endif %}
+  {# No "linked to" badge here: the task is not bound to a billing project, and
+     saying so invited the question of how to unbind it. The picker below shows
+     where the next booking goes — which is the only thing that is true. #}
 </h2>
 <div class="section-collapsible">
 

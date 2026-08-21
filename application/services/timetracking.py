@@ -129,7 +129,14 @@ def resolve_time_project(item) -> TimeTrackingProject | None:
         if node.pk in seen:
             break
         seen.add(node.pk)
-        tp = getattr(node, "time_project", None)
+        # A link belongs on a folder/project, never on a task: a task binding
+        # is a one-off nobody maintains, and a thousand of them turn a billing
+        # project's link list into landfill. Where a task's time books is
+        # answered by the time already logged on it (default_project_id) — so
+        # any binding left on a task by an older import is stepped over here
+        # and the time resolves through the folder, as it would have anyway.
+        tp = None if getattr(node, "kind", None) == "task" \
+            else getattr(node, "time_project", None)
         if tp:
             # Dereference defensively — a deleted/archived project shouldn't crash.
             try:
@@ -451,35 +458,72 @@ def project_fields(project_ids) -> dict:
     return out
 
 
-def default_project_id(user, item=None, projects: list | None = None) -> str:
+def last_entry_project_id(user, item) -> str:
+    """The billing project the newest time logged on ``item`` went to.
+
+    This is how a task remembers where it books: not by a link stamped onto it,
+    but by the time it already carries. One indexed query over
+    ``entries.source_item_id`` — the same one the inspector's list uses, which
+    is why ``default_project_id`` takes those rows when the caller has them."""
+    teams = user_teams(user)
+    if not teams:
+        return ""
+    src = str(item.pk)
+    best_id, best_on = "", None
+    for b in TimeBucket.objects(
+            team__in=teams, entries__source_item_id=src).only("entries"):
+        for e in b.entries:
+            if e.source_item_id != src or e.status != "active":
+                continue
+            # Ties go to whatever was appended last — same day, later booking.
+            if best_on is None or (e.spent_on and e.spent_on >= best_on):
+                best_id, best_on = e.project_id, e.spent_on
+    return best_id
+
+
+def default_project_id(user, item=None, projects: list | None = None,
+                       entries: list | None = None) -> str:
     """Which billing project a fresh log/timer on ``item`` should preselect.
 
-    Inherited from the item's subtree → else the one the user last logged to →
-    else the only project that exists. Keeps "log time from a task" a single
-    click for the common case where everything sits under one customer."""
+    In order: where this very task booked its time last → the project its
+    subtree is linked to → the one the user last logged to anywhere → the only
+    project that exists. The task's own history comes first on purpose: picking
+    a project while logging must not bind the task to it, and it doesn't need
+    to — the entry it just wrote is the record. ``entries`` is the inspector's
+    already-loaded row list; pass it and the history costs nothing.
+    """
+    teams = user_teams(user)
+    if not teams:
+        return ""
+    ids = {p["id"] for p in projects} if projects is not None else None
+
+    def usable(pid: str) -> bool:
+        """Is this still a project one can book on today?"""
+        if not pid or to_oid(pid) is None:
+            return False
+        if ids is not None:
+            # A caller that already has the list saves the lookup entirely.
+            return pid in ids
+        hit = TimeTrackingProject.objects(
+            pk=to_oid(pid), team__in=teams, archived__ne=True
+        ).only("id", "customer").first()
+        return hit is not None and not hit.customer.archived
+
     if item is not None:
+        # ``entries`` given (even empty) means the caller already ran the
+        # lookup — a task with no time must not pay for a second query.
+        booked = ((entries[0]["project_id"] if entries else "")
+                  if entries is not None else last_entry_project_id(user, item))
+        if usable(booked):
+            return booked
         p = resolve_time_project(item)
         if p is not None and str(p.team.id) in user_team_ids(user):
             return str(p.id)
     last = getattr(user, "tt_last_project", "") or ""
-    if projects is not None:
-        # A caller that already has the list saves the lookups below.
-        ids = {p["id"] for p in projects}
-        if last in ids:
-            return last
+    if usable(last):
+        return last
+    if ids is not None:
         return projects[0]["id"] if len(projects) == 1 else ""
-    # Otherwise ask about the one project we care about rather than fetching
-    # every project the team has — this runs on the day sheet, which a team
-    # with a thousand of them opens as often as anyone else.
-    teams = user_teams(user)
-    if not teams:
-        return ""
-    if last and to_oid(last) is not None:
-        hit = TimeTrackingProject.objects(
-            pk=to_oid(last), team__in=teams, archived__ne=True
-        ).only("id", "customer").first()
-        if hit is not None and not hit.customer.archived:
-            return last
     only = list(TimeTrackingProject.objects(
         team__in=teams, archived__ne=True).only("id").limit(2))
     return str(only[0].id) if len(only) == 1 else ""
@@ -507,6 +551,7 @@ def item_entries(user, item) -> list[dict]:
                 "entry_id": e.entry_id,
                 "bucket_id": str(b.id),
                 "customer": cust_name,
+                "project_id": e.project_id,
                 "minutes": e.minutes,
                 "spent_on": local_date(e.spent_on, user),
                 "start_time": e.start_time or "",
@@ -531,26 +576,16 @@ def task_time_context(user, item):
     ``None`` only for users without a team — the section is otherwise **always**
     available, even when nothing in the task's subtree is linked to a billing
     project: the picker then lets you choose one on the spot (mite-style "log
-    from anywhere"), and the choice is remembered as the next default.
+    from anywhere"). The choice is never written onto the task; the entry it
+    produces is what makes it the next default (``default_project_id``).
     """
     if not has_team(user):
         return None
-    inherited = resolve_time_project(item)
-    if inherited is not None and str(inherited.team.id) not in user_team_ids(user):
-        inherited = None
     rows = item_entries(user, item)
-    preselect = default_project_id(user, item)
+    preselect = default_project_id(user, item, entries=rows)
     projects = pickable_projects(user, limit=PICKER_SHORTLIST, keep=preselect)
     timer = getattr(user, "running_timer", None)
-    # The inherited project's customer, read off the picker data rather than
-    # dereferenced again.
-    inherited_customer = ""
-    if inherited is not None:
-        inherited_customer = next(
-            (p["customer"] for p in projects if p["id"] == str(inherited.id)), "")
     return {
-        "project": inherited,
-        "project_customer": inherited_customer,
         "projects": projects,
         "default_project_id": preselect,
         "total_minutes": sum(r["minutes"] or 0 for r in rows),

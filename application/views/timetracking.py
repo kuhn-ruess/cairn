@@ -217,7 +217,11 @@ def index():
     for p in projects:
         by_customer.setdefault(str(p.customer.id), []).append(p)
 
-    linked = list(Item.objects(time_project__in=[p.id for p in projects])
+    # Containers only: a link lives on a folder/project and the tasks below it
+    # inherit (services.timetracking.resolve_time_project). Bindings an older
+    # import left on individual tasks are inert and stay out of this list.
+    linked = list(Item.objects(time_project__in=[p.id for p in projects],
+                               kind__in=["project", "folder"])
                   .only("id", "title", "kind", "parent", "owner", "shared_teams",
                         "time_project"))
     links_by_project: dict[str, list] = {}
@@ -1528,7 +1532,7 @@ def project_detail(pid):
     user = current_user._get_current_object()
     p = _project_or_404(pid, team)
 
-    linked = list(Item.objects(time_project=p).only(
+    linked = list(Item.objects(time_project=p, kind__in=["project", "folder"]).only(
         "id", "title", "kind", "parent", "owner", "shared_teams", "time_project"))
     today = datetime.now(user_zone(user)).date()
     consumption = team_consumption(team, f"{today.year:04d}-{today.month:02d}")
