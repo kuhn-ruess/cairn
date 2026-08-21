@@ -87,22 +87,35 @@
       const v = ta.value;
       const ls = v.lastIndexOf("\n", ta.selectionStart - 1) + 1;
       const line = v.slice(ls, ta.selectionStart);
-      const m = line.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/);
+      const m = line.match(/^(\s*)([-*+]|\d+[.)])\s+(\[[ xX]\]\s+)?(.*)$/);
       if (m) {
         ev.preventDefault();
-        if (!m[3]) {
+        if (!m[4]) {
           // Empty bullet → break out of the list.
           replaceRange(ls, ta.selectionStart, "", ls);
           return;
         }
         let marker = m[2];
         if (/\d/.test(marker)) marker = (parseInt(marker, 10) + 1) + marker.replace(/\d+/, "");
-        const insert = "\n" + m[1] + marker + " ";
+        // A checklist continues as a checklist — unticked, whatever the line
+        // above was.
+        const insert = "\n" + m[1] + marker + " " + (m[3] ? "[ ] " : "");
         const pos = ta.selectionStart;
         replaceRange(pos, pos, insert, pos + insert.length);
       }
     }
   });
+
+  // ---- checklist: turn the marked lines into "- [ ] " and back ----
+  const checkBtn = document.getElementById("braindumpChecklist");
+  if (checkBtn) {
+    checkBtn.addEventListener("click", () => {
+      const { s, e } = lineRange();
+      const out = window.CairnMdChecklist.toggleLines(ta.value.slice(s, e).split("\n"));
+      replaceRange(s, e, out.join("\n"), s, s + out.join("\n").length);
+      ta.focus();
+    });
+  }
 
   // ---- clear ----
   if (clearBtn) {

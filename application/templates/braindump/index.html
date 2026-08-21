@@ -22,9 +22,16 @@
   project — or into a <strong>note</strong>. What you convert leaves the pad,
   so whatever stays here is still unprocessed. Task lines take
   <code>@tag</code> · <code>#project</code> · <code>p1</code> · <code>!</code> ·
-  <code>today</code>; <kbd>Tab</kbd> indents a sub-task.
+  <code>today</code>; <kbd>Tab</kbd> indents a sub-task,
+  <kbd>Enter</kbd> carries a bullet or a <code>- [ ]</code> box to the next line.
 </p>
-<p class="small text-muted mb-2" id="braindumpScope"></p>
+<div class="d-flex align-items-center gap-2 mb-2">
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="braindumpChecklist"
+          title="Turn the marked lines into a checklist (and back)">
+    <i class="bi bi-ui-checks"></i> Checklist
+  </button>
+  <span class="small text-muted" id="braindumpScope"></span>
+</div>
 
 <input type="hidden" id="braindumpCsrf" name="csrf_token" value="{{ csrf_token() }}">
 <textarea id="braindumpText" class="form-control braindump-text" spellcheck="false"

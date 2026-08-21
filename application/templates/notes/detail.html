@@ -17,6 +17,10 @@
      trailing ⁺, this just keeps it visually quieter than a real link. */
   #note-body-view a[href*="/notes/new"] { color: var(--bs-secondary-color); }
   #note-save-status { min-height: 1.2rem; }
+  /* EasyMDE names its table button class="table" — which is also a Bootstrap
+     component, so the button inherited width:100% and sat alone on its own
+     toolbar row. */
+  .editor-toolbar button.table { width: auto; margin-bottom: 0; }
   /* Floating "Create tasks" button, parked above the marked text. */
   .note-sel-capture { position: absolute; z-index: 1080; white-space: nowrap; }
   /* [[ autocomplete, positioned at the caret. */
@@ -384,6 +388,28 @@
     })();
   }
 
+  // Turn the marked lines into "- [ ] " and back. EasyMDE has list buttons but
+  // no checklist one; the line transform is shared with the braindump pad
+  // (md-checklist.js) so both agree on what a checklist looks like.
+  function toggleChecklist(cm) {
+    const from = cm.getCursor("from"), to = cm.getCursor("to");
+    const lines = [];
+    for (let i = from.line; i <= to.line; i++) lines.push(cm.getLine(i));
+    const out = window.CairnMdChecklist.toggleLines(lines);
+    cm.replaceRange(out.join("\n"), { line: from.line, ch: 0 },
+                    { line: to.line, ch: cm.getLine(to.line).length });
+    cm.setSelection({ line: from.line, ch: 0 },
+                    { line: to.line, ch: out[out.length - 1].length });
+    cm.focus();
+  }
+
+  const checklistButton = {
+    name: "checklist",
+    className: "fa fa-check-square-o",
+    title: "Checklist",
+    action: (mde) => toggleChecklist(mde.codemirror),
+  };
+
   function initEditor() {
     if (easymde || typeof EasyMDE === "undefined" || !editor) return;
     easymde = new EasyMDE({
@@ -395,7 +421,7 @@
       imageUploadFunction: uploadNoteImage,
       placeholder: "Write in Markdown… paste images, drag a link or email in, [[link]] another note.",
       toolbar: ["bold", "italic", "heading", "|", "quote", "code", "unordered-list",
-                "ordered-list", "table", "|", "link", "image", "|",
+                "ordered-list", checklistButton, "table", "|", "link", "image", "|",
                 "preview", "side-by-side", "fullscreen", "|", "guide"],
     });
     const cm = easymde.codemirror;
