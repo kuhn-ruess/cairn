@@ -228,12 +228,15 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   container for filing and for access *and* a page you can write on, so
   `[[Title]]` resolves to one and its blocks can be referenced.
   `note_links.pages_q()` is the single expression for "is a page with a body"
-  — use it instead of writing `kind="note"` by hand.
+  — use it instead of writing `kind="note"` by hand. The **braindump pad** is
+  an outline as well (`User.braindump`), and takes `parse_lines()` rather than
+  `parse()`: in a pad a LINE was always an item, where a note reads four
+  unbroken lines as one paragraph.
 - `block_refs.py` — `((block-id))` and `{{embed ((block-id))}}`, resolved in one
   indexed query via `Item.block_ids`. Ids are minted lazily (`outline.ensure_id`),
   only when something actually points at a block, and a block reference joins the
   target note's normal `note_links` backlinks rather than getting a panel of its own
-- `capture.py` — marked text → tasks (into a picked project) or → a note; behind `/capture/*`, used by the braindump pad and by a note's rendered body
+- `capture.py` — marked blocks → tasks (into a picked project) or → a note; behind `/capture/*`, used by the braindump pad and by a note's rendered body. `parse_tasks` reads indentation with `expandtabs(4)`, which is why the outline's tab nesting converts straight into a task tree
 - `quick_parse.py` — natural-language task parsing
 - `permissions.py` — sharing/visibility checks
 - `mail.py` / `crypto.py` — SMTP for password resets, token signing
