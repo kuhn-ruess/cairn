@@ -8,12 +8,20 @@
     Marked ``data-embed="1"`` for the same reason an embed is: none of this is
     THIS page's outline, and the editor must not treat it as blocks it may
     write to (static/js/outliner.js). -#}
-{% if references %}
   <section class="note-refs" data-embed="1">
     <h2 class="note-refs-head">
       Linked references
-      <span class="note-refs-count">{{ reference_count }}</span>
+      {% if reference_count %}<span class="note-refs-count">{{ reference_count }}</span>{% endif %}
     </h2>
+    {#- Shown even when there are none. Hidden-when-empty is Logseq's choice
+        and it reads as the feature being absent: "no backlinks" and "no such
+        section" look exactly alike, and the reader cannot tell which. -#}
+    {% if not references %}
+      <p class="note-ref-stale">
+        Nothing links here yet. Type <code>[[{{ note.title }}]]</code> in
+        another note.
+      </p>
+    {% endif %}
     {% for group in references %}
       <div class="note-refs-group">
         <a class="note-refs-page"
@@ -42,4 +50,3 @@
       </div>
     {% endfor %}
   </section>
-{% endif %}
