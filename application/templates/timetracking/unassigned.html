@@ -1,5 +1,7 @@
 {% extends "layout/base.html" %}
-{% import "timetracking/_nav.html" as nav %}
+{# ``with context``: the nav's team switcher reads current_user, and a plain
+   import gives a macro no context at all. #}
+{% import "timetracking/_nav.html" as nav with context %}
 {% block title %}Unassigned time · Cairn{% endblock %}
 {% block content %}
 {{ nav.tt_nav('unassigned', team, all_teams, can_manage) }}
