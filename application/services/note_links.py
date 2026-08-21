@@ -9,8 +9,10 @@ label) and gets a link. Two consumers:
   learn a custom syntax. A title that matches no note becomes a "create it"
   link rather than a dead end.
 * **backlinks** — :func:`rebuild` stores the resolved targets on
-  ``Item.note_links``, so the "Linked mentions" panel is one indexed query
-  instead of a regex scan over every note body in the collection.
+  ``Item.note_links``, so :func:`linked_references` finds the pages pointing at
+  one in a single indexed query instead of a regex scan over every note body in
+  the collection. What it then SHOWS is the referencing blocks themselves, read
+  under the chain of parents they live in.
 
 Resolution is by title, case-insensitive, over the notes the user can see, and
 happens at *render* and *save* time — not once at typing time. Renaming a note
@@ -122,13 +124,66 @@ def rebuild(item, index: dict, extra=()) -> bool:
     return True
 
 
-def backlinks(item, user):
-    """Notes that link TO ``item`` and that ``user`` may see — the "Linked
-    mentions" panel. One indexed query on ``note_links``."""
+def _crumb(block, limit: int = 40) -> str:
+    """One step of a reference's breadcrumb, as prose.
+
+    A path should read "Projects › Q3", not "## Projects › ### Q3" — the
+    markers are how the heading is written, not what it is called.
+    """
+    from application.views.notes import _note_preview
+    return _note_preview(block.body, limit) or "…"
+
+
+def _points_at(content: str, title: str, block_ids) -> bool:
+    """Does this block's text name ``item`` — by title, or by one of its blocks?"""
+    for m in WIKILINK_RE.finditer(content or ""):
+        if (m.group(1) or "").strip().lower() == title:
+            return True
+    if block_ids and "((" in (content or ""):
+        from application.services.block_refs import BLOCKREF_RE
+        for m in BLOCKREF_RE.finditer(content):
+            if m.group(1) in block_ids:
+                return True
+    return False
+
+
+def linked_references(item, user) -> list:
+    """The BLOCKS that point here, grouped by the page they sit on.
+
+    Logseq's Linked References, and the reason it is worth more than a list of
+    page names: what you want to know is what the other note SAYS about this
+    one, which is the block, read in the place it stands — hence the chain of
+    parents above it.
+
+    Both routes count, because to the reader they are the same statement:
+    ``[[Title]]`` naming this page, and ``((id))`` naming one of its blocks.
+
+    One indexed query finds the pages (they are exactly the ones carrying this
+    item in ``note_links``); the rest is parsing those few bodies.
+    """
     from application.models.item import Item
+    from application.services import outline
     from application.services.permissions import container_visibility_q
-    return list(
-        Item.objects(
-            container_visibility_q(user) & pages_q() & Q(note_links=item)
-        ).only("pk", "title", "parent").order_by("+title")
-    )
+
+    title = (item.title or "").strip().lower()
+    own_ids = set(item.block_ids or [])
+    groups = []
+    for note in Item.objects(
+        container_visibility_q(user) & pages_q() & Q(note_links=item)
+    ).only("pk", "title", "note", "parent").order_by("+title"):
+        if note.pk == item.pk:
+            continue
+        hits, claimed = [], set()
+        for block, trail in outline.walk_trail(outline.parse(note.note or "")):
+            if id(block) in claimed or not _points_at(block.content, title, own_ids):
+                continue
+            # A block renders with its children, so a matching block inside one
+            # already shown is part of that answer rather than a second one.
+            for kid in outline.walk(block.children):
+                claimed.add(id(kid))
+            hits.append({"block": block, "trail": [_crumb(b) for b in trail]})
+        # A page can be in note_links without a block matching now — the link
+        # was written against a title that has since changed. Say the page
+        # links here rather than dropping it without a word.
+        groups.append({"note": note, "blocks": hits})
+    return groups

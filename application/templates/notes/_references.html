@@ -1,0 +1,45 @@
+{#- Linked references: the BLOCKS that point at this page, grouped by the page
+    they sit on, each under the chain of parents it lives in.
+
+    They sit under the note rather than in the side panel because they are
+    content you read — a rendered block with a breadcrumb has no chance in a
+    320px column.
+
+    Marked ``data-embed="1"`` for the same reason an embed is: none of this is
+    THIS page's outline, and the editor must not treat it as blocks it may
+    write to (static/js/outliner.js). -#}
+{% if references %}
+  <section class="note-refs" data-embed="1">
+    <h2 class="note-refs-head">
+      Linked references
+      <span class="note-refs-count">{{ reference_count }}</span>
+    </h2>
+    {% for group in references %}
+      <div class="note-refs-group">
+        <a class="note-refs-page"
+           href="{{ url_for('notes.detail', note_id=group.note.pk) }}">
+          {{ item_icon(group.note) }} {{ group.note.title or "Untitled note" }}
+        </a>
+        {% for hit in group.blocks %}
+          <div class="note-ref">
+            {% if hit.trail %}
+              <div class="note-ref-trail">
+                {%- for crumb in hit.trail -%}
+                  {%- if not loop.first %} <span class="note-ref-sep">›</span> {% endif -%}
+                  {{ crumb }}
+                {%- endfor -%}
+              </div>
+            {% endif %}
+            {{ ol.outline([hit.block], wiki_index, block_index, embed_of) }}
+          </div>
+        {% else %}
+          {# In note_links but nothing matches now — the link was written
+             against a title that has since changed. #}
+          <p class="note-ref-stale">
+            links here under a name this page no longer has.
+          </p>
+        {% endfor %}
+      </div>
+    {% endfor %}
+  </section>
+{% endif %}

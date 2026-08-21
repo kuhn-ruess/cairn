@@ -3118,6 +3118,42 @@ body.ps-resizing * {
   .ol-embed-src { font-size: .7em; opacity: .55; text-decoration: none; }
   .ol-missing { color: var(--bs-secondary-color); font-style: italic; }
 
+  /* ---- Linked references -----------------------------------------------
+     Under the note, ruled off from it: this is what OTHER pages say about
+     this one, so it must read as a different voice without shouting. */
+  .note-refs { margin-top: 2.5rem; padding-top: 1.25rem;
+               border-top: 1px solid var(--paper-edge); }
+  .note-refs-head {
+    font-family: var(--bs-font-sans-serif); font-size: .72rem; font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--paper-ink-quiet); margin: 0 0 1rem;
+  }
+  .note-refs-count {
+    background: var(--paper-edge); color: var(--paper-ink-quiet);
+    border-radius: 1rem; padding: 0 .4rem; margin-left: .3rem;
+    font-size: .95em; letter-spacing: 0;
+  }
+  .note-refs-group { margin-bottom: 1.25rem; }
+  .note-refs-page {
+    display: inline-block; margin-bottom: .25rem; text-decoration: none;
+    font-family: var(--bs-font-sans-serif); font-size: .82rem; font-weight: 600;
+    color: var(--paper-ink-strong);
+  }
+  .note-refs-page:hover { text-decoration: underline; }
+  .note-ref { margin: .35rem 0 .35rem .25rem; padding-left: .6rem;
+              border-left: 2px solid var(--paper-edge); }
+  .note-ref-trail {
+    font-family: var(--bs-font-sans-serif); font-size: .68rem;
+    color: var(--paper-ink-quiet); margin-bottom: .1rem;
+  }
+  .note-ref-sep { opacity: .5; }
+  .note-ref-stale { font-size: .78rem; color: var(--paper-ink-quiet);
+                    font-style: italic; margin: 0 0 0 .25rem; }
+  /* A referenced block is quoted, not owned: no zooming, no folding, and the
+     bullet stops pretending to be a handle. */
+  .note-ref .ol-bullet, .note-ref .ol-fold { cursor: default; }
+  .note-ref .ol-content { cursor: default; }
+
   .ol-crumbs { color: var(--paper-ink-quiet); }
   .ol-crumbs a { color: inherit; text-decoration: none; }
   .ol-crumbs a:hover { text-decoration: underline; }

@@ -130,6 +130,7 @@
        serialize back. See static/js/outliner.js. #}
     <script type="application/json" id="note-blocks">{{ blocks_json|safe }}</script>
     <ul class="list-group shadow-sm" id="wiki-complete"></ul>
+    {% include "notes/_references.html" %}
     {% with item=note %}{% include "layout/_storage_meter.html" %}{% endwith %}
    </div>{# /.note-doc-inner #}
   </div>
@@ -170,25 +171,6 @@
       </div>
       <div class="form-text">Click a label to toggle it.</div>
       {% endif %}
-    </div>
-
-    {# Linked mentions — the other side of [[wiki links]] #}
-    <div class="ni-section">
-      <h6 class="text-muted small text-uppercase"><i class="bi bi-link-45deg"></i> Linked mentions</h6>
-      <ul class="list-unstyled mb-1">
-        {% for b in backlinks %}
-          <li class="d-flex align-items-center gap-2 py-1">
-            <a href="{{ url_for('notes.detail', note_id=b.pk) }}" class="text-decoration-none text-truncate">
-              <i class="bi bi-journal-text text-muted"></i> {{ b.title }}
-            </a>
-          </li>
-        {% else %}
-          <li class="text-muted small">
-            No note links here. Type <code>[[{{ note.title }}]]</code> in another
-            note to create one.
-          </li>
-        {% endfor %}
-      </ul>
     </div>
 
     {# Attachments #}

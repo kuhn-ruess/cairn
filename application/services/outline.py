@@ -408,6 +408,17 @@ def walk(blocks):
         yield from walk(block.children)
 
 
+def walk_trail(blocks, trail=()):
+    """Every block, with the chain of blocks above it.
+
+    What a reference needs in order to read as one: a block quoted out of its
+    note says little, the path down to it says where it lives.
+    """
+    for block in blocks or []:
+        yield block, list(trail)
+        yield from walk_trail(block.children, tuple(trail) + (block,))
+
+
 def find(blocks, uuid: str):
     """The block carrying ``id:: uuid``, or None."""
     if not uuid:

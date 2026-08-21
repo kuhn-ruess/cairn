@@ -237,6 +237,11 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   an outline as well (`User.braindump`), and takes `parse_lines()` rather than
   `parse()`: in a pad a LINE was always an item, where a note reads four
   unbroken lines as one paragraph.
+  `linked_references()` is what a page shows underneath itself: the BLOCKS
+  pointing at it (by `[[Title]]` or by `((id))` at one of its blocks), grouped
+  by page and read under the chain of parents they live in — Logseq's Linked
+  References. The pages come from one indexed query on `note_links`; only their
+  bodies are then parsed.
 - `block_refs.py` — `((block-id))` and `{{embed ((block-id))}}`, resolved in one
   indexed query via `Item.block_ids`. Ids are minted lazily (`outline.ensure_id`),
   only when something actually points at a block, and a block reference joins the

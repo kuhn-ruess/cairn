@@ -315,14 +315,12 @@ def detail(note_id):
         )
         linkable = container_choices(user, selectable_kinds=("project", "folder"))
         linked_paths = describe_containers(linked_from)
-        from application.services import note_links as _nl
         return render_template(
             "notes/folder.html",
             note=item,
             folder=item,
             children=children,
             wiki_index=_wiki_index(tree),
-            backlinks=_nl.backlinks(item, user),
             **_outline_context(item, user),
             linked_from=linked_from,
             linked_paths=linked_paths,
@@ -351,7 +349,6 @@ def detail(note_id):
         tree=tree,
         linked_tasks=linked_tasks,
         linked_projects=linked_projects,
-        backlinks=note_links.backlinks(item, user),
         wiki_index=_wiki_index(tree),
         **_outline_context(item, user),
         tag_choices=_tag_choices_tree(user.tags or []),
@@ -406,9 +403,19 @@ def _outline_context(item, user) -> dict:
     filing and for access, and also a page you can write on — so there is no
     place where filing something and writing about it are different acts.
     """
-    from application.services import block_refs, outline
+    from application.services import block_refs, note_links, outline
 
     blocks = outline.parse(item.note or "")
+    # The blocks pointing here are rendered on this page too, so whatever THEY
+    # reference has to resolve as well — collected first so it all goes into
+    # the one query below rather than one per referencing block.
+    references = note_links.linked_references(item, user)
+    wanted = list(block_refs.refs(item.note or ""))
+    for group in references:
+        for hit in group["blocks"]:
+            wanted += block_refs.refs(hit["block"].content)
+            for kid in outline.walk(hit["block"].children):
+                wanted += block_refs.refs(kid.content)
     # Zoom: the page becomes one block and everything under it, with the way
     # back spelled out above it. An id that no longer resolves falls back to
     # the whole note rather than to an empty page.
@@ -422,7 +429,9 @@ def _outline_context(item, user) -> dict:
         # block starts is the one thing this feature cannot afford.
         blocks_json=_blocks_json(blocks),
         # Every ((reference)) and {{embed}} on this page in ONE query.
-        block_index=block_refs.resolve(user, block_refs.refs(item.note or "")),
+        block_index=block_refs.resolve(user, wanted),
+        references=references,
+        reference_count=sum(len(g["blocks"]) or 1 for g in references),
         embed_of=block_refs.embed_target,
         zoom=zoom if trail else "",
         # Plain labels, built here rather than in the template: a crumb should
