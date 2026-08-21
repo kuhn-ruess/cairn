@@ -24,6 +24,20 @@
   is a question the import can't answer. Answer it here.
 </p>
 
+{% if stale %}
+  <div class="alert alert-warning py-2 small" style="max-width: 60rem;">
+    <strong>{{ stale }} of these were booked entirely before
+    <code>{{ cutoff }}</code></strong> — the day this team's Zammad connection
+    went live ({{ (stale_minutes // 60) }}h {{ stale_minutes % 60 }}m).
+    Hours from before that day are normally already recorded in whatever kept
+    the time before, under that system's own ids, which nothing can match
+    against Zammad's — so they came in a second time when an import ran without
+    a cutoff. Those want removing, not filing:
+    <a href="{{ url_for('teams.zammad', team=team.pk|string) }}">Team → Zammad →
+      “Remove imported time before a day”</a>.
+  </div>
+{% endif %}
+
 {% if not rows %}
   <div class="card"><div class="card-body text-muted small">
     Nothing waiting. Imported time is landing on projects that were named for
@@ -61,6 +75,9 @@
             </td>
             <td class="text-nowrap small text-muted">
               {{ r.first }}{% if r.last != r.first %} – {{ r.last }}{% endif %}
+              {% if cutoff and r.last < cutoff %}
+                <div><span class="badge text-bg-warning">before the cutoff</span></div>
+              {% endif %}
             </td>
             <td class="text-end text-nowrap">
               <strong>{{ (r.minutes // 60) }}h {{ r.minutes % 60 }}m</strong>

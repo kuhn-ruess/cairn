@@ -1008,9 +1008,16 @@ def unassigned():
                                                           archived=False))
          if t["label"]),
         key=lambda r: r["label"].lower())
+    # Rows that lie entirely before the day the connection went live. They are
+    # not waiting to be filed — they are what an import that ran without a
+    # cutoff dragged in, and the answer to them is the purge, not a project.
+    cutoff = (getattr(team, "zammad_time_from", "") or "").strip()
+    stale = [r for r in rows if cutoff and r["last"] < cutoff]
     return render_template(
         "timetracking/unassigned.html", team=team, all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user), rows=rows, targets=targets,
+        cutoff=cutoff, stale=len(stale),
+        stale_minutes=sum(r["minutes"] for r in stale),
         total_minutes=sum(r["minutes"] for r in rows))
 
 
