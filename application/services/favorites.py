@@ -17,7 +17,13 @@ ORGANIZE_ITEMS = {
     "tree": {"label": "Tree", "icon": "bi-diagram-3", "endpoint": "tree.index"},
     "tags": {"label": "Tags", "icon": "bi-tag", "endpoint": "tags.index"},
     "perspectives": {"label": "Perspectives", "icon": "bi-binoculars", "endpoint": "custom_perspectives.index"},
-    "timetracking": {"label": "Time tracking", "icon": "bi-stopwatch", "endpoint": "timetracking.index"},
+    # The endpoint each entry sends you to must be the one its sidebar row
+    # links to — a favourite is a shortcut to that row, and "Time tracking"
+    # pointing at the customer list instead of the day sheet is a different
+    # page, not a shorter path to the same one.
+    "timetracking": {"label": "Time tracking", "icon": "bi-stopwatch", "endpoint": "timetracking.day"},
+    "habits": {"label": "Habits", "icon": "bi-arrow-repeat", "endpoint": "habits.index"},
+    "templates": {"label": "Templates", "icon": "bi-files", "endpoint": "templates.index"},
     "review": {"label": "Review", "icon": "bi-arrow-clockwise", "endpoint": "review.index"},
     "dependency_graph": {"label": "Dependency graph", "icon": "bi-diagram-3", "endpoint": "tasks.dependency_graph"},
     "trash": {"label": "Trash", "icon": "bi-trash", "endpoint": "trash.index"},
