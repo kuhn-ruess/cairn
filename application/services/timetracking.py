@@ -1194,6 +1194,12 @@ def move_entries(*, team, pairs, target, actor=None) -> dict:
     return out
 
 
+# Prefixes of the importers that book into an intake project. Time typed here,
+# and history imported from elsewhere, is on that project because somebody put
+# it there — only what an importer filed by fallback is "unassigned".
+INTAKE_SOURCES = ("zammad:",)
+
+
 def unassigned_groups(team) -> list:
     """Time sitting in an intake project, grouped by the ticket it came from.
 
@@ -1208,6 +1214,8 @@ def unassigned_groups(team) -> list:
     and — the part that stops it coming back — the nearest folder above the
     ticket, which is what the next sync would resolve through if it were linked.
     """
+    from mongoengine import DoesNotExist
+
     intakes = {str(p.id): p for p in TimeTrackingProject.objects(
         team=team, intake=True, archived=False)}
     if not intakes:
@@ -1216,15 +1224,30 @@ def unassigned_groups(team) -> list:
     groups: dict = {}
     for bucket in TimeBucket.objects(team=team,
                                      entries__project_id__in=list(intakes)):
+        try:
+            customer = bucket.customer
+            customer.name
+        except DoesNotExist:
+            # A bucket whose customer was deleted is broken beyond what this
+            # page can do about it — its entries can't be moved either (the
+            # bucket *is* the customer + day). Leave it out rather than take
+            # the page down with it.
+            continue
         for e in bucket.entries:
             if e.project_id not in intakes or e.status != "active":
+                continue
+            # Only what an importer filed here for lack of anywhere better.
+            # A customer's one long-standing project can carry the intake flag
+            # (the import reuses it rather than inventing a second project), and
+            # everything ever booked on it is not suddenly unassigned.
+            if not (e.external_id or "").startswith(INTAKE_SOURCES):
                 continue
             key = (e.project_id, e.source_item_id or "", e.external_ref or "")
             row = groups.get(key)
             if row is None:
                 row = groups[key] = {
                     "project": intakes[e.project_id],
-                    "customer": bucket.customer,
+                    "customer": customer,
                     "item_id": e.source_item_id or "",
                     "label": e.source_label or e.note or "—",
                     "external_ref": e.external_ref or "",
@@ -1255,7 +1278,18 @@ def _attach_containers(rows) -> None:
     click. One query for all the tasks rather than one per row."""
     from application.models.item import Item
 
-    ids = [r["item_id"] for r in rows if r["item_id"]]
+    from bson import ObjectId
+    from bson.errors import InvalidId
+
+    def _oid(value):
+        try:
+            return ObjectId(value)
+        except (InvalidId, TypeError):
+            # Not every source id is a Cairn item — an importer may stamp its
+            # own reference here, and asking Mongo about it raises.
+            return None
+
+    ids = [o for o in (_oid(r["item_id"]) for r in rows if r["item_id"]) if o]
     if not ids:
         for r in rows:
             r["container"] = None
