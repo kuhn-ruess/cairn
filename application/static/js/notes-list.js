@@ -1,10 +1,14 @@
-/* Notes middle column: search / sort / tag filter, plus the column toggles.
+/* Notes results column: what the tree on the left cannot show.
  *
- * The list is re-fetched as a server-rendered partial (/notes/list) and swapped
- * into #notes-list-col, so typing a search never reloads the page — the open
- * note (and its unsaved editor state) survives. Everything is delegated on
- * document because the markup it wires up is replaced wholesale on every
- * filter change.
+ * The tree IS the navigation — folders, pages, and the blocks inside the open
+ * one. So this column is not permanently there; it opens when there is a
+ * full-text hit or a tag to show, and shuts again when the search is cleared.
+ * The button that toggles it by hand still works, for browsing and for sorting.
+ *
+ * The search field and the tag picker live in the NAVIGATOR (.nn-search /
+ * .nn-tag), not in here: this column is re-fetched as a server-rendered
+ * partial and swapped wholesale on every keystroke, so a field inside it lost
+ * its own focus and had to have it put back by hand.
  */
 (function () {
   const LIST_KEY = "cairn.notes.listOff";
@@ -18,12 +22,21 @@
     const v = localStorage.getItem(key);
     return v === null ? fallback : v === "1";
   }
+  /** Is there a search or a tag on? Then the column has something only it can
+   *  show, and it opens whatever the stored preference says. */
+  function filtering() {
+    const c = col();
+    return !!(c && (c.dataset.q || c.dataset.tag));
+  }
+
   function applyColumns() {
     const w = wrap();
     if (!w) return;
-    // Defaults by viewport: the note body needs ~600px to read comfortably,
-    // so a narrow window folds the side columns away until asked otherwise.
-    const listOff = stored(LIST_KEY, window.innerWidth < 1100);
+    // Shut unless asked for, or unless a filter is on — the tree is the
+    // navigation, and two lists of the same notes side by side is one too many.
+    // The inspector still folds itself away by viewport: the note body needs
+    // ~600px to read comfortably.
+    const listOff = !filtering() && stored(LIST_KEY, true);
     const inspOff = stored(INSPECTOR_KEY, window.innerWidth < 1500);
     w.classList.toggle("list-off", listOff);
     w.classList.toggle("inspector-off", inspOff && !!w.querySelector(".notes-inspector"));
@@ -63,7 +76,7 @@
   }
 
   let pending = null;
-  async function refresh(overrides, focusSelector) {
+  async function refresh(overrides) {
     const c = col();
     if (!c) return;
     const p = params(overrides);
@@ -90,35 +103,47 @@
       // Reflect the filter in the URL so a reload (or Back) keeps the view.
       const url = p.toString() ? `${location.pathname}?${p}` : location.pathname;
       history.replaceState(null, "", url);
-      if (focusSelector) {
-        const el = fresh.querySelector(focusSelector);
-        if (el) { el.focus(); el.selectionStart = el.selectionEnd = el.value.length; }
-      }
     } catch (err) {
       if (err.name !== "AbortError") c.classList.remove("opacity-50");
     }
   }
 
+  /** Refresh, then open or shut the column according to what came back. */
+  async function search(overrides) {
+    await refresh(overrides);
+    applyColumns();
+  }
+
+  function clearSearch() {
+    const q = document.querySelector(".nn-search");
+    const tag = document.querySelector(".nn-tag");
+    if (q) q.value = "";
+    if (tag) tag.value = "";
+  }
+
   let searchTimer = null;
   document.addEventListener("input", (e) => {
-    if (!e.target.classList.contains("nl-search")) return;
+    if (!e.target.classList.contains("nn-search")) return;
     clearTimeout(searchTimer);
     const value = e.target.value.trim();
-    searchTimer = setTimeout(() => refresh({ q: value }, ".nl-search"), 250);
+    searchTimer = setTimeout(() => search({ q: value }), 250);
   });
   document.addEventListener("change", (e) => {
-    if (e.target.classList.contains("nl-tag")) refresh({ tag: e.target.value });
+    if (e.target.classList.contains("nn-tag")) search({ tag: e.target.value });
   });
   document.addEventListener("click", (e) => {
     const sort = e.target.closest(".nl-sort");
     if (sort) { refresh({ sort: sort.dataset.sort }); return; }
-    if (e.target.closest(".nl-clear")) refresh({ q: "", tag: "", folder: "" });
+    if (e.target.closest(".nl-clear")) {
+      clearSearch();
+      search({ q: "", tag: "", folder: "" });
+    }
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && e.target.classList.contains("nl-search")
+    if (e.key === "Escape" && e.target.classList.contains("nn-search")
         && e.target.value) {
       e.target.value = "";
-      refresh({ q: "" }, ".nl-search");
+      e.target.dispatchEvent(new Event("input", { bubbles: true }));
     }
   });
 

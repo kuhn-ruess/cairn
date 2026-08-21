@@ -594,7 +594,9 @@ def edit(note_id):
         }), 409
     if "title" in request.form:
         title = (request.form.get("title") or "").strip()
-        item.title = title or "Untitled note"
+        # A folder is a page too, and an unnamed one is a folder, not a note.
+        item.title = title or ("Untitled folder" if item.kind == "folder"
+                               else "Untitled note")
     if "note" in request.form:
         # multipart/form-data normalises every newline in a field value to
         # CRLF. That was invisible while a note was one long string; an outline

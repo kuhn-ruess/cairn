@@ -1,6 +1,13 @@
 {% extends "layout/base.html" %}
 {% block title %}Notes · Cairn{% endblock %}
 {% block content %}
+<style>
+  /* Two-line excerpt, same as the folder page's list of what it contains. */
+  .note-preview-snippet {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+</style>
 <div class="notes-wrap">
   {% include "notes/_nav.html" %}
   {% include "notes/_list_column.html" %}
@@ -8,11 +15,47 @@
     <div class="d-flex align-items-center gap-2 mb-3">
       <button type="button" class="btn btn-sm btn-outline-secondary" data-toggle-column="list"
               title="Show/hide the note list"><i class="bi bi-list-ul"></i></button>
-      <h1 class="h5 mb-0"><i class="bi bi-journal-text text-success"></i> Notes</h1>
+      <h1 class="h5 mb-0 me-auto">
+        <i class="bi bi-journal-text text-success"></i> All notes
+        <span class="text-body-tertiary">{{ rows|length }}</span>
+      </h1>
     </div>
+    {# "All notes" is a page of its own now, not a pointer at the side column:
+       the tree on the left is the navigation, and that column only opens for a
+       search. So the whole list belongs here, where there is room for it. #}
     {% if rows %}
-      <p class="text-muted">Pick a note from the list, or create one with the
-      <i class="bi bi-plus-lg"></i> button.</p>
+      <div class="list-group note-preview-list" style="max-width: 52rem;">
+        {% for row in rows %}
+          <a class="list-group-item list-group-item-action d-flex gap-2 text-reset text-decoration-none"
+             href="{{ url_for('notes.detail', note_id=row.id) }}">
+            {% if row.thumb %}
+              <img class="nl-thumb flex-shrink-0" loading="lazy" alt=""
+                   src="{{ url_for('notes.note_image', note_id=row.id, token=row.thumb) }}">
+            {% endif %}
+            <div style="min-width: 0;" class="flex-grow-1">
+              <div class="d-flex align-items-baseline gap-2">
+                <span class="fw-medium text-truncate">{{ row.title }}</span>
+                {% if row.files %}<i class="bi bi-paperclip text-muted small"></i>{% endif %}
+                {% if row.shared %}<i class="bi bi-people text-muted small"></i>{% endif %}
+                <span class="ms-auto text-muted small flex-shrink-0"
+                      title="{{ row.updated_at|localdt }}">{{ row.updated_at|timeago }}</span>
+              </div>
+              <div class="text-muted small note-preview-snippet">{{ row.snippet or 'Empty note' }}</div>
+              <div class="d-flex align-items-center gap-2 mt-1">
+                {% if row.folder %}
+                  <span class="text-muted small"><i class="bi bi-folder"></i> {{ row.folder }}</span>
+                {% endif %}
+                {% for tag_name in row.tags %}
+                  {% set tg = current_user.tag_by_name(tag_name) %}
+                  <span class="tag-chip" style="background: {{ tg.color if tg else '#6c757d' }};">
+                    {% if tg and tg.is_context %}@{% endif %}{{ tag_name }}
+                  </span>
+                {% endfor %}
+              </div>
+            </div>
+          </a>
+        {% endfor %}
+      </div>
     {% elif list_q or list_tag %}
       <p class="text-muted">Nothing matches the current filter.</p>
     {% else %}

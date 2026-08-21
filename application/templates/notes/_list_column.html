@@ -1,4 +1,8 @@
-{# Notes list — the middle column (Evernote's note list).
+{# Notes list — the results column.
+
+   Not permanent navigation: the tree on the left is that. This opens when
+   there is something to show that the tree cannot — a full-text hit with the
+   snippet that says WHERE it matched, or everything carrying one tag.
 
    Variables in scope (all built by views.notes._list_context):
      rows        — list of dicts, one per note (see _note_rows)
@@ -39,18 +43,8 @@
       </div>
     </div>
 
-    <input type="search" class="form-control form-control-sm mb-2 nl-search"
-           placeholder="Search notes…" autocomplete="off" value="{{ list_q }}">
-
-    {% if tag_filter_choices %}
-      <select class="form-select form-select-sm mb-2 nl-tag">
-        <option value="">All tags</option>
-        {% for name, count in tag_filter_choices %}
-          <option value="{{ name }}" {% if list_tag == name %}selected{% endif %}>{{ name }} ({{ count }})</option>
-        {% endfor %}
-      </select>
-    {% endif %}
-
+    {# Search and tag live in the navigator now — they are what opens this
+       column, so they have to be reachable while it is shut. #}
     {% if list_q or list_tag or list_folder %}
       <button type="button" class="btn btn-sm btn-link p-0 mb-2 small nl-clear">
         <i class="bi bi-x-circle"></i> Clear filter

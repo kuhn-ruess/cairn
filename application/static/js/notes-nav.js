@@ -13,9 +13,17 @@
     if (search) {
       const apply = () => {
         const q = search.value.trim().toLowerCase();
-        nav.querySelectorAll("[data-nn-name]").forEach((row) => {
+        const rows = Array.from(nav.querySelectorAll("[data-nn-name]"));
+        // This box also drives the full-text search in the results column
+        // (notes-list.js), so a word that only appears in a BODY matches
+        // nothing here. Narrowing the tree to nothing in that case would take
+        // the reader's navigation away just as the answer arrives beside it —
+        // so when no name matches, the tree stays whole.
+        const hit = (row) => !q || row.dataset.nnName.includes(q);
+        const any = rows.some(hit);
+        rows.forEach((row) => {
           const li = row.closest("li") || row;
-          li.style.display = (!q || row.dataset.nnName.includes(q)) ? "" : "none";
+          li.style.display = (!any || hit(row)) ? "" : "none";
         });
       };
       search.addEventListener("input", apply);

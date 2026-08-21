@@ -243,8 +243,21 @@
       <i class="bi bi-folder-plus"></i>
     </a>
   </div>
+  {# Typing here searches every note's TITLE AND BODY on the server and opens
+     the results column; it also narrows the tree by name as you go, which is
+     instant. It sits here rather than in that column because the column is
+     swapped wholesale on every keystroke — a field inside it loses its own
+     focus and had to have it restored by hand. #}
   <input type="search" class="form-control form-control-sm mb-2 nn-search"
-         placeholder="Filter…" autocomplete="off">
+         placeholder="Search notes…" autocomplete="off" value="{{ list_q|default('') }}">
+  {% if tag_filter_choices %}
+    <select class="form-select form-select-sm mb-2 nn-tag">
+      <option value="">All tags</option>
+      {% for name, count in tag_filter_choices %}
+        <option value="{{ name }}" {% if list_tag|default('') == name %}selected{% endif %}>{{ name }} ({{ count }})</option>
+      {% endfor %}
+    </select>
+  {% endif %}
   <ul class="nn-list">
     <li class="nn-li nn-drop-target" data-target-folder="">
       <a class="nn-row {% if not note %}active{% endif %}" href="{{ url_for('notes.index') }}"
