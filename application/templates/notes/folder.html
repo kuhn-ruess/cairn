@@ -1,5 +1,6 @@
 {% extends "layout/base.html" %}
 {% import "favorites_macros.html" as fav with context %}
+{% import "notes/_outline.html" as ol with context %}
 {% block title %}{{ folder.name }} · Notes · Cairn{% endblock %}
 {% block content %}
 <style>
@@ -19,6 +20,7 @@
       <h1 class="h4 mb-0 me-auto">
         {{ item_icon(folder) }} {{ folder.name }}
       </h1>
+      <span id="note-save-status" class="small text-muted me-2"></span>
       {% if is_owner and (member_choices or team_choices) %}
         <button type="button" class="btn btn-sm btn-outline-secondary"
                 data-bs-toggle="modal" data-bs-target="#shareModal">
@@ -103,7 +105,47 @@
       {% endif %}
     </div>
 
+    {# ---- The folder's own body. A folder is where things are filed AND a
+           page you can write on, so there is no place where filing something
+           and writing about it are different acts. Same outline, same editor,
+           same save route as a note (services/outline.py). ---- #}
+    {% if blocks or can_edit %}
+    <div class="note-doc note-doc-inline mb-4">
+      {% if zoom %}
+        <nav class="ol-crumbs small mb-2">
+          <a href="{{ url_for('notes.detail', note_id=folder.pk, **list_args) }}">{{ folder.name }}</a>
+          {% for b in zoom_trail %}
+            <span class="mx-1">›</span>
+            {% if b.uuid %}
+              <a href="{{ url_for('notes.detail', note_id=folder.pk, zoom=b.uuid, **list_args) }}">{{ b.label }}</a>
+            {% else %}<span>{{ b.label }}</span>{% endif %}
+          {% endfor %}
+        </nav>
+      {% endif %}
+      <div class="alert alert-warning d-none py-2 px-3 small" id="note-conflict">
+        This folder changed somewhere else, so your edit wasn't saved. Copy what
+        you need, then
+        <button type="button" class="btn btn-sm btn-warning ms-1" id="note-conflict-reload">reload</button>.
+      </div>
+      <div id="note-outline" class="note-body"
+           data-note-id="{{ folder.pk }}" data-stamp="{{ base_stamp }}"
+           data-zoom="{{ zoom }}"
+           data-can-edit="{{ '1' if can_edit else '0' }}">
+        {{ ol.outline(blocks, wiki_index, block_index, embed_of) }}
+      </div>
+      <script type="application/json" id="note-blocks">{{ blocks_json|safe }}</script>
+      <ul class="list-group shadow-sm" id="wiki-complete"></ul>
+      {% if can_edit and not blocks %}
+        <p class="text-muted fst-italic small mb-0" id="folder-body-hint">
+          Click here to write on this folder.
+        </p>
+      {% endif %}
+    </div>
+    {% endif %}
+
     {% if children %}
+      <h2 class="h6 text-uppercase text-muted mb-2"
+          style="font-size: .72rem; letter-spacing: .08em;">Contains</h2>
       <div class="list-group note-preview-list">
         {% for c in children %}
           <div class="list-group-item position-relative d-flex gap-2">
@@ -139,4 +181,8 @@
 {# ---- Share modal ---- #}
 {% include "notes/_share_modal.html" %}
 <script src="{{ asset('js/notes-list.js') }}"></script>
+<script src="{{ asset('js/slash-menu.js') }}"></script>
+{# Order matters: note-popups.js installs the bridge outliner.js calls into. #}
+<script src="{{ asset('js/note-popups.js') }}"></script>
+<script src="{{ asset('js/outliner.js') }}"></script>
 {% endblock %}

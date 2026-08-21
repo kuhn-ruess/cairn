@@ -27,6 +27,15 @@ from mongoengine import Q
 WIKILINK_RE = re.compile(r"\[\[([^\[\]|\n]{1,200}?)(?:\|([^\[\]|\n]{1,200}?))?\]\]")
 
 
+def pages_q():
+    """Everything in the notes tree that HAS a body: a note, or a notes-folder.
+
+    A folder is a container for filing and for access and also a page you can
+    write on, so it can hold links and be linked to like any other. Same
+    expression the sidebar tree uses, so the two cannot drift apart."""
+    return Q(kind="note") | Q(kind="folder", folder_domain="notes")
+
+
 def title_index(user, notes=None) -> dict:
     """``{lowercased title: (pk_str, title)}`` for every note ``user`` can see.
 
@@ -38,7 +47,7 @@ def title_index(user, notes=None) -> dict:
         from application.models.item import Item
         from application.services.permissions import container_visibility_q
         notes = Item.objects(
-            container_visibility_q(user) & Q(kind="note")
+            container_visibility_q(user) & pages_q()
         ).only("pk", "title")
     index = {}
     for n in notes:
@@ -120,6 +129,6 @@ def backlinks(item, user):
     from application.services.permissions import container_visibility_q
     return list(
         Item.objects(
-            container_visibility_q(user) & Q(kind="note", note_links=item)
+            container_visibility_q(user) & pages_q() & Q(note_links=item)
         ).only("pk", "title", "parent").order_by("+title")
     )

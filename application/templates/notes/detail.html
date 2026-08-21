@@ -3,130 +3,6 @@
 {% block title %}{{ note.title }} · Notes · Cairn{% endblock %}
 {% import "notes/_outline.html" as ol with context %}
 {% block content %}
-<style>
-  /* ---- The outline ---------------------------------------------------
-     One bullet per block, children indented under a guide line. The type is
-     the sheet's, not a control's: editing a block swaps in a textarea that
-     inherits the very same face, size and measure, so the page never jumps
-     between "reading" and "writing". */
-  #note-outline { font-family: var(--doc-face); font-size: 1.05rem; line-height: 1.7; }
-  .ol-block { position: relative; }
-  .ol-row { display: flex; align-items: flex-start; }
-
-  /* The fold arrow is only there when there is something to fold, but it keeps
-     its space either way so the bullets stay in one straight column. */
-  .ol-fold { flex: 0 0 .85rem; width: .85rem; line-height: 1.7; font-size: .62rem;
-             text-align: center; cursor: pointer; opacity: 0; user-select: none;
-             transition: opacity .12s; color: var(--paper-ink-quiet); }
-  .ol-block:hover > .ol-row > .ol-fold { opacity: .5; }
-  .ol-block > .ol-row > .ol-fold:hover { opacity: 1; }
-  .ol-fold::before { content: "▾"; }
-  .ol-block.ol-folded > .ol-row > .ol-fold::before { content: "▸"; }
-  .ol-block:not(:has(> .ol-children)) > .ol-row > .ol-fold { visibility: hidden; }
-
-  .ol-bullet { flex: 0 0 1rem; width: 1rem; height: 1.7rem; cursor: pointer;
-               display: flex; align-items: center; justify-content: center; }
-  .ol-bullet::before { content: ""; width: .38rem; height: .38rem; border-radius: 50%;
-                       background: var(--paper-ink-quiet); }
-  /* A ring means "there is more underneath" — so the shape of the note is
-     readable before anything is folded, and a folded block says so louder. */
-  .ol-bullet.ol-parent::before { box-shadow: 0 0 0 .2rem rgba(128, 128, 128, .2); }
-  .ol-folded > .ol-row > .ol-bullet.ol-parent::before {
-    box-shadow: 0 0 0 .26rem rgba(128, 128, 128, .38); }
-
-  .ol-content { flex: 1 1 auto; min-width: 0; padding: .05rem 0 .05rem .15rem;
-                cursor: text; }
-
-  /* The sheet's document spacing (notes/_nav.html) is meant for ONE long text:
-     a blank line under every paragraph, a lot of air above every heading. In an
-     outline each block IS a paragraph, so that spacing puts a gap between every
-     bullet and drops a heading's text far below its own bullet. Inside a block
-     the spacing comes from the row, not from the text.
-
-     Addressed by id on purpose: those rules live in a style block that the
-     page includes AFTER this one, so at equal specificity they would win. */
-  #note-outline .ol-content p { margin: 0; }
-  #note-outline .ol-content ul, #note-outline .ol-content ol { margin: 0 0 0 1.4em; }
-  #note-outline .ol-content li { margin: 0; }
-  #note-outline .ol-content h1, #note-outline .ol-content h2,
-  #note-outline .ol-content h3, #note-outline .ol-content h4,
-  #note-outline .ol-content h5, #note-outline .ol-content h6 { margin: 0 0 .1em; }
-  #note-outline .ol-content pre, #note-outline .ol-content blockquote,
-  #note-outline .ol-content table, #note-outline .ol-content img { margin: .2em 0; }
-  #note-outline .ol-content > :last-child { margin-bottom: 0; }
-
-  /* The keyword chip and the checkbox lead the block's first line, so that
-     line has to run on beside them — as a paragraph of its own it would drop
-     the text onto the next line and leave the chip stranded above it. */
-  #note-outline .ol-content > :is(.ol-kw, .ol-box) ~ p:first-of-type { display: inline; }
-  #note-outline .ol-box { vertical-align: -.08em; cursor: pointer; margin-right: .1rem; }
-
-  .ol-children { margin-left: .92rem; padding-left: .62rem;
-                 border-left: 1px solid var(--paper-edge); }
-  /* A block that opens with a heading gets its air from the ROW, so the bullet
-     moves with it instead of being left hanging above the text. */
-  #note-outline .ol-block:has(> .ol-row > .ol-content > :is(h1, h2, h3)) {
-    margin-top: 1.1em; }
-  #note-outline > .ol-list > .ol-block:first-child { margin-top: 0; }
-
-  .ol-edit { width: 100%; border: 0; padding: 0; margin: 0; resize: none;
-             overflow: hidden; background: transparent; color: var(--paper-ink);
-             font: inherit; line-height: inherit; }
-  .ol-edit:focus { outline: none; }
-
-  /* TODO / DOING / DONE. DONE strikes through everything after the chip —
-     which is the whole block, since the chip is always its first child. */
-  .ol-kw { border: 0; border-radius: .25rem; padding: 0 .3rem; margin-right: .3rem;
-           font-family: var(--bs-font-monospace); font-size: .68em; font-weight: 700;
-           letter-spacing: .03em; vertical-align: .1em; }
-  .ol-kw-todo { background: rgba(220, 53, 69, .13); color: #b02a37; }
-  .ol-kw-doing { background: rgba(255, 193, 7, .2); color: #8a6d00; }
-  .ol-kw-done { background: rgba(25, 135, 84, .13); color: #146c43; }
-  .ol-kw-done ~ * { text-decoration: line-through; opacity: .55; }
-
-  /* A ((block reference)) is a link, but a quieter one than a note link —
-     it points inside a document rather than at one. */
-  #note-outline a[href*="zoom="] { text-decoration: none;
-    border-bottom: 1px dashed currentColor; }
-  .ol-embed { border-left: 2px solid var(--paper-edge); border-radius: .25rem;
-              padding: .1rem .5rem; margin: .1rem 0;
-              background: rgba(128, 128, 128, .045); }
-  .ol-embed-src { font-size: .7em; opacity: .55; text-decoration: none; }
-  .ol-missing { color: var(--bs-secondary-color); font-style: italic; }
-
-  .ol-crumbs { color: var(--paper-ink-quiet); }
-  .ol-crumbs a { color: inherit; text-decoration: none; }
-  .ol-crumbs a:hover { text-decoration: underline; }
-
-  /* [[wiki link]] to a note that doesn't exist yet — expand() marks it with a
-     trailing ⁺, this just keeps it visually quieter than a real link. */
-  #note-outline a[href*="/notes/new"] { color: var(--bs-secondary-color); }
-  #note-save-status { min-height: 1.2rem; }
-
-  /* The shortcut sheet behind the "?" — two columns, keys against what they
-     do, so it can be scanned rather than read. */
-  .note-help { min-width: 21rem; max-width: 25rem; }
-  .note-help-keys {
-    display: grid; grid-template-columns: auto 1fr; gap: .35rem .8rem;
-    align-items: baseline; font-size: .82rem;
-  }
-  .note-help-keys dt { font-weight: 400; white-space: nowrap; }
-  .note-help-keys dd { margin: 0; color: var(--bs-secondary-color); }
-  /* Floating "Create tasks" button, parked above the marked text. */
-  .note-sel-capture { position: absolute; z-index: 1080; white-space: nowrap; }
-  /* [[ autocomplete, positioned at the caret. */
-  #wiki-complete {
-    position: absolute; z-index: 2000; min-width: 14rem; max-height: 14rem;
-    overflow-y: auto; display: none;
-  }
-  #wiki-complete .active { background: var(--bs-primary-bg-subtle); }
-  /* "/" command menu, same treatment as the [[ ]] completion. */
-  .slash-menu {
-    position: absolute; z-index: 2000; min-width: 19rem; max-height: 16rem;
-    overflow-y: auto;
-  }
-</style>
-
 <div class="notes-wrap">
   {% include "notes/_nav.html" %}
   {% include "notes/_list_column.html" %}
@@ -437,12 +313,14 @@
 
 <script src="{{ asset('js/notes-list.js') }}"></script>
 <script src="{{ asset('js/slash-menu.js') }}"></script>
-{# The outliner boots last: the bridge it calls into is defined below. #}
+{# Order matters: note-popups.js installs the bridge that outliner.js calls
+   into as blocks open and close, so the outliner boots last. #}
+<script src="{{ asset('js/note-popups.js') }}"></script>
 <script>
-/* Notes detail — everything AROUND the body: [[wiki link]] completion, the "/"
-   command menu, tag editing, task/project linking, event linking. The body
-   itself is an outline, edited block by block in static/js/outliner.js (loaded
-   after this one, so the popup bridge below already exists when it boots).
+/* Notes detail — everything AROUND the body: tag editing, task/project
+   linking, event linking, "mark text -> tasks". The body itself is an outline
+   (static/js/outliner.js) and its two popups live in note-popups.js, because a
+   notes-FOLDER carries an outline too and a page script cannot be shared.
    Notes pages are full reloads (no <main> swap), so inline page scripts are
    safe here. */
 (function () {
@@ -463,41 +341,6 @@
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
   function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
-
-  // ---- the popups a block editor opens ---------------------------------
-  // The body is edited by static/js/outliner.js, one block at a time. Both
-  // popups below were written against CodeMirror, so ``ed`` is one handle that
-  // always points at whichever block's textarea is open — attached ONCE,
-  // rather than per block, or the slash menu would leave a popup element
-  // behind for every block the writer touches.
-  const ed = {
-    get cm() { return window.CairnOutliner ? window.CairnOutliner.active() : null; },
-    getValue() { const c = this.cm; return c ? c.getValue() : ""; },
-    getCursor() { const c = this.cm; return c ? c.getCursor() : { line: 0, ch: 0 }; },
-    setCursor(pos) { const c = this.cm; if (c) c.setCursor(pos); },
-    getLine(n) { const c = this.cm; return c ? c.getLine(n) : ""; },
-    getRange(a, b) { const c = this.cm; return c ? c.getRange(a, b) : ""; },
-    replaceRange(t, a, b) { const c = this.cm; if (c) c.replaceRange(t, a, b); },
-    replaceSelection(t) { const c = this.cm; if (c) c.replaceSelection(t); },
-    focus() { const c = this.cm; if (c) c.focus(); },
-    cursorCoords() {
-      const c = this.cm;
-      return c ? c.cursorCoords() : { left: 0, top: 0, bottom: 0 };
-    },
-    on() {},
-  };
-  const slash = window.CairnSlashMenu ? window.CairnSlashMenu.attach(ed) : null;
-
-  // What outliner.js calls as blocks open, change and close.
-  window.CairnNoteEditing = {
-    opened() {},
-    changed() { wiki.check(); if (slash) slash.check(); },
-    closed() { wiki.hide(); if (slash) slash.hide(); },
-    handleKey(e) {
-      if (wiki.handleKey(e)) return true;
-      return slash ? slash.handleKey(e) : false;
-    },
-  };
 
   // Link/unlink actions save the note on the server too, which moves the
   // version stamp — so flush our own edits FIRST, then act, then reload.
@@ -554,74 +397,6 @@
       // capture.js loads with the page scripts, i.e. after this block.
       if (m && window.CairnCapture) window.CairnCapture.tasks(m.text, {});
     });
-  })();
-
-  // ---- [[wiki link]] completion ----------------------------------------
-  const wiki = (function () {
-    const box = document.getElementById("wiki-complete");
-    // The sheet is a CSS container (see notes/_nav.html), which by spec makes
-    // it the containing block for absolutely positioned children — and this
-    // popup is placed in page coordinates. Hang it off <body>, where the
-    // slash menu already lives, so the two agree and neither can drift.
-    if (box) document.body.appendChild(box);
-    let items = [], active = -1, timer = null, open = false, from = null;
-
-    function hide() { box.style.display = "none"; open = false; active = -1; }
-    function render() {
-      box.innerHTML = items.map((it, i) =>
-        `<li class="list-group-item list-group-item-action py-1 small ${i === active ? "active" : ""}"
-             role="button" data-title="${escapeAttr(it.title)}">${escapeHtml(it.title)}</li>`).join("");
-    }
-    function place() {
-      const pos = ed.cursorCoords();
-      box.style.left = `${pos.left}px`;
-      box.style.top = `${pos.bottom + 4}px`;
-      box.style.display = "block";
-      open = true;
-    }
-    function pick(title) {
-      ed.replaceRange(`${title}]]`, from, ed.getCursor());
-      hide();
-      ed.focus();
-    }
-    box.addEventListener("mousedown", (e) => {
-      // mousedown, not click — the editor's blur handler would close us first.
-      const li = e.target.closest("[data-title]");
-      if (li) { e.preventDefault(); pick(li.dataset.title); }
-    });
-
-    return {
-      hide,
-      check() {
-        if (!ed.cm) return;
-        const cur = ed.getCursor();
-        const line = ed.getRange({ line: cur.line, ch: 0 }, cur);
-        const m = line.match(/\[\[([^\[\]]{0,60})$/);
-        if (!m) { hide(); return; }
-        from = { line: cur.line, ch: cur.ch - m[1].length };
-        clearTimeout(timer);
-        timer = setTimeout(async () => {
-          const data = await fetch(`/notes/titles?q=${encodeURIComponent(m[1])}`)
-            .then(r => r.json()).catch(() => ({ results: [] }));
-          items = (data.results || []).filter(r => r.id !== noteId);
-          if (!items.length) { hide(); return; }
-          active = 0;
-          render();
-          place();
-        }, 150);
-      },
-      handleKey(e) {
-        if (!open) return false;
-        if (e.key === "ArrowDown") { active = (active + 1) % items.length; render(); }
-        else if (e.key === "ArrowUp") { active = (active - 1 + items.length) % items.length; render(); }
-        else if (e.key === "Enter" || e.key === "Tab") { pick(items[active].title); }
-        else if (e.key === "Escape") { hide(); }
-        else return false;
-        e.preventDefault();
-        e.stopPropagation();
-        return true;
-      },
-    };
   })();
 
   // ---- Tags (custom toggle list — a native multi-select replaces its

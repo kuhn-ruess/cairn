@@ -45,6 +45,9 @@
     padding: 2.25rem 2.75rem 3rem;
   }
   .note-doc-inner { max-width: var(--doc-measure); margin: 0 auto; }
+  /* A folder's own body sits above the list of what it contains, so it is the
+     same sheet — just not the whole page, and not shouting for the room. */
+  .note-doc.note-doc-inline { padding: 1.25rem 1.5rem; }
 
   /* Title and body carry the document face; the chrome around them (buttons,
      hints, storage meter, inspector) stays in the app's UI sans. */
@@ -126,6 +129,12 @@
   }
 
   .note-doc .note-doc-tools .btn { --bs-btn-border-color: transparent; }
+
+  /* The open page's own blocks, as a further level of the same tree. Quieter
+     than a page: these are places INSIDE one, not another one. */
+  .nn-block { font-size: .82rem; opacity: .72; }
+  .nn-block:hover, .nn-block.active { opacity: 1; }
+  .nn-block .bi-dot { font-size: 1.1rem; margin-left: -.3rem; }
 
   /* ---- middle column: the note list ---- */
   .notes-list-col {
@@ -265,6 +274,19 @@
               </button>
             </form>
           </div>
+        {% if note and (note.pk|string) == (it.pk|string) %}
+          {% for b in nav_blocks|default([]) %}
+            <a class="nn-row nn-block {% if zoom and zoom == b.uuid %}active{% endif %}"
+               href="{{ url_for('notes.detail', note_id=it.pk, zoom=b.uuid, **list_args)
+                        if b.uuid else url_for('notes.detail', note_id=it.pk, **list_args) }}"
+               data-block-idx="{{ b.idx }}"
+               style="padding-left: {{ (depth + b.depth) * 14 + 26 }}px;"
+               data-nn-name="{{ b.label|lower }}" title="{{ b.label }}">
+              <i class="bi bi-dot text-muted"></i>
+              <span class="nn-name">{{ b.label }}</span>
+            </a>
+          {% endfor %}
+        {% endif %}
         {% else %}
           <a class="nn-row {% if note and (note.pk|string) == (it.pk|string) %}active{% endif %}"
              href="{{ url_for('notes.detail', note_id=it.pk) }}"
@@ -273,6 +295,19 @@
             {{ item_icon(it) }}
             <span class="nn-name">{{ it.name }}</span>
           </a>
+        {% if note and (note.pk|string) == (it.pk|string) %}
+          {% for b in nav_blocks|default([]) %}
+            <a class="nn-row nn-block {% if zoom and zoom == b.uuid %}active{% endif %}"
+               href="{{ url_for('notes.detail', note_id=it.pk, zoom=b.uuid, **list_args)
+                        if b.uuid else url_for('notes.detail', note_id=it.pk, **list_args) }}"
+               data-block-idx="{{ b.idx }}"
+               style="padding-left: {{ (depth + b.depth) * 14 + 26 }}px;"
+               data-nn-name="{{ b.label|lower }}" title="{{ b.label }}">
+              <i class="bi bi-dot text-muted"></i>
+              <span class="nn-name">{{ b.label }}</span>
+            </a>
+          {% endfor %}
+        {% endif %}
         {% endif %}
       </li>
     {% endfor %}

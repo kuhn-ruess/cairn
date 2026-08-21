@@ -65,6 +65,7 @@ def resolve(user, uuids) -> dict:
     """
     from application.models.item import Item
     from application.services import outline
+    from application.services.note_links import pages_q
     from application.services.permissions import container_visibility_q
 
     uuids = [u for u in dict.fromkeys(uuids or []) if u]
@@ -72,7 +73,7 @@ def resolve(user, uuids) -> dict:
         return {}
     out = {}
     for note in Item.objects(
-        container_visibility_q(user) & Q(kind="note", block_ids__in=uuids)
+        container_visibility_q(user) & pages_q() & Q(block_ids__in=uuids)
     ).only("pk", "title", "note", "parent"):
         blocks = outline.parse(note.note or "")
         for uid in uuids:

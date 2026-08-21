@@ -246,8 +246,8 @@ def _wiki_index(tree):
     """``[[Title]]`` → note lookup built from the tree that's already loaded,
     so wiki links cost no extra query (see services/note_links)."""
     from application.services import note_links
-    return note_links.title_index(
-        None, notes=[it for _d, it in tree if it.kind == "note"])
+    # Folders are pages with bodies now, so "[[Arbeit]]" has to find one.
+    return note_links.title_index(None, notes=[it for _d, it in tree])
 
 
 # ---------- views ----------
@@ -320,11 +320,15 @@ def detail(note_id):
         )
         linkable = container_choices(user, selectable_kinds=("project", "folder"))
         linked_paths = describe_containers(linked_from)
+        from application.services import note_links as _nl
         return render_template(
             "notes/folder.html",
             note=item,
             folder=item,
             children=children,
+            wiki_index=_wiki_index(tree),
+            backlinks=_nl.backlinks(item, user),
+            **_outline_context(item, user),
             linked_from=linked_from,
             linked_paths=linked_paths,
             linkable=linkable,
@@ -342,18 +346,7 @@ def detail(note_id):
     related = item.related_items()
     linked_tasks = [r for r in related if r.kind == "task"]
     linked_projects = [r for r in related if r.kind == "project"]
-    from application.services import block_refs, note_links, outline
-
-    blocks = outline.parse(item.note or "")
-    # Zoom: the page becomes one block and everything under it, with the way
-    # back spelled out above it. An id that no longer resolves falls back to
-    # the whole note rather than to an empty page.
-    zoom = (request.args.get("zoom") or "").strip()
-    trail = outline.path_to(blocks, zoom) if zoom else []
-    shown = [trail[-1]] if trail else blocks
-    # Every ((reference)) and {{embed}} on this page in ONE query, resolved
-    # before rendering so no block resolves its own.
-    block_index = block_refs.resolve(user, block_refs.refs(item.note or ""))
+    from application.services import note_links
     from application.services.containers import container_choices
     # Reuse the task tag picker's tree builder (imported lazily — tasks.py
     # pulls in a lot and importing it at module load would risk a cycle).
@@ -366,20 +359,7 @@ def detail(note_id):
         linked_projects=linked_projects,
         backlinks=note_links.backlinks(item, user),
         wiki_index=_wiki_index(tree),
-        blocks=shown,
-        # The client's model comes from the SERVER's parser, as JSON — it only
-        # has to serialize back. Two parsers that could disagree about where a
-        # block starts is the one thing this feature cannot afford.
-        blocks_json=_blocks_json(blocks),
-        block_index=block_index,
-        embed_of=block_refs.embed_target,
-        zoom=zoom if trail else "",
-        # Plain labels, built here rather than in the template: a crumb should
-        # read "Wochenplanung", not "## Wochenplanung".
-        zoom_trail=[{"uuid": b.uuid, "label": _note_preview(b.body, 48) or "Block"}
-                    for b in trail[:-1]],
-        word_count=_word_count(item.note),
-        base_stamp=_stamp(item.updated_at),
+        **_outline_context(item, user),
         tag_choices=_tag_choices_tree(user.tags or []),
         # Targets for "mark text in the note → tasks" (layout/_capture_modals).
         capture_projects=container_choices(
@@ -424,6 +404,63 @@ def _blocks_json(blocks) -> str:
     # text would otherwise end the tag and spill its body into the page as
     # markup. "<\/" is the same string to a JSON reader.
     return blob.replace("</", "<\\/")
+
+
+def _nav_blocks(blocks, limit=50) -> list:
+    """The blocks worth a line in the navigator: the ones holding something.
+
+    A note's own structure belongs in the same tree as the folders holding it —
+    folder, note, then the headings inside it — but only the blocks that HOLD
+    something, or a note of fifty lines would flood the sidebar with fifty
+    entries none of which are places."""
+    out = []
+
+    def walk(nodes, depth):
+        for b in nodes:
+            if not b.children:
+                continue
+            out.append({"idx": b.idx, "uuid": b.uuid, "depth": depth,
+                        "label": _note_preview(b.body, 40) or "Block"})
+            walk(b.children, depth + 1)
+
+    walk(blocks, 0)
+    return out[:limit]
+
+
+def _outline_context(item, user) -> dict:
+    """Everything the outline needs, for any item that has a body.
+
+    Notes and notes-FOLDERS both go through this: a folder is a container for
+    filing and for access, and also a page you can write on — so there is no
+    place where filing something and writing about it are different acts.
+    """
+    from application.services import block_refs, outline
+
+    blocks = outline.parse(item.note or "")
+    # Zoom: the page becomes one block and everything under it, with the way
+    # back spelled out above it. An id that no longer resolves falls back to
+    # the whole note rather than to an empty page.
+    zoom = (request.args.get("zoom") or "").strip()
+    trail = outline.path_to(blocks, zoom) if zoom else []
+    shown = [trail[-1]] if trail else blocks
+    return dict(
+        blocks=shown,
+        # The client's model comes from the SERVER's parser, as JSON — it only
+        # has to serialize back. Two parsers that could disagree about where a
+        # block starts is the one thing this feature cannot afford.
+        blocks_json=_blocks_json(blocks),
+        # Every ((reference)) and {{embed}} on this page in ONE query.
+        block_index=block_refs.resolve(user, block_refs.refs(item.note or "")),
+        embed_of=block_refs.embed_target,
+        zoom=zoom if trail else "",
+        # Plain labels, built here rather than in the template: a crumb should
+        # read "Wochenplanung", not "## Wochenplanung".
+        zoom_trail=[{"uuid": b.uuid, "label": _note_preview(b.body, 48) or "Block"}
+                    for b in trail[:-1]],
+        nav_blocks=_nav_blocks(shown),
+        word_count=_word_count(item.note),
+        base_stamp=_stamp(item.updated_at),
+    )
 
 
 def _word_count(text) -> int:
@@ -544,7 +581,9 @@ def edit(note_id):
     autosave that silently clobbers someone else's paragraph is the one bug
     this feature must not have.
     """
-    item = _editable_note_or_404(note_id, kinds=("note",))
+    # Folders too: one is a container for filing and for access AND a page
+    # with a body, so it is written through exactly this route.
+    item = _editable_note_or_404(note_id, kinds=("note", "folder"))
     user = current_user._get_current_object()
     base = (request.form.get("base_stamp") or "").strip()
     if base and base != _stamp(item.updated_at):

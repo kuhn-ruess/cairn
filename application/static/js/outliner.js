@@ -603,6 +603,18 @@
     catch (err) { window.prompt("Block reference:", `((${node.props.id}))`); }
   }
 
+  // The navigator lists this page's parent blocks (views/notes._nav_blocks).
+  // Clicking one zooms — through the same path as clicking its bullet, so a
+  // block that has never been pointed at gets its id here and nowhere else.
+  document.addEventListener("click", (e) => {
+    const link = e.target.closest("[data-block-idx]");
+    if (!link) return;
+    const node = allNodes()[parseInt(link.dataset.blockIdx, 10)];
+    if (!node) return;                 // stale link — let the href do its job
+    e.preventDefault();
+    zoomTo(node);
+  });
+
   root.addEventListener("contextmenu", (e) => {
     const bullet = e.target.closest(".ol-bullet");
     if (!bullet || e.target.closest("[data-embed]")) return;
@@ -649,7 +661,10 @@
     setStatus("Saving…");
     const fd = new FormData();
     fd.append("csrf_token", csrf());
-    fd.append("title", titleInput ? titleInput.value : "");
+    // Only when the page actually HAS a title field. A folder page has a body
+    // but no title input, and the save route reads "title" as an instruction —
+    // an empty one would rename the folder to "Untitled note".
+    if (titleInput) fd.append("title", titleInput.value);
     fd.append("note", body());
     fd.append("base_stamp", stamp);
     if (render) fd.append("render", render);
@@ -684,7 +699,7 @@
       setStatus("Save failed — your text is still here", "text-danger");
       return false;
     }
-    savedTitle = data.title;
+    if (titleInput) savedTitle = data.title;
     savedNote = data.note;
     stamp = data.stamp;
     // Not if the writer is back inside this block already. Indent, outdent and
@@ -728,7 +743,7 @@
     if (!dirty()) return;
     const fd = new FormData();
     fd.append("csrf_token", csrf());
-    fd.append("title", titleInput ? titleInput.value : "");
+    if (titleInput) fd.append("title", titleInput.value);
     fd.append("note", body());
     fd.append("base_stamp", stamp);
     navigator.sendBeacon(`/notes/${noteId}/edit`, fd);
