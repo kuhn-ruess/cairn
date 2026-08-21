@@ -188,14 +188,14 @@
           {% endif %}
         </li>
       {% else %}
-        <li class="list-group-item small text-muted tt-hide-on-search">
+        <li class="list-group-item small text-muted">
           {% if show_archive %}Nothing archived here.{% else %}No projects yet.{% endif %}
         </li>
       {% endfor %}
 
       {% if not show_archive and not c.archived %}
         {# New project under this customer #}
-        <li class="list-group-item bg-body-tertiary tt-hide-on-search">
+        <li class="list-group-item bg-body-tertiary">
           <form method="post" action="{{ url_for('timetracking.project_create') }}"
                 class="d-flex gap-1 flex-wrap align-items-center">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -238,11 +238,6 @@
           const keep = hit || li.dataset.name.includes(q);
           li.classList.toggle("d-none", !keep);
           if (keep) shown += 1; else ttUntick(li);
-        });
-        // While filtering, the "add project" and "no projects yet" rows are
-        // noise — they say nothing about what was searched for.
-        card.querySelectorAll(".tt-hide-on-search").forEach((li) => {
-          li.classList.toggle("d-none", !!q);
         });
         const keepCard = !q || hit || shown > 0;
         card.classList.toggle("d-none", !keepCard);

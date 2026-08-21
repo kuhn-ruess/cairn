@@ -1572,7 +1572,7 @@ def project_create():
     customer = _customer_or_404(request.form.get("customer_id"), team)
     if not name:
         flash("Project name is required.", "warning")
-        return redirect(url_for("timetracking.index", team=team.pk))
+        return _back(team)
     budget_value, budget_type = _parse_budget(request.form)
     TimeTrackingProject(
         team=team, customer=customer, name=name[:200],
@@ -1585,7 +1585,9 @@ def project_create():
         show_source=request.form.get("show_source") == "1",
     ).save()
     flash(f"Project “{name}” created.", "success")
-    return redirect(url_for("timetracking.index", team=team.pk))
+    # The overview posts without ``back`` and lands on the overview; the
+    # customer's own page sends you back to the customer you were looking at.
+    return _back(team)
 
 
 @timetracking_bp.route("/projects/<pid>/edit", methods=["POST"])

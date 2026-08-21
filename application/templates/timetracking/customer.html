@@ -127,28 +127,51 @@
   </div>
 </form>
 
-{# Its projects — managed on the overview, listed here so the page is the whole
-   picture of one customer. #}
+{# Its projects, and the row that adds one. This page is the whole picture of
+   one customer, so "add a project for them" belongs here and not only on the
+   overview — the same form, posting back to this page. #}
 <h2 class="h6 mt-4 mb-2"><i class="bi bi-folder"></i> Projects</h2>
-{% if not projects %}
-  <p class="text-muted small">No billing projects yet —
-    <a href="{{ url_for('timetracking.index', team=team.pk) }}">add one on the overview</a>.</p>
-{% else %}
-  <ul class="list-group" style="max-width: 720px;">
-    {% for p in projects %}
-      <li class="list-group-item d-flex align-items-center gap-2 py-2">
-        <span class="me-auto">
-          <a class="text-decoration-none"
-             href="{{ url_for('timetracking.project_detail', pid=p.id, team=team.pk) }}"
-             title="Rate, budget, links, customer link">{{ p.name }}</a>
-          {% if p.archived %}<span class="badge text-bg-secondary">archived</span>{% endif %}
-        </span>
-        <span class="small text-muted">{{ p.hourly_rate_cents|eur }}{% if p.hourly_rate_cents %} / h{% endif %}</span>
-        <span class="small">{{ minutes_by_project.get(p.id|string, 0)|duration }}</span>
-      </li>
-    {% endfor %}
-  </ul>
-{% endif %}
+<ul class="list-group" style="max-width: 720px;">
+  {% if not projects %}
+    <li class="list-group-item small text-muted">No billing projects yet.</li>
+  {% endif %}
+  {% for p in projects %}
+    <li class="list-group-item d-flex align-items-center gap-2 py-2">
+      <span class="me-auto">
+        <a class="text-decoration-none"
+           href="{{ url_for('timetracking.project_detail', pid=p.id, team=team.pk) }}"
+           title="Rate, budget, links, customer link">{{ p.name }}</a>
+        {% if p.archived %}<span class="badge text-bg-secondary">archived</span>{% endif %}
+      </span>
+      <span class="small text-muted">{{ p.hourly_rate_cents|eur }}{% if p.hourly_rate_cents %} / h{% endif %}</span>
+      <span class="small">{{ minutes_by_project.get(p.id|string, 0)|duration }}</span>
+    </li>
+  {% endfor %}
+
+  {% if not customer.archived %}
+    <li class="list-group-item bg-body-tertiary">
+      <form method="post" action="{{ url_for('timetracking.project_create') }}"
+            class="d-flex gap-1 flex-wrap align-items-center">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="team" value="{{ team.pk }}">
+        <input type="hidden" name="customer_id" value="{{ customer.id }}">
+        {# Come back here rather than to the overview. #}
+        <input type="hidden" name="back"
+               value="{{ url_for('timetracking.customer_detail', cid=customer.id, team=team.pk) }}">
+        <input type="text" name="name" required placeholder="New project name"
+               class="form-control form-control-sm" style="max-width:240px;">
+        <input type="text" name="hourly_rate" placeholder="€/h"
+               class="form-control form-control-sm" style="max-width:90px;">
+        <select name="time_mode" class="form-select form-select-sm"
+                style="max-width:150px;" title="How time is entered here">
+          <option value="duration">hours</option>
+          <option value="clock">start – end</option>
+        </select>
+        <button class="btn btn-sm btn-primary">Add project</button>
+      </form>
+    </li>
+  {% endif %}
+</ul>
 
 {% if can_manage %}
   <details class="mt-4">
