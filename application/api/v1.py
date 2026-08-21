@@ -489,7 +489,9 @@ def _apply_task_payload(task: Item, data: dict, user) -> None:
     if "waiting_on" in data:
         task.waiting_on = (data["waiting_on"] or "").strip() or None
     if "followup_at" in data:
-        task.followup_at = _parse_dt(data["followup_at"])
+        # Same coupling as the form: the defer date follows the follow-up
+        # unless it is saying something else (Item.set_followup).
+        task.set_followup(_parse_dt(data["followup_at"]))
     if "followup_every_days" in data:
         fed = data["followup_every_days"]
         if fed in (None, ""):

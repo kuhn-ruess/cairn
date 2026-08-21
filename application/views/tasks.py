@@ -397,7 +397,9 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
         task.end_date = attach_user_tz(form.end_date.data, user)
     if "review" not in hidden:
         task.waiting_on = (form.waiting_on.data or "").strip()
-        task.followup_at = attach_user_tz(form.followup_at.data, user)
+        # Takes the defer date with it, when the defer date isn't saying
+        # something else (Item.set_followup).
+        task.set_followup(attach_user_tz(form.followup_at.data, user))
         task.followup_every_days = form.followup_every_days.data
         # Blank → None → inherit the project's review cadence; a number overrides.
         task.review_interval_days = form.review_interval_days.data

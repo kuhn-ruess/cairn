@@ -556,7 +556,10 @@ class Item(Document):
                     and self.followup_at is not None
                     and self.id is not None
                     and "status" in self._get_changed_fields()):
-                self.followup_at = None
+                # Through set_followup, so the defer date that was only
+                # mirroring this follow-up goes with it — otherwise the task
+                # stays hidden with nothing left to say why.
+                self.set_followup(None)
         result = super().save(*args, **kwargs)
         if cascade_status:
             self._cascade_close(cascade_status)
@@ -1145,6 +1148,45 @@ class Item(Document):
         self.save()
         return comment
 
+    def set_followup(self, when) -> None:
+        """Set the next follow-up, and let the defer date come along.
+
+        A follow-up is a decision that there is nothing to do until then — you
+        are chasing someone, and the answer isn't due yet. Leaving the task
+        actionable in the meantime means seeing it in Next every day and
+        deciding "not yet" every time, which is the work the defer date exists
+        to remove. So the two move together.
+
+        Only where the defer date isn't saying something else:
+
+        * empty — nothing to lose,
+        * equal to the follow-up it had — this coupling put it there, so it
+          follows the follow-up wherever it goes, including to nothing,
+        * already in the past — it stopped deferring anything a while ago.
+
+        A defer date set to a *different future* day is somebody's decision
+        ("start this on Monday whatever else happens") and is left alone.
+        """
+        def _same_moment(a, b):
+            # To the minute: a date the form round-trips comes back without
+            # seconds (``datetime-local``), so an exact match would say "the
+            # user changed this" about a value nobody touched.
+            return (a is not None and b is not None
+                    and abs((a - b).total_seconds()) < 60)
+
+        old = self.followup_at
+        tracked = _same_moment(self.defer_date, old)
+        stale = self.defer_date is not None and self.defer_date <= _utcnow()
+        free = self.defer_date is None or tracked or stale
+        self.followup_at = when
+        if when is not None:
+            if free:
+                self.defer_date = when
+        elif tracked:
+            # The follow-up is gone; the defer date that was only mirroring it
+            # would otherwise keep the task hidden for no stated reason.
+            self.defer_date = None
+
     def mark_followed_up(self, by_user: User, note: str = "") -> None:
         """Log a follow-up and roll the next reminder forward.
 
@@ -1158,10 +1200,10 @@ class Item(Document):
         self.followup_last_at = now
         body = "🔔 Followed up" + (f" — {note}" if note else "")
         self.comments.append(Comment(author=by_user, body=body))
-        if self.followup_every_days:
-            self.followup_at = now + timedelta(days=self.followup_every_days)
-        else:
-            self.followup_at = None
+        # Rolling the reminder forward moves the defer date with it — the same
+        # statement as before ("nothing to do here until then"), made again.
+        self.set_followup(now + timedelta(days=self.followup_every_days)
+                          if self.followup_every_days else None)
         self.save()
 
     @property
