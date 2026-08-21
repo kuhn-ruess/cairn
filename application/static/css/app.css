@@ -2863,14 +2863,11 @@ body.ps-resizing * {
 .tt-pick-opt:hover, .tt-pick-opt.active { background: var(--gv-bg2); }
 
 
-/* ---- Day sheet: week strip + entry chips --------------------------------
-   Two things shouted louder than they were worth. The selected day used to be
-   a filled yellow button, so the hours printed on it sat dark-on-bright and
-   were the hardest number on the page to read — it now marks itself the way
-   the toolbar pills do, tinted and outlined, with the text staying light. And
-   the per-entry badges (customer › project, service, custom fields) were solid
-   blocks competing with the note they describe; as outlined chips they still
-   group but no longer pull the eye. */
+/* ---- Day sheet: week strip and logged entries ---------------------------
+   The week strip's selected day used to be a filled yellow button, so the very
+   number it carries — the hours booked that day — sat dark-on-bright and was
+   the hardest thing on the page to read. It marks itself like the toolbar
+   pills now: tinted, outlined, text light, hours in yellow. */
 .tt-week .tt-day-on,
 .tt-week .tt-day-on:hover,
 .tt-week .tt-day-on:focus {
@@ -2880,6 +2877,91 @@ body.ps-resizing * {
 }
 .tt-week .tt-day-on .fw-semibold { color: var(--gv-yellow-br); }
 
+/* An entry is a four-column grid, not a flex row that wraps wherever it runs
+   out of space. The widths are fixed rather than content-sized so the same
+   column lines up down the whole list: clock times under clock times, and
+   durations right-aligned in a column you can add up by eye. What the entry
+   was about gets the wide middle; where it bills sits under it, quiet. */
+.tt-row-grid {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr) 4.25rem auto;
+  grid-template-areas: "when main dur act";
+  align-items: baseline;
+  column-gap: .75rem;
+}
+.tt-row-when   { grid-area: when; }
+.tt-row-main   { grid-area: main; min-width: 0; }
+.tt-row-dur    { grid-area: dur;  text-align: right; }
+.tt-row-actions{ grid-area: act;  display: flex; gap: .35rem; align-items: baseline; }
+
+.tt-row-when {
+  font-size: .8125rem;
+  color: var(--gv-fg4);
+  white-space: nowrap;
+}
+.tt-row-when .tt-row-sep { opacity: .55; }
+.tt-row-notime { color: var(--gv-bg4); }
+
+/* The description is the one part of an entry nobody can reconstruct later, so
+   it reads at body size and wraps instead of being truncated away. */
+.tt-row-note { overflow-wrap: anywhere; }
+.tt-row-empty { color: var(--gv-fg4); font-style: italic; }
+.tt-row-ref {
+  font-family: var(--bs-font-monospace);
+  font-size: .8125rem;
+  color: var(--gv-blue-br);
+  text-decoration: none;
+  margin-right: .25rem;
+}
+.tt-row-ref:hover { color: var(--gv-yellow-br); }
+
+/* Context line: billing project, service, custom fields, source task. Plain
+   muted text separated by dots — a row of filled badges shouted louder than
+   the description it belongs to. */
+.tt-row-meta {
+  font-size: .8125rem;
+  color: var(--gv-fg4);
+  overflow-wrap: anywhere;
+}
+.tt-row-meta > *:not(:first-child):not(.badge)::before {
+  content: "·";
+  margin: 0 .4rem;
+  opacity: .55;
+}
+.tt-row-meta .badge { margin-left: .4rem; }
+.tt-row-meta a { color: var(--gv-fg3); }
+.tt-row-meta a:hover { color: var(--gv-yellow-br); }
+
+.tt-row-dur { font-weight: 600; color: var(--gv-fg0); }
+
+/* Row actions recede until the row is under the cursor — three icons per line
+   were a column of noise down the page. Touch devices never hover, so there
+   they stay visible. */
+.tt-row-actions .btn { color: var(--gv-fg4); opacity: .5; transition: opacity .12s ease; }
+.tt-row:hover .tt-row-actions .btn,
+.tt-row:focus-within .tt-row-actions .btn { opacity: 1; }
+.tt-row-actions .btn:hover { color: var(--gv-yellow-br); }
+@media (hover: none) {
+  .tt-row-actions .btn { opacity: 1; }
+}
+.tt-entries .tt-row:hover { background: var(--bs-tertiary-bg); }
+
+@media (max-width: 575.98px) {
+  /* Narrow: when + duration share the top line, description below, actions
+     last — the fixed gutters would eat the description otherwise. */
+  .tt-row-grid {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "when dur"
+      "main main"
+      "act  act";
+    row-gap: .2rem;
+  }
+  .tt-row-actions { justify-self: end; }
+}
+
+/* Quiet chips: an outline instead of a filled block. Used for the exceptions
+   worth spotting (non-billable) and in the inspector's time list. */
 .tt-chip.badge {
   background: transparent !important;
   border: 1px solid var(--bs-border-color);
