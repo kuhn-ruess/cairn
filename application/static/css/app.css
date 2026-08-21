@@ -1317,25 +1317,20 @@ body.inspector-docked #bulk-bar {
   display: flex;
   flex-direction: column;
   height: calc(100vh - 56px - 2rem);
+  /* It wears the note sheet, but as a working surface rather than a page:
+     less padding, and it stretches instead of sitting in the middle. */
+  padding: 1.25rem 1.5rem;
 }
-.braindump-text {
+/* The pad is an outline on the note sheet now, not a monospace textarea —
+   what you write here becomes tasks or a note, so it should already look like
+   the thing it is about to become. */
+.braindump-outline {
   flex: 1 1 auto;
-  min-height: 0;
-  font-family: var(--bs-font-monospace);
-  font-size: .95rem;
-  line-height: 1.6;
-  tab-size: 4;
-  white-space: pre;
-  background: var(--gv-bg0-hard);
-  border: 1px solid var(--gv-bg2);
-  color: var(--gv-fg0);
+  min-height: 12rem;
+  overflow-y: auto;
 }
-.braindump-text:focus {
-  background: var(--gv-bg0-hard);
-  color: var(--gv-fg0);
-  border-color: var(--gv-yellow);
-  box-shadow: 0 0 0 .15rem rgba(250, 189, 47, .2);
-}
+/* A marked block converts whole, so say so while it is marked. */
+.braindump-outline .ol-block ::selection { background: rgba(250, 189, 47, .28); }
 .quick-add-preview {
   display: flex;
   flex-wrap: wrap;
@@ -3053,8 +3048,8 @@ body.ps-resizing * {
      bullet and drops a heading's text far below its own bullet. Inside a block
      the spacing comes from the row, not from the text.
 
-     Addressed by id on purpose: those rules live in a style block that the
-     page includes AFTER this one, so at equal specificity they would win. */
+     Addressed by id on purpose: the sheet's rules are ".note-doc .note-body x"
+     and sit further down this file, so at equal specificity they would win. */
   #note-outline .ol-content p { margin: 0; }
   #note-outline .ol-content ul, #note-outline .ol-content ol { margin: 0 0 0 1.4em; }
   #note-outline .ol-content li { margin: 0; }
@@ -3135,3 +3130,103 @@ body.ps-resizing * {
     position: absolute; z-index: 2000; min-width: 19rem; max-height: 16rem;
     overflow-y: auto;
   }
+
+/* ===================================================================
+   The note sheet — its design tokens and its document typography.
+   Three pages wear it now (a note, a notes-folder, the braindump pad),
+   and only one of them includes the notes navigator, so this cannot
+   live in that template's style block any more.
+   =================================================================== */
+/* ---- the sheet ----------------------------------------------------
+   A note is a document, not another panel of the task app, so the middle
+   column is a page: its own warm surface lifted off the app background, a
+   hairline edge, real page margins and a measure that stops at a readable
+   line length. The palette is the app's own (gruvbox) one step lighter —
+   nothing imported, just paper instead of chrome.
+
+   The reading face is a serif, and the *editor uses the same one at the same
+   size* (see notes/detail.html): switching to edit must not turn the page
+   into a code window. That continuity is the whole idea. */
+.note-doc {
+  --paper: var(--gv-bg0-soft, #32302f);
+  --paper-edge: var(--gv-bg1, #3c3836);
+  --paper-ink: var(--gv-fg1, #ebdbb2);
+  --paper-ink-strong: var(--gv-fg0, #fbf1c7);
+  --paper-ink-quiet: var(--gv-fg4, #a89984);
+  --doc-face: "Iowan Old Style", Charter, "Bitstream Charter", Palatino,
+              "Palatino Linotype", Georgia, serif;
+  --doc-measure: 46rem;
+
+  background: var(--paper);
+  border: 1px solid var(--paper-edge);
+  border-radius: .5rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 12px 28px rgba(0, 0, 0, .18);
+  padding: 2.25rem 2.75rem 3rem;
+}
+.note-doc-inner { max-width: var(--doc-measure); margin: 0 auto; }
+/* A folder's own body sits above the list of what it contains, so it is the
+   same sheet — just not the whole page, and not shouting for the room. */
+.note-doc.note-doc-inline { padding: 1.25rem 1.5rem; }
+
+/* Title and body carry the document face; the chrome around them (buttons,
+   hints, storage meter, inspector) stays in the app's UI sans. */
+.note-doc #note-title,
+.note-doc .note-doc-title {
+  font-family: var(--doc-face);
+  font-size: 1.9rem; line-height: 1.2; letter-spacing: -.01em;
+  color: var(--paper-ink-strong);
+}
+.note-doc #note-title::placeholder { color: var(--paper-ink-quiet); }
+/* The meta line reads as a colophon: quiet, spaced, ruled off from the text
+   the way a document separates its header from its body. */
+.note-doc .note-doc-meta {
+  font-size: .72rem; letter-spacing: .04em; color: var(--paper-ink-quiet);
+  border-bottom: 1px solid var(--paper-edge);
+  padding-bottom: .6rem; margin-bottom: 1.6rem;
+}
+
+.note-doc .note-body {
+  font-family: var(--doc-face);
+  font-size: 1.05rem; line-height: 1.75; color: var(--paper-ink);
+}
+/* Document spacing — the app's .md-body is tuned for tight UI previews,
+   which is exactly wrong at reading length. */
+.note-doc .note-body p { margin: 0 0 1em; }
+.note-doc .note-body ul, .note-doc .note-body ol { margin: 0 0 1em 1.4em; }
+.note-doc .note-body li { margin: 0 0 .35em; }
+.note-doc .note-body h1, .note-doc .note-body h2, .note-doc .note-body h3,
+.note-doc .note-body h4, .note-doc .note-body h5, .note-doc .note-body h6 {
+  font-family: var(--doc-face); color: var(--paper-ink-strong);
+  margin: 1.9em 0 .5em; line-height: 1.25; font-weight: 600;
+}
+.note-doc .note-body > :first-child { margin-top: 0; }
+.note-doc .note-body h1 { font-size: 1.55rem; }
+.note-doc .note-body h2 { font-size: 1.3rem; }
+.note-doc .note-body h3 { font-size: 1.12rem; }
+.note-doc .note-body h4, .note-doc .note-body h5, .note-doc .note-body h6 {
+  font-size: 1rem; color: var(--paper-ink);
+}
+.note-doc .note-body blockquote {
+  border-left: 2px solid var(--bs-primary, #d79921);
+  margin: 0 0 1em; padding: .1rem 0 .1rem 1rem;
+  color: var(--paper-ink-quiet); font-style: italic;
+}
+.note-doc .note-body hr {
+  border: 0; border-top: 1px solid var(--paper-edge); margin: 2em 0;
+}
+.note-doc .note-body table { margin: 0 0 1em; font-size: .95rem; }
+.note-doc .note-body table th, .note-doc .note-body table td {
+  border: 1px solid var(--paper-edge); padding: .35rem .6rem;
+}
+.note-doc .note-body pre, .note-doc .note-body code {
+  font-family: var(--bs-font-monospace); font-size: .85em;
+}
+.note-doc .note-body pre { margin: 0 0 1em; padding: .75rem 1rem; }
+.note-doc .note-body img { border-radius: .3rem; margin: .4em 0; }
+/* Checkboxes get a document-sized hit target — a checklist in a note is
+   something you tick while reading, not a dense UI control. */
+.note-doc .note-body li.md-task { margin-left: -1.35em; }
+.note-doc .note-body li.md-task input {
+  width: 1rem; height: 1rem; margin-right: .55em; vertical-align: -2px;
+  accent-color: var(--bs-primary, #d79921);
+}

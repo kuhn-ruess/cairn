@@ -24,6 +24,10 @@
   if (!root) return;
 
   const noteId = root.dataset.noteId;
+  // Where the whole body is posted. A note posts to its own edit route; the
+  // braindump pad is not an Item at all and posts to its own. Everything else
+  // about editing is identical, which is the point of naming it.
+  const saveUrl = root.dataset.saveUrl || `/notes/${noteId}/edit`;
   const canEdit = root.dataset.canEdit === "1";
   const titleInput = document.getElementById("note-title");
   const status = document.getElementById("note-save-status");
@@ -372,9 +376,10 @@
   }
 
   function removeNode(node) {
-    const list = siblings(node);
-    list.splice(indexOf(node), 1);
-    node.el.remove();
+    const at = indexOf(node);
+    if (at < 0) return;      // already gone; splice(-1) would eat a sibling
+    siblings(node).splice(at, 1);
+    if (node.el) node.el.remove();
   }
 
   function toggleFold(node) {
@@ -529,8 +534,12 @@
     if (!box || !canEdit) return;
     // Things that are meant to be clicked stay clickable.
     if (e.target.closest("a, img, input")) return;
+    // Marking text ends in a click too — anywhere in the outline, not only
+    // inside this one block. Opening the editor there would throw the
+    // selection away at the moment the reader reached for it, which is exactly
+    // how you mark a passage to turn into tasks.
     const sel = window.getSelection();
-    if (sel && !sel.isCollapsed && box.contains(sel.anchorNode)) return;
+    if (sel && !sel.isCollapsed && root.contains(sel.anchorNode)) return;
     const n = nodeFor(box);
     if (n) openEditor(n, "end");
   });
@@ -655,7 +664,9 @@
   }
 
   async function doSave(opts, retried) {
-    const render = opts.render ? String(docIndex(opts.render)) : "";
+    const targets = opts.render ? [].concat(opts.render) : [];
+    const at = new Map(targets.map((n) => [n, docIndex(n)]));
+    const render = targets.map((n) => at.get(n)).join(",");
     if (!canEdit || conflicted) return true;
     if (!dirty() && !render) { setStatus(""); return true; }
     setStatus("Saving…");
@@ -671,7 +682,7 @@
     busy += 1;
     let resp, data;
     try {
-      resp = await fetch(`/notes/${noteId}/edit`, {
+      resp = await fetch(saveUrl, {
         method: "POST", body: fd,
         headers: { "X-Requested-With": "XMLHttpRequest", "X-Partial": "1" },
       });
@@ -702,13 +713,13 @@
     if (titleInput) savedTitle = data.title;
     savedNote = data.note;
     stamp = data.stamp;
-    // Not if the writer is back inside this block already. Indent, outdent and
-    // move all commit the block and immediately re-open it, and the render
-    // that was in flight would replace the textarea they are typing in.
-    if (opts.render && editing !== opts.render
-        && data.rendered && data.rendered[render] !== undefined) {
-      applyRendered(opts.render, data.rendered[render]);
-    }
+    // Not into a block the writer is back inside already. Indent, outdent and
+    // move all commit a block and immediately re-open it, and the render that
+    // was in flight would replace the textarea they are typing in.
+    targets.forEach((n) => {
+      const html = data.rendered && data.rendered[String(at.get(n))];
+      if (editing !== n && html !== undefined) applyRendered(n, html);
+    });
     const words = document.getElementById("note-words");
     if (words) words.textContent = data.words;
     const updated = document.getElementById("note-updated");
@@ -746,7 +757,7 @@
     if (titleInput) fd.append("title", titleInput.value);
     fd.append("note", body());
     fd.append("base_stamp", stamp);
-    navigator.sendBeacon(`/notes/${noteId}/edit`, fd);
+    navigator.sendBeacon(saveUrl, fd);
   });
 
   // Pasting an image or dropping a file uploads it, which saves the note on
@@ -848,10 +859,68 @@
     focusBlock(scope[0] || model[0], 0);
   }
 
+  /** The blocks a text selection touches, and their Markdown.
+   *
+   *  The braindump converts what you marked into tasks or a note and takes it
+   *  OUT of the pad. Marking spans rendered blocks, so the unit is the block:
+   *  whatever the selection touched, whole, subtrees included. Nothing marked
+   *  means everything — the pad's own rule. */
+  function selection() {
+    const sel = window.getSelection();
+    const nodes = [];
+    if (sel && !sel.isCollapsed && sel.rangeCount) {
+      const range = sel.getRangeAt(0);
+      allNodes().forEach((n) => {
+        if (n.el && !n.el.closest("[data-embed]") && range.intersectsNode(n.el)) {
+          nodes.push(n);
+        }
+      });
+    }
+    // Only the topmost of any chain — a subtree comes along with its root, and
+    // converting a parent AND its child would create the child twice.
+    const inside = new Set();
+    nodes.forEach((n) => allNodes(n.children).forEach((c) => inside.add(c)));
+    const roots = nodes.filter((n) => !inside.has(n));
+    const marked = roots.length > 0;
+    const picked = marked ? roots : model.slice();
+    return { marked, blocks: picked, text: serialize(picked) };
+  }
+
+  /** Drop these blocks (and their subtrees) and save. */
+  function remove(nodes) {
+    (nodes || []).forEach(removeNode);
+    if (!model.length) model = link([blank()]);
+    // Whatever was zoomed or shown may have been among them.
+    const live = new Set(allNodes());
+    scope = scope.filter((n) => live.has(n));
+    if (!scope.length) scope = model;
+    if (!allNodes(scope).every((n) => n.el)) rebuild();
+    repaintAll();
+    return save();
+  }
+
   window.CairnOutliner = {
     save,
     active: () => (editing ? adapter(contentOf(editing).querySelector("textarea")) : null),
     getStamp: () => stamp,
     setStamp: (s) => { if (s) stamp = s; },
+    text: () => body(),
+    /** Empty means "no block says anything" — a lone blank block still
+     *  serializes to "-\n", which is text but is not content. */
+    isEmpty: () => !allNodes().some((n) => (n.content || "").trim()),
+    selection,
+    remove,
+    /** Save, and have these blocks rendered back — for a caller that edited
+     *  their content directly (the pad's checklist button). */
+    rerender: (nodes) => save({ render: nodes }),
+    reset() {
+      model = link([blank()]);
+      scope = model;       // rebuild() walks scope; the old nodes are gone
+      rebuild();
+      repaintAll();
+      focusBlock(model[0], 0);
+      return save();
+    },
+    focusFirst() { focusBlock(scope[0] || model[0], "end"); },
   };
 })();

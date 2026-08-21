@@ -220,6 +220,64 @@ class LooseParseTest(unittest.TestCase):
         self.assertEqual(outline.parse("   \n\n"), [])
 
 
+class ParseLinesTest(unittest.TestCase):
+    """The braindump pad: a LINE there was always an item, not prose. Running
+    the note parser over it would glue a page of items into one paragraph."""
+
+    def test_every_line_is_a_block(self):
+        blocks = outline.parse_lines("Call the landlord\nDraft the copy\nAn idea\n")
+        self.assertEqual([b.content for b in blocks],
+                         ["Call the landlord", "Draft the copy", "An idea"])
+
+    def test_the_note_parser_would_glue_them_together(self):
+        """The difference this function exists for."""
+        text = "Call the landlord\nDraft the copy\n"
+        self.assertEqual(len(outline.parse(text)), 1)
+        self.assertEqual(len(outline.parse_lines(text)), 2)
+
+    def test_indentation_nests_the_way_capture_reads_it(self):
+        blocks = outline.parse_lines(
+            "Call the landlord\n    Find the number\n        Check the lease\nNext thing\n")
+        self.assertEqual(shape(blocks), [
+            ("Call the landlord", {}, [
+                ("Find the number", {}, [("Check the lease", {}, [])])]),
+            ("Next thing", {}, []),
+        ])
+
+    def test_a_tab_counts_as_four(self):
+        blocks = outline.parse_lines("Parent\n\tChild\n")
+        self.assertEqual(shape(blocks), [("Parent", {}, [("Child", {}, [])])])
+
+    def test_a_list_marker_gives_way_to_the_bullet(self):
+        blocks = outline.parse_lines("* one\n* two\n1. three\n")
+        self.assertEqual([b.content for b in blocks], ["one", "two", "three"])
+
+    def test_a_pad_of_dashes_is_already_the_strict_format(self):
+        """"- one / - two" is exactly what we write, so it reads as two blocks
+        through the strict parser rather than through the line one."""
+        blocks = outline.parse_lines("- one\n- two\n")
+        self.assertEqual([b.content for b in blocks], ["one", "two"])
+
+    def test_a_checkbox_survives_because_it_is_content(self):
+        [b] = outline.parse_lines("- [ ] buy milk\n")
+        self.assertEqual(b.content, "[ ] buy milk")
+        self.assertIs(b.checked, False)
+
+    def test_blank_lines_are_not_blocks(self):
+        blocks = outline.parse_lines("one\n\n\ntwo\n")
+        self.assertEqual([b.content for b in blocks], ["one", "two"])
+
+    def test_what_we_already_wrote_takes_the_strict_path(self):
+        text = "- a\n\t- b\n"
+        self.assertEqual(outline.serialize(outline.parse_lines(text)), text)
+
+    def test_converting_a_pad_settles_after_one_pass(self):
+        pad = "Call the landlord\n    Find the number\nNext thing\n"
+        once = outline.serialize(outline.parse_lines(pad))
+        self.assertEqual(once, "- Call the landlord\n\t- Find the number\n- Next thing\n")
+        self.assertEqual(outline.serialize(outline.parse_lines(once)), once)
+
+
 class LookupTest(unittest.TestCase):
     TEXT = "- a\n  id:: u1\n\t- b\n\t  id:: u2\n\t\t- c\n- d\n"
 

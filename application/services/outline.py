@@ -55,6 +55,10 @@ NESTED_BULLET_RE = re.compile(r"^\t+-(?: |$)", re.M)
 BLOCK_PROP_RE = re.compile(r"^\t*  [A-Za-z0-9_][A-Za-z0-9_-]*:: ", re.M)
 SPACED_ITEM_RE = re.compile(r"^ +(?:[-*+]|\d+[.)])[ \t]", re.M)
 
+# A list marker at the head of a line, for :func:`parse_lines` — the bullet the
+# outline draws replaces it.
+LIST_MARKER_RE = re.compile(r"^(?:[-*+]|\d+[.)])\s+")
+
 # Logseq's task keywords, in the order Ctrl+Enter cycles them.
 KEYWORDS = ("TODO", "DOING", "DONE")
 KEYWORD_RE = re.compile(r"^(TODO|DOING|DONE|LATER|NOW|WAITING|CANCELED)\b ?")
@@ -168,7 +172,24 @@ def is_outline(text: str) -> bool:
 
 def parse(text: str) -> list:
     """The body as a list of top-level :class:`Block`, ``idx`` filled in."""
-    blocks = _strict(text) if is_outline(text) else _loose(text)
+    return _number(_strict(text) if is_outline(text) else _loose(text))
+
+
+def parse_lines(text: str) -> list:
+    """:func:`parse` for text whose LINES were always items, not prose.
+
+    The braindump pad is the case: a line there is a task-to-be, and four
+    spaces in front of it meant "sub-task" — which is exactly how
+    ``services/capture.parse_tasks`` still reads it. Running the note parser
+    over that would glue a whole page of items into one paragraph, because to a
+    note four lines with no blank line between them ARE one paragraph.
+
+    Text we already wrote takes the strict path, same as everywhere else.
+    """
+    return _number(_strict(text) if is_outline(text) else _lines(text))
+
+
+def _number(blocks) -> list:
     for i, block in enumerate(walk(blocks)):
         block.idx = i
     return blocks
@@ -350,6 +371,29 @@ def _loose(text: str) -> list:
         i += 1
 
     flush()
+    return _assemble(records)
+
+
+def _lines(text: str) -> list:
+    """One block per non-blank line, nested by how far it is indented.
+
+    Indent widths are taken the way ``capture.parse_tasks`` takes them (a tab
+    is four), so what the pad showed as a sub-task stays one.
+    """
+    records = []
+    stack = []                 # [(indent width, depth)] of the open ancestors
+    for raw in (text or "").split("\n"):
+        if not raw.strip():
+            continue
+        flat = raw.expandtabs(4)
+        indent = len(flat) - len(flat.lstrip())
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        depth = (stack[-1][1] + 1) if stack else 0
+        stack.append((indent, depth))
+        # The list marker becomes the block's own bullet; a checkbox stays,
+        # because that is content the block still carries.
+        records.append((depth, [LIST_MARKER_RE.sub("", raw.strip(), count=1)]))
     return _assemble(records)
 
 

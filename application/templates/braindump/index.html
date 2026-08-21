@@ -1,10 +1,11 @@
 {% extends "layout/base.html" %}
+{% import "notes/_outline.html" as ol with context %}
 {% block title %}Braindump · Cairn{% endblock %}
 {% block content %}
-<div class="braindump-page">
+<div class="braindump-page note-doc">
 <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
   <h1 class="h3 mb-0 me-auto"><i class="bi bi-stars"></i> Braindump</h1>
-  <span class="text-muted small me-2" id="braindumpStatus"></span>
+  <span class="text-muted small me-2" id="note-save-status"></span>
   <button type="button" class="btn btn-outline-secondary" id="braindumpClear">
     <i class="bi bi-eraser"></i> Clear
   </button>
@@ -20,23 +21,36 @@
   Write freely, then process it: <strong>mark</strong> a part (or nothing, for
   the whole pad) and turn it into <strong>tasks</strong> — you pick the target
   project — or into a <strong>note</strong>. What you convert leaves the pad,
-  so whatever stays here is still unprocessed. Task lines take
+  so whatever stays here is still unprocessed. A marked block always converts
+  whole, with everything under it. Task lines take
   <code>@tag</code> · <code>#project</code> · <code>p1</code> · <code>!</code> ·
-  <code>today</code>; <kbd>Tab</kbd> indents a sub-task,
-  <kbd>Enter</kbd> carries a bullet or a <code>- [ ]</code> box to the next line.
+  <code>today</code>; <kbd>Enter</kbd> starts a line,
+  <kbd>Tab</kbd> / <kbd>⇧Tab</kbd> make it a sub-task or lift it back out,
+  <kbd>⌥⇧↑</kbd>/<kbd>↓</kbd> move it.
 </p>
 <div class="d-flex align-items-center gap-2 mb-2">
   <button type="button" class="btn btn-sm btn-outline-secondary" id="braindumpChecklist"
-          title="Turn the marked lines into a checklist (and back)">
+          title="Turn the marked blocks into checkboxes (and back)">
     <i class="bi bi-ui-checks"></i> Checklist
   </button>
   <span class="small text-muted" id="braindumpScope"></span>
 </div>
 
 <input type="hidden" id="braindumpCsrf" name="csrf_token" value="{{ csrf_token() }}">
-<textarea id="braindumpText" class="form-control braindump-text" spellcheck="false"
-          placeholder="Call the landlord about the heating&#10;Draft the relaunch copy @writing today&#10;    Collect testimonials&#10;Idea: a monthly review page">{{ draft }}</textarea>
+
+{# The same outline a note has, posting to the pad's own save route. #}
+<div id="note-outline" class="note-body braindump-outline"
+     data-save-url="{{ url_for('braindump.save') }}"
+     data-can-edit="1">
+  {{ ol.outline(blocks, wiki_index, block_index, embed_of) }}
+</div>
+<script type="application/json" id="note-blocks">{{ blocks_json|safe }}</script>
+<ul class="list-group shadow-sm" id="wiki-complete"></ul>
 </div>
 
 {% include "layout/_capture_modals.html" %}
+<script src="{{ asset('js/slash-menu.js') }}"></script>
+{# Order matters: note-popups.js installs the bridge outliner.js calls into. #}
+<script src="{{ asset('js/note-popups.js') }}"></script>
+<script src="{{ asset('js/outliner.js') }}"></script>
 {% endblock %}
