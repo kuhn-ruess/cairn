@@ -537,3 +537,77 @@ def refile_team_owners(team, *, dry_run: bool = True) -> dict:
         # without this the chips render as bare strings for their new owner.
         ensure_user_has_tags(wanted, item.external_tags or [], group="Zammad")
     return out
+
+
+def purge_zammad_time_before(team, day: str, *, dry_run: bool = True,
+                             include_billed: bool = False) -> dict:
+    """Remove time imported from Zammad that was booked **before** ``day``.
+
+    The narrow companion to :func:`purge_team_import`: it takes hours and
+    nothing else, bounded by a date. What it is for is the overlap — an import
+    that reached further back than it should have and booked hours a second
+    time, next to the ones the previous system already holds under its own ids,
+    which nothing can match against Zammad's.
+
+    Bounded three ways, because a delete that takes one row too many is worse
+    than one that takes one too few:
+
+    * only entries stamped ``zammad:…`` — anything typed here, and everything
+      imported from anywhere else, is out of scope by construction,
+    * only days strictly before ``day``, read in the deployment's timezone, the
+      same way the import decides which day a booking belongs to,
+    * billed (locked) entries are left alone and counted, unless
+      ``include_billed`` says otherwise: a lock means somebody invoiced this.
+
+    ``day`` is ``"YYYY-MM-DD"``. Returns a count summary; with ``dry_run`` it
+    counts exactly what it would remove and touches nothing."""
+    from application.models.timetracking import TimeBucket
+    from application.services.tz import user_zone
+
+    zone = user_zone(None)
+    out = {"day": day, "dry_run": dry_run, "include_billed": include_billed,
+           "entries": 0, "minutes": 0, "buckets": 0, "billed_kept": 0,
+           "examples": []}
+    if not day:
+        return out
+
+    for bucket in TimeBucket.objects(
+            team=team, entries__external_id__startswith="zammad:"):
+        keep, dropped = [], []
+        for e in bucket.entries:
+            if not (e.external_id or "").startswith("zammad:"):
+                keep.append(e)
+                continue
+            when = e.spent_on.astimezone(zone).date().isoformat() \
+                if e.spent_on else ""
+            if not when or when >= day:
+                keep.append(e)
+                continue
+            if e.locked and not include_billed:
+                out["billed_kept"] += 1
+                keep.append(e)
+                continue
+            dropped.append(e)
+        if not dropped:
+            continue
+        out["buckets"] += 1
+        out["entries"] += len(dropped)
+        out["minutes"] += sum(e.minutes or 0 for e in dropped)
+        for e in dropped:
+            if len(out["examples"]) < 10:
+                out["examples"].append({
+                    "day": e.spent_on.astimezone(zone).date().isoformat(),
+                    "minutes": e.minutes, "who": e.user_name or "—",
+                    "note": (e.note or "")[:60]})
+        if dry_run:
+            continue
+        if keep:
+            bucket.entries = keep
+            bucket.entry_count = len(keep)
+            bucket.total_minutes = sum(e.minutes or 0 for e in keep
+                                       if e.status == "active")
+            bucket.updated_at = _utcnow()
+            bucket.save()
+        else:
+            bucket.delete()
+    return out

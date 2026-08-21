@@ -400,6 +400,71 @@
     </div>
   {% endif %}
 
+  {# ---- Hours that came in twice ----------------------------------------- #}
+  <div class="card border-warning my-4">
+    <div class="card-header py-2">
+      <strong class="small text-warning">
+        <i class="bi bi-clock-history"></i> Remove imported time before a day</strong>
+      <span class="text-muted small">— the overlap with the old system</span>
+    </div>
+    <div class="card-body">
+      <p class="form-text small mt-0">
+        For an import that reached further back than it should have: those hours
+        are usually already booked here from whatever kept the time before, and
+        the two carry different ids, so nothing recognises them as the same
+        hour. This removes only entries stamped <code>zammad:…</code> booked
+        <em>before</em> the day you name — anything typed here, and anything
+        imported from elsewhere, is out of scope. Billed entries are kept and
+        counted, because a lock means somebody invoiced them.
+        {% if team.zammad_time_from %}
+          The connection currently imports from
+          <code>{{ team.zammad_time_from }}</code> onwards.
+        {% endif %}
+      </p>
+      <form method="post" class="d-flex gap-2 align-items-center flex-wrap">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="team" value="{{ team.pk }}">
+        <input type="date" name="before" required
+               value="{{ timepurge.day if timepurge else team.zammad_time_from }}"
+               class="form-control form-control-sm" style="max-width: 11rem;">
+        <label class="form-check small m-0">
+          <input type="checkbox" name="include_billed" value="1" class="form-check-input"
+                 {% if timepurge and timepurge.include_billed %}checked{% endif %}>
+          billed ones too
+        </label>
+        <button class="btn btn-sm btn-outline-secondary" name="action" value="preview-time-purge">
+          Show me what would go</button>
+        <button class="btn btn-sm btn-outline-danger" name="action" value="time-purge"
+                onclick="return confirm('Delete the imported time booked before that day? This cannot be undone.');">
+          Delete</button>
+      </form>
+      {% if timepurge %}
+        <div class="alert alert-{{ 'warning' if timepurge.dry_run else 'success' }} py-2 small mt-3 mb-0">
+          {{ timepurge.entries }} entr{{ 'y' if timepurge.entries == 1 else 'ies' }}
+          ({{ (timepurge.minutes // 60) }}h {{ timepurge.minutes % 60 }}m across
+          {{ timepurge.buckets }} day{{ '' if timepurge.buckets == 1 else 's' }})
+          booked before <code>{{ timepurge.day }}</code>
+          {{ 'would be removed' if timepurge.dry_run else 'removed' }}.
+          {% if timepurge.billed_kept %}
+            {{ timepurge.billed_kept }} billed entr{{ 'y' if timepurge.billed_kept == 1 else 'ies' }}
+            stay — tick “billed ones too” to include them.
+          {% endif %}
+          {% if timepurge.examples %}
+            <ul class="mb-0 mt-1">
+              {% for e in timepurge.examples %}
+                <li>{{ e.day }} · {{ e.minutes }}m · {{ e.who }}{% if e.note %} — {{ e.note }}{% endif %}</li>
+              {% endfor %}
+              {% if timepurge.entries > timepurge.examples|length %}
+                <li class="text-muted">… and {{ timepurge.entries - timepurge.examples|length }} more</li>
+              {% endif %}
+            </ul>
+          {% endif %}
+          {% if timepurge.dry_run %}Nothing has been deleted yet.{% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
   {# ---- The way back ---------------------------------------------------- #}
   <div class="card border-danger my-4">
     <div class="card-header py-2">

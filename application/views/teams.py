@@ -352,7 +352,8 @@ def zammad():
     from application.services.permissions import team_members
     from application.services.zammad_import import ZammadError, default_time_from
     from application.services.zammad_team import (
-        move_team_connection, purge_team_import, refile_team_owners, sync_team,
+        move_team_connection, purge_team_import, purge_zammad_time_before,
+        refile_team_owners, sync_team,
     )
 
     user = current_user._get_current_object()
@@ -362,7 +363,7 @@ def zammad():
     if not team.is_managed_by(user):
         abort(403)
 
-    stats = purge = refiled = None
+    stats = purge = refiled = timepurge = None
     if request.method == "POST":
         # Every form here says which team it means. Refuse the ones that don't
         # rather than fall back to the default team — writing a connection into
@@ -425,6 +426,21 @@ def zammad():
                       f"{purge['customers']} customer(s). Import again when "
                       f"you're ready.", "success")
                 purge = None
+        elif action in ("preview-time-purge", "time-purge"):
+            # Imported hours before a day — the overlap with whatever kept the
+            # time before this connection existed.
+            before = _valid_day(request.form.get("before"))
+            billed = request.form.get("include_billed") == "1"
+            if not before:
+                flash("Pick the day to delete before.", "warning")
+            else:
+                timepurge = purge_zammad_time_before(
+                    team, before, dry_run=action == "preview-time-purge",
+                    include_billed=billed)
+                if action == "time-purge":
+                    flash(f"Removed {timepurge['entries']} imported time entr"
+                          f"{'y' if timepurge['entries'] == 1 else 'ies'} "
+                          f"booked before {before}.", "success")
         elif action in ("preview-refile", "refile"):
             # After matching the agents: hand the first import's tickets to the
             # people who own them in Zammad. Preview first, like the purge.
@@ -480,7 +496,8 @@ def zammad():
         # Where the connection could be moved to: the other teams this user
         # manages — moving it into a team you can't administer is not a fix.
         move_targets=[t for t in teams if t != team and t.is_managed_by(user)],
-        stats=stats, purge=purge, refiled=refiled, members=rows,
+        stats=stats, purge=purge, refiled=refiled, timepurge=timepurge,
+        members=rows,
         progress=progress, sync_running=sync_progress.running(progress),
         # What the syncs have been doing — the team's own runs and its members'
         # personal ones, because "why is there no time from Tuesday" is the same
