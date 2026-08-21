@@ -36,6 +36,9 @@
   const KEYWORDS = ["TODO", "DOING", "DONE"];
   const KEYWORD_RE = /^(TODO|DOING|DONE|LATER|NOW|WAITING|CANCELED)\b ?/;
   const CHECKBOX_RE = /^\[([ xX])\] ?/;
+  // A block whose whole content is an embed — it has something under it even
+  // though that something lives in the content, not in a children box.
+  const EMBED_RE = /^\{\{\s*embed\s*\(\([0-9a-fA-F][0-9a-fA-F-]{7,63}\)\)\s*\}\}$/i;
 
   let model = [];              // the WHOLE note — what gets serialized back
   let scope = [];              // the blocks actually on screen (zoom shows one)
@@ -141,10 +144,16 @@
   }
 
   /** Re-read a node's element state from the model (fold marks, parent ring). */
+  /** Is there anything under this block to fold away? */
+  function holdsSomething(node) {
+    return (node.children || []).length > 0
+        || EMBED_RE.test((node.content || "").trim());
+  }
+
   function paint(node) {
     node.el.classList.toggle("ol-folded", collapsed(node));
-    const hasKids = (node.children || []).length > 0;
-    rowOf(node).querySelector(".ol-bullet").classList.toggle("ol-parent", hasKids);
+    rowOf(node).querySelector(".ol-bullet")
+      .classList.toggle("ol-parent", holdsSomething(node));
     const kids = node.el.querySelector(":scope > .ol-children");
     if (kids) kids.classList.toggle("d-none", collapsed(node));
     if (node.props.id) node.el.dataset.uuid = node.props.id;
@@ -389,7 +398,7 @@
   }
 
   function toggleFold(node) {
-    if (!node.children.length) return;
+    if (!holdsSomething(node)) return;
     if (collapsed(node)) delete node.props.collapsed;
     else node.props.collapsed = "true";
     paint(node);

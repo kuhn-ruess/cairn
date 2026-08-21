@@ -482,10 +482,16 @@ def _plain(text) -> str:
     """A note's markdown body as flat prose: outline syntax gone, images
     dropped, links unwrapped to their text, markdown punctuation stripped,
     whitespace collapsed."""
-    from application.services import outline
+    from application.services import block_refs, outline
     # Bullets and block properties first — a preview must never read back an
     # "id:: 0193f2a1…" line to someone scanning a list of notes.
     s = outline.plain(text or "")
+    # Nor a "{{embed ((0193f2a1…))}}". A pointer at another block has no words
+    # of its own, and resolving it here would cost a query per row — so it
+    # simply contributes nothing, and the note's own text shows instead. That
+    # also keeps it out of a derived title (see _derived_title).
+    s = block_refs.EMBED_ANY_RE.sub("", s)
+    s = block_refs.BLOCKREF_RE.sub("", s)
     s = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", s)        # images out
     s = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", s)     # links → their text
     s = re.sub(r"\[\[([^\[\]|]*)(?:\|([^\[\]]*))?\]\]", r"\2\1", s)  # wiki links
