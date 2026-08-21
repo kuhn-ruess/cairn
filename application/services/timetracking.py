@@ -1852,7 +1852,20 @@ def day_sheet(user, day: date) -> dict:
                 "source_label": e.source_label or "",
                 "created_at": e.created_at,
             })
-    entries.sort(key=lambda r: r["created_at"] or _utcnow())
+    def _in_the_day(r):
+        """Where an entry sits in the day's list.
+
+        A day booked by the clock is a timeline, so the clock decides: 09:00
+        before 13:00, whatever order they were typed in. An entry booked as a
+        plain duration has no place on that timeline — it follows the timed
+        ones, in the order it was logged. Both branches build the same tuple
+        shape, or the keys wouldn't compare."""
+        stamp = r["created_at"] or _utcnow()
+        if r["start_time"]:
+            return (0, r["start_time"], r["end_time"] or "", stamp)
+        return (1, "", "", stamp)
+
+    entries.sort(key=_in_the_day)
     removed.sort(key=lambda r: r["cancelled_at"] or _utcnow(), reverse=True)
     # The shortlist for the capture bar, with the preselected project pinned
     # into it; anything else is found by typing (project_search).
