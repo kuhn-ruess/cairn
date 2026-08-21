@@ -146,8 +146,12 @@ def sync_team(team, *, full: bool = False, dry_run: bool = False,
             state = (raw.get("state") or raw.get("state_name") or "").lower()
             if state in zi._DONE_STATES:
                 known = _existing_task(members, f"zammad:{raw.get('id')}")
-                if known is None and not (opts.enabled
-                                          and zi._ticket_books_time(raw)):
+                # A ticket that opened, got booked and closed between two runs
+                # is only ever seen here, in this branch — so "does it carry
+                # time" must not be answered from a field the install may not
+                # maintain (see zi.closed_ticket_has_time).
+                if known is None and not (opts.enabled and zi.closed_ticket_has_time(
+                        base, token, raw, stats, incremental=since is not None)):
                     stats.filtered_closed += 1
                     continue
                 if known is None:

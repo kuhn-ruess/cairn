@@ -440,9 +440,11 @@ def import_for_user(
                 # and someone will invoice them; refusing it because nobody
                 # imported the ticket *before* it closed would lose the work,
                 # quietly, for exactly the tickets that were finished quickly.
-                # Only when Zammad positively reports booked time — "no idea"
-                # is not a reason to drag a closed history in.
-                if not already and (not billing or not _ticket_books_time(raw)):
+                # Only when there is booked time — and "Zammad didn't say" is
+                # asked rather than assumed, inside an incremental window
+                # (closed_ticket_has_time).
+                if not already and (not billing or not closed_ticket_has_time(
+                        base, token, raw, stats, incremental=since is not None)):
                     stats.filtered_closed += 1
                     continue
                 if not already:
@@ -871,6 +873,33 @@ def _ticket_books_time(raw: dict) -> bool:
     an instance's entire closed history in."""
     minutes = _ticket_minutes(raw)
     return bool(minutes and minutes > 0)
+
+
+def closed_ticket_has_time(base: str, token: str, raw: dict,
+                           stats: ZammadStats, *, incremental: bool) -> bool:
+    """Is this *closed* ticket worth pulling in for the hours on it?
+
+    The one decision that has to be certain, and the one where "Zammad didn't
+    say" is a real answer rather than an edge case: ``Ticket#time_unit`` is a
+    cached sum, and an install that doesn't maintain it reports nothing at all
+    (:func:`_ticket_minutes` → ``None``). Reading that as "no time" loses every
+    ticket that opens, gets booked and closes between two runs — silently,
+    because the counter it lands in is called ``filtered_closed``.
+
+    So when the sum is unknown we ask outright, but only inside an incremental
+    window, where the question is asked about the handful of tickets that
+    changed since the last run. On a full pass the strict reading stands: an
+    unknown sum is not a reason to walk an instance's entire closed history one
+    request at a time — that is the run that times out."""
+    minutes = _ticket_minutes(raw)
+    if minutes is not None:
+        return minutes > 0
+    if not incremental:
+        return False
+    zid = raw.get("id")
+    if zid is None:
+        return False
+    return bool(_fetch_time_accounting(base, token, str(zid), stats))
 
 
 @dataclass
