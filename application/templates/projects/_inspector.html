@@ -166,8 +166,12 @@
                             "data-searchable-placeholder": "Search notes folders…"}) }}
     <div class="form-text">
       Adds a Notes button to this project and every task inside it.
-      {% if project and project.notes_folder %}
-        <a href="{{ url_for('notes.detail', note_id=project.notes_folder.pk) }}">Open notes</a>
+      {# Through the same resolver the Notes button uses, not through the raw
+         reference: dereferencing one bypasses the objects manager, so a folder
+         in the trash would still be offered here and land on a 404. #}
+      {% set _nf = linked_notes_folder(project) if project else None %}
+      {% if _nf %}
+        <a href="{{ url_for('notes.detail', note_id=_nf.pk) }}">Open notes</a>
       {% endif %}
     </div>
   </div>

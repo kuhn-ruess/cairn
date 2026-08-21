@@ -111,7 +111,10 @@ def resolve_notes_folder(item):
     ancestor's. Mirrors ``services.timetracking.resolve_time_project``: a task
     inherits the notes folder of its project/folder, so "open the notes for
     what I'm working on" works from anywhere in the subtree. Bounded and
-    cycle-guarded; a deleted folder resolves to ``None`` instead of raising."""
+    cycle-guarded; a folder that is gone resolves to ``None`` instead of
+    raising — TRASHED as well as purged. Dereferencing a reference bypasses the
+    ``objects`` manager, so without that check a project would keep its Notes
+    button and walk straight into a folder the user had just thrown away."""
     seen, node, depth = set(), item, 0
     while node is not None and depth < 50:
         if node.pk in seen:
@@ -120,7 +123,7 @@ def resolve_notes_folder(item):
         nf = getattr(node, "notes_folder", None)
         if nf:
             try:
-                return nf if nf.kind == "folder" else None
+                return nf if nf.kind == "folder" and not nf.trashed_at else None
             except Exception:
                 return None
         node = node.parent
