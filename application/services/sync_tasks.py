@@ -30,6 +30,35 @@ def _redis():
     return redis.Redis.from_url(current_app.config["REDIS_URL"])
 
 
+_producer = None
+
+
+def enqueue_team_sync(team_id: str, *, full: bool = False,
+                      dry_run: bool = False, trigger: str = "manual") -> None:
+    """Put a team sync on the queue from the **web** process.
+
+    The web app never imports :mod:`application.celery_app` — that module
+    builds its own Flask app for the workers — so the ``@shared_task``
+    decorators here are bound to no broker in this process, and calling
+    ``.delay()`` would try Celery's amqp default. Sending the task *by name*
+    over a small producer keeps the two sides where they belong: the worker
+    owns the code, the web request only writes a message.
+
+    Raises whatever the broker raises when it can't be reached; the caller
+    decides whether that means "run it here instead"."""
+    global _producer
+    from celery import Celery
+
+    url = current_app.config["REDIS_URL"]
+    if _producer is None or _producer.conf.broker_url != url:
+        _producer = Celery("cairn-producer", broker=url)
+        _producer.conf.task_default_queue = "zammad"
+    _producer.send_task(
+        "zammad.sync_team", args=[team_id],
+        kwargs={"full": full, "dry_run": dry_run, "trigger": trigger},
+        queue="zammad", retry=False)
+
+
 @shared_task(name="zammad.enqueue_due")
 def enqueue_due_zammad_syncs() -> int:
     """Enqueue a sync task for every user currently due one. Returns the
@@ -67,10 +96,17 @@ def enqueue_due_team_syncs() -> int:
 
 @shared_task(name="zammad.sync_team", bind=True, max_retries=2,
              default_retry_delay=120)
-def sync_team_zammad(self, team_id: str):
+def sync_team_zammad(self, team_id: str, full: bool = False,
+                     dry_run: bool = False, trigger: str = "background"):
     """Sync one team. Locked per team like the per-user task, for the same
-    reason: beat must not start a second run over a slow one."""
+    reason: beat must not start a second run over a slow one.
+
+    Also the way the *manual* "Sync now" runs: a full pass over an instance
+    takes minutes, which is longer than any gateway waits, so the button
+    enqueues this and the page follows the progress record it publishes
+    (:mod:`application.services.sync_progress`)."""
     from application.models.team import Team
+    from application.services import sync_progress
     from application.services.zammad_import import ZammadError
     from application.services.zammad_team import sync_team
 
@@ -78,13 +114,36 @@ def sync_team_zammad(self, team_id: str):
     lock = f"zammad:team-lock:{team_id}"
     if not r.set(lock, "1", nx=True, ex=_LOCK_TTL):
         return None
+
+    record = {"state": "queued", "done": 0, "total": 0, "trigger": trigger,
+              "full": bool(full), "dry_run": bool(dry_run)}
+
+    def _progress(stage, done, total, stats):
+        record.update(state=stage, done=done, total=total,
+                      created=stats.tickets_created,
+                      updated=stats.tickets_updated,
+                      entries=stats.time_entries_imported,
+                      errors=len(stats.errors))
+        sync_progress.publish(team_id, record)
+
     try:
         team = Team.objects(pk=team_id).first()
         if team is None:
             return None
-        return sync_team(team, trigger="background").as_dict()
+        sync_progress.publish(team_id, record)
+        stats = sync_team(team, full=full, dry_run=dry_run, trigger=trigger,
+                          on_progress=_progress)
+        record.update(state="done", stats=stats.as_dict())
+        sync_progress.publish(team_id, record)
+        return stats.as_dict()
     except ZammadError as exc:
+        record.update(state="error", error=str(exc))
+        sync_progress.publish(team_id, record)
         raise self.retry(exc=exc)
+    except Exception as exc:  # noqa: BLE001 — the page must hear about it
+        record.update(state="error", error=str(exc))
+        sync_progress.publish(team_id, record)
+        raise
     finally:
         r.delete(lock)
 

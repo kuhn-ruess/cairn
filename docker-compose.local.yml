@@ -8,3 +8,17 @@ services:
     volumes:
       - ./:/app
     command: ["flask", "--app", "wsgi:app", "--debug", "run", "--host", "0.0.0.0", "--port", "5004"]
+
+  # The worker runs the same source as the app in dev, so a restart picks up
+  # code without rebuilding the image (celery has no reloader — restart it).
+  worker:
+    build:
+      dockerfile: Dockerfile.local
+    volumes:
+      - ./:/app
+
+  beat:
+    build:
+      dockerfile: Dockerfile.local
+    volumes:
+      - ./:/app

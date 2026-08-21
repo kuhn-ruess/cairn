@@ -65,6 +65,7 @@ commands beyond the user-facing ones in the README:
 - `./cairn cleanup-completed-tasks [--dry-run] [--user <name>]` — cron-friendly sweep of done/dropped tasks past each user's retention window
 - `./cairn cleanup-trash [--dry-run] [--user <name>]` — cron-friendly purge of trashed items past each user's `trash_retention_days` (default 30; `0` = keep until emptied)
 - `./cairn sync-zammad-team [--team <id>] [--full] [--force] [--dry-run]` — the **team** sync (`services/zammad_team.py`): one connection (`Team.zammad_url` + service token) reads the instance once, files each ticket under the Cairn user its Zammad owner maps to (roster → that user's `zammad_sync_project`) and books all agents' time into the team. Replaces per-member syncs; configured under Team → Zammad (`views/teams.py`), because the connection belongs to the team, not to the billing module
+- `./cairn refile-zammad-owners --team <id> [--dry-run]` — one-off: hand imported tickets to the Cairn account their Zammad owner maps to. The first run on a new connection has an empty agent roster, so everything lands with the team's admin, and a sync never re-files an imported ticket afterwards. Only touches tasks still sitting where the import put them
 - `./cairn sync-zammad-all [--all-configured] [--force] [--concurrency N]` — the older **per-user** sync for all opted-in users in a thread pool. No-broker fallback / local-test equivalent of the Celery worker+beat (shares `application/services/zammad_auto.py`)
 - `./cairn migrate-tags-to-embedded` / `./cairn wipe-legacy-collections` — one-shot migrations from the older schema (see Architecture)
 
@@ -145,6 +146,16 @@ later only touches the wrapper. Compose adds `redis`, `worker`, and `beat`
 services (run exactly one `beat`; scale `worker` with `--scale worker=N`).
 Per-user opt-in + replayed import options (project/scope) live on `User`
 (`zammad_auto_sync`, `zammad_sync_project`, …).
+
+**"Sync now" on the team page also goes through the worker.** A full pass costs
+two to three requests per ticket, which outlives any gateway — the button sends
+`zammad.sync_team` by name (`sync_tasks.enqueue_team_sync`, a small producer:
+the web process must not import `celery_app`, which builds its own Flask app)
+and the page follows the run. `sync_team(..., on_progress=…)` ticks once per
+ticket into a Redis record (`services/sync_progress.py`, TTL 1h), the page polls
+`/team/zammad/progress`, and the finished `ZammadStats.as_dict()` is read back
+off that record so the result card renders as if the sync had happened in the
+request. No broker → it still runs inline, as before.
 
 ### Tags are embedded on `User`, not a top-level collection
 

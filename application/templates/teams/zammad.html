@@ -135,6 +135,27 @@
     </div>
   </form>
 
+  {# ---- A run in flight -------------------------------------------------- #}
+  <div id="zammad-sync-progress" class="card mb-4 {% if not sync_running %}d-none{% endif %}"
+       data-url="{{ url_for('teams.zammad_progress', team=team.pk|string) }}"
+       data-running="{{ '1' if sync_running else '' }}">
+    <div class="card-body">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+        <strong class="small" data-role="label">Syncing…</strong>
+        <span class="small text-muted ms-auto" data-role="counts"></span>
+      </div>
+      <div class="progress" style="height: .5rem;">
+        <div class="progress-bar progress-bar-striped progress-bar-animated"
+             data-role="bar" style="width: 0%;"></div>
+      </div>
+      <div class="form-text small mt-2" data-role="hint">
+        This runs in the background — the page keeps up with it, and finishing
+        it does not depend on this tab staying open.
+      </div>
+    </div>
+  </div>
+
   {% if stats %}
     <div class="card mb-4">
       <div class="card-body small">

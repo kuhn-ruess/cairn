@@ -68,7 +68,8 @@ def _existing_task(team_members, external_id):
 
 
 def sync_team(team, *, full: bool = False, dry_run: bool = False,
-              debug: bool = False, trigger: str = "manual") -> zi.ZammadStats:
+              debug: bool = False, trigger: str = "manual",
+              on_progress=None) -> zi.ZammadStats:
     """Pull the team's Zammad once: tickets to their owners, time to the team.
 
     Incremental like the per-user run (``Team.last_zammad_sync_at``), and with
@@ -76,7 +77,20 @@ def sync_team(team, *, full: bool = False, dry_run: bool = False,
     because those hours are real and somebody will invoice them.
 
     Every run leaves a note behind (:mod:`application.services.sync_log`), which
-    is how a manager finds out what happened at four in the morning."""
+    is how a manager finds out what happened at four in the morning.
+
+    ``on_progress(stage, done, total, stats)`` is called while it works — once
+    for the ticket list, then once per ticket. A full pass takes minutes, and
+    the page that started it needs something to show
+    (:mod:`application.services.sync_progress`)."""
+
+    def _tick(stage, done, total):
+        if on_progress is None:
+            return
+        try:
+            on_progress(stage, done, total, stats)
+        except Exception:  # progress must never take the sync down with it
+            pass
     import time as _time
 
     from application.services.crypto import decrypt_for
@@ -119,12 +133,15 @@ def sync_team(team, *, full: bool = False, dry_run: bool = False,
     fallback = team.admin
     targets: dict = {}
 
+    _tick("fetching", 0, 0)
     tickets = _fetch_tickets(base, token, stats, since)
 
     stats.tickets_fetched = len(tickets)
+    _tick("running", 0, len(tickets))
 
     seen_ids = {f"zammad:{t.get('id')}" for t in tickets if t.get("id")}
-    for raw in tickets:
+    for done, raw in enumerate(tickets, start=1):
+        _tick("running", done, len(tickets))
         if not team.zammad_include_closed:
             state = (raw.get("state") or raw.get("state_name") or "").lower()
             if state in zi._DONE_STATES:
@@ -175,6 +192,7 @@ def sync_team(team, *, full: bool = False, dry_run: bool = False,
             it.mark_done(via="zammad")
             stats.tickets_dropped += 1
 
+    _tick("finishing", len(tickets), len(tickets))
     if not dry_run:
         team.last_zammad_sync_at = _utcnow()
         team.save()

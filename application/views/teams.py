@@ -1,6 +1,7 @@
 """Team admin pages — list members, send invites, accept invites."""
 from flask import (
-    Blueprint, abort, flash, redirect, render_template, request, url_for,
+    Blueprint, abort, flash, jsonify, redirect, render_template, request,
+    url_for,
 )
 from flask_login import current_user, login_required
 
@@ -438,9 +439,13 @@ def zammad():
                           f"owner.", "success")
         elif action == "sync":
             _save_settings()
+            full = request.form.get("full") == "1"
+            dry_run = request.form.get("dry_run") == "1"
+            if _start_team_sync(team, full=full, dry_run=dry_run):
+                # The page follows it from here (static/js/zammad-sync.js).
+                return redirect(url_for("teams.zammad", team=str(team.pk)))
             try:
-                stats = sync_team(team, full=request.form.get("full") == "1",
-                                  dry_run=request.form.get("dry_run") == "1")
+                stats = sync_team(team, full=full, dry_run=dry_run)
             except ZammadError as exc:
                 flash(str(exc), "danger")
             else:
@@ -462,7 +467,13 @@ def zammad():
             if getattr(m, "zammad_sync_project", "") else None
         rows.append({"user": m, "matched": str(m.pk) in mapped,
                      "target": target.title if target else ""})
-    from application.services import sync_log
+    from application.services import sync_log, sync_progress
+    progress = sync_progress.read(str(team.pk))
+    if stats is None and progress and progress.get("stats"):
+        # A worker ran it: the result is in the progress record, not in this
+        # request. Same shape (ZammadStats.as_dict), so the card renders as if
+        # the sync had happened here.
+        stats = progress["stats"]
     teams = _user_teams(user)
     return render_template(
         "teams/zammad.html", team=team, all_teams=teams,
@@ -470,11 +481,53 @@ def zammad():
         # manages — moving it into a team you can't administer is not a fix.
         move_targets=[t for t in teams if t != team and t.is_managed_by(user)],
         stats=stats, purge=purge, refiled=refiled, members=rows,
+        progress=progress, sync_running=sync_progress.running(progress),
         # What the syncs have been doing — the team's own runs and its members'
         # personal ones, because "why is there no time from Tuesday" is the same
         # question whichever of them ran.
         runs=sync_log.recent(team=team, users=members, limit=40),
         has_token=bool(team.zammad_token), can_manage=True)
+
+
+def _start_team_sync(team, *, full: bool, dry_run: bool) -> bool:
+    """Hand a manual run to a worker. ``False`` when there is nobody to hand it
+    to (no broker, e.g. a plain local dev install) — the caller then runs it in
+    the request as before.
+
+    A full pass over an instance takes minutes; that is longer than the gateway
+    waits, which is how "Sync now" turned into a 504 with the run still going
+    and nothing to look at."""
+    from application.services import sync_progress
+    from application.services.sync_tasks import enqueue_team_sync
+
+    tid = str(team.pk)
+    if sync_progress.running(sync_progress.read(tid)):
+        flash("A sync is already running for this team — following that one.",
+              "info")
+        return True
+    try:
+        enqueue_team_sync(tid, full=full, dry_run=dry_run, trigger="manual")
+    except Exception:  # noqa: BLE001 — no broker is a fallback, not an error
+        return False
+    sync_progress.publish(tid, {"state": "queued", "done": 0, "total": 0,
+                                "full": full, "dry_run": dry_run,
+                                "trigger": "manual"})
+    return True
+
+
+@teams_bp.route("/zammad/progress")
+@login_required
+def zammad_progress():
+    """Where the running sync has got to. Polled by the page that started it."""
+    from application.services import sync_progress
+
+    user = current_user._get_current_object()
+    team = _select_team(user)
+    if not team or not team.is_managed_by(user):
+        abort(403)
+    record = sync_progress.read(str(team.pk)) or {"state": "idle"}
+    return jsonify({k: v for k, v in record.items() if k != "stats"} | {
+        "running": sync_progress.running(record)})
 
 
 def _valid_day(raw) -> str:
