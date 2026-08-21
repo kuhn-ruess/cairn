@@ -12,11 +12,8 @@
 </style>
 <div class="notes-wrap">
   {% include "notes/_nav.html" %}
-  {% include "notes/_list_column.html" %}
   <div class="notes-content">
     <div class="d-flex align-items-center mb-3">
-      <button type="button" class="btn btn-sm btn-outline-secondary me-2" data-toggle-column="list"
-              title="Show/hide the note list"><i class="bi bi-list-ul"></i></button>
       {# The name is editable here, the way a note's title is: a folder is a
          page, and a page whose name you cannot change is a strange page. Saved
          through the same route by the same editor (static/js/outliner.js). #}
@@ -141,11 +138,11 @@
     <div class="note-doc note-doc-inline mb-4">
       {% if zoom %}
         <nav class="ol-crumbs small mb-2">
-          <a href="{{ url_for('notes.detail', note_id=folder.pk, **list_args) }}">{{ folder.name }}</a>
+          <a href="{{ url_for('notes.detail', note_id=folder.pk) }}">{{ folder.name }}</a>
           {% for b in zoom_trail %}
             <span class="mx-1">›</span>
             {% if b.uuid %}
-              <a href="{{ url_for('notes.detail', note_id=folder.pk, zoom=b.uuid, **list_args) }}">{{ b.label }}</a>
+              <a href="{{ url_for('notes.detail', note_id=folder.pk, zoom=b.uuid) }}">{{ b.label }}</a>
             {% else %}<span>{{ b.label }}</span>{% endif %}
           {% endfor %}
         </nav>
@@ -208,7 +205,6 @@
 
 {# ---- Share modal ---- #}
 {% include "notes/_share_modal.html" %}
-<script src="{{ asset('js/notes-list.js') }}"></script>
 <script src="{{ asset('js/slash-menu.js') }}"></script>
 {# Order matters: note-popups.js installs the bridge outliner.js calls into. #}
 <script src="{{ asset('js/note-popups.js') }}"></script>

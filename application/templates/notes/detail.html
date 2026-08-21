@@ -5,7 +5,6 @@
 {% block content %}
 <div class="notes-wrap">
   {% include "notes/_nav.html" %}
-  {% include "notes/_list_column.html" %}
   <div class="notes-content note-doc" id="note-detail"
        data-note-id="{{ note.pk }}" data-stamp="{{ base_stamp }}"
        data-can-edit="{{ '1' if can_edit else '' }}">
@@ -14,8 +13,6 @@
     {# ---- Actions, then the title on its own line: a page's title is the
          first thing on the page, not something sharing a row with buttons. ---- #}
     <div class="note-doc-tools d-flex align-items-center gap-2 mb-2">
-      <button type="button" class="btn btn-sm btn-outline-secondary" data-toggle-column="list"
-              title="Show/hide the note list"><i class="bi bi-list-ul"></i></button>
       {{ fav.star("item:" ~ note.pk, "fs-5") }}
       <span id="note-save-status" class="small text-muted ms-auto"></span>
       {% if can_edit %}
@@ -110,11 +107,11 @@
            static/js/outliner.js edits them and writes the body back. ---- #}
     {% if zoom %}
       <nav class="ol-crumbs small mb-2">
-        <a href="{{ url_for('notes.detail', note_id=note.pk, **list_args) }}">{{ note.title }}</a>
+        <a href="{{ url_for('notes.detail', note_id=note.pk) }}">{{ note.title }}</a>
         {% for b in zoom_trail %}
           <span class="mx-1">›</span>
           {% if b.uuid %}
-            <a href="{{ url_for('notes.detail', note_id=note.pk, zoom=b.uuid, **list_args) }}">{{ b.label }}</a>
+            <a href="{{ url_for('notes.detail', note_id=note.pk, zoom=b.uuid) }}">{{ b.label }}</a>
           {% else %}<span>{{ b.label }}</span>{% endif %}
         {% endfor %}
       </nav>
@@ -311,7 +308,6 @@
 {# ---- "mark text → tasks" dialog (shared with the braindump pad) ---- #}
 {% include "layout/_capture_modals.html" %}
 
-<script src="{{ asset('js/notes-list.js') }}"></script>
 <script src="{{ asset('js/slash-menu.js') }}"></script>
 {# Order matters: note-popups.js installs the bridge that outliner.js calls
    into as blocks open and close, so the outliner boots last. #}

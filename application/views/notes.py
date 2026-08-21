@@ -73,6 +73,21 @@ def notes_tree_for_sidebar(user):
 
 # ---------- lookups ----------
 
+@notes_bp.url_value_preprocessor
+def _reject_ids_that_are_not_ids(_endpoint, values):
+    """``/notes/<anything-that-is-not-an-id>`` is a 404, not a 500.
+
+    mongoengine raises ValidationError when a pk is not a 24-character hex
+    string, and Flask turns that into a server error — so a mistyped URL, an
+    old bookmark, or a route that used to exist and does not any more came back
+    as if the server were broken. Guarding here covers every route in the
+    blueprint at once, rather than every lookup in it one at a time.
+    """
+    for key in ("note_id", "item_id"):
+        if values and values.get(key) and not ObjectId.is_valid(values[key]):
+            abort(404)
+
+
 def _note_or_404(note_id, *, kinds=("note", "folder")):
     """A note/folder the current user may view. 404 if missing, 403 (friendly
     no-access page) if it exists but isn't shared with them."""
@@ -215,8 +230,11 @@ def _note_rows(user, tree, *, folder="", tag="", q="", sort="updated", limit=200
 
 
 def _list_context(user, tree, args):
-    """Shared state for the middle column: the current filter/sort plus the
-    rows it selects. Every notes page renders the same partial from this."""
+    """The rows for the "All notes" page, and the filter that selected them.
+
+    There used to be a permanent column rendering this beside every note. The
+    tree is the navigation now, so this is one page: everything, or the hits
+    for a search or a tag."""
     folder = (args.get("folder") or "").strip()
     tag = (args.get("tag") or "").strip()
     q = (args.get("q") or "").strip()
@@ -225,14 +243,6 @@ def _list_context(user, tree, args):
         sort = "updated"
     return {
         "rows": _note_rows(user, tree, folder=folder, tag=tag, q=q, sort=sort),
-        # What the middle column is currently showing, as query args. Any link
-        # that stays on the SAME note (zoom, the way back out of a zoom) has to
-        # carry these, or the folder the reader is working in silently resets
-        # to "all notes" underneath them.
-        "list_args": {k: v for k, v in (
-            ("folder", folder), ("tag", tag), ("q", q),
-            ("sort", sort if sort != "updated" else ""),
-        ) if v},
         "list_folder": folder,
         "list_tag": tag,
         "list_q": q,
@@ -264,20 +274,6 @@ def index():
     )
 
 
-@notes_bp.route("/list")
-@login_required
-def list_partial():
-    """The middle column on its own — the list's search/sort/filter controls
-    swap it in place instead of reloading the page (and losing the editor)."""
-    user = current_user._get_current_object()
-    tree = notes_tree_for_sidebar(user)
-    ctx = _list_context(user, tree, request.args)
-    return render_template(
-        "notes/_list_column.html", note=None, tree=tree,
-        tag_filter_choices=_tag_filter_choices(user, tree), **ctx,
-    )
-
-
 def _tag_filter_choices(user, tree):
     """Tags actually used by the user's notes, for the list filter. Counted
     from the tags already loaded on the tree rows — no extra query."""
@@ -294,7 +290,6 @@ def detail(note_id):
     user = current_user._get_current_object()
     item = _note_or_404(note_id)
     tree = notes_tree_for_sidebar(user)
-    list_ctx = _list_context(user, tree, request.args)
     # A folder has no body of its own — show an overview of its contents and
     # let the user manage sharing/rights for the whole subtree.
     if item.kind == "folder":
@@ -341,7 +336,6 @@ def detail(note_id):
             team_choices=_team_choices(user),
             selected_teams=[str(t.pk) for t in (item.shared_teams or [])],
             access=item.effective_viewers(),
-            **list_ctx,
         )
     related = item.related_items()
     linked_tasks = [r for r in related if r.kind == "task"]
@@ -375,7 +369,6 @@ def detail(note_id):
         team_choices=_team_choices(user),
         selected_teams=[str(t.pk) for t in (item.shared_teams or [])],
         access=item.effective_viewers(),
-        **list_ctx,
     )
 
 

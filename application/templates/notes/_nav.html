@@ -42,50 +42,9 @@
   .nn-block:hover, .nn-block.active { opacity: 1; }
   .nn-block .bi-dot { font-size: 1.1rem; margin-left: -.3rem; }
 
-  /* ---- middle column: the note list ---- */
-  .notes-list-col {
-    flex: 0 0 300px; width: 300px; align-self: stretch; min-width: 0;
-    border-right: 1px solid var(--bs-border-color); padding-right: .75rem;
-    position: sticky; top: calc(var(--nav-height, 56px) + .5rem);
-    max-height: calc(100vh - var(--nav-height, 56px) - 1rem);
-    display: flex; flex-direction: column;
-  }
-  .notes-list-col .nl-rows { overflow-y: auto; margin-right: -.25rem; padding-right: .25rem; }
-  .nl-row {
-    display: flex; gap: .5rem; padding: .45rem .4rem; border-radius: .4rem;
-    text-decoration: none; color: var(--bs-body-color);
-    border-bottom: 1px solid var(--bs-border-color-translucent);
-  }
-  .nl-row:hover { background: var(--bs-tertiary-bg); }
-  .nl-row.active { background: var(--bs-primary-bg-subtle); }
-  .nl-main { min-width: 0; flex: 1 1 auto; }
-  .nl-title {
-    font-weight: 500; font-size: .875rem; line-height: 1.25;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .nl-snippet {
-    font-size: .78rem; color: var(--bs-secondary-color); line-height: 1.3;
-    margin-top: .1rem;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  .nl-snippet mark { padding: 0 .1em; }
-  .nl-meta {
-    font-size: .7rem; color: var(--bs-secondary-color); margin-top: .2rem;
-    display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;
-  }
-  .nl-folder { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 10rem; }
-  .nl-tags { margin-top: .25rem; display: flex; flex-wrap: wrap; gap: .2rem; }
-  .nl-tags .tag-chip { font-size: .65rem; }
-  .nl-thumb {
-    flex: 0 0 46px; width: 46px; height: 46px; object-fit: cover;
-    border-radius: .3rem; background: var(--bs-tertiary-bg);
-  }
-
-  /* Column toggles — the note itself must stay readable on a laptop, so both
-     side columns can be folded away (state lives in localStorage; see
-     notes-list.js, which also picks the defaults by viewport width). */
-  .notes-wrap.list-off .notes-list-col,
+  /* The info panel folds away, because the note itself has to stay readable
+     on a laptop (state in localStorage; see notes-nav.js, which also picks the
+     default by viewport width). */
   .notes-wrap.inspector-off .notes-inspector { display: none; }
   .notes-inspector {
     flex: 0 0 320px; width: 320px; align-self: stretch; min-width: 0;
@@ -102,14 +61,10 @@
   .notes-inspector h6 { letter-spacing: .03em; }
   @media (max-width: 992px) {
     .notes-inspector { position: static; max-height: none; }
-    .notes-list-col { position: static; max-height: 60vh; }
   }
   @media (max-width: 768px) {
     /* Stacked on a phone, the viewport height would only add dead space. */
     .notes-wrap { flex-direction: column; min-height: 0; }
-    .notes-list-col { flex-basis: auto; width: 100%; border-right: 0;
-                 border-bottom: 1px solid var(--bs-border-color);
-                 padding-right: 0; padding-bottom: .75rem; }
     .notes-nav { flex-basis: auto; width: 100%; border-right: 0;
                  border-bottom: 1px solid var(--bs-border-color);
                  padding-right: 0; padding-bottom: .75rem; }
@@ -196,8 +151,8 @@
         {% if note and (note.pk|string) == (it.pk|string) %}
           {% for b in nav_blocks|default([]) %}
             <a class="nn-row nn-block {% if zoom and zoom == b.uuid %}active{% endif %}"
-               href="{{ url_for('notes.detail', note_id=it.pk, zoom=b.uuid, **list_args)
-                        if b.uuid else url_for('notes.detail', note_id=it.pk, **list_args) }}"
+               href="{{ url_for('notes.detail', note_id=it.pk, zoom=b.uuid)
+                        if b.uuid else url_for('notes.detail', note_id=it.pk) }}"
                data-block-idx="{{ b.idx }}"
                style="padding-left: {{ (depth + b.depth) * 14 + 26 }}px;"
                data-nn-name="{{ b.label|lower }}" title="{{ b.label }}">
@@ -217,8 +172,8 @@
         {% if note and (note.pk|string) == (it.pk|string) %}
           {% for b in nav_blocks|default([]) %}
             <a class="nn-row nn-block {% if zoom and zoom == b.uuid %}active{% endif %}"
-               href="{{ url_for('notes.detail', note_id=it.pk, zoom=b.uuid, **list_args)
-                        if b.uuid else url_for('notes.detail', note_id=it.pk, **list_args) }}"
+               href="{{ url_for('notes.detail', note_id=it.pk, zoom=b.uuid)
+                        if b.uuid else url_for('notes.detail', note_id=it.pk) }}"
                data-block-idx="{{ b.idx }}"
                style="padding-left: {{ (depth + b.depth) * 14 + 26 }}px;"
                data-nn-name="{{ b.label|lower }}" title="{{ b.label }}">

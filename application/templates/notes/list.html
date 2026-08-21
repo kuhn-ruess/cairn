@@ -7,18 +7,28 @@
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     overflow: hidden;
   }
+  .nl-thumb {
+    flex: 0 0 46px; width: 46px; height: 46px; object-fit: cover;
+    border-radius: .3rem; background: var(--bs-tertiary-bg);
+  }
 </style>
 <div class="notes-wrap">
   {% include "notes/_nav.html" %}
-  {% include "notes/_list_column.html" %}
   <div class="notes-content">
     <div class="d-flex align-items-center gap-2 mb-3">
-      <button type="button" class="btn btn-sm btn-outline-secondary" data-toggle-column="list"
-              title="Show/hide the note list"><i class="bi bi-list-ul"></i></button>
       <h1 class="h5 mb-0 me-auto">
-        <i class="bi bi-journal-text text-success"></i> All notes
+        <i class="bi bi-journal-text text-success"></i>
+        {% if list_q %}Notes matching “{{ list_q }}”
+        {% elif list_tag %}Notes tagged {{ list_tag }}
+        {% elif folder_name %}{{ folder_name }}
+        {% else %}All notes{% endif %}
         <span class="text-body-tertiary">{{ rows|length }}</span>
       </h1>
+      {% if list_q or list_tag or list_folder %}
+        <a class="btn btn-sm btn-link text-muted" href="{{ url_for('notes.index') }}">
+          <i class="bi bi-x-circle"></i> Clear filter
+        </a>
+      {% endif %}
     </div>
     {# "All notes" is a page of its own now, not a pointer at the side column:
        the tree on the left is the navigation, and that column only opens for a
@@ -72,5 +82,4 @@
     {% endif %}
   </div>
 </div>
-<script src="{{ asset('js/notes-list.js') }}"></script>
 {% endblock %}
