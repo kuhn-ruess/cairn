@@ -1194,6 +1194,84 @@ def move_entries(*, team, pairs, target, actor=None) -> dict:
     return out
 
 
+def unassigned_groups(team) -> list:
+    """Time sitting in an intake project, grouped by the ticket it came from.
+
+    An intake project is where imported time lands when nothing said where it
+    belongs — the ticket's Cairn subtree isn't linked to a billing project, so
+    the importer files it under the customer it recognised and leaves the
+    question open. Which is right: it keeps the hours, and asking is better
+    than guessing. But nobody sees the question, and the pile grows.
+
+    One row per source item (the ticket, normally), because assigning happens
+    per ticket, not per booking: how many entries, how many minutes, which days,
+    and — the part that stops it coming back — the nearest folder above the
+    ticket, which is what the next sync would resolve through if it were linked.
+    """
+    intakes = {str(p.id): p for p in TimeTrackingProject.objects(
+        team=team, intake=True, archived=False)}
+    if not intakes:
+        return []
+
+    groups: dict = {}
+    for bucket in TimeBucket.objects(team=team,
+                                     entries__project_id__in=list(intakes)):
+        for e in bucket.entries:
+            if e.project_id not in intakes or e.status != "active":
+                continue
+            key = (e.project_id, e.source_item_id or "", e.external_ref or "")
+            row = groups.get(key)
+            if row is None:
+                row = groups[key] = {
+                    "project": intakes[e.project_id],
+                    "customer": bucket.customer,
+                    "item_id": e.source_item_id or "",
+                    "label": e.source_label or e.note or "—",
+                    "external_ref": e.external_ref or "",
+                    "external_url": e.external_url or "",
+                    "entries": 0, "minutes": 0, "locked": 0,
+                    "first": bucket.period, "last": bucket.period,
+                    "pairs": [],
+                }
+            row["entries"] += 1
+            row["minutes"] += e.minutes or 0
+            row["first"] = min(row["first"], bucket.period)
+            row["last"] = max(row["last"], bucket.period)
+            if e.locked:
+                row["locked"] += 1
+            else:
+                row["pairs"].append((str(bucket.id), e.entry_id))
+    rows = sorted(groups.values(),
+                  key=lambda r: (-r["minutes"], r["label"].lower()))
+    _attach_containers(rows)
+    return rows
+
+
+def _attach_containers(rows) -> None:
+    """Add ``container`` — the nearest folder/project above each row's task.
+
+    Linking *that* is what makes the next sync book straight to the right
+    project instead of the intake pile, so the page can offer it in the same
+    click. One query for all the tasks rather than one per row."""
+    from application.models.item import Item
+
+    ids = [r["item_id"] for r in rows if r["item_id"]]
+    if not ids:
+        for r in rows:
+            r["container"] = None
+        return
+    tasks = {str(t.pk): t for t in Item.all_objects(pk__in=ids)}
+    for r in rows:
+        task = tasks.get(r["item_id"])
+        node = task.parent if task is not None else None
+        depth = 0
+        while node is not None and node.kind not in ("project", "folder") \
+                and depth < 50:
+            node = node.parent
+            depth += 1
+        r["container"] = node
+
+
 def project_entries_for_move(project) -> list:
     """``(bucket_id, entry_id)`` for everything booked on ``project`` — the
     input to :func:`move_entries` when emptying a project wholesale."""

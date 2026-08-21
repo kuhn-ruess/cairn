@@ -972,6 +972,94 @@ def people_assign():
     return redirect(url_for("timetracking.people", team=team.pk))
 
 
+@timetracking_bp.route("/unassigned")
+@login_required
+@team_required
+def unassigned():
+    """Imported time nobody has filed yet — one row per ticket, with the
+    question the import left open.
+
+    Time whose ticket sits in no linked subtree lands in the customer's intake
+    project. That keeps the hours (the alternative is losing them), but the
+    open question was only ever visible as a number on a sync result page. Here
+    it is a list you can work through."""
+    from application.services.timetracking import unassigned_groups
+
+    team = _team()
+    user = current_user._get_current_object()
+    rows = unassigned_groups(team)
+    # Where the time can go: every live project of the team, labelled by
+    # customer — an intake project's own customer is often not the one the
+    # hours belong to.
+    from mongoengine import DoesNotExist
+
+    def _label(o):
+        # A project whose customer was deleted can't be a target — and must not
+        # take the page down with it when its reference is dereferenced.
+        try:
+            return f"{o.customer.name} › {o.name}"
+        except DoesNotExist:
+            return ""
+
+    targets = sorted(
+        (t for t in ({"id": str(o.id), "label": _label(o),
+                      "intake": bool(o.intake)}
+                     for o in TimeTrackingProject.objects(team=team,
+                                                          archived=False))
+         if t["label"]),
+        key=lambda r: r["label"].lower())
+    return render_template(
+        "timetracking/unassigned.html", team=team, all_teams=_user_teams(user),
+        can_manage=team.is_managed_by(user), rows=rows, targets=targets,
+        total_minutes=sum(r["minutes"] for r in rows))
+
+
+@timetracking_bp.route("/unassigned/assign", methods=["POST"])
+@login_required
+@team_required
+def unassigned_assign():
+    """File one ticket's time onto a real billing project.
+
+    Optionally link the folder above the ticket to that project in the same
+    click — without it the next sync resolves nothing again and books the next
+    hours straight back into the intake pile, which is how a list like this
+    fills up faster than anyone empties it."""
+    from application.models.item import Item
+    from application.services.timetracking import move_entries, unassigned_groups
+
+    team = _team()
+    user = current_user._get_current_object()
+    if not team.is_managed_by(user):
+        abort(403)
+    target = _project_or_404(request.form.get("target_id"), team)
+    key = (request.form.get("project_id") or "",
+           request.form.get("item_id") or "",
+           request.form.get("external_ref") or "")
+    row = next((r for r in unassigned_groups(team)
+                if (str(r["project"].id), r["item_id"], r["external_ref"]) == key),
+               None)
+    if row is None or not row["pairs"]:
+        flash("That time has already been filed.", "info")
+        return redirect(url_for("timetracking.unassigned", team=team.pk))
+
+    res = move_entries(team=team, pairs=row["pairs"], target=target, actor=user)
+    msg = (f"Moved {res['moved']} entr{'y' if res['moved'] == 1 else 'ies'} "
+           f"to “{target.name}”.")
+    if res["locked"]:
+        msg += (f" {res['locked']} billed entr"
+                f"{'y' if res['locked'] == 1 else 'ies'} stayed where they were "
+                f"settled.")
+    if request.form.get("link_container") == "1" and row["container"] is not None:
+        container = Item.all_objects(pk=row["container"].pk).first()
+        if container is not None and container.can_be_edited_by(user):
+            container.time_project = target
+            container.save()
+            msg += (f" “{container.title}” now books to it, so the next sync "
+                    f"files these tickets straight away.")
+    flash(msg, "success")
+    return redirect(url_for("timetracking.unassigned", team=team.pk))
+
+
 @timetracking_bp.route("/trash")
 @login_required
 @team_required

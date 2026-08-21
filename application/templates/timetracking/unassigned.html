@@ -1,0 +1,117 @@
+{% extends "layout/base.html" %}
+{% import "timetracking/_nav.html" as nav %}
+{% block title %}Unassigned time · Cairn{% endblock %}
+{% block content %}
+{{ nav.tt_nav('unassigned', team, all_teams, can_manage) }}
+
+<div class="d-flex align-items-center gap-2 mb-1">
+  <h1 class="h5 mb-0 me-auto">
+    <i class="bi bi-inbox"></i> Unassigned time
+  </h1>
+  {% if rows %}
+    <span class="text-muted small">
+      {{ rows|length }} ticket{{ '' if rows|length == 1 else 's' }} ·
+      {{ (total_minutes // 60) }}h {{ total_minutes % 60 }}m
+    </span>
+  {% endif %}
+</div>
+<p class="text-muted small" style="max-width: 60rem;">
+  Imported hours whose ticket sits in no subtree linked to a billing project.
+  They were booked to the customer's intake project rather than dropped — the
+  time is real and somebody will invoice it — but which project it belongs to
+  is a question the import can't answer. Answer it here.
+</p>
+
+{% if not rows %}
+  <div class="card"><div class="card-body text-muted small">
+    Nothing waiting. Imported time is landing on projects that were named for
+    it.
+  </div></div>
+{% else %}
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead class="text-muted small">
+        <tr>
+          <th>Ticket</th>
+          <th class="text-nowrap">Booked</th>
+          <th class="text-end">Time</th>
+          <th>Currently on</th>
+          <th style="min-width: 24rem;">File it on</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr>
+            <td>
+              <div>{{ r.label }}</div>
+              <div class="small text-muted">
+                {% if r.external_ref %}
+                  {% if r.external_url %}
+                    <a href="{{ r.external_url }}" target="_blank" rel="noopener">#{{ r.external_ref }}</a>
+                  {% else %}#{{ r.external_ref }}{% endif %}
+                {% endif %}
+                {% if r.container %}
+                  · in <code>{{ r.container.title }}</code>
+                {% else %}
+                  · <span class="text-warning">unfiled</span>
+                {% endif %}
+              </div>
+            </td>
+            <td class="text-nowrap small text-muted">
+              {{ r.first }}{% if r.last != r.first %} – {{ r.last }}{% endif %}
+            </td>
+            <td class="text-end text-nowrap">
+              <strong>{{ (r.minutes // 60) }}h {{ r.minutes % 60 }}m</strong>
+              <div class="small text-muted">
+                {{ r.entries }} entr{{ 'y' if r.entries == 1 else 'ies' }}
+                {%- if r.locked %} · <span class="text-warning">{{ r.locked }} billed</span>{% endif %}
+              </div>
+            </td>
+            <td class="small text-muted">{{ r.customer.name }} › {{ r.project.name }}</td>
+            <td>
+              {% if can_manage and not r.pairs %}
+                <span class="small text-muted">
+                  Only billed entries left — reopen them on the report if they
+                  should move.</span>
+              {% elif can_manage %}
+                <form method="post" action="{{ url_for('timetracking.unassigned_assign', team=team.pk) }}"
+                      class="d-flex gap-2 align-items-center flex-wrap">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="project_id" value="{{ r.project.id }}">
+                  <input type="hidden" name="item_id" value="{{ r.item_id }}">
+                  <input type="hidden" name="external_ref" value="{{ r.external_ref }}">
+                  <select name="target_id" class="form-select form-select-sm"
+                          style="max-width: 18rem;" required>
+                    <option value="">Move to…</option>
+                    {% for t in targets %}
+                      {% if t.id != r.project.id|string %}
+                        <option value="{{ t.id }}">{{ t.label }}{% if t.intake %} (intake){% endif %}</option>
+                      {% endif %}
+                    {% endfor %}
+                  </select>
+                  {% if r.container %}
+                    <label class="form-check small m-0"
+                           title="Link {{ r.container.title }} to that project, so the next sync books there directly">
+                      <input type="checkbox" name="link_container" value="1"
+                             class="form-check-input" checked>
+                      link <code>{{ r.container.title }}</code>
+                    </label>
+                  {% endif %}
+                  <button class="btn btn-sm btn-outline-primary">File</button>
+                </form>
+              {% else %}
+                <span class="small text-muted">A team manager can file this.</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="form-text small">
+    Ticking the link box is what stops the same ticket coming back: the next
+    sync resolves the folder above it and books straight to the project you
+    picked. Billed entries never move — they stay where they were settled.
+  </p>
+{% endif %}
+{% endblock %}
