@@ -1,0 +1,122 @@
+{% extends "layout/base.html" %}
+{% block title %}Notes on a share · Cairn{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3"><i class="bi bi-hdd-network"></i> Notes on a share</h1>
+<p class="text-muted small" style="max-width: 720px;">
+  Your notes as Markdown files in a WebDAV folder — a Synology share, say —
+  with each note's images and attachments in an <code>_assets</code> folder
+  beside it. Point DEVONthink (or Obsidian, or Finder) at that folder and it
+  reads them; edit them there and the changes come back. Folders match your
+  notes tree, and moving or renaming a file over there moves or renames the
+  note here.
+</p>
+
+<form method="post" style="max-width: 720px;">
+  {{ form.csrf_token }}
+
+  <div class="form-check mb-3">
+    {{ form.enabled(class="form-check-input") }}
+    {{ form.enabled.label(class="form-check-label fw-semibold") }}
+    <div class="form-text small">
+      Off stops the background rounds. Nothing is deleted on either side.
+    </div>
+  </div>
+
+  <div class="mb-3">
+    {{ form.url.label(class="form-label") }}
+    {{ form.url(class="form-control form-control-sm",
+                placeholder="https://nas.example.com:5006/home/Cairn/Notes") }}
+    <div class="form-text small">{{ form.url.description }}</div>
+  </div>
+
+  <div class="row g-2 mb-3">
+    <div class="col-sm-6">
+      {{ form.username.label(class="form-label") }}
+      {{ form.username(class="form-control form-control-sm", autocomplete="off") }}
+    </div>
+    <div class="col-sm-6">
+      {{ form.password.label(class="form-label") }}
+      {{ form.password(class="form-control form-control-sm", autocomplete="new-password",
+                       placeholder="•••••••• (kept)" if has_password else "") }}
+      <div class="form-text small">
+        {% if has_password %}Leave blank to keep the saved one.
+        {% else %}Stored encrypted, like every other credential here.{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="mb-3">
+    {{ form.interval.label(class="form-label") }}
+    {{ form.interval(class="form-select form-select-sm", style="max-width: 22rem;") }}
+  </div>
+
+  <div class="d-flex gap-2">
+    {{ form.submit(class="btn btn-primary btn-sm") }}
+    {{ form.test(class="btn btn-outline-secondary btn-sm") }}
+  </div>
+</form>
+
+<hr class="my-4" style="max-width: 720px;">
+
+<div style="max-width: 720px;">
+  <h2 class="h6 text-muted small text-uppercase">Last round</h2>
+  <p class="small mb-2">
+    {% if user.last_notes_mirror_at %}
+      <span title="{{ user.last_notes_mirror_at|localdt }}">
+        {{ user.last_notes_mirror_at|timeago }} ago</span> —
+      {{ user.notes_mirror_status or "no details" }}
+    {% else %}
+      Never run.
+    {% endif %}
+  </p>
+  <form method="post" action="{{ url_for('settings.notes_mirror_sync') }}" class="mb-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-arrow-repeat"></i> Sync now
+    </button>
+  </form>
+
+  {% if runs %}
+    <h2 class="h6 text-muted small text-uppercase">History</h2>
+    <table class="table table-sm small">
+      <tbody>
+        {% for run in runs %}
+          {% if run.kind == "notes-mirror" %}
+          <tr>
+            <td class="text-nowrap">{{ run.created_at|localdt }}</td>
+            <td>{{ run.trigger }}</td>
+            <td>
+              {% if run.ok %}
+                {% for key, value in run.stats.items() if key != "errors" %}
+                  <span class="badge text-bg-secondary">{{ key|replace("_", " ") }}: {{ value }}</span>
+                {% endfor %}
+              {% else %}
+                <span class="text-danger">{{ run.error }}</span>
+              {% endif %}
+            </td>
+            <td class="text-end text-muted">{{ run.seconds }}s</td>
+          </tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  <h2 class="h6 text-muted small text-uppercase">Worth knowing</h2>
+  <ul class="small text-muted">
+    <li>A file deleted over there moves its note to the Cairn trash — never a
+      hard delete. If the share answers but is empty, the round deletes
+      nothing at all and says so.</li>
+    <li>If a note and its file both changed since the last round, the note
+      keeps your Cairn text and the file's version is written beside it as
+      <em>… (conflict …).md</em>, which comes back as its own note. Nothing is
+      merged and nothing is dropped.</li>
+    <li>Each file carries a <code>cairn-id</code> in its front matter. That is
+      how a note survives being renamed or moved over there — keep the line and
+      you can reorganise the folder freely.</li>
+    <li>The share must be reachable from the server Cairn runs on. A private
+      address (LAN or VPN) is refused unless the deployment sets
+      <code>BKTODO_MIRROR_ALLOW_PRIVATE=1</code>.</li>
+  </ul>
+</div>
+{% endblock %}

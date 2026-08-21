@@ -385,6 +385,15 @@ class Item(Document):
     # automatically from the task side too.
     linked_events = EmbeddedDocumentListField(LinkedEvent)
 
+    # ---- Markdown mirror (services/notes_sync.py) ----
+    # Where this note's file lives in the mirrored folder, the hash of what was
+    # written there, and the server's change validator at that moment. The hash
+    # is the common ancestor a two-way round compares both sides against; empty
+    # ``mirror_path`` means "not mirrored yet".
+    mirror_path = StringField()
+    mirror_hash = StringField()
+    mirror_tag = StringField()
+
     # Note-to-note wiki links: the notes this note's body references via
     # ``[[Title]]``. DIRECTED and derived — rebuilt from the body on every
     # save (services/note_links.py), never edited by hand. Backlinks

@@ -91,6 +91,31 @@ class ZammadImportForm(FlaskForm):
     save_only = SubmitField("Save settings")
 
 
+class NotesMirrorForm(FlaskForm):
+    """Where the notes are mirrored as Markdown files, and how often."""
+
+    enabled = BooleanField("Mirror my notes to this share")
+    url = StringField(
+        "WebDAV folder", validators=[Optional(), URL()],
+        description="The collection the notes live in, e.g. "
+                    "https://nas.example.com:5006/home/Cairn/Notes",
+    )
+    username = StringField("Username", validators=[Optional(), Length(max=255)])
+    password = PasswordField("Password", validators=[Optional()])
+    interval = SelectField(
+        "Run in the background", choices=[
+            ("0", "Only when I press Sync now"),
+            ("5", "Every 5 minutes"),
+            ("15", "Every 15 minutes"),
+            ("60", "Hourly"),
+            ("360", "Every 6 hours"),
+            ("1440", "Daily"),
+        ], default="15",
+    )
+    submit = SubmitField("Save")
+    test = SubmitField("Test connection")
+
+
 @settings_bp.route("/")
 @login_required
 def index():
@@ -853,6 +878,80 @@ def sync_zammad():
         "stats": stats.as_dict(),
         "last_sync": user.last_zammad_sync_at.isoformat(),
     })
+
+
+@settings_bp.route("/notes-mirror", methods=["GET", "POST"])
+@login_required
+def notes_mirror():
+    """Configure the notes ⇄ WebDAV mirror, test it, and start a round."""
+    from application.services import notes_sync, sync_log
+    from application.services.crypto import encrypt_for_user
+    from application.services.webdav import DavError
+
+    user = current_user._get_current_object()
+    form = NotesMirrorForm()
+    probe = ""
+
+    if form.validate_on_submit():
+        user.notes_mirror_url = (form.url.data or "").strip().rstrip("/")
+        user.notes_mirror_user = (form.username.data or "").strip()
+        if form.password.data:
+            user.notes_mirror_password = encrypt_for_user(user, form.password.data)
+        user.notes_mirror_interval = int(form.interval.data or 0)
+        user.notes_mirror_enabled = bool(form.enabled.data)
+        user.save()
+        if form.test.data:
+            try:
+                probe = notes_sync.client_for(user).check()
+            except DavError as exc:
+                flash(f"Couldn't reach the share: {exc}", "danger")
+            else:
+                flash(probe, "success")
+        else:
+            flash("Saved.", "success")
+        return redirect(url_for("settings.notes_mirror"))
+
+    if request.method == "GET":
+        form.enabled.data = user.notes_mirror_enabled
+        form.url.data = user.notes_mirror_url
+        form.username.data = user.notes_mirror_user
+        form.interval.data = str(user.notes_mirror_interval or 0)
+
+    return render_template(
+        "settings/notes_mirror.html", form=form, user=user,
+        has_password=bool(user.notes_mirror_password),
+        runs=sync_log.recent(users=[user], limit=10),
+    )
+
+
+@settings_bp.route("/notes-mirror/sync", methods=["POST"])
+@login_required
+def notes_mirror_sync():
+    """Start a round now. A first round can write hundreds of files, which
+    outlives any gateway, so it goes to the worker when there is one and runs
+    here when there isn't (same fallback as the Zammad syncs)."""
+    from application.services import notes_sync
+    from application.services.webdav import DavError
+
+    user = current_user._get_current_object()
+    if not (user.notes_mirror_url or "").strip():
+        flash("Set the WebDAV folder first.", "warning")
+        return redirect(url_for("settings.notes_mirror"))
+    try:
+        from application.services.sync_tasks import enqueue_notes_mirror
+        enqueue_notes_mirror(str(user.pk), trigger="manual")
+        flash("Sync started — it runs in the background; reload for the result.",
+              "info")
+    except Exception:                          # no broker, or it's down
+        try:
+            stats = notes_sync.sync_user(user, trigger="manual")
+        except DavError as exc:
+            flash(f"Sync failed: {exc}", "danger")
+        else:
+            flash(stats.summary(), "success")
+            for err in stats.errors:
+                flash(err, "warning")
+    return redirect(url_for("settings.notes_mirror"))
 
 
 @settings_bp.route("/calendars")

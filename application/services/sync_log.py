@@ -27,6 +27,10 @@ _KEEP = (
     "customers_created", "customers_updated", "projects_created",
     "projects_updated", "entries_imported", "entries_updated",
     "entries_skipped", "entries_empty", "entries_undated", "entries_frozen",
+    # notes mirror
+    "files_written", "files_deleted", "notes_created", "notes_updated",
+    "notes_trashed", "folders_created", "assets_written", "conflicts",
+    "unchanged",
 )
 
 

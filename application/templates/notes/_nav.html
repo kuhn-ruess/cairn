@@ -279,4 +279,19 @@
       </li>
     {% endfor %}
   </ul>
+
+  {# The mirror lives in settings, but "are my notes on the NAS?" is a question
+     you ask here, in front of the notes. #}
+  {% if current_user.notes_mirror_enabled %}
+    <a class="d-block small text-muted text-decoration-none mt-3 pt-2 border-top"
+       href="{{ url_for('settings.notes_mirror') }}"
+       title="{{ current_user.notes_mirror_status or 'Notes mirror' }}">
+      <i class="bi bi-hdd-network"></i>
+      {% if current_user.last_notes_mirror_at %}
+        Mirrored {{ current_user.last_notes_mirror_at|timeago }}
+      {% else %}
+        Mirror set up — not run yet
+      {% endif %}
+    </a>
+  {% endif %}
 </aside>

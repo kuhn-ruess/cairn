@@ -21,6 +21,13 @@ class BaseConfig:
     # re-enqueues them. Beat ticks every minute; this spaces the actual syncs.
     ZAMMAD_SYNC_INTERVAL_MIN = 5
 
+    # The notes mirror writes to a WebDAV server the user names, so the SSRF
+    # guard applies (services/http_safety). A NAS on the same LAN or behind a
+    # VPN has a private address and is refused by design — set
+    # BKTODO_MIRROR_ALLOW_PRIVATE=1 to allow it for this deployment, knowing
+    # that it lets a user point the mirror at an internal address.
+    MIRROR_ALLOW_PRIVATE = False
+
     # ---- Brute-force limits on the credential endpoints -------------------
     # Counted per client IP, and — for the two login paths — only on FAILED
     # attempts, so a working client is never throttled no matter how often it

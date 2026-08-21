@@ -790,6 +790,53 @@ def sync_zammad_all_cmd(all_configured, concurrency, force):
     click.echo(f"Done — {ok} ok, {failed} failed.")
 
 
+@cairn_cli.command("sync-notes")
+@click.option("--user", "username", default=None,
+              help="Limit to one user; omit to run every due mirror.")
+@click.option("--dry-run", is_flag=True,
+              help="Say what would change without writing anything.")
+@click.option("--force", is_flag=True,
+              help="Ignore the per-user interval and run now.")
+def sync_notes_cmd(username, dry_run, force):
+    """Mirror notes to (and from) the configured WebDAV share.
+
+    The cron-friendly / no-broker equivalent of the background round: same
+    core (application.services.notes_sync), so behaviour matches the worker.
+    """
+    from application.models.user import User
+    from application.services import notes_sync
+    from application.services.webdav import DavError
+
+    if username:
+        user = User.objects(username=username).first()
+        if not user:
+            raise click.ClickException(f"No such user: {username}")
+        users = [user]
+    elif force:
+        users = list(User.objects(notes_mirror_enabled=True,
+                                  notes_mirror_url__ne=""))
+    else:
+        ids = notes_sync.due_user_ids()
+        users = list(User.objects(pk__in=ids)) if ids else []
+
+    if not users:
+        click.echo("No mirrors due.")
+        return
+
+    for user in users:
+        if not (user.notes_mirror_url or "").strip():
+            click.echo(f"{user.username}: no WebDAV URL configured — skipped")
+            continue
+        try:
+            stats = notes_sync.sync_user(user, dry_run=dry_run, trigger="cli")
+        except DavError as exc:
+            click.echo(f"{user.username}: ERROR {exc}")
+            continue
+        click.echo(f"{'(dry-run) ' if dry_run else ''}{user.username}: {stats.summary()}")
+        for err in stats.errors:
+            click.echo(f"    ! {err}")
+
+
 @cairn_cli.command("apply-label-rules")
 @click.option("--user", "username", default=None,
               help="Limit to a single user; omit to run for everyone.")

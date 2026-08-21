@@ -1,4 +1,4 @@
-"""Celery tasks for the distributed Zammad auto-sync.
+"""Celery tasks for the background syncs.
 
 Two tasks, registered via ``@shared_task`` so they bind to whatever Celery
 app is active (see :mod:`application.celery_app`):
@@ -8,10 +8,13 @@ app is active (see :mod:`application.celery_app`):
 * ``zammad.sync_user`` — syncs a single user. Scales horizontally: add more
   worker processes / machines and the queue spreads across them.
 
+The notes mirror (``notes_mirror.*``) rides the same two-step: beat fans out
+per user, one task per mirror, one lock each.
+
 A short-lived Redis lock per user prevents the same user being synced twice
 at once (e.g. beat re-enqueues while a slow sync is still running). The
-actual work lives in :mod:`application.services.zammad_auto`, which has no
-Celery/Redis dependency.
+actual work lives in :mod:`application.services.zammad_auto` and
+:mod:`application.services.notes_sync`, neither of which knows about Celery.
 """
 from __future__ import annotations
 
@@ -172,3 +175,66 @@ def sync_user_zammad(self, user_id: str):
     finally:
         r.delete(lock)
         r.delete(f"zammad:queued:{user_id}")
+
+
+# ---------------------------------------------------------------------------
+# Notes ⇄ WebDAV mirror
+# ---------------------------------------------------------------------------
+
+def enqueue_notes_mirror(user_id: str, *, trigger: str = "manual") -> None:
+    """Queue one user's mirror round from the **web** process — same producer
+    trick as ``enqueue_team_sync``: a first round can write hundreds of files,
+    which outlives any gateway. Raises if the broker can't be reached, and the
+    caller decides whether that means "run it here instead"."""
+    global _producer
+    from celery import Celery
+
+    url = current_app.config["REDIS_URL"]
+    if _producer is None or _producer.conf.broker_url != url:
+        _producer = Celery("cairn-producer", broker=url)
+        _producer.conf.task_default_queue = "zammad"
+    _producer.send_task("notes_mirror.sync_user", args=[user_id],
+                        kwargs={"trigger": trigger}, queue="zammad", retry=False)
+
+
+@shared_task(name="notes_mirror.enqueue_due")
+def enqueue_due_notes_mirrors() -> int:
+    """Fan out to every user whose mirror interval has elapsed."""
+    from application.services import notes_sync
+
+    r = _redis()
+    enqueued = 0
+    for uid in notes_sync.due_user_ids():
+        if not r.set(f"mirror:queued:{uid}", "1", nx=True, ex=300):
+            continue
+        sync_user_notes_mirror.delay(uid, trigger="background")
+        enqueued += 1
+    return enqueued
+
+
+@shared_task(name="notes_mirror.sync_user", bind=True, max_retries=2,
+             default_retry_delay=300)
+def sync_user_notes_mirror(self, user_id: str, trigger: str = "background"):
+    """One user's mirror round. Locked per user: two rounds over the same
+    share would race on the same files, and the second would see the first's
+    half-written state as remote edits."""
+    from application.models.user import User
+    from application.services import notes_sync
+    from application.services.webdav import DavError
+
+    r = _redis()
+    lock = f"mirror:lock:{user_id}"
+    if not r.set(lock, "1", nx=True, ex=_LOCK_TTL):
+        return "skip: already running"
+    try:
+        user = User.objects(pk=user_id).first()
+        if user is None or not (user.notes_mirror_url or "").strip():
+            return "skip: not configured"
+        stats = notes_sync.sync_user(user, trigger=trigger)
+        return stats.as_dict()
+    except DavError as exc:
+        # The share being unreachable is worth one retry — a NAS reboots.
+        raise self.retry(exc=exc)
+    finally:
+        r.delete(lock)
+        r.delete(f"mirror:queued:{user_id}")

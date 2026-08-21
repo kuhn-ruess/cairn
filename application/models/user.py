@@ -118,6 +118,19 @@ class User(UserMixin, Document):
     show_todoist_sync = BooleanField(default=False)
     last_todoist_sync_at = DateTimeField()
 
+    # ---- Notes mirror: the notes tree as Markdown files on a WebDAV share
+    # (a Synology, so DEVONthink can index them). Two-way; see
+    # services/notes_sync.py. The password is encrypted like every other
+    # per-user secret here (services/crypto.py).
+    notes_mirror_enabled = BooleanField(default=False)
+    notes_mirror_url = StringField()
+    notes_mirror_user = StringField()
+    notes_mirror_password = StringField()
+    # Minutes between background rounds; 0 = only when the button is pressed.
+    notes_mirror_interval = IntField(default=15)
+    last_notes_mirror_at = DateTimeField()
+    notes_mirror_status = StringField(default="")
+
     # Zammad import — URL + token live with the user so each user can
     # point at their own ticketing instance. Orphan reconcile keys off
     # ``Item.source="zammad"`` now, no separate label tag needed.

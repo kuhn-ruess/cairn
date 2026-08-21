@@ -37,6 +37,12 @@ celery.conf.update(
             "task": "zammad.enqueue_due_teams",
             "schedule": 60.0,
         },
+        # Notes ⇄ WebDAV. Same shape: tick every minute, the due-check spaces
+        # the actual rounds by each user's own interval.
+        "enqueue-due-notes-mirrors": {
+            "task": "notes_mirror.enqueue_due",
+            "schedule": 60.0,
+        },
     },
 )
 

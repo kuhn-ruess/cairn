@@ -59,6 +59,18 @@
     </a>
   </div>
   <div class="col-md-6">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.notes_mirror') }}">
+      <div class="card-body">
+        <h2 class="h6"><i class="bi bi-hdd-network"></i> Notes on a share</h2>
+        <p class="text-muted small mb-0">
+          Mirror your notes to a WebDAV folder as Markdown files with their
+          attachments — for DEVONthink, Obsidian or a NAS backup. Two-way:
+          edits made over there come back.
+        </p>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-6">
     <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.calendars') }}">
       <div class="card-body">
         <h2 class="h6"><i class="bi bi-calendar3"></i> External calendars</h2>

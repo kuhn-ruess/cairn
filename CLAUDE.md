@@ -62,6 +62,7 @@ commands beyond the user-facing ones in the README:
 - `./cairn import-mite <user> --account <acct> --key <api-key> [--team <id>] [--from/--to] [--projects-only] [--dry-run]` — migrate a mite.de account (customers, billing projects with rates/budgets, full time history) into a team. `--projects-only` takes the current structure without any time. Idempotent via the stored mite ids, so runs can be repeated or widened
 - `./cairn split-note-times [--user <name>] [--dry-run]` — lift `(10:00 bis 12:00)` out of imported mite notes into `TimeEntry.start_time`/`end_time` (the importer does this now; this fixes what came in before)
 - `./cairn split-time-buckets [--dry-run]` — one-shot: re-file legacy monthly time buckets into the per-day buckets the model now uses
+- `./cairn sync-notes [--user <name>] [--dry-run] [--force]` — one round of the notes ⇄ WebDAV mirror. Cron-friendly / no-broker equivalent of the background round (shares `services/notes_sync.py`)
 - `./cairn cleanup-completed-tasks [--dry-run] [--user <name>]` — cron-friendly sweep of done/dropped tasks past each user's retention window
 - `./cairn cleanup-trash [--dry-run] [--user <name>]` — cron-friendly purge of trashed items past each user's `trash_retention_days` (default 30; `0` = keep until emptied)
 - `./cairn sync-zammad-team [--team <id>] [--full] [--force] [--dry-run]` — the **team** sync (`services/zammad_team.py`): one connection (`Team.zammad_url` + service token) reads the instance once, files each ticket under the Cairn user its Zammad owner maps to (roster → that user's `zammad_sync_project`) and books all agents' time into the team. Replaces per-member syncs; configured under Team → Zammad (`views/teams.py`), because the connection belongs to the team, not to the billing module
@@ -147,6 +148,11 @@ services (run exactly one `beat`; scale `worker` with `--scale worker=N`).
 Per-user opt-in + replayed import options (project/scope) live on `User`
 (`zammad_auto_sync`, `zammad_sync_project`, …).
 
+The **notes mirror** rides the same two-step (`notes_mirror.enqueue_due` →
+`notes_mirror.sync_user`, one Redis lock per user). "Sync now" in settings
+sends the task by name through the same small producer as the team sync and
+falls back to running inline when there is no broker.
+
 **"Sync now" on the team page also goes through the worker.** A full pass costs
 two to three requests per ticket, which outlives any gateway — the button sends
 `zammad.sync_team` by name (`sync_tasks.enqueue_team_sync`, a small producer:
@@ -181,6 +187,7 @@ Non-trivial logic that doesn't belong in a view or model lives here:
 - `todoist_import.py` — Todoist API ingest used by the CLI command
 - `zammad_billing.py` — where Zammad's time lands (one entry per ticket, day and agent: the day's bookings are summed into a single entry whose `external_ids` list the bookings it covers, so a re-sync updates the total instead of adding the parts beside it): customers auto-created from Zammad organisations (`external_id="zammad:org:<id>"`, one `intake` project per customer) and the team-level agent roster (`Team.zammad_agents`) that maps Zammad agents to Cairn accounts; assigning one re-attributes the time already booked
 - `cleanup.py` — per-user indexed bulk-delete of completed tasks past retention
+- `notes_sync.py` / `webdav.py` — the notes tree mirrored to a WebDAV folder as Markdown files (`_assets/<note-id>/` beside each note), **two-way**: each note stores `mirror_path` / `mirror_hash` / `mirror_tag`, the hash is the common ancestor, both sides changed → the file's version is parked as `… (conflict …).md` and comes back as its own note. A file gone trashes its note; a trashed note's file is deleted; an empty listing while notes claim files there deletes nothing. Config per user (`notes_mirror_*`), runs via Celery beat, `./cairn sync-notes`, or the button on Settings → Notes on a share
 - `capture.py` — marked text → tasks (into a picked project) or → a note; behind `/capture/*`, used by the braindump pad and by a note's rendered body
 - `quick_parse.py` — natural-language task parsing
 - `permissions.py` — sharing/visibility checks
