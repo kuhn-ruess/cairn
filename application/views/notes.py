@@ -335,6 +335,7 @@ def detail(note_id):
     linked_tasks = [r for r in related if r.kind == "task"]
     linked_projects = [r for r in related if r.kind == "project"]
     from application.services import note_links
+    from application.services.containers import container_choices
     # Reuse the task tag picker's tree builder (imported lazily — tasks.py
     # pulls in a lot and importing it at module load would risk a cycle).
     from application.views.tasks import _tag_choices_tree
@@ -349,6 +350,11 @@ def detail(note_id):
         word_count=len(re.findall(r"[\w'-]+", item.note or "")),
         base_stamp=_stamp(item.updated_at),
         tag_choices=_tag_choices_tree(user.tags or []),
+        # Targets for "mark text in the note → tasks" (layout/_capture_modals).
+        capture_projects=container_choices(
+            user, selectable_kinds=("project", "section"),
+            include_shared=True, active_projects_only=True,
+        ),
         tag_filter_choices=_tag_filter_choices(user, tree),
         can_edit=item.can_be_edited_by(user),
         is_owner=(item.owner == user),

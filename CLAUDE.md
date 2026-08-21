@@ -181,6 +181,7 @@ Non-trivial logic that doesn't belong in a view or model lives here:
 - `todoist_import.py` — Todoist API ingest used by the CLI command
 - `zammad_billing.py` — where Zammad's time lands (one entry per ticket, day and agent: the day's bookings are summed into a single entry whose `external_ids` list the bookings it covers, so a re-sync updates the total instead of adding the parts beside it): customers auto-created from Zammad organisations (`external_id="zammad:org:<id>"`, one `intake` project per customer) and the team-level agent roster (`Team.zammad_agents`) that maps Zammad agents to Cairn accounts; assigning one re-attributes the time already booked
 - `cleanup.py` — per-user indexed bulk-delete of completed tasks past retention
+- `capture.py` — marked text → tasks (into a picked project) or → a note; behind `/capture/*`, used by the braindump pad and by a note's rendered body
 - `quick_parse.py` — natural-language task parsing
 - `permissions.py` — sharing/visibility checks
 - `mail.py` / `crypto.py` — SMTP for password resets, token signing

@@ -767,18 +767,22 @@ def build_openapi_spec() -> dict:
             },
             "/braindump/convert": {
                 "post": {
-                    "summary": "Convert the Markdown dump into projects + tasks",
-                    "description": ("Headings become projects (existing ones "
-                                    "reused by name), list items become tasks, "
-                                    "indentation nests sub-tasks. Idempotent: a "
-                                    "task with the same title in the same project "
-                                    "is updated, not duplicated."),
+                    "summary": "Convert dumped text into tasks",
+                    "description": ("One task per line, into ``project_id`` "
+                                    "(omit for the Inbox); indentation nests "
+                                    "sub-tasks and the quick-add tokens work "
+                                    "per line. Idempotent: a task with the same "
+                                    "title in the same parent is updated, not "
+                                    "duplicated."),
                     "tags": ["braindump"],
                     "requestBody": {
                         "required": True,
                         "content": {"application/json": {"schema": {
                             "type": "object",
-                            "properties": {"text": {"type": "string"}},
+                            "properties": {
+                                "text": {"type": "string"},
+                                "project_id": {"type": "string"},
+                            },
                             "required": ["text"],
                         }}},
                     },
@@ -791,8 +795,6 @@ def build_openapi_spec() -> dict:
                                         "stats": {
                                             "type": "object",
                                             "properties": {
-                                                "projects_created": {"type": "integer"},
-                                                "projects_matched": {"type": "integer"},
                                                 "tasks_created": {"type": "integer"},
                                                 "tasks_updated": {"type": "integer"},
                                             },

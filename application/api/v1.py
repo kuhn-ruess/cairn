@@ -862,14 +862,20 @@ def save_braindump():
 @api_v1_bp.post("/braindump/convert")
 @token_required
 def convert_braindump():
-    """Parse the Markdown dump and create/update projects + tasks. Mirrors
-    the web blueprint; see application.services.braindump."""
-    from application.services.braindump import apply_braindump
+    """Turn dumped text into tasks — one per line, into ``project_id`` (blank
+    = Inbox). See application.services.capture."""
+    from application.services import capture
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
     if not text:
         return _bad_request("Nothing to convert.")
-    stats = apply_braindump(text, g.current_user)
+    project = None
+    raw = (data.get("project_id") or "").strip()
+    if raw:
+        project = Item.objects(pk=raw, kind__in=["project", "section"]).first()
+        if not project or not project.can_be_edited_by(g.current_user):
+            return _bad_request("Unknown project.")
+    stats = capture.create_tasks(text, g.current_user, parent=project)
     return jsonify({"ok": True, "stats": stats})
 
 

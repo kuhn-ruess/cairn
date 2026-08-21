@@ -1,0 +1,71 @@
+{# Capture dialogs — "marked text → tasks" and "marked text → note".
+   Included by the braindump pad and by a note's detail page; driven by
+   static/js/capture.js, which fills the preview and posts to /capture/*.
+
+   Expects in context:
+     capture_projects — [(pk, label)] task targets (blank option = Inbox)
+     capture_folders  — [(pk, label)] notes folders (blank option = top level)
+   Leave either out and its dialog simply offers the blank option. #}
+<div class="modal fade" id="captureTasksModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-check2-square"></i> Create tasks</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label small text-muted" for="captureTasksProject">Target project</label>
+        <select class="form-select mb-3" id="captureTasksProject">
+          <option value="">Inbox — no project</option>
+          {% for pk, label in (capture_projects or []) %}
+            <option value="{{ pk }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+        <div class="small text-muted mb-1">
+          <span id="captureTasksCount">0</span> line(s) become tasks — indented
+          lines become sub-tasks. <code>@tag</code> · <code>p1</code> ·
+          <code>!</code> · <code>today</code> still work per line.
+        </div>
+        <pre class="border rounded p-2 mb-0 small bg-body-tertiary capture-preview"
+             id="captureTasksPreview"></pre>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="captureTasksGo">
+          <i class="bi bi-magic"></i> Create tasks
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="captureNoteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-journal-text"></i> Create note</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label small text-muted" for="captureNoteTitle">Title</label>
+        <input type="text" class="form-control mb-3" id="captureNoteTitle" autocomplete="off">
+        <label class="form-label small text-muted" for="captureNoteFolder">Folder</label>
+        <select class="form-select mb-3" id="captureNoteFolder">
+          <option value="">No folder — top level</option>
+          {% for pk, label in (capture_folders or []) %}
+            <option value="{{ pk }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+        <div class="small text-muted mb-1">The text moves into the note as Markdown.</div>
+        <pre class="border rounded p-2 mb-0 small bg-body-tertiary capture-preview"
+             id="captureNotePreview"></pre>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="captureNoteGo">
+          <i class="bi bi-journal-plus"></i> Create note
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

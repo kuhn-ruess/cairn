@@ -1,15 +1,18 @@
-/* Braindump editor — Markdown scratch pad with list-indent helpers and a
-   one-click convert into projects/tasks. Self-guards: does nothing unless
-   the braindump textarea is on the page. */
+/* Braindump editor — Markdown scratch pad with list-indent helpers, and the
+   two ways out of it: mark text (or nothing, for the whole pad) and turn it
+   into tasks or into a note. Whatever gets converted leaves the pad, so the
+   dump empties as it is processed. The dialogs live in capture.js.
+   Self-guards: does nothing unless the braindump textarea is on the page. */
 (function () {
   const ta = document.getElementById("braindumpText");
   if (!ta) return;
 
   const INDENT = "    "; // 4 spaces = one nesting level
-  const btn = document.getElementById("braindumpConvert");
+  const tasksBtn = document.getElementById("braindumpToTasks");
+  const noteBtn = document.getElementById("braindumpToNote");
+  const scopeHint = document.getElementById("braindumpScope");
   const clearBtn = document.getElementById("braindumpClear");
   const status = document.getElementById("braindumpStatus");
-  const result = document.getElementById("braindumpResult");
   const csrf = document.getElementById("braindumpCsrf");
 
   function setStatus(text) { if (status) status.textContent = text; }
@@ -104,55 +107,76 @@
   // ---- clear ----
   if (clearBtn) {
     clearBtn.addEventListener("click", async () => {
+      if (ta.value.trim() && !confirm("Clear the braindump? The text is gone.")) return;
       ta.value = "";
-      result.innerHTML = "";
       ta.focus();
       clearTimeout(saveTimer);
       try { await save(""); setStatus("Cleared"); }
       catch (e) { setStatus("Save failed"); }
+      refreshScope();
     });
   }
 
-  // ---- convert ----
-  if (btn) {
-    btn.addEventListener("click", async () => {
-      const text = ta.value.trim();
-      result.innerHTML = "";
-      if (!text) {
-        result.innerHTML = '<div class="alert alert-warning">Nothing to convert.</div>';
-        return;
-      }
-      btn.disabled = true;
-      try {
-        const fd = new FormData();
-        fd.append("text", text);
-        if (csrf) fd.append("csrf_token", csrf.value);
-        const resp = await fetch("/braindump/convert", {
-          method: "POST", body: fd, credentials: "same-origin",
-        });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) {
-          result.innerHTML = '<div class="alert alert-danger">' +
-            (data.error || "Conversion failed.") + "</div>";
-          return;
-        }
-        const s = data.stats || {};
-        result.innerHTML =
-          '<div class="alert alert-success d-flex align-items-center gap-3">' +
-          '<span>Created <strong>' + (s.tasks_created || 0) + '</strong> tasks' +
-          (s.tasks_updated ? ', updated <strong>' + s.tasks_updated + '</strong>' : '') +
-          ' in <strong>' + (s.projects_created || 0) + '</strong> new project(s)' +
-          (s.projects_matched ? ' (+' + s.projects_matched + ' existing reused)' : '') +
-          '.</span>' +
-          '<a class="btn btn-sm btn-outline-success ms-auto" href="/projects/">View projects</a>' +
-          "</div>";
-        // Keep the text: converting is idempotent, so the dump stays as a
-        // re-convertible source — tweak a date and convert again to update.
-      } catch (err) {
-        result.innerHTML = '<div class="alert alert-danger">' + err.message + "</div>";
-      } finally {
-        btn.disabled = false;
-      }
+  // ---- converting: marked text, or the whole pad when nothing is marked ----
+
+  /** What the buttons act on: the marked range, else everything. */
+  function scope() {
+    const s = ta.selectionStart, e = ta.selectionEnd;
+    if (e > s) return { start: s, end: e, text: ta.value.slice(s, e), marked: true };
+    return { start: 0, end: ta.value.length, text: ta.value, marked: false };
+  }
+
+  function refreshScope() {
+    if (!scopeHint) return;
+    const sc = scope();
+    const lines = sc.text.split("\n").filter((l) => l.trim()).length;
+    scopeHint.textContent = sc.marked
+      ? `${lines} marked line(s) — the buttons act on the selection`
+      : "Nothing marked — the buttons act on the whole braindump";
+    if (tasksBtn) tasksBtn.querySelector(".capture-scope").textContent =
+      sc.marked ? "Selection" : "Everything";
+    if (noteBtn) noteBtn.querySelector(".capture-scope").textContent =
+      sc.marked ? "Selection" : "Everything";
+  }
+
+  /** Converted text leaves the pad. Offsets can be stale (the pad stays
+      editable while the dialog is open), so the removal is verified against
+      the text that was actually converted and skipped if it moved on. */
+  function removeConverted(sc) {
+    let { start, end } = sc;
+    if (ta.value.slice(start, end) !== sc.text) {
+      const at = ta.value.indexOf(sc.text);
+      if (at < 0) { setStatus("Kept the text — it changed while converting"); return; }
+      start = at; end = at + sc.text.length;
+    }
+    ta.value = (ta.value.slice(0, start) + ta.value.slice(end))
+      .replace(/\n{3,}/g, "\n\n").replace(/^\n+/, "");
+    ta.setSelectionRange(start, start);
+    ta.dispatchEvent(new Event("input"));   // triggers the autosave
+    refreshScope();
+  }
+
+  // ``select`` alone misses a click that collapses the selection, so the
+  // pointer/key events are watched too.
+  ["select", "input", "keyup", "mouseup", "blur"].forEach(
+    (ev) => ta.addEventListener(ev, refreshScope));
+  refreshScope();
+
+  if (tasksBtn) {
+    tasksBtn.addEventListener("click", () => {
+      const sc = scope();
+      window.CairnCapture.tasks(sc.text, { onDone: () => removeConverted(sc) });
+    });
+  }
+
+  if (noteBtn) {
+    noteBtn.addEventListener("click", () => {
+      const sc = scope();
+      const first = sc.text.split("\n").find((l) => l.trim()) || "";
+      window.CairnCapture.note(sc.text, {
+        title: first.replace(/^\s*(?:[-*+•]|\d+[.)]|#{1,6}|>)\s+/, "").trim().slice(0, 60),
+        onDone: () => removeConverted(sc),
+      });
     });
   }
 })();

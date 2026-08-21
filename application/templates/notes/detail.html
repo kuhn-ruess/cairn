@@ -17,6 +17,8 @@
      trailing ⁺, this just keeps it visually quieter than a real link. */
   #note-body-view a[href*="/notes/new"] { color: var(--bs-secondary-color); }
   #note-save-status { min-height: 1.2rem; }
+  /* Floating "Create tasks" button, parked above the marked text. */
+  .note-sel-capture { position: absolute; z-index: 1080; white-space: nowrap; }
   /* [[ autocomplete, positioned at the caret. */
   #wiki-complete {
     position: absolute; z-index: 2000; min-width: 14rem; max-height: 14rem;
@@ -282,6 +284,9 @@
 {# ---- Share modal ---- #}
 {% include "notes/_share_modal.html" %}
 
+{# ---- "mark text → tasks" dialog (shared with the braindump pad) ---- #}
+{% include "layout/_capture_modals.html" %}
+
 <script src="{{ asset('js/notes-list.js') }}"></script>
 <script>
 /* Notes detail — autosaving EasyMDE body, [[wiki link]] completion, tag
@@ -454,9 +459,58 @@
   if (view && canEdit) {
     view.addEventListener("click", (e) => {
       if (e.target.closest("a, img, input")) return;
+      // Marking text ends in a click too — opening the editor there would
+      // throw the selection away just as the user reached for it.
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && view.contains(sel.anchorNode)) return;
       showEditor();
     });
   }
+
+  // ---- mark text in the rendered note → tasks ----
+  // The dialog (target project, preview) and the POST live in capture.js —
+  // the braindump pad drives the very same one.
+  (function () {
+    if (!view) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-primary shadow note-sel-capture";
+    btn.innerHTML = '<i class="bi bi-check2-square"></i> Create tasks';
+    btn.hidden = true;
+    document.body.appendChild(btn);
+
+    function marked() {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+      const range = sel.getRangeAt(0);
+      if (!view.contains(range.commonAncestorContainer)) return null;
+      const text = sel.toString().trim();
+      return text ? { text, rect: range.getBoundingClientRect() } : null;
+    }
+
+    function place() {
+      const m = marked();
+      if (!m) { btn.hidden = true; return; }
+      btn.hidden = false;
+      btn.style.top = (window.scrollY + m.rect.top - btn.offsetHeight - 8) + "px";
+      btn.style.left = (window.scrollX + m.rect.left) + "px";
+    }
+
+    // mouseup/keyup fire before the selection settles in some browsers.
+    ["mouseup", "keyup"].forEach((ev) =>
+      view.addEventListener(ev, () => setTimeout(place, 0)));
+    document.addEventListener("selectionchange", () => {
+      if (!marked()) btn.hidden = true;
+    });
+    // Keep the selection alive: mousedown on the button would drop it.
+    btn.addEventListener("mousedown", (e) => e.preventDefault());
+    btn.addEventListener("click", () => {
+      const m = marked();
+      btn.hidden = true;
+      // capture.js loads with the page scripts, i.e. after this block.
+      if (m && window.CairnCapture) window.CairnCapture.tasks(m.text, {});
+    });
+  })();
 
   function scheduleSave() {
     clearTimeout(saveTimer);
