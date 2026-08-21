@@ -37,11 +37,14 @@ class _Links(notes_sync.LinkMap):
         return self._labels.get(block_id, "")
 
 
+# Real-shaped ids: an app link only counts as one with 24 hex characters.
+PK1 = "0123456789abcdef01234567"
+PK2 = "89abcdef0123456789abcdef"
 NOTES = {
-    "t1": ("Cairn Handbuch", "Arbeit/Cairn Handbuch.md"),
-    "t2": ("Wurzelnotiz", "Wurzelnotiz.md"),
+    PK1: ("Cairn Handbuch", "Arbeit/Cairn Handbuch.md"),
+    PK2: ("Wurzelnotiz", "Wurzelnotiz.md"),
 }
-LINKS = _Links(NOTES, blocks={UID: "t1"}, labels={UID: "Der Originalblock"})
+LINKS = _Links(NOTES, blocks={UID: PK1}, labels={UID: "Der Originalblock"})
 
 
 def to_file(body, path="Allgemein.md"):
@@ -88,6 +91,26 @@ class ToFileTest(unittest.TestCase):
                      "plain text", "![img](_assets/x/y.png)"):
             with self.subTest(text):
                 self.assertEqual(to_file(text), text)
+
+
+class AppLinkTest(unittest.TestCase):
+    """"[Label](/notes/<id>)" — this app's own address, written by the "/" menu
+    before it knew better and by anything that pastes a URL. Dead everywhere
+    else, so the mirror points it at the file too."""
+
+    def test_it_points_at_the_file(self):
+        self.assertEqual(to_file(f"see [Cairn Handbuch](/notes/{PK1}) here"),
+                         "see [Cairn Handbuch](Arbeit/Cairn%20Handbuch.md) here")
+
+    def test_an_unknown_id_is_left_alone(self):
+        text = "[gone](/notes/deadbeefdeadbeefdeadbeef)"
+        self.assertEqual(to_file(text), text)
+
+    def test_it_comes_home_as_a_wiki_link(self):
+        """An upgrade, and the only reading available: the file cannot say
+        which of the two shapes it started as."""
+        self.assertEqual(from_file(to_file(f"[Cairn Handbuch](/notes/{PK1})")),
+                         "[[Cairn Handbuch]]")
 
 
 class RoundTripTest(unittest.TestCase):

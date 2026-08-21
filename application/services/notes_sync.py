@@ -214,13 +214,20 @@ def body_to_file(note, body: str, path: str, links=None) -> str:
         # a file that is not there.
         return f"[{label}]({links.rel(hit[1], path)})" if hit else m.group(0)
 
+    def app_link(m):
+        """``](/notes/<id>)`` — an address inside this app, useless anywhere
+        else. Same treatment: point it at the file."""
+        hit = links.by_pk.get(m.group(1))
+        return f"]({links.rel(hit[1], path)})" if hit else m.group(0)
+
     from application.services import block_refs, note_links
     # Embeds first: their text contains a plain reference.
     body = block_refs.EMBED_ANY_RE.sub(
         lambda m: block_link(m.group(1), "embed") or m.group(0), body)
     body = block_refs.BLOCKREF_RE.sub(
         lambda m: block_link(m.group(1), "block") or m.group(0), body)
-    return note_links.WIKILINK_RE.sub(wiki, body)
+    body = note_links.WIKILINK_RE.sub(wiki, body)
+    return note_links.APP_LINK_RE.sub(app_link, body)
 
 
 def body_from_file(note, body: str, path: str = "", links=None) -> str:

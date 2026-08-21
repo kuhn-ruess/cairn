@@ -155,7 +155,21 @@
       const data = await fetch(url).then((r) => r.json()).catch(() => ({ results: [] }));
       return (data.results || []).map((r) => ({
         label: r.title, hint: r.subtitle || r.kind, icon: ICONS[r.kind],
-        apply: () => replace(`[${r.title.replace(/[[\]]/g, "")}](${r.url})`),
+        apply() {
+          // A NOTE gets a real wiki link. It is the only shape that turns up
+          // in the target's linked references and that the mirror can hand to
+          // other apps as a working link; "[x](/notes/<id>)" is an address
+          // inside this app and nothing else can follow it.
+          const title = (r.title || "").trim();
+          const plain = title.replace(/[[\]|]/g, "");
+          // Unless the title carries a character the syntax cannot hold — then
+          // the app link is the one that still works.
+          if (r.kind === "note" && plain && plain === title) {
+            replace(`[[${title}]]`);
+            return;
+          }
+          replace(`[${title.replace(/[[\]]/g, "")}](${r.url})`);
+        },
       }));
     }
 

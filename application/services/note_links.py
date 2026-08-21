@@ -28,6 +28,13 @@ from mongoengine import Q
 # pipes so a stray "[[" in code can't swallow the rest of the note.
 WIKILINK_RE = re.compile(r"\[\[([^\[\]|\n]{1,200}?)(?:\|([^\[\]|\n]{1,200}?))?\]\]")
 
+# ``[Label](/notes/<id>)`` — an address inside this app rather than a wiki
+# link. Written by the "/" menu before it knew better, and by anything that
+# pastes a URL out of the address bar. It still says "this note is about that
+# one", so it counts as a link: the alternative is a backlink panel that
+# quietly disagrees with what the reader can plainly see on the page.
+APP_LINK_RE = re.compile(r"\]\(/notes/([0-9a-fA-F]{24})\)")
+
 
 def pages_q():
     """Everything in the notes tree that HAS a body: a note, or a notes-folder.
@@ -90,13 +97,17 @@ def expand(text: str, index: dict, *, new_note_url=None) -> str:
 def targets(text: str, index: dict) -> list:
     """The pk strings this body links to, de-duplicated, order preserved."""
     out, seen = [], set()
-    if not text or "[[" not in text:
+    if not text:
         return out
     for m in WIKILINK_RE.finditer(text):
         hit = index.get((m.group(1) or "").strip().lower())
         if hit and hit[0] not in seen:
             seen.add(hit[0])
             out.append(hit[0])
+    for m in APP_LINK_RE.finditer(text):
+        if m.group(1) not in seen:
+            seen.add(m.group(1))
+            out.append(m.group(1))
     return out
 
 
@@ -134,11 +145,16 @@ def _crumb(block, limit: int = 40) -> str:
     return _note_preview(block.body, limit) or "…"
 
 
-def _points_at(content: str, title: str, block_ids) -> bool:
-    """Does this block's text name ``item`` — by title, or by one of its blocks?"""
+def _points_at(content: str, title: str, block_ids, pk: str = "") -> bool:
+    """Does this block's text name ``item`` — by title, by one of its blocks,
+    or by its address in this app?"""
     for m in WIKILINK_RE.finditer(content or ""):
         if (m.group(1) or "").strip().lower() == title:
             return True
+    if pk and APP_LINK_RE.search(content or ""):
+        for m in APP_LINK_RE.finditer(content):
+            if m.group(1) == pk:
+                return True
     if block_ids and "((" in (content or ""):
         from application.services.block_refs import BLOCKREF_RE
         for m in BLOCKREF_RE.finditer(content):
@@ -175,7 +191,8 @@ def linked_references(item, user) -> list:
             continue
         hits, claimed = [], set()
         for block, trail in outline.walk_trail(outline.parse(note.note or "")):
-            if id(block) in claimed or not _points_at(block.content, title, own_ids):
+            if id(block) in claimed or not _points_at(
+                    block.content, title, own_ids, str(item.pk)):
                 continue
             # A block renders with its children, so a matching block inside one
             # already shown is part of that answer rather than a second one.

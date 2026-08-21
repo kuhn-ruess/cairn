@@ -625,7 +625,8 @@ def edit(note_id):
         body = item.note or ""
         # The link lookups are queries, so only pay for them when there is
         # something to resolve — autosave posts this route every few seconds.
-        if "[[" in body or "((" in body or item._data.get("note_links"):
+        if ("[[" in body or "((" in body or "](/notes/" in body
+                or item._data.get("note_links")):
             index = note_links.title_index(user)
             note_links.rebuild(item, index,
                                extra=block_refs.referenced_note_ids(item, user))
