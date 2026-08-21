@@ -653,7 +653,7 @@ def _report_context(args=None):
     user = current_user._get_current_object()
     f = _report_filters(args)
     data = _grouped_report(team, f)
-    header, rows = _export_table(data)
+    header, rows, _cols = _export_table(data, _filter_project(f))
     return dict(
         team=team, f=f, can_bill=can_bill(user, team),
         can_unlock=team.is_managed_by(user),
@@ -713,29 +713,129 @@ def _values_by_field(rows) -> dict:
     return out
 
 
-def _export_table(data):
-    """``(header, rows)`` for the report export — one flat table.
+# The export's column vocabulary: every key the customer sheet knows
+# (services.timetracking.SHEET_BASE_COLUMNS) plus the ones only an internal
+# report has — who it is for, and the money. Sharing the keys is what lets a
+# project's sheet configuration drive this table too.
+REPORT_COLUMNS = [
+    {"key": "date",     "label": "Date"},
+    {"key": "start",    "label": "Start"},
+    {"key": "end",      "label": "End"},
+    {"key": "customer", "label": "Customer"},
+    {"key": "project",  "label": "Project"},
+    {"key": "ref",      "label": "Ticket"},
+    {"key": "source",   "label": "Task"},
+    {"key": "service",  "label": "Service"},
+    {"key": "user",     "label": "User"},
+    {"key": "minutes",  "label": "Minutes"},
+    {"key": "hours",    "label": "Hours"},
+    {"key": "billable", "label": "Billable"},
+    {"key": "billed",   "label": "Billed"},
+    {"key": "amount",   "label": "Amount (EUR)"},
+    {"key": "note",     "label": "Description"},
+]
+
+# The report as it has always downloaded, for every filter that isn't a single
+# configured project. Ticket and Task are absent on purpose — they ride inside
+# the description unless a column asks for them, exactly as on the sheet.
+DEFAULT_REPORT_KEYS = ("date", "start", "end", "customer", "project", "service",
+                       "user", "minutes", "hours", "billable", "billed",
+                       "amount", "note")
+
+# Money has no key in the sheet's vocabulary and never will — that link goes to
+# the customer. The gap is a property of THAT vocabulary, though, not a wish to
+# read an internal billing report without its amounts, so these follow a
+# project's column list instead of being dropped by it.
+MONEY_KEYS = ("billable", "billed", "amount")
+
+# Cells Excel only reads as numbers when they carry a decimal comma.
+DECIMAL_KEYS = ("hours", "amount")
+
+
+def _filter_project(f):
+    """The single project the report is filtered to, or None.
+
+    Only the explicit project filter counts. A customer who happens to have one
+    project would otherwise change the shape of the file from month to month,
+    which is the opposite of what a configured column order is for."""
+    pid = f.get("project_id")
+    oid = to_oid(pid) if pid else None
+    return TimeTrackingProject.objects(id=oid).first() if oid else None
+
+
+def _report_columns(data, project=None):
+    """The export's columns, in order.
+
+    A project that has arranged its customer sheet (Time → the project → the
+    share link) has already said how its time should be tabulated. A report
+    narrowed to exactly that project has no reason to disagree — so its column
+    choice and order are followed here, with the money columns appended (see
+    MONEY_KEYS). Any other filter keeps the report's own default order."""
+    fields = data.get("field_columns") or []
+    by_key = {c["key"]: c for c in REPORT_COLUMNS}
+    for fd in fields:
+        by_key[f"cf:{fd['key']}"] = {"key": f"cf:{fd['key']}", "label": fd["label"]}
+
+    wanted = [k for k in (project.share_columns or []) if k in by_key] if project else []
+    if not wanted:
+        wanted = list(DEFAULT_REPORT_KEYS) + [f"cf:{fd['key']}" for fd in fields]
+        return [by_key[k] for k in wanted if k in by_key]
+    return [by_key[k] for k in wanted + [k for k in MONEY_KEYS if k not in wanted]]
+
+
+def _report_cell(row, key, values, shown):
+    """One cell, by column key. ``shown`` is every key this table has, because
+    the description gives the ticket and the task away to a column of their own
+    rather than repeating them — the sheet's ``_NOTE_ABSORBS`` rule."""
+    if key == "date":
+        return row["spent_on"].isoformat()
+    if key == "start":
+        return row.get("start_time", "")
+    if key == "end":
+        return row.get("end_time", "")
+    if key == "customer":
+        return row["customer"]
+    if key == "project":
+        return row["project"]
+    if key == "ref":
+        return ref_label(row.get("external_ref") or "")
+    if key == "source":
+        return row.get("source_label", "")
+    if key == "service":
+        return row.get("service", "")
+    if key == "user":
+        return row["user_name"]
+    if key == "minutes":
+        return row["minutes"]
+    if key == "hours":
+        return f"{row['minutes'] / 60:.2f}"
+    if key == "billable":
+        return "yes" if row["billable"] else "no"
+    if key == "billed":
+        return "yes" if row["locked"] else "no"
+    if key == "amount":
+        return f"{(row['amount_cents'] or 0) / 100:.2f}"
+    if key == "note":
+        note = row["note"] if "source" in shown else row.get("description", row["note"])
+        lead = ref_label(row.get("external_ref") or "") if "ref" not in shown else ""
+        return f"{lead} {note}".strip() if lead else note
+    if key.startswith("cf:"):
+        return values.get(key[3:], "")
+    return ""
+
+
+def _export_table(data, project=None):
+    """``(header, rows, columns)`` for the report export — one flat table.
 
     The CSV, the Excel-flavoured CSV and the on-page preview all render this,
     so what you see before downloading is what the file contains."""
-    from application.services.timetracking import ref_label
-    fields = data.get("field_columns") or []
-    header = ["Date", "Start", "End", "Customer", "Project", "Service", "User",
-              "Minutes", "Hours", "Billable", "Billed", "Amount (EUR)",
-              "Description"] + [f["label"] for f in fields]
+    cols = _report_columns(data, project)
+    shown = {c["key"] for c in cols}
     rows = []
     for r in sorted(data["rows"], key=lambda r: (r["spent_on"], r.get("start_time") or "")):
         values = {c["key"]: c["value"] for c in r.get("custom", [])}
-        rows.append([
-            r["spent_on"].isoformat(), r.get("start_time", ""), r.get("end_time", ""),
-            r["customer"], r["project"], r.get("service", ""), r["user_name"],
-            r["minutes"], f"{r['minutes'] / 60:.2f}",
-            "yes" if r["billable"] else "no", "yes" if r["locked"] else "no",
-            f"{(r['amount_cents'] or 0) / 100:.2f}",
-            (ref_label(r["external_ref"]) + " " if r.get("external_ref") else "")
-            + r.get("description", r["note"]),
-        ] + [values.get(f["key"], "") for f in fields])
-    return header, rows
+        rows.append([_report_cell(r, c["key"], values, shown) for c in cols])
+    return [c["label"] for c in cols], rows, cols
 
 
 def _grouped_report(team, f):
@@ -1274,8 +1374,11 @@ def report_csv():
     team = _team()
     f = _report_filters()
     data = _grouped_report(team, f)
-    header, rows = _export_table(data)
+    header, rows, cols = _export_table(data, _filter_project(f))
     excel = request.args.get("excel") == "1"
+    # Which cells need the decimal comma is read off the columns, never off
+    # fixed positions — a project's own column order moves them.
+    decimal_at = {i for i, c in enumerate(cols) if c["key"] in DECIMAL_KEYS}
 
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";" if excel else ",")
@@ -1283,7 +1386,7 @@ def report_csv():
     for row in rows:
         if excel:
             # Hours and amounts are numbers to Excel only with a decimal comma.
-            row = [str(v).replace(".", ",") if i in (8, 11) else v
+            row = [str(v).replace(".", ",") if i in decimal_at else v
                    for i, v in enumerate(row)]
         w.writerow(row)
 

@@ -783,6 +783,10 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
                 "note": e.note or "",
                 "description": described(e.note, e.source_label,
                                          e.project_id in with_source),
+                # Kept beside the composed description so the export can give
+                # the task a column of its own instead (views._report_cell) —
+                # the same choice the customer's sheet offers.
+                "source_label": e.source_label or "",
                 "service": e.service or "",
                 "start_time": e.start_time or "",
                 "end_time": e.end_time or "",
