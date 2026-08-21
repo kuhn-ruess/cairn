@@ -108,6 +108,34 @@ class KeywordTest(unittest.TestCase):
         self.assertEqual(block.body, "TODOS are not keywords")
 
 
+class CheckboxTest(unittest.TestCase):
+    """"- [ ] x" — the dash became the bullet, so the box has to be read off
+    the block. The FILE stays an ordinary Markdown checklist either way."""
+
+    def test_open_and_done(self):
+        self.assertIs(outline.parse("- [ ] milk\n")[0].checked, False)
+        self.assertIs(outline.parse("- [x] milk\n")[0].checked, True)
+        self.assertIs(outline.parse("- [X] milk\n")[0].checked, True)
+
+    def test_a_plain_block_has_no_box(self):
+        self.assertIsNone(outline.parse("- milk\n")[0].checked)
+        self.assertIsNone(outline.parse("- [later] milk\n")[0].checked)
+
+    def test_the_marker_leaves_the_body(self):
+        self.assertEqual(outline.parse("- [ ] milk\n")[0].body, "milk")
+
+    def test_a_keyword_and_a_box_can_share_a_block(self):
+        [b] = outline.parse("- TODO [ ] milk\n")
+        self.assertEqual(b.keyword, "TODO")
+        self.assertIs(b.checked, False)
+        self.assertEqual(b.body, "milk")
+
+    def test_ticking_is_a_content_edit(self):
+        """What the editor writes back must parse to the same shape."""
+        self.assertEqual(outline.serialize(outline.parse("- [x] milk\n")),
+                         "- [x] milk\n")
+
+
 class DetectionTest(unittest.TestCase):
     """Which parser a body gets. Reading a hand-written list as strict swallows
     its sub-items into the parent block, so this is the load-bearing choice."""

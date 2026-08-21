@@ -490,18 +490,24 @@ def register_filters(app):
         return Markup(cleaned)
 
     @app.template_filter("note_md")
-    def note_md_filter(value, wiki_index=None):
-        """``markdown``, plus ``[[Note title]]`` wiki links resolved against
-        ``wiki_index`` (see services/note_links). Used wherever a NOTE body is
-        rendered; comments and task notes keep the plain ``markdown`` filter so
-        a stray "[[" there stays literal."""
+    def note_md_filter(value, wiki_index=None, block_index=None):
+        """``markdown``, plus the two link syntaxes a NOTE body may use:
+        ``[[Note title]]`` against ``wiki_index`` (services/note_links) and
+        ``((block-id))`` against ``block_index`` (services/block_refs).
+
+        Both are rewritten into ordinary Markdown links BEFORE rendering, so
+        the sanitiser below never has to learn a custom syntax. Comments and
+        task notes keep the plain ``markdown`` filter, so a stray "[[" or "((
+        " there stays literal."""
         from flask import url_for
-        from application.services import note_links
+        from application.services import block_refs, note_links
         if value and wiki_index is not None:
             value = note_links.expand(
                 value, wiki_index,
                 new_note_url=lambda t: url_for("notes.new", kind="note", title=t),
             )
+        if value and block_index:
+            value = block_refs.expand(value, block_index)
         return markdown_filter(value, interactive_tasks=True)
 
     @app.template_filter("timeago")

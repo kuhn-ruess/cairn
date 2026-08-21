@@ -334,7 +334,18 @@ def detail(note_id):
     related = item.related_items()
     linked_tasks = [r for r in related if r.kind == "task"]
     linked_projects = [r for r in related if r.kind == "project"]
-    from application.services import note_links
+    from application.services import block_refs, note_links, outline
+
+    blocks = outline.parse(item.note or "")
+    # Zoom: the page becomes one block and everything under it, with the way
+    # back spelled out above it. An id that no longer resolves falls back to
+    # the whole note rather than to an empty page.
+    zoom = (request.args.get("zoom") or "").strip()
+    trail = outline.path_to(blocks, zoom) if zoom else []
+    shown = [trail[-1]] if trail else blocks
+    # Every ((reference)) and {{embed}} on this page in ONE query, resolved
+    # before rendering so no block resolves its own.
+    block_index = block_refs.resolve(user, block_refs.refs(item.note or ""))
     from application.services.containers import container_choices
     # Reuse the task tag picker's tree builder (imported lazily — tasks.py
     # pulls in a lot and importing it at module load would risk a cycle).
@@ -347,7 +358,16 @@ def detail(note_id):
         linked_projects=linked_projects,
         backlinks=note_links.backlinks(item, user),
         wiki_index=_wiki_index(tree),
-        word_count=len(re.findall(r"[\w'-]+", item.note or "")),
+        blocks=shown,
+        # The client's model comes from the SERVER's parser, as JSON — it only
+        # has to serialize back. Two parsers that could disagree about where a
+        # block starts is the one thing this feature cannot afford.
+        blocks_json=_blocks_json(blocks),
+        block_index=block_index,
+        embed_of=block_refs.embed_target,
+        zoom=zoom if trail else "",
+        zoom_trail=trail[:-1],
+        word_count=_word_count(item.note),
         base_stamp=_stamp(item.updated_at),
         tag_choices=_tag_choices_tree(user.tags or []),
         # Targets for "mark text in the note → tasks" (layout/_capture_modals).
@@ -380,10 +400,35 @@ def _team_choices(user):
     return [(str(t.pk), t.name) for t in teams_of(user)]
 
 
+def _blocks_json(blocks) -> str:
+    """The block tree as JSON for the editor (see static/js/outliner.js)."""
+    import json
+
+    def node(b):
+        return {"idx": b.idx, "content": b.content, "props": b.props,
+                "children": [node(c) for c in b.children]}
+    blob = json.dumps([node(b) for b in blocks], ensure_ascii=False)
+    # This goes inside a <script type="application/json"> block, where the
+    # parser looks for "</script>" and nothing else — a note containing that
+    # text would otherwise end the tag and spill its body into the page as
+    # markup. "<\/" is the same string to a JSON reader.
+    return blob.replace("</", "<\\/")
+
+
+def _word_count(text) -> int:
+    """Words in a note — its prose, not its bullets and ``id::`` lines."""
+    from application.services import outline
+    return len(re.findall(r"[\w'-]+", outline.plain(text or "")))
+
+
 def _plain(text) -> str:
-    """A note's markdown body as flat prose: images dropped, links unwrapped to
-    their text, markdown punctuation stripped, whitespace collapsed."""
-    s = text or ""
+    """A note's markdown body as flat prose: outline syntax gone, images
+    dropped, links unwrapped to their text, markdown punctuation stripped,
+    whitespace collapsed."""
+    from application.services import outline
+    # Bullets and block properties first — a preview must never read back an
+    # "id:: 0193f2a1…" line to someone scanning a list of notes.
+    s = outline.plain(text or "")
     s = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", s)        # images out
     s = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", s)     # links → their text
     s = re.sub(r"\[\[([^\[\]|]*)(?:\|([^\[\]]*))?\]\]", r"\2\1", s)  # wiki links
@@ -501,23 +546,50 @@ def edit(note_id):
         title = (request.form.get("title") or "").strip()
         item.title = title or "Untitled note"
     if "note" in request.form:
-        item.note = request.form.get("note", "") or ""
-    from application.services import note_links
-    # Only pay for the title lookup when wiki links are actually in play —
-    # autosave posts this route every few seconds.
+        # multipart/form-data normalises every newline in a field value to
+        # CRLF. That was invisible while a note was one long string; an outline
+        # is read line by line, so a stray "\r" would ride along inside every
+        # block's text and come back out in the mirrored file.
+        item.note = (request.form.get("note", "") or "").replace("\r\n", "\n").replace("\r", "\n")
+    from application.services import block_refs, note_links
     index = {}
-    if "note" in request.form and ("[[" in (item.note or "")
-                                   or item._data.get("note_links")):
-        index = note_links.title_index(user)
-        note_links.rebuild(item, index)
+    if "note" in request.form:
+        # The id:: inventory is a parse of this one body, no query — it has to
+        # be current or a block someone just referenced can't be found.
+        block_refs.rebuild(item)
+        body = item.note or ""
+        # The link lookups are queries, so only pay for them when there is
+        # something to resolve — autosave posts this route every few seconds.
+        if "[[" in body or "((" in body or item._data.get("note_links"):
+            index = note_links.title_index(user)
+            note_links.rebuild(item, index,
+                               extra=block_refs.referenced_note_ids(item, user))
     item.save()
     if request.headers.get("X-Partial") == "1":
-        html = current_app.jinja_env.filters["note_md"](item.note, index)
         return jsonify({"ok": True, "title": item.title, "note": item.note,
-                        "html": html, "stamp": _stamp(item.updated_at),
-                        "words": len(re.findall(r"[\w'-]+", item.note or "")),
+                        "rendered": _render_blocks(
+                            item, request.form.get("render"), user, index),
+                        "stamp": _stamp(item.updated_at),
+                        "words": _word_count(item.note),
                         "updated": item.updated_at.isoformat() if item.updated_at else ""})
     return redirect(url_for("notes.detail", note_id=str(item.pk)))
+
+
+def _render_blocks(item, spec, user, wiki_index) -> dict:
+    """``{idx: html}`` for the blocks the editor asked to have re-rendered.
+
+    The editor sends the whole body but only names the block it just finished
+    writing, and only that one comes back rendered. Swapping the entire outline
+    on every keystroke-pause would take the caret with it."""
+    want = {int(p) for p in (spec or "").split(",") if p.strip().isdigit()}
+    if not want:
+        return {}
+    from application.services import block_refs, outline
+    blocks = outline.parse(item.note or "")
+    index = block_refs.resolve(user, block_refs.refs(item.note or ""))
+    render = current_app.jinja_env.filters["note_md"]
+    return {str(b.idx): str(render(b.body, wiki_index, index))
+            for b in outline.walk(blocks) if b.idx in want}
 
 
 @notes_bp.route("/titles")
@@ -536,24 +608,12 @@ def titles():
     return jsonify({"results": out[:12]})
 
 
-@notes_bp.route("/<note_id>/toggle-task", methods=["POST"])
-@login_required
-def toggle_task(note_id):
-    """Tick/untick a checklist line straight from the rendered note, without
-    dropping into the editor."""
-    from application.services import md_tasks
-    item = _editable_note_or_404(note_id, kinds=("note",))
-    try:
-        idx = int(request.form.get("index", ""))
-    except ValueError:
-        return jsonify({"error": "bad index"}), 400
-    result = md_tasks.toggle(item.note or "", idx)
-    if result is None:
-        return jsonify({"error": "no such checkbox"}), 404
-    item.note, checked = result
-    item.save()
-    return jsonify({"ok": True, "checked": checked,
-                    "stamp": _stamp(item.updated_at)})
+# NOTE: there is no /toggle-task here any more. services/md_tasks numbers the
+# checkboxes it flips by their order within one rendered body, and an outline
+# renders block by block — every block would start counting at zero again. The
+# outliner flips the box in its own model and saves the body like any other
+# edit. md_tasks still serves the note field on tasks and projects, which are
+# single rendered bodies and where that numbering holds.
 
 
 @notes_bp.route("/<note_id>/move", methods=["POST"])

@@ -187,6 +187,7 @@ class Item(Document):
             "trashed_at",
             "depends_on",
             "note_links",
+            "block_ids",
             ("owner", "kind"),
             ("owner", "status"),
             # Template library items are hidden from every normal list by the
@@ -400,6 +401,13 @@ class Item(Document):
     # ("linked mentions") are the reverse query ``Item.objects(note_links=x)``,
     # which is why this is stored instead of scanning bodies with a regex.
     note_links = ListField(ReferenceField("Item"))
+
+    # Every ``id::`` in this note's outline. Derived, like ``note_links``:
+    # rebuilt from the body on save (services/block_refs.py), never edited by
+    # hand. It exists so that resolving the ``((uuid))`` references on a page
+    # is ONE indexed query over the notes that hold them, instead of parsing
+    # every body in the collection to find out who owns a block.
+    block_ids = ListField(StringField())
 
     # ----- project-flavoured fields -----
     project_type = StringField(choices=PROJECT_TYPES, default="parallel")

@@ -59,6 +59,13 @@ SPACED_ITEM_RE = re.compile(r"^ +(?:[-*+]|\d+[.)])[ \t]", re.M)
 KEYWORDS = ("TODO", "DOING", "DONE")
 KEYWORD_RE = re.compile(r"^(TODO|DOING|DONE|LATER|NOW|WAITING|CANCELED)\b ?")
 
+# A Markdown checkbox at the head of a block. This app's notes are full of
+# "- [ ] …" lists, and in an outline that line's dash IS the bullet — leaving
+# "[ ] …" as the block's text, which Markdown renders as three literal
+# characters. So the box is read off the block instead, which keeps the FILE a
+# perfectly ordinary Markdown checklist while the app still renders a checkbox.
+CHECKBOX_RE = re.compile(r"^\[([ xX])\] ?")
+
 
 @dataclass
 class Block:
@@ -85,9 +92,17 @@ class Block:
         return m.group(1) if m else ""
 
     @property
+    def checked(self):
+        """``True``/``False`` for a checklist block, ``None`` when it isn't one."""
+        m = CHECKBOX_RE.match(KEYWORD_RE.sub("", self.content or "", count=1))
+        return m.group(1).lower() == "x" if m else None
+
+    @property
     def body(self) -> str:
-        """The content without its task keyword — what actually gets rendered."""
-        return KEYWORD_RE.sub("", self.content or "", count=1)
+        """The content without the two things drawn beside it rather than in
+        it — the task keyword and the checkbox. What actually gets rendered."""
+        text = KEYWORD_RE.sub("", self.content or "", count=1)
+        return CHECKBOX_RE.sub("", text, count=1)
 
 
 # ---------------------------------------------------------------------------

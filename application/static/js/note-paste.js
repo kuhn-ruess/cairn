@@ -116,7 +116,17 @@
     const resp = await fetch(uploadUrl, { method: "POST", body: fd });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data.error || ("upload failed: " + resp.status));
+    announce(data);
     return data; // { markdown, warning? }
+  }
+
+  // An upload SAVES the item it attaches to, which moves the version stamp an
+  // open editor is holding. Say so, or that editor's next autosave arrives
+  // with a stale stamp and is refused as a conflict it did not cause.
+  function announce(data) {
+    if (!data || !data.stamp) return;
+    document.dispatchEvent(new CustomEvent("cairn:item-saved",
+      { detail: { stamp: data.stamp } }));
   }
 
   function toast(msg, kind) {
@@ -197,6 +207,7 @@
     const resp = await fetch(uploadUrl, { method: "POST", body: fd });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data.error || ("upload failed: " + resp.status));
+    announce(data);
     return data; // { markdown, storage, warning? }
   }
 
@@ -346,9 +357,8 @@
   document.addEventListener("dragover", onNoteDragOver, true);
   document.addEventListener("drop", onNoteDrop, true);
 
-  // Expose the compression + Mail-link helpers. The EasyMDE note editor swaps
-  // the raw textarea for CodeMirror, so the paste/drop listeners above never
-  // fire there — its own hooks call into these to get the identical pipeline.
+  // Expose the compression + Mail-link helpers for anything that wants the
+  // identical pipeline without going through the listeners above.
   window.CairnNoteImage = {
     async compress(blob) {
       const img = await loadImage(blob);

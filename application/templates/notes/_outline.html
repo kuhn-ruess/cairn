@@ -1,0 +1,69 @@
+{#- The outline: one bullet per block, children nested underneath.
+
+    Every block's body goes through the SAME ``note_md`` filter — and therefore
+    the same sanitiser — that the whole note body used to go through, so
+    headings, tables, code, images and [[wiki links]] read inside a block
+    exactly as they read before.
+
+    ``data-idx`` is a block's position in document order. That is how the editor
+    addresses a block that has not been given an ``id::`` yet, and ids are only
+    minted when something actually points at a block (services/outline).
+-#}
+
+{% macro outline(nodes, wiki_index, block_index, embed_of, depth=0) %}
+<div class="ol-list">
+  {%- for b in nodes %}
+    {%- set embedded = embed_of(b.content) %}
+    {%- set target = block_index.get(embedded) if embedded else None %}
+    <div class="ol-block{{ ' ol-folded' if b.collapsed else '' }}"
+         data-idx="{{ b.idx }}"{% if b.uuid %} data-uuid="{{ b.uuid }}"{% endif %}>
+      <div class="ol-row">
+        {#- The fold arrow only appears on a block that has something to fold;
+            it keeps its space either way so the bullets stay in one column. -#}
+        <span class="ol-fold" role="button" tabindex="-1" aria-hidden="true"
+              title="{{ 'Unfold' if b.collapsed else 'Fold' }}"></span>
+        <span class="ol-bullet{{ ' ol-parent' if b.children else '' }}"
+              role="button" tabindex="-1" title="Zoom in"></span>
+        <div class="ol-content md-body" data-idx="{{ b.idx }}">
+          {%- if b.keyword %}
+            <button type="button" class="ol-kw ol-kw-{{ b.keyword|lower }}"
+                    title="Change state">{{ b.keyword }}</button>
+          {%- endif %}
+          {#- "- [ ] …": the dash is the bullet, so the box is drawn from the
+              block rather than left as three characters of text. The file on
+              disk stays an ordinary Markdown checklist. -#}
+          {%- if b.checked is not none %}
+            <input type="checkbox" class="ol-box form-check-input me-1"
+                   {{ "checked" if b.checked }}>
+          {%- endif %}
+          {%- if embedded %}
+            {#- {{ embed ((id)) }} — the target and its children rendered right
+                here. Marked so the editor knows none of it is ITS note to
+                write to, and depth-capped so two notes embedding each other
+                can't spiral. -#}
+            {%- if target and depth < 3 %}
+              <div class="ol-embed" data-embed="1">
+                {{ outline([target.block], wiki_index, block_index, embed_of, depth + 1) }}
+                <a class="ol-embed-src"
+                   href="{{ url_for('notes.detail', note_id=target.note.pk, zoom=embedded) }}"
+                   >{{ target.note.title or "Untitled note" }}</a>
+              </div>
+            {%- elif target %}
+              <span class="ol-missing">Embedded too deeply to show.</span>
+            {%- else %}
+              <span class="ol-missing">Embedded block not found.</span>
+            {%- endif %}
+          {%- else %}
+            {{ b.body|note_md(wiki_index, block_index) }}
+          {%- endif %}
+        </div>
+      </div>
+      {%- if b.children %}
+        <div class="ol-children">
+          {{- outline(b.children, wiki_index, block_index, embed_of, depth) -}}
+        </div>
+      {%- endif %}
+    </div>
+  {%- endfor %}
+</div>
+{% endmacro %}

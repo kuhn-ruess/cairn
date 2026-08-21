@@ -5,13 +5,17 @@
    all a **link with a target picker**: "/link " then a few letters searches
    your notes, tasks and projects and drops the Markdown link in.
 
-   Attach it to a CodeMirror instance (EasyMDE's) and drive it from the same
+   Attach it to anything with CodeMirror's shape and drive it from the same
    two hooks the [[wiki]] completion uses:
 
      const slash = CairnSlashMenu.attach(cm);
-     cm.on("change", () => slash.check());        // re-read the token
-     cm.on("cursorActivity", () => slash.check());
+     // whenever the text or the caret moved:
+     slash.check();
      wrapper.addEventListener("keydown", (e) => { if (slash.handleKey(e)) return; }, true);
+
+   The notes outline passes a handle over the open block's <textarea> rather
+   than a real CodeMirror (see static/js/outliner.js) — only getCursor,
+   setCursor, getRange, replaceRange, cursorCoords and focus are used.
 
    ``handleKey`` returns true when the menu consumed the key, so the caller
    stops there. */

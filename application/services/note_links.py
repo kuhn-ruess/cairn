@@ -89,15 +89,22 @@ def targets(text: str, index: dict) -> list:
     return out
 
 
-def rebuild(item, index: dict) -> bool:
+def rebuild(item, index: dict, extra=()) -> bool:
     """Refresh ``item.note_links`` from its body. Does NOT save — the caller
     is already saving. Returns True if the edge set actually changed.
+
+    ``extra`` are pk strings the body links to by some other route — currently
+    ``((block refs))`` (services/block_refs). They join the same edge set on
+    purpose: pointing at a block IS pointing at the note holding it, and a
+    second backlinks panel saying so separately would only split the reader's
+    attention.
 
     Self-links are dropped (a note linking itself would show up in its own
     backlinks panel).
     """
     from application.models.item import Item
-    pks = [pk for pk in targets(item.note, index) if pk != str(item.pk)]
+    found = list(targets(item.note, index)) + list(extra)
+    pks = list(dict.fromkeys(pk for pk in found if pk != str(item.pk)))
     before = {str(r.pk if hasattr(r, "pk") else r.id)
               for r in (item._data.get("note_links") or [])}
     if before == set(pks):

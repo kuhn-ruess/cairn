@@ -1,59 +1,82 @@
 {% extends "layout/base.html" %}
 {% import "favorites_macros.html" as fav with context %}
 {% block title %}{{ note.title }} · Notes · Cairn{% endblock %}
+{% import "notes/_outline.html" as ol with context %}
 {% block content %}
-{# EasyMDE — rich Markdown editor (live syntax highlight + toolbar). Loaded
-   only on this page; base.html has no scripts block. CDN matches the existing
-   jsdelivr pattern used for Bootstrap/SortableJS. #}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.css">
-<script src="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.js"></script>
 <style>
-  /* The rendered body doubles as the click target that opens the editor, so
-     it needs to look inviting but never like a text field. On paper that means
-     the faintest possible warming of the sheet — anything stronger reads as a
-     control. */
-  #note-body-view { min-height: 12rem; cursor: text; border-radius: .4rem;
-                    padding: .25rem .5rem; margin-left: -.5rem; }
-  #note-body-view:hover { background: rgba(235, 219, 178, .04); }
+  /* ---- The outline ---------------------------------------------------
+     One bullet per block, children indented under a guide line. The type is
+     the sheet's, not a control's: editing a block swaps in a textarea that
+     inherits the very same face, size and measure, so the page never jumps
+     between "reading" and "writing". */
+  #note-outline { font-family: var(--doc-face); font-size: 1.05rem; line-height: 1.7; }
+  .ol-block { position: relative; }
+  .ol-row { display: flex; align-items: flex-start; }
 
-  /* Editing keeps the page exactly as it reads: same face, same size, same
-     measure, no box. Only code stays monospace. */
-  #note-body-edit .EasyMDEContainer .CodeMirror {
-    background: transparent; border: 0; padding: .25rem .5rem;
-    color: var(--paper-ink); font-family: var(--doc-face);
-    font-size: 1.05rem; line-height: 1.75;
-  }
-  #note-body-edit .CodeMirror .cm-comment,
-  #note-body-edit .CodeMirror .cm-formatting-code-block,
-  #note-body-edit .CodeMirror pre.cm-s-easymde .cm-comment {
-    font-family: var(--bs-font-monospace); font-size: .85em;
-  }
-  #note-body-edit .CodeMirror-cursor { border-left-color: var(--paper-ink); }
-  #note-body-edit .CodeMirror-selected { background: rgba(235, 219, 178, .12); }
-  /* The toolbar is a tool, not part of the page — quiet it down and let the
-     sheet stay the loudest thing. */
-  #note-body-edit .editor-toolbar {
-    background: transparent; border: 0; border-bottom: 1px solid var(--paper-edge);
-    border-radius: 0; padding: 0 0 .35rem; opacity: .75;
-  }
-  #note-body-edit .editor-toolbar:hover { opacity: 1; }
-  #note-body-edit .editor-toolbar button { color: var(--paper-ink-quiet); }
-  #note-body-edit .editor-toolbar button:hover,
-  #note-body-edit .editor-toolbar button.active {
-    background: transparent; border-color: transparent; color: var(--paper-ink-strong);
-  }
-  #note-body-edit .editor-statusbar { display: none; }
-  #note-body-edit .editor-preview-side, #note-body-edit .editor-preview {
-    background: var(--paper); font-family: var(--doc-face);
-  }
+  /* The fold arrow is only there when there is something to fold, but it keeps
+     its space either way so the bullets stay in one straight column. */
+  .ol-fold { flex: 0 0 .85rem; width: .85rem; line-height: 1.7; font-size: .62rem;
+             text-align: center; cursor: pointer; opacity: 0; user-select: none;
+             transition: opacity .12s; color: var(--paper-ink-quiet); }
+  .ol-block:hover > .ol-row > .ol-fold { opacity: .5; }
+  .ol-block > .ol-row > .ol-fold:hover { opacity: 1; }
+  .ol-fold::before { content: "▾"; }
+  .ol-block.ol-folded > .ol-row > .ol-fold::before { content: "▸"; }
+  .ol-block:not(:has(> .ol-children)) > .ol-row > .ol-fold { visibility: hidden; }
+
+  .ol-bullet { flex: 0 0 1rem; width: 1rem; height: 1.7rem; cursor: pointer;
+               display: flex; align-items: center; justify-content: center; }
+  .ol-bullet::before { content: ""; width: .38rem; height: .38rem; border-radius: 50%;
+                       background: var(--paper-ink-quiet); }
+  /* A ring means "there is more underneath" — so the shape of the note is
+     readable before anything is folded, and a folded block says so louder. */
+  .ol-bullet.ol-parent::before { box-shadow: 0 0 0 .2rem rgba(128, 128, 128, .2); }
+  .ol-folded > .ol-row > .ol-bullet.ol-parent::before {
+    box-shadow: 0 0 0 .26rem rgba(128, 128, 128, .38); }
+
+  .ol-content { flex: 1 1 auto; min-width: 0; padding: .08rem 0 .08rem .15rem;
+                cursor: text; }
+  .ol-content > :last-child { margin-bottom: 0; }
+  .ol-content p { margin-bottom: .2rem; }
+  .ol-content h1, .ol-content h2, .ol-content h3,
+  .ol-content h4, .ol-content h5, .ol-content h6 { margin: .1rem 0 .2rem; }
+
+  .ol-children { margin-left: .92rem; padding-left: .62rem;
+                 border-left: 1px solid var(--paper-edge); }
+
+  .ol-edit { width: 100%; border: 0; padding: 0; margin: 0; resize: none;
+             overflow: hidden; background: transparent; color: var(--paper-ink);
+             font: inherit; line-height: inherit; }
+  .ol-edit:focus { outline: none; }
+
+  /* TODO / DOING / DONE. DONE strikes through everything after the chip —
+     which is the whole block, since the chip is always its first child. */
+  .ol-kw { border: 0; border-radius: .25rem; padding: 0 .3rem; margin-right: .3rem;
+           font-family: var(--bs-font-monospace); font-size: .68em; font-weight: 700;
+           letter-spacing: .03em; vertical-align: .1em; }
+  .ol-kw-todo { background: rgba(220, 53, 69, .13); color: #b02a37; }
+  .ol-kw-doing { background: rgba(255, 193, 7, .2); color: #8a6d00; }
+  .ol-kw-done { background: rgba(25, 135, 84, .13); color: #146c43; }
+  .ol-kw-done ~ * { text-decoration: line-through; opacity: .55; }
+
+  /* A ((block reference)) is a link, but a quieter one than a note link —
+     it points inside a document rather than at one. */
+  #note-outline a[href*="zoom="] { text-decoration: none;
+    border-bottom: 1px dashed currentColor; }
+  .ol-embed { border-left: 2px solid var(--paper-edge); border-radius: .25rem;
+              padding: .1rem .5rem; margin: .1rem 0;
+              background: rgba(128, 128, 128, .045); }
+  .ol-embed-src { font-size: .7em; opacity: .55; text-decoration: none; }
+  .ol-missing { color: var(--bs-secondary-color); font-style: italic; }
+
+  .ol-crumbs { color: var(--paper-ink-quiet); }
+  .ol-crumbs a { color: inherit; text-decoration: none; }
+  .ol-crumbs a:hover { text-decoration: underline; }
+
   /* [[wiki link]] to a note that doesn't exist yet — expand() marks it with a
      trailing ⁺, this just keeps it visually quieter than a real link. */
-  #note-body-view a[href*="/notes/new"] { color: var(--bs-secondary-color); }
+  #note-outline a[href*="/notes/new"] { color: var(--bs-secondary-color); }
   #note-save-status { min-height: 1.2rem; }
-  /* EasyMDE names its table button class="table" — which is also a Bootstrap
-     component, so the button inherited width:100% and sat alone on its own
-     toolbar row. */
-  .editor-toolbar button.table { width: auto; margin-bottom: 0; }
   /* Floating "Create tasks" button, parked above the marked text. */
   .note-sel-capture { position: absolute; z-index: 1080; white-space: nowrap; }
   /* [[ autocomplete, positioned at the caret. */
@@ -145,24 +168,38 @@
       <button type="button" class="btn btn-sm btn-warning ms-1" id="note-conflict-reload">reload the note</button>.
     </div>
 
-    {# ---- Markdown body: rendered view (click to edit) + editor ---- #}
-    <div id="note-body-view" class="note-body markdown-body md-body mb-2"
-         {% if can_edit %}title="Click to edit"{% endif %}>
-      {% if note.note %}{{ note.note|note_md(wiki_index) }}
-      {% else %}<p class="text-muted fst-italic" id="note-empty-hint">Empty note — click here to start writing. Use <code>[[Title]]</code> to link another note.</p>{% endif %}
+    {# ---- The outline. services/outline.py parses the body into blocks,
+           static/js/outliner.js edits them and writes the body back. ---- #}
+    {% if zoom %}
+      <nav class="ol-crumbs small mb-2">
+        <a href="{{ url_for('notes.detail', note_id=note.pk) }}">{{ note.title }}</a>
+        {% for b in zoom_trail %}
+          <span class="mx-1">›</span>
+          {% if b.uuid %}
+            <a href="{{ url_for('notes.detail', note_id=note.pk, zoom=b.uuid) }}"
+               >{{ b.body.split("\n")[0]|truncate(48) }}</a>
+          {% else %}<span>{{ b.body.split("\n")[0]|truncate(48) }}</span>{% endif %}
+        {% endfor %}
+      </nav>
+    {% endif %}
+    <div id="note-outline" class="note-body mb-2"
+         data-note-id="{{ note.pk }}" data-stamp="{{ base_stamp }}"
+         data-zoom="{{ zoom }}"
+         data-can-edit="{{ '1' if can_edit else '0' }}">
+      {{ ol.outline(blocks, wiki_index, block_index, embed_of) }}
     </div>
-    <div id="note-body-edit" class="d-none mb-2">
-      <textarea name="note" id="note-editor" class="form-control"
-                rows="18" style="font-family: var(--doc-face); font-size: 1.05rem; line-height: 1.75;"
-                placeholder="Write in Markdown… paste images, drag a link or email in, [[link]] another note.">{{ note.note }}</textarea>
-    </div>
+    {# The editor's model, straight from the server's parser — it only has to
+       serialize back. See static/js/outliner.js. #}
+    <script type="application/json" id="note-blocks">{{ blocks_json|safe }}</script>
     <ul class="list-group shadow-sm" id="wiki-complete"></ul>
     {% if can_edit %}
       <p class="small text-muted mb-4 note-doc-hint">
-        Changes save themselves. <kbd>Esc</kbd> closes the editor,
-        <kbd>{{ '⌘' }}/Ctrl+S</kbd> saves right away. Type <code>/</code> for
-        commands — <code>/link</code> searches your notes, tasks and projects
-        and writes the Markdown link.
+        Changes save themselves. <kbd>Enter</kbd> starts a block,
+        <kbd>Tab</kbd> / <kbd>⇧Tab</kbd> move it in and out,
+        <kbd>⌥⇧↑</kbd>/<kbd>↓</kbd> move it up and down. Click a bullet to zoom
+        in, right-click it to copy a <code>((block reference))</code>.
+        <kbd>{{ '⌘' }}/Ctrl+↩</kbd> cycles TODO. Type <code>/</code> for
+        commands and <code>[[</code> to link another note.
       </p>
     {% endif %}
     {% with item=note %}{% include "layout/_storage_meter.html" %}{% endwith %}
@@ -349,16 +386,18 @@
 
 <script src="{{ asset('js/notes-list.js') }}"></script>
 <script src="{{ asset('js/slash-menu.js') }}"></script>
+{# The outliner boots last: the bridge it calls into is defined below. #}
 <script>
-/* Notes detail — autosaving EasyMDE body, [[wiki link]] completion, tag
-   editing, task/project linking, event linking. Notes pages are full reloads
-   (no <main> swap), so inline page scripts are safe here. */
+/* Notes detail — everything AROUND the body: [[wiki link]] completion, the "/"
+   command menu, tag editing, task/project linking, event linking. The body
+   itself is an outline, edited block by block in static/js/outliner.js (loaded
+   after this one, so the popup bridge below already exists when it boots).
+   Notes pages are full reloads (no <main> swap), so inline page scripts are
+   safe here. */
 (function () {
   const root = document.getElementById("note-detail");
   if (!root) return;
   const noteId = root.dataset.noteId;
-  const canEdit = !!root.dataset.canEdit;
-  let stamp = root.dataset.stamp;   // note version the editor started from
   const csrf = () => (document.querySelector('input[name="csrf_token"]') || {}).value || "";
 
   function post(url, body, extraHeaders) {
@@ -374,194 +413,57 @@
   }
   function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
 
-  // ---- Markdown body ----------------------------------------------------
-  const view = document.getElementById("note-body-view");
-  const editWrap = document.getElementById("note-body-edit");
-  const editor = document.getElementById("note-editor");
-  const titleInput = document.getElementById("note-title");
-  const status = document.getElementById("note-save-status");
-  const conflictBox = document.getElementById("note-conflict");
-  let savedTitle = titleInput ? titleInput.value : "";
-  let savedNote = editor ? editor.value : "";
-  let easymde = null;
-  let slash = null;             // the "/" command menu, once the editor exists
-  let saveTimer = null;
-  let inflight = null;
-  let conflicted = false;
+  // ---- the popups a block editor opens ---------------------------------
+  // The body is edited by static/js/outliner.js, one block at a time. Both
+  // popups below were written against CodeMirror, so ``ed`` is one handle that
+  // always points at whichever block's textarea is open — attached ONCE,
+  // rather than per block, or the slash menu would leave a popup element
+  // behind for every block the writer touches.
+  const ed = {
+    get cm() { return window.CairnOutliner ? window.CairnOutliner.active() : null; },
+    getValue() { const c = this.cm; return c ? c.getValue() : ""; },
+    getCursor() { const c = this.cm; return c ? c.getCursor() : { line: 0, ch: 0 }; },
+    setCursor(pos) { const c = this.cm; if (c) c.setCursor(pos); },
+    getLine(n) { const c = this.cm; return c ? c.getLine(n) : ""; },
+    getRange(a, b) { const c = this.cm; return c ? c.getRange(a, b) : ""; },
+    replaceRange(t, a, b) { const c = this.cm; if (c) c.replaceRange(t, a, b); },
+    replaceSelection(t) { const c = this.cm; if (c) c.replaceSelection(t); },
+    focus() { const c = this.cm; if (c) c.focus(); },
+    cursorCoords() {
+      const c = this.cm;
+      return c ? c.cursorCoords() : { left: 0, top: 0, bottom: 0 };
+    },
+    on() {},
+  };
+  const slash = window.CairnSlashMenu ? window.CairnSlashMenu.attach(ed) : null;
 
-  function bodyValue() { return easymde ? easymde.value() : (editor ? editor.value : ""); }
-  function setBodyValue(v) { if (easymde) easymde.value(v || ""); else if (editor) editor.value = v || ""; }
-  function dirty() {
-    return bodyValue() !== savedNote || (titleInput && titleInput.value !== savedTitle);
-  }
-  function setStatus(text, cls) {
-    status.className = "ms-auto " + (cls || "text-muted");
-    status.textContent = text;
-  }
-
-  // Compress (reusing note-paste.js' pipeline) + upload an image, handing
-  // EasyMDE back the stored URL so it inserts the Markdown itself.
-  function uploadNoteImage(file, onSuccess, onError) {
-    (async () => {
-      try {
-        const helper = window.CairnNoteImage;
-        const blob = helper ? await helper.compress(file) : file;
-        const fd = new FormData();
-        fd.append("file", blob, "pasted.webp");
-        fd.append("csrf_token", csrf());
-        const resp = await fetch(`/notes/${noteId}/note-image`, { method: "POST", body: fd });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(data.error || ("upload failed: " + resp.status));
-        if (data.stamp) stamp = data.stamp;   // the upload saved the note
-        const m = (data.markdown || "").match(/\(([^)]*)\)/);  // extract URL from "![..](url)"
-        onSuccess(m ? m[1] : data.markdown);
-        if (window.CairnNoteImage) window.CairnNoteImage.updateStorageMeters(data.storage);
-        if (data.warning) alert(data.warning);
-      } catch (err) { onError(err.message || "image upload failed"); }
-    })();
-  }
-
-  // Upload an arbitrary file dropped onto the editor → insert a Markdown
-  // download link "[name](url)". Mirrors the textarea path in note-paste.js.
-  function uploadNoteFile(file) {
-    (async () => {
-      const safe = (file.name || "file").replace(/[\[\]]/g, "");
-      const marker = `[uploading ${safe}…](uploading-${file.size})`;
-      easymde.codemirror.replaceSelection(marker);
-      try {
-        const fd = new FormData();
-        fd.append("file", file, file.name || "attachment");
-        fd.append("csrf_token", csrf());
-        const resp = await fetch(`/notes/${noteId}/note-file`, { method: "POST", body: fd });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(data.error || ("upload failed: " + resp.status));
-        if (data.stamp) stamp = data.stamp;   // the upload saved the note
-        setBodyValue(bodyValue().replace(marker, data.markdown));
-        if (window.CairnNoteImage) window.CairnNoteImage.updateStorageMeters(data.storage);
-        if (data.warning) alert(data.warning);
-      } catch (err) {
-        setBodyValue(bodyValue().replace(marker, `<!-- attachment failed: ${err.message} -->`));
-        alert("Attachment failed: " + err.message);
-      }
-    })();
-  }
-
-  // Turn the marked lines into "- [ ] " and back. EasyMDE has list buttons but
-  // no checklist one; the line transform is shared with the braindump pad
-  // (md-checklist.js) so both agree on what a checklist looks like.
-  function toggleChecklist(cm) {
-    const from = cm.getCursor("from"), to = cm.getCursor("to");
-    const lines = [];
-    for (let i = from.line; i <= to.line; i++) lines.push(cm.getLine(i));
-    const out = window.CairnMdChecklist.toggleLines(lines);
-    cm.replaceRange(out.join("\n"), { line: from.line, ch: 0 },
-                    { line: to.line, ch: cm.getLine(to.line).length });
-    cm.setSelection({ line: from.line, ch: 0 },
-                    { line: to.line, ch: out[out.length - 1].length });
-    cm.focus();
-  }
-
-  const checklistButton = {
-    name: "checklist",
-    className: "fa fa-check-square-o",
-    title: "Checklist",
-    action: (mde) => toggleChecklist(mde.codemirror),
+  // What outliner.js calls as blocks open, change and close.
+  window.CairnNoteEditing = {
+    opened() {},
+    changed() { wiki.check(); if (slash) slash.check(); },
+    closed() { wiki.hide(); if (slash) slash.hide(); },
+    handleKey(e) {
+      if (wiki.handleKey(e)) return true;
+      return slash ? slash.handleKey(e) : false;
+    },
   };
 
-  function initEditor() {
-    if (easymde || typeof EasyMDE === "undefined" || !editor) return;
-    easymde = new EasyMDE({
-      element: editor,
-      spellChecker: false,
-      status: false,
-      autoDownloadFontAwesome: true,
-      uploadImage: true,
-      imageUploadFunction: uploadNoteImage,
-      placeholder: "Write in Markdown… paste images, drag a link or email in, [[link]] another note.",
-      toolbar: ["bold", "italic", "heading", "|", "quote", "code", "unordered-list",
-                "ordered-list", checklistButton, "table", "|", "link", "image", "|",
-                "preview", "side-by-side", "fullscreen", "|", "guide"],
-    });
-    const cm = easymde.codemirror;
-    // "/" command menu (slash-menu.js) — same two hooks as the [[ ]] one.
-    slash = window.CairnSlashMenu ? window.CairnSlashMenu.attach(cm) : null;
-    cm.on("change", () => {
-      if (!conflicted) scheduleSave();
-      wiki.check();
-      if (slash) slash.check();
-    });
-    cm.on("cursorActivity", () => { wiki.check(); if (slash) slash.check(); });
-    // Blur SAVES but does not close: EasyMDE's own toolbar buttons blur the
-    // editor, and folding it away mid-click would be maddening. Closing is
-    // Escape, or a click somewhere else on the page (below).
-    cm.on("blur", () => { wiki.hide(); if (slash) slash.hide(); save(); });
-
-    // Drag a Mail message / link into the editor → Markdown link (images fall
-    // through to EasyMDE's own upload). Capture so we beat EasyMDE's handler.
-    const wrap = cm.getWrapperElement();
-    wrap.addEventListener("drop", (e) => {
-      const dt = e.dataTransfer;
-      // Dropped files: images compress + upload as before, anything else
-      // (Numbers/Word/PDF/…) attaches as a download link.
-      if (dt && dt.files && dt.files.length) {
-        e.preventDefault(); e.stopPropagation();
-        Array.from(dt.files).forEach((f) => {
-          if (f.type && f.type.startsWith("image/")) {
-            uploadNoteImage(f, (url) => cm.replaceSelection(`![image](${url})`),
-                            (msg) => alert(msg));
-          } else {
-            uploadNoteFile(f);
-          }
-        });
-        return;
-      }
-      const helper = window.CairnNoteImage;
-      const snippet = helper && dt ? helper.linkSnippetFromDrop(dt) : null;
-      if (snippet) {
-        e.preventDefault(); e.stopPropagation();
-        cm.replaceSelection(snippet);
-      }
-    }, true);
-    // Keys the completion popup owns; everything else falls through to
-    // CodeMirror. Capture, or CodeMirror swallows Enter/arrows first.
-    wrap.addEventListener("keydown", (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); return; }
-      if (wiki.handleKey(e)) return;
-      if (slash && slash.handleKey(e)) return;
-      if (e.key === "Escape") { e.preventDefault(); save({ close: true }); }
-    }, true);
-  }
-
-  function showEditor() {
-    if (!canEdit) return;
-    initEditor();
-    view.classList.add("d-none");
-    editWrap.classList.remove("d-none");
-    if (easymde) { easymde.codemirror.refresh(); easymde.codemirror.focus(); }
-    else if (editor) editor.focus();
-  }
-  function showView() {
-    editWrap.classList.add("d-none");
-    view.classList.remove("d-none");
-  }
-
-  // Clicking the rendered note drops into the editor — except on things that
-  // are meant to be clicked (links, images, checkboxes).
-  if (view && canEdit) {
-    view.addEventListener("click", (e) => {
-      if (e.target.closest("a, img, input")) return;
-      // Marking text ends in a click too — opening the editor there would
-      // throw the selection away just as the user reached for it.
-      const sel = window.getSelection();
-      if (sel && !sel.isCollapsed && view.contains(sel.anchorNode)) return;
-      showEditor();
-    });
+  // Link/unlink actions save the note on the server too, which moves the
+  // version stamp — so flush our own edits FIRST, then act, then reload.
+  async function saveThen(action) {
+    if (window.CairnOutliner && !(await window.CairnOutliner.save())) {
+      alert("Couldn't save your changes — nothing else was done, so your text is safe.");
+      return;
+    }
+    await action();
+    window.location.reload();
   }
 
   // ---- mark text in the rendered note → tasks ----
   // The dialog (target project, preview) and the POST live in capture.js —
   // the braindump pad drives the very same one.
   (function () {
+    const view = document.getElementById("note-outline");
     if (!view) return;
     const btn = document.createElement("button");
     btn.type = "button";
@@ -603,117 +505,6 @@
     });
   })();
 
-  function scheduleSave() {
-    clearTimeout(saveTimer);
-    setStatus("Unsaved changes", "text-warning");
-    saveTimer = setTimeout(() => save(), 1200);
-  }
-
-  async function save(opts) {
-    opts = opts || {};
-    clearTimeout(saveTimer);
-    // Queue behind an in-flight save: two overlapping POSTs would race on
-    // ``stamp`` and the second would report a phantom conflict.
-    if (inflight) await inflight.catch(() => {});
-    if (!canEdit || conflicted) { if (opts.close) showView(); return true; }
-    if (!dirty()) { setStatus(""); if (opts.close) showView(); return true; }
-    setStatus("Saving…");
-    inflight = post(`/notes/${noteId}/edit`, {
-      title: titleInput.value, note: bodyValue(), base_stamp: stamp,
-    }, { "X-Partial": "1" });
-    const resp = await inflight;
-    const data = await resp.json().catch(() => null);
-    inflight = null;
-    if (resp.status === 409) {
-      conflicted = true;
-      conflictBox.classList.remove("d-none");
-      setStatus("Not saved — conflict", "text-danger");
-      return false;
-    }
-    if (!data || !data.ok) {
-      setStatus("Save failed — your text is still here", "text-danger");
-      return false;
-    }
-    savedTitle = data.title;
-    savedNote = data.note;
-    stamp = data.stamp;
-    view.innerHTML = data.html
-      || '<p class="text-muted fst-italic">Empty note — click here to start writing.</p>';
-    document.getElementById("note-words").textContent = data.words;
-    document.getElementById("note-updated").textContent = "just now";
-    document.title = data.title + " · Notes · Cairn";
-    setStatus("Saved");
-    setTimeout(() => { if (!dirty()) setStatus(""); }, 2000);
-    if (opts.close) showView();
-    return true;
-  }
-
-  document.getElementById("note-conflict-reload").addEventListener("click", () => {
-    window.location.reload();
-  });
-
-  // Click anywhere outside the editor → save and go back to the rendered
-  // note. (Blur alone can't do this: the toolbar blurs the editor too.)
-  document.addEventListener("mousedown", (e) => {
-    if (editWrap.classList.contains("d-none")) return;
-    if (e.target.closest("#note-body-edit, #wiki-complete, #note-title")) return;
-    save({ close: true });
-  });
-
-  if (titleInput && !titleInput.readOnly) {
-    titleInput.addEventListener("input", scheduleSave);
-    titleInput.addEventListener("blur", () => save());
-  }
-
-  // Last-chance save when the tab goes away. sendBeacon survives unload where
-  // fetch does not — without it, closing the tab mid-sentence loses the tail.
-  window.addEventListener("pagehide", () => {
-    if (!canEdit || conflicted || !dirty()) return;
-    const fd = new FormData();
-    fd.append("csrf_token", csrf());
-    fd.append("title", titleInput.value);
-    fd.append("note", bodyValue());
-    fd.append("base_stamp", stamp);
-    navigator.sendBeacon(`/notes/${noteId}/edit`, fd);
-  });
-
-  // Link/unlink actions save the note on the server too, which moves the
-  // version stamp — so flush our own edits FIRST, then act, then reload.
-  async function saveThen(action) {
-    if (!(await save())) {
-      alert("Couldn't save your changes — nothing else was done, so your text is safe.");
-      return;
-    }
-    await action();
-    window.location.reload();
-  }
-
-  // ---- Checkboxes in the rendered view ---------------------------------
-  if (view && canEdit) {
-    view.addEventListener("change", async (e) => {
-      const box = e.target.closest("input[data-md-task]");
-      if (!box) return;
-      const resp = await post(`/notes/${noteId}/toggle-task`, { index: box.dataset.mdTask });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) { box.checked = !box.checked; alert(data.error || "Couldn't update the checkbox."); return; }
-      stamp = data.stamp;
-      // Mirror the flip into the editor's baseline (and, if nothing is being
-      // typed, into the editor itself) — otherwise the next autosave would
-      // write the pre-tick body straight back over the toggle.
-      const wasDirty = dirty();
-      const re = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\]/gm;
-      const want = parseInt(box.dataset.mdTask, 10);
-      let m, seen = 0;
-      while ((m = re.exec(savedNote)) !== null) {
-        if (seen++ !== want) continue;
-        savedNote = savedNote.slice(0, m.index) + m[1] + (data.checked ? "[x]" : "[ ]")
-                  + savedNote.slice(m.index + m[0].length);
-        break;
-      }
-      if (!wasDirty) setBodyValue(savedNote);
-    });
-  }
-
   // ---- [[wiki link]] completion ----------------------------------------
   const wiki = (function () {
     const box = document.getElementById("wiki-complete");
@@ -731,18 +522,16 @@
              role="button" data-title="${escapeAttr(it.title)}">${escapeHtml(it.title)}</li>`).join("");
     }
     function place() {
-      const cm = easymde.codemirror;
-      const pos = cm.cursorCoords(true, "page");
+      const pos = ed.cursorCoords();
       box.style.left = `${pos.left}px`;
       box.style.top = `${pos.bottom + 4}px`;
       box.style.display = "block";
       open = true;
     }
     function pick(title) {
-      const cm = easymde.codemirror;
-      cm.replaceRange(`${title}]]`, from, cm.getCursor());
+      ed.replaceRange(`${title}]]`, from, ed.getCursor());
       hide();
-      cm.focus();
+      ed.focus();
     }
     box.addEventListener("mousedown", (e) => {
       // mousedown, not click — the editor's blur handler would close us first.
@@ -753,10 +542,9 @@
     return {
       hide,
       check() {
-        if (!easymde) return;
-        const cm = easymde.codemirror;
-        const cur = cm.getCursor();
-        const line = cm.getRange({ line: cur.line, ch: 0 }, cur);
+        if (!ed.cm) return;
+        const cur = ed.getCursor();
+        const line = ed.getRange({ line: cur.line, ch: 0 }, cur);
         const m = line.match(/\[\[([^\[\]]{0,60})$/);
         if (!m) { hide(); return; }
         from = { line: cur.line, ch: cur.ch - m[1].length };
@@ -809,7 +597,7 @@
     // Tagging saves the item, which moves the version stamp the body autosave
     // checks against — take the new one along or the next keystroke conflicts.
     const data = resp ? await resp.json().catch(() => null) : null;
-    if (data && data.stamp) stamp = data.stamp;
+    if (data && data.stamp && window.CairnOutliner) window.CairnOutliner.setStamp(data.stamp);
   }
   if (tagOptionsBox) {
     tagOptionsBox.addEventListener("click", (e) => {
@@ -942,9 +730,7 @@
       saveThen(() => post(`/notes/${noteId}/unlink-event`, { uid: btn.dataset.eventUid }));
     });
   });
-
-  // An empty note is almost always about to be written in — open the editor.
-  if (canEdit && !savedNote) showEditor();
 })();
 </script>
+<script src="{{ asset('js/outliner.js') }}"></script>
 {% endblock %}
