@@ -85,6 +85,27 @@
             action="{{ url_for('notes.new', kind='note', parent=folder.pk) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       </form>
+      {% if is_owner %}
+        <div class="dropdown ms-2">
+          <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"
+                  title="More"><i class="bi bi-three-dots"></i></button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li>
+              {# Trashing a folder takes everything filed under it with it, so
+                 the confirmation says how much that is instead of asking "are
+                 you sure?" about an amount the reader cannot see. #}
+              <form method="post" class="m-0"
+                    action="{{ url_for('notes.delete', note_id=folder.pk) }}"
+                    onsubmit="return confirm({% if children %}'Move \'{{ folder.name }}\' and the {{ children|length }} item(s) filed under it to the trash?'{% else %}'Move the empty folder \'{{ folder.name }}\' to the trash?'{% endif %});">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="dropdown-item text-danger">
+                  <i class="bi bi-trash"></i> Delete folder
+                </button>
+              </form>
+            </li>
+          </ul>
+        </div>
+      {% endif %}
     </div>
 
     {# Effective access at a glance #}
