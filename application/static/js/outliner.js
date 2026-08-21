@@ -627,15 +627,27 @@
     window.location.search = args.toString();
   }
 
-  /** "Copy block ref" — mints the id, saves, and puts ((id)) on the clipboard. */
-  async function copyRef(node) {
+  /** Put a pointer at this block on the clipboard, minting its id first.
+   *
+   *  Two shapes, because they read differently where they land: a REFERENCE is
+   *  an inline link carrying the block's text, an EMBED shows the block itself,
+   *  children and all. An embed only renders as one when it is a block's whole
+   *  content — written into a sentence it degrades to the link.
+   */
+  async function copyPointer(node, asEmbed) {
     if (!node.props.id) {
       node.props.id = freshId();
       paint(node);
-      await save();
+      if (await save() === false) { delete node.props.id; paint(node); return; }
     }
-    try { await navigator.clipboard.writeText(`((${node.props.id}))`); }
-    catch (err) { window.prompt("Block reference:", `((${node.props.id}))`); }
+    const text = asEmbed ? `{{embed ((${node.props.id}))}}` : `((${node.props.id}))`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus(asEmbed ? "Embed copied" : "Reference copied");
+      setTimeout(() => { if (!dirty()) setStatus(""); }, 2000);
+    } catch (err) {
+      window.prompt("Copy this:", text);
+    }
   }
 
   // The navigator lists this page's parent blocks (views/notes._nav_blocks).
@@ -650,13 +662,60 @@
     zoomTo(node);
   });
 
+  // ---- the bullet's menu ---------------------------------------------------
+
+  let bulletMenu = null;
+
+  function closeBulletMenu() {
+    if (bulletMenu) { bulletMenu.remove(); bulletMenu = null; }
+  }
+
+  function openBulletMenu(node, x, y) {
+    closeBulletMenu();
+    const el = document.createElement("div");
+    el.className = "dropdown-menu show ol-bullet-menu";
+    el.style.cssText = `position:absolute; left:${x}px; top:${y}px; z-index:2100;`;
+    el.innerHTML =
+      '<button type="button" class="dropdown-item small" data-act="ref">'
+      + '<i class="bi bi-link-45deg"></i> Copy block reference'
+      + '<span class="d-block text-muted" style="font-size:.75em;">a link carrying this text</span>'
+      + "</button>"
+      + '<button type="button" class="dropdown-item small" data-act="embed">'
+      + '<i class="bi bi-box-arrow-in-down-right"></i> Copy block embed'
+      + '<span class="d-block text-muted" style="font-size:.75em;">shows the block itself</span>'
+      + "</button>"
+      + '<div class="dropdown-divider"></div>'
+      + '<button type="button" class="dropdown-item small" data-act="zoom">'
+      + '<i class="bi bi-arrows-angle-expand"></i> Zoom in</button>';
+    // mousedown would blur the block being edited and commit it out from under
+    // the click.
+    el.addEventListener("mousedown", (e) => e.preventDefault());
+    el.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-act]");
+      if (!btn) return;
+      const act = btn.dataset.act;
+      closeBulletMenu();
+      if (act === "zoom") zoomTo(node);
+      else copyPointer(node, act === "embed");
+    });
+    document.body.appendChild(el);
+    bulletMenu = el;
+  }
+
   root.addEventListener("contextmenu", (e) => {
     const bullet = e.target.closest(".ol-bullet");
     if (!bullet || e.target.closest("[data-embed]")) return;
     const n = nodeFor(bullet);
     if (!n) return;
     e.preventDefault();
-    copyRef(n);
+    openBulletMenu(n, e.pageX, e.pageY);
+  });
+
+  document.addEventListener("mousedown", (e) => {
+    if (bulletMenu && !e.target.closest(".ol-bullet-menu")) closeBulletMenu();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeBulletMenu();
   });
 
   // ---- saving --------------------------------------------------------------
