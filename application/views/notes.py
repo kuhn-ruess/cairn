@@ -399,27 +399,6 @@ def _blocks_json(blocks) -> str:
     return blob.replace("</", "<\\/")
 
 
-def _nav_blocks(blocks, limit=50) -> list:
-    """The blocks worth a line in the navigator: the ones holding something.
-
-    A note's own structure belongs in the same tree as the folders holding it —
-    folder, note, then the headings inside it — but only the blocks that HOLD
-    something, or a note of fifty lines would flood the sidebar with fifty
-    entries none of which are places."""
-    out = []
-
-    def walk(nodes, depth):
-        for b in nodes:
-            if not b.children:
-                continue
-            out.append({"idx": b.idx, "uuid": b.uuid, "depth": depth,
-                        "label": _note_preview(b.body, 40) or "Block"})
-            walk(b.children, depth + 1)
-
-    walk(blocks, 0)
-    return out[:limit]
-
-
 def _outline_context(item, user) -> dict:
     """Everything the outline needs, for any item that has a body.
 
@@ -450,7 +429,6 @@ def _outline_context(item, user) -> dict:
         # read "Wochenplanung", not "## Wochenplanung".
         zoom_trail=[{"uuid": b.uuid, "label": _note_preview(b.body, 48) or "Block"}
                     for b in trail[:-1]],
-        nav_blocks=_nav_blocks(shown),
         word_count=_word_count(item.note),
         base_stamp=_stamp(item.updated_at),
     )
@@ -673,6 +651,34 @@ def _render_blocks(item, spec, user, wiki_index) -> dict:
     render = current_app.jinja_env.filters["note_md"]
     return {str(b.idx): str(render(b.body, wiki_index, index))
             for b in outline.walk(blocks) if b.idx in want}
+
+
+@notes_bp.route("/search")
+@login_required
+def search():
+    """Full-text hits for the navigator's search box, with the snippet that
+    says WHERE each one matched.
+
+    The tree beside it is navigation, and a tree of names cannot answer "where
+    did I write about this" — so the box does not touch the tree at all. It
+    asks this, and shows what comes back underneath itself.
+    """
+    user = current_user._get_current_object()
+    q = (request.args.get("q") or "").strip()
+    # One letter matches most of a collection; that is a list, not an answer.
+    if len(q) < 2:
+        return jsonify({"q": q, "total": 0, "results": []})
+    tree = notes_tree_for_sidebar(user)
+    rows = _note_rows(user, tree, q=q, limit=50)
+    return jsonify({
+        "q": q,
+        "total": len(rows),
+        # The snippet is HTML — escaped text with the hit marked (see
+        # _search_snippet), which is the whole reason to show it.
+        "results": [{"id": r["id"], "title": r["title"],
+                     "snippet": str(r["snippet"]), "folder": r["folder"]}
+                    for r in rows[:8]],
+    })
 
 
 @notes_bp.route("/titles")

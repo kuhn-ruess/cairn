@@ -36,12 +36,6 @@
 
   .note-doc .note-doc-tools .btn { --bs-btn-border-color: transparent; }
 
-  /* The open page's own blocks, as a further level of the same tree. Quieter
-     than a page: these are places INSIDE one, not another one. */
-  .nn-block { font-size: .82rem; opacity: .72; }
-  .nn-block:hover, .nn-block.active { opacity: 1; }
-  .nn-block .bi-dot { font-size: 1.1rem; margin-left: -.3rem; }
-
   /* The info panel folds away, because the note itself has to stay readable
      on a laptop (state in localStorage; see notes-nav.js, which also picks the
      default by viewport width). */
@@ -72,6 +66,24 @@
                  border-top: 1px solid var(--bs-border-color);
                  padding-left: 0; padding-top: .75rem; }
   }
+  /* Search results, hung under the box that produced them. */
+  .nn-search-wrap { position: relative; margin-bottom: .5rem; }
+  .nn-results {
+    display: none; position: absolute; z-index: 1080; left: 0; right: 0;
+    top: calc(100% + .25rem); max-height: 24rem; overflow-y: auto;
+  }
+  .nn-result { padding: .4rem .55rem; text-decoration: none; }
+  .nn-result-title { font-size: .82rem; font-weight: 500; }
+  .nn-result-where { font-size: .68rem; opacity: .6; }
+  .nn-result-snippet {
+    font-size: .74rem; line-height: 1.35; color: var(--bs-secondary-color);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .nn-result.active .nn-result-snippet,
+  .nn-result:hover .nn-result-snippet { color: inherit; }
+  .nn-result mark { padding: 0 .1em; }
+
   .nn-list { list-style: none; margin: 0; padding: 0; }
   .nn-row {
     display: flex; align-items: center; gap: .35rem; position: relative;
@@ -104,13 +116,16 @@
       <i class="bi bi-folder-plus"></i>
     </a>
   </div>
-  {# Typing here searches every note's TITLE AND BODY on the server and opens
-     the results column; it also narrows the tree by name as you go, which is
-     instant. It sits here rather than in that column because the column is
-     swapped wholesale on every keystroke — a field inside it loses its own
-     focus and had to have it restored by hand. #}
-  <input type="search" class="form-control form-control-sm mb-2 nn-search"
-         placeholder="Search notes…" autocomplete="off" value="{{ list_q|default('') }}">
+  {# Searches every note's title AND body on the server and shows the hits
+     right underneath, each with the snippet that says where it matched. It
+     does not touch the tree: the tree is navigation, this is the answer to a
+     question, and one box doing both was how "nothing matched any name" ended
+     up looking like "everything is a match". #}
+  <div class="nn-search-wrap">
+    <input type="search" class="form-control form-control-sm nn-search"
+           placeholder="Search notes…" autocomplete="off" value="{{ list_q|default('') }}">
+    <div class="nn-results list-group shadow"></div>
+  </div>
   {% if tag_filter_choices %}
     <select class="form-select form-select-sm mb-2 nn-tag">
       <option value="">All tags</option>
@@ -148,19 +163,6 @@
               </button>
             </form>
           </div>
-        {% if note and (note.pk|string) == (it.pk|string) %}
-          {% for b in nav_blocks|default([]) %}
-            <a class="nn-row nn-block {% if zoom and zoom == b.uuid %}active{% endif %}"
-               href="{{ url_for('notes.detail', note_id=it.pk, zoom=b.uuid)
-                        if b.uuid else url_for('notes.detail', note_id=it.pk) }}"
-               data-block-idx="{{ b.idx }}"
-               style="padding-left: {{ (depth + b.depth) * 14 + 26 }}px;"
-               data-nn-name="{{ b.label|lower }}" title="{{ b.label }}">
-              <i class="bi bi-dot text-muted"></i>
-              <span class="nn-name">{{ b.label }}</span>
-            </a>
-          {% endfor %}
-        {% endif %}
         {% else %}
           <a class="nn-row {% if note and (note.pk|string) == (it.pk|string) %}active{% endif %}"
              href="{{ url_for('notes.detail', note_id=it.pk) }}"
@@ -169,19 +171,6 @@
             {{ item_icon(it) }}
             <span class="nn-name">{{ it.name }}</span>
           </a>
-        {% if note and (note.pk|string) == (it.pk|string) %}
-          {% for b in nav_blocks|default([]) %}
-            <a class="nn-row nn-block {% if zoom and zoom == b.uuid %}active{% endif %}"
-               href="{{ url_for('notes.detail', note_id=it.pk, zoom=b.uuid)
-                        if b.uuid else url_for('notes.detail', note_id=it.pk) }}"
-               data-block-idx="{{ b.idx }}"
-               style="padding-left: {{ (depth + b.depth) * 14 + 26 }}px;"
-               data-nn-name="{{ b.label|lower }}" title="{{ b.label }}">
-              <i class="bi bi-dot text-muted"></i>
-              <span class="nn-name">{{ b.label }}</span>
-            </a>
-          {% endfor %}
-        {% endif %}
         {% endif %}
       </li>
     {% endfor %}

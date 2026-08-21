@@ -1,10 +1,10 @@
 /* Notes navigator: the tree, and everything around it.
  *
- * Filter-by-typing narrows the tree to matching NAMES as you go; Enter takes
- * the same words to /notes/, which searches titles and bodies and shows the
- * hits as a page. So the box answers both "take me to the page called X" and
- * "where did I write about X", without a second list standing beside the tree
- * for the rest of the time.
+ * The search box searches — titles AND bodies, on the server — and shows the
+ * hits underneath itself, each with the snippet that says where it matched.
+ * It does not touch the tree. Making one box do both was how "nothing matched
+ * any name" ended up looking like "everything is a match": with nothing left
+ * to show, the tree came back whole.
  *
  * Also: HTML5 drag to reparent (POSTs /notes/<id>/move, parent = the target
  * folder or top-level on the root row), and the info-panel toggle.
@@ -16,32 +16,87 @@
     if (!nav || nav.dataset.wired === "1") return;
     nav.dataset.wired = "1";
 
-    // --- filter ---
+    // --- search ---
     const search = nav.querySelector(".nn-search");
-    if (search) {
-      const apply = () => {
-        const q = search.value.trim().toLowerCase();
-        const rows = Array.from(nav.querySelectorAll("[data-nn-name]"));
-        // Enter takes the same words to the full-text search, so a word that
-        // only appears in a BODY matches nothing here. Narrowing the tree to
-        // nothing in that case would take the reader's navigation away right
-        // when they are about to search properly — so when no name matches,
-        // the tree stays whole.
-        const hit = (row) => !q || row.dataset.nnName.includes(q);
-        const any = rows.some(hit);
-        rows.forEach((row) => {
-          const li = row.closest("li") || row;
-          li.style.display = (!any || hit(row)) ? "" : "none";
-        });
-      };
-      search.addEventListener("input", apply);
+    const results = nav.querySelector(".nn-results");
+    if (search && results) {
+      let hits = [], total = 0, active = -1, timer = null, seq = 0;
+
+      const esc = (t) => (t || "").replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+      function hide() { results.style.display = "none"; active = -1; }
+
+      function render() {
+        if (!hits.length) {
+          results.innerHTML =
+            '<div class="nn-result text-muted small">Nothing found.</div>';
+        } else {
+          results.innerHTML = hits.map((h, i) => (
+            `<a class="nn-result list-group-item list-group-item-action ${i === active ? "active" : ""}"
+                href="/notes/${encodeURIComponent(h.id)}" data-i="${i}">
+               <div class="nn-result-title">${esc(h.title)}</div>
+               ${h.folder ? `<div class="nn-result-where">${esc(h.folder)}</div>` : ""}
+               <div class="nn-result-snippet">${h.snippet}</div>
+             </a>`)).join("")
+            + (total > hits.length
+               ? `<button type="button" class="nn-result nn-more list-group-item
+                          list-group-item-action small text-muted">
+                    All ${total} matches</button>`
+               : "");
+        }
+        results.style.display = "block";
+      }
+
+      async function run() {
+        const q = search.value.trim();
+        if (q.length < 2) { hits = []; total = 0; hide(); return; }
+        const mine = ++seq;
+        const data = await fetch(`/notes/search?q=${encodeURIComponent(q)}`)
+          .then((r) => r.json()).catch(() => null);
+        // A slower earlier request must not overwrite a newer answer.
+        if (mine !== seq || !data) return;
+        hits = data.results || [];
+        total = data.total || 0;
+        active = -1;
+        render();
+      }
+
+      function all() {
+        const q = search.value.trim();
+        window.location.href = q ? `/notes/?q=${encodeURIComponent(q)}` : "/notes/";
+      }
+
+      search.addEventListener("input", () => {
+        clearTimeout(timer);
+        timer = setTimeout(run, 200);
+      });
+      search.addEventListener("focus", () => { if (hits.length) render(); });
       search.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") { search.value = ""; apply(); return; }
+        if (e.key === "Escape") { search.value = ""; hits = []; hide(); return; }
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          if (!hits.length) return;
+          e.preventDefault();
+          active = (active + (e.key === "ArrowDown" ? 1 : -1) + hits.length) % hits.length;
+          render();
+          return;
+        }
         if (e.key === "Enter") {
           e.preventDefault();
-          const q = search.value.trim();
-          window.location.href = q ? `/notes/?q=${encodeURIComponent(q)}` : "/notes/";
+          // Standing on a hit opens it; otherwise the whole list as a page.
+          if (active >= 0 && hits[active]) window.location.href = `/notes/${hits[active].id}`;
+          else all();
         }
+      });
+      results.addEventListener("mousemove", (e) => {
+        const row = e.target.closest("[data-i]");
+        if (row) { active = parseInt(row.dataset.i, 10); render(); }
+      });
+      results.addEventListener("click", (e) => {
+        if (e.target.closest(".nn-more")) { e.preventDefault(); all(); }
+      });
+      document.addEventListener("click", (e) => {
+        if (!e.target.closest(".nn-search-wrap")) hide();
       });
     }
 

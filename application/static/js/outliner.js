@@ -659,18 +659,6 @@
     }
   }
 
-  // The navigator lists this page's parent blocks (views/notes._nav_blocks).
-  // Clicking one zooms — through the same path as clicking its bullet, so a
-  // block that has never been pointed at gets its id here and nowhere else.
-  document.addEventListener("click", (e) => {
-    const link = e.target.closest("[data-block-idx]");
-    if (!link) return;
-    const node = allNodes()[parseInt(link.dataset.blockIdx, 10)];
-    if (!node) return;                 // stale link — let the href do its job
-    e.preventDefault();
-    zoomTo(node);
-  });
-
   // ---- the bullet's menu ---------------------------------------------------
 
   let bulletMenu = null;
