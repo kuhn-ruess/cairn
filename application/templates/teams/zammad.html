@@ -179,8 +179,11 @@
             <li class="text-warning">
               {{ stats.tickets_unowned }} ticket(s) whose Zammad owner has no
               Cairn account — filed under {{ team.admin.display_name or team.admin.username }}.
-              <a href="{{ url_for('timetracking.people', team=team.pk) }}">Match them</a>
-              and the next sync files them properly.</li>
+              <a href="{{ url_for('timetracking.people', team=team.pk) }}">Match them</a>,
+              and the next sync files the <em>next</em> ones properly — these
+              stay here, because a sync never re-files a ticket it already
+              imported. “Hand tickets to their Zammad owner” above moves
+              them.</li>
           {% endif %}
           {% if stats.time_entries_imported %}
             <li>Time bookings imported: <strong>{{ stats.time_entries_imported }}</strong></li>
