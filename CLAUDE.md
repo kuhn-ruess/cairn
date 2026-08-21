@@ -224,6 +224,11 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   outline existed); nothing is migrated, a legacy note simply reads as an
   outline and is written back in bullet form when next edited. **Read the module
   docstring before touching anything that reads or writes `Item.note`.**
+  **A notes-FOLDER has a body too** and goes through all of this: it is a
+  container for filing and for access *and* a page you can write on, so
+  `[[Title]]` resolves to one and its blocks can be referenced.
+  `note_links.pages_q()` is the single expression for "is a page with a body"
+  — use it instead of writing `kind="note"` by hand.
 - `block_refs.py` — `((block-id))` and `{{embed ((block-id))}}`, resolved in one
   indexed query via `Item.block_ids`. Ids are minted lazily (`outline.ensure_id`),
   only when something actually points at a block, and a block reference joins the
