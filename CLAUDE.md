@@ -72,8 +72,20 @@ commands beyond the user-facing ones in the README:
 
 ### Tests
 
-The `tests/` directory is currently empty — there is no test suite. `TestConfig`
-exists (`MONGO_DB=bktodo_test`, CSRF disabled) and is ready to wire up.
+```sh
+python -m unittest discover tests        # stdlib only, no test dependency
+```
+
+There is no pytest and no fixture harness — `tests/` holds plain `unittest`
+cases for the pure-Python pieces where a silent regression would be expensive
+(currently `services/outline.py`: parse/serialize round-trip and idempotence,
+both parsers, the legacy conversion). `TestConfig` exists
+(`MONGO_DB=bktodo_test`, CSRF disabled) for whatever needs a database.
+
+Playwright with Chromium **is** installed in `.venv` — driving the real page is
+how the outliner's keyboard model was verified, and it is the only way to catch
+the class of bug that only exists in the browser (a render swap stealing the
+caret, two saves racing on a version stamp).
 
 ## Architecture
 
@@ -170,6 +182,20 @@ Tags moved from a central `tags` collection into `User.tags`
 not ObjectIds. `./cairn migrate-tags-to-embedded` handles the data migration
 and is idempotent. Don't reintroduce a `Tag` `Document`.
 
+### The notes editor
+
+`static/js/outliner.js` edits the outline block by block. The division of
+labour matters: **the server parses, the client only serializes.** The block
+tree ships to the page as JSON beside the rendered outline
+(`views/notes._blocks_json`), so there is exactly one parser and it is the
+Python one — two that could disagree about where a block starts is the failure
+this feature cannot absorb. A block opens as a bare `<textarea name="note">`
+inside `[data-note-id]`, which is all `note-paste.js` needs for image paste and
+file/link drop. The `/` menu and the `[[ ]]` completion still speak CodeMirror's
+API; `outliner.js` hands them a handle of that shape over whichever block is
+open. Saving is the whole body, throttled, against `base_stamp` — unchanged
+from the document editor it replaced.
+
 ### REST API
 
 `application/api/v1.py` mounts at `/api/v1`. Auth is via `token_required`
@@ -188,6 +214,20 @@ Non-trivial logic that doesn't belong in a view or model lives here:
 - `zammad_billing.py` — where Zammad's time lands (one entry per ticket, day and agent: the day's bookings are summed into a single entry whose `external_ids` list the bookings it covers, so a re-sync updates the total instead of adding the parts beside it): customers auto-created from Zammad organisations (`external_id="zammad:org:<id>"`, one `intake` project per customer) and the team-level agent roster (`Team.zammad_agents`) that maps Zammad agents to Cairn accounts; assigning one re-attributes the time already booked
 - `cleanup.py` — per-user indexed bulk-delete of completed tasks past retention
 - `notes_sync.py` / `webdav.py` — the notes tree mirrored to a WebDAV folder as Markdown files (`_assets/<note-id>/` beside each note), **two-way**: each note stores `mirror_path` / `mirror_hash` / `mirror_tag`, the hash is the common ancestor, both sides changed → the file's version is parked as `… (conflict …).md` and comes back as its own note. A file gone trashes its note; a trashed note's file is deleted; an empty listing while notes claim files there deletes nothing. Config per user (`notes_mirror_*`), runs via Celery beat, `./cairn sync-notes`, or the button on Settings → Notes on a share
+- `outline.py` — **a note body IS an outline.** `Item.note` stays one Markdown
+  string, in Logseq's file format (one tab per level before the `- ` bullet, a
+  block's further lines two spaces past it, `key:: value` on such a line being a
+  block property). This module is the only place that knows that, which is why
+  the WebDAV mirror, wiki links, search and capture all still work on the plain
+  string. `parse()` picks between a strict parser (the body starts with a
+  bullet — we wrote it) and a lenient one (everything written before the
+  outline existed); nothing is migrated, a legacy note simply reads as an
+  outline and is written back in bullet form when next edited. **Read the module
+  docstring before touching anything that reads or writes `Item.note`.**
+- `block_refs.py` — `((block-id))` and `{{embed ((block-id))}}`, resolved in one
+  indexed query via `Item.block_ids`. Ids are minted lazily (`outline.ensure_id`),
+  only when something actually points at a block, and a block reference joins the
+  target note's normal `note_links` backlinks rather than getting a panel of its own
 - `capture.py` — marked text → tasks (into a picked project) or → a note; behind `/capture/*`, used by the braindump pad and by a note's rendered body
 - `quick_parse.py` — natural-language task parsing
 - `permissions.py` — sharing/visibility checks
