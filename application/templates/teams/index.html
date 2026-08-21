@@ -1,24 +1,10 @@
 {% extends "layout/base.html" %}
+{% import "teams/_switcher.html" as sw with context %}
 {% block title %}{{ team.name }} · Team{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center gap-2 mb-3">
   <h1 class="h4 mb-0 me-auto"><i class="bi bi-people"></i> {{ team.name }}</h1>
-  {% if all_teams and all_teams|length > 1 %}
-    <div class="dropdown">
-      <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
-              data-bs-toggle="dropdown" title="Switch team">
-        <i class="bi bi-arrow-left-right"></i> Switch team
-      </button>
-      <ul class="dropdown-menu dropdown-menu-end">
-        {% for t in all_teams %}
-          <li><a class="dropdown-item {% if t == team %}active{% endif %}"
-                 href="{{ url_for('teams.index', team=t.pk|string) }}">
-            {{ t.name }}
-          </a></li>
-        {% endfor %}
-      </ul>
-    </div>
-  {% endif %}
+  {{ sw.team_switcher(team, all_teams) }}
 </div>
 
 {% if can_manage %}

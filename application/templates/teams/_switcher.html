@@ -1,0 +1,44 @@
+{# The team switcher used by every team page.
+
+   Same shape as the time-tracking one (timetracking/_nav.html): pick a team,
+   see which one is pinned, and pin the one you are in — because "which team
+   does this page open in" was otherwise answered by whichever sorts first.
+   The two pins are separate settings: administering a team and booking its
+   hours are not always the same team. #}
+{%- macro team_switcher(team, all_teams, endpoint=none) -%}
+  {% if all_teams and all_teams|length > 1 %}
+    <div class="dropdown">
+      <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+              data-bs-toggle="dropdown" title="Switch team">
+        <i class="bi bi-arrow-left-right"></i> {{ team.name }}
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        {% for t in all_teams %}
+          {# Stay on the page you're on, parameters and all. #}
+          <li><a class="dropdown-item {% if t == team %}active{% endif %}"
+                 href="{{ url_for(endpoint or request.endpoint,
+                                  **dict(request.view_args or {}, team=t.pk|string)) }}">
+            {% if current_user.default_team == t.pk|string %}
+              <i class="bi bi-pin-angle-fill"></i>
+            {% endif %}
+            {{ t.name }}</a></li>
+        {% endfor %}
+        <li><hr class="dropdown-divider"></li>
+        <li>
+          <form method="post" action="{{ url_for('teams.set_default_team') }}" class="px-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="team" value="{{ team.pk }}">
+            <button class="btn btn-sm btn-outline-secondary w-100">
+              <i class="bi bi-pin-angle"></i>
+              {% if current_user.default_team == team.pk|string %}
+                Don't open here by default
+              {% else %}
+                Always open in “{{ team.name }}”
+              {% endif %}
+            </button>
+          </form>
+        </li>
+      </ul>
+    </div>
+  {% endif %}
+{%- endmacro -%}

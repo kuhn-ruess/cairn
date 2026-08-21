@@ -305,6 +305,12 @@ class User(UserMixin, Document):
     # A plain id string (not a reference): it is a UI preference, and a team the
     # user has since left must degrade to "first team", not to a broken deref.
     tt_default_team = StringField(default="")
+    # The same, for the team pages. Kept apart from ``tt_default_team`` on
+    # purpose: "whose hours am I looking at" and "whose team am I
+    # administering" are the same answer for most people and emphatically not
+    # for everyone, and one pin silently moving the other is the kind of
+    # surprise a preference must not spring.
+    default_team = StringField(default="")
 
     def save(self, *args, **kwargs):
         # Enforce the 20-perspective ceiling at the model layer so the API

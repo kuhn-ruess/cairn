@@ -38,6 +38,11 @@ def _select_team(user) -> Team | None:
             if str(t.pk) == raw:
                 return t
         # Fall through to the default if they asked for a team they're not in.
+    # The team they pinned, while they are still in it (see User.default_team).
+    want = getattr(user, "default_team", "") or ""
+    for t in teams:
+        if str(t.pk) == want:
+            return t
     managed = [t for t in teams if t.is_managed_by(user)]
     if managed:
         return managed[0]
@@ -530,6 +535,26 @@ def _start_team_sync(team, *, full: bool, dry_run: bool) -> bool:
                                 "full": full, "dry_run": dry_run,
                                 "trigger": "manual"})
     return True
+
+
+@teams_bp.route("/default-team", methods=["POST"])
+@login_required
+def set_default_team():
+    """Pin the team the team pages open in. Sending the current default again
+    clears it (back to "the first one you manage")."""
+    user = current_user._get_current_object()
+    team = _select_team(user)
+    if not team:
+        abort(404)
+    if user.default_team == str(team.pk):
+        user.default_team = ""
+        flash(f"“{team.name}” is no longer your default.", "info")
+    else:
+        user.default_team = str(team.pk)
+        flash(f"The team pages now open in “{team.name}”.", "success")
+    user.save()
+    return redirect(request.referrer
+                    or url_for("teams.index", team=str(team.pk)))
 
 
 @teams_bp.route("/zammad/progress")
