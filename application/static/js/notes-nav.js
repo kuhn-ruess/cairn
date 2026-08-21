@@ -132,6 +132,51 @@
     });
     applyInspector();
 
+    // --- mirror: sync from here, without leaving the note ---
+    const mirror = nav.querySelector(".nn-mirror");
+    const syncBtn = mirror && mirror.querySelector(".nn-mirror-sync");
+    if (syncBtn) {
+      const when = mirror.querySelector(".nn-mirror-when");
+      let running = false;
+      syncBtn.addEventListener("click", async () => {
+        if (running) return;
+        running = true;
+        syncBtn.classList.add("is-running");
+        const was = when.textContent;
+        when.textContent = "Syncing…";
+        try {
+          const fd = new FormData();
+          const csrf = document.querySelector('input[name="csrf_token"]');
+          if (csrf) fd.append("csrf_token", csrf.value);
+          const resp = await fetch(mirror.dataset.syncUrl, {
+            method: "POST", body: fd, credentials: "same-origin",
+            headers: { "X-Requested-With": "XMLHttpRequest" },
+          });
+          const data = await resp.json().catch(() => null);
+          if (!resp.ok || !data) throw new Error("sync failed");
+          when.textContent = data.message;
+          // The line is narrow, so a summary or an error gets cut off — the
+          // whole of it has to be readable on hover.
+          mirror.querySelector("a").title = data.message;
+          if (data.ok) {
+            // Back to saying WHEN, which is what this line is for the rest of
+            // the time. A failure stays put: one that clears itself after a
+            // few seconds is one you can miss entirely.
+            setTimeout(() => {
+              when.textContent = data.when ? `Mirrored ${data.when}` : was;
+              mirror.querySelector("a").title = data.status || "Notes mirror";
+            }, 6000);
+          }
+        } catch (err) {
+          when.textContent = "Sync failed";
+          mirror.querySelector("a").title = "Sync failed — see Settings → Notes mirror";
+        } finally {
+          running = false;
+          syncBtn.classList.remove("is-running");
+        }
+      });
+    }
+
     // --- drag to reparent ---
     let dragId = null;
     nav.querySelectorAll(".nn-li[data-note-id]").forEach((li) => { li.draggable = true; });

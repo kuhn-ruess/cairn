@@ -934,24 +934,39 @@ def notes_mirror_sync():
     from application.services.webdav import DavError
 
     user = current_user._get_current_object()
+    # Asked from the notes navigator rather than from the settings form: answer
+    # in place. Sending someone to a settings page and back for a sync they
+    # started while reading a note is a detour, and it costs them their scroll
+    # position and their browser history.
+    inline = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def done(message: str, level: str = "info", ok: bool = True):
+        if not inline:
+            flash(message, level)
+            return redirect(url_for("settings.notes_mirror"))
+        user.reload()
+        when = current_app.jinja_env.filters["timeago"](user.last_notes_mirror_at)
+        return jsonify({
+            "ok": ok, "message": message, "level": level,
+            "when": when if user.last_notes_mirror_at else "",
+            "status": user.notes_mirror_status or "",
+        })
+
     if not (user.notes_mirror_url or "").strip():
-        flash("Set the WebDAV folder first.", "warning")
-        return redirect(url_for("settings.notes_mirror"))
+        return done("Set the WebDAV folder first.", "warning", ok=False)
     try:
         from application.services.sync_tasks import enqueue_notes_mirror
         enqueue_notes_mirror(str(user.pk), trigger="manual")
-        flash("Sync started — it runs in the background; reload for the result.",
-              "info")
+        return done("Sync started — it runs in the background.", "info")
     except Exception:                          # no broker, or it's down
         try:
             stats = notes_sync.sync_user(user, trigger="manual")
         except DavError as exc:
-            flash(f"Sync failed: {exc}", "danger")
-        else:
-            flash(stats.summary(), "success")
+            return done(f"Sync failed: {exc}", "danger", ok=False)
+        if not inline:
             for err in stats.errors:
                 flash(err, "warning")
-    return redirect(url_for("settings.notes_mirror"))
+        return done(stats.summary(), "success")
 
 
 @settings_bp.route("/calendars")

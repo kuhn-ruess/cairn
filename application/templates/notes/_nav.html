@@ -84,6 +84,11 @@
   .nn-result:hover .nn-result-snippet { color: inherit; }
   .nn-result mark { padding: 0 .1em; }
 
+  .nn-mirror-sync:hover { color: var(--bs-body-color) !important; }
+  .nn-mirror-sync.is-running .bi { display: inline-block;
+    animation: nn-spin 1s linear infinite; }
+  @keyframes nn-spin { to { transform: rotate(360deg); } }
+
   .nn-list { list-style: none; margin: 0; padding: 0; }
   .nn-row {
     display: flex; align-items: center; gap: .35rem; position: relative;
@@ -179,15 +184,25 @@
   {# The mirror lives in settings, but "are my notes on the NAS?" is a question
      you ask here, in front of the notes. #}
   {% if current_user.notes_mirror_enabled %}
-    <a class="d-block small text-muted text-decoration-none mt-3 pt-2 border-top"
-       href="{{ url_for('settings.notes_mirror') }}"
-       title="{{ current_user.notes_mirror_status or 'Notes mirror' }}">
-      <i class="bi bi-hdd-network"></i>
-      {% if current_user.last_notes_mirror_at %}
-        Mirrored {{ current_user.last_notes_mirror_at|timeago }}
-      {% else %}
-        Mirror set up — not run yet
-      {% endif %}
-    </a>
+    {# "Are my notes on the NAS?" is asked here, in front of the notes — so
+       the answer AND the way to act on it belong here, not two pages away in
+       the settings. #}
+    <div class="nn-mirror mt-3 pt-2 border-top d-flex align-items-center gap-1"
+         data-sync-url="{{ url_for('settings.notes_mirror_sync') }}">
+      <a class="small text-muted text-decoration-none text-truncate me-auto"
+         href="{{ url_for('settings.notes_mirror') }}"
+         title="{{ current_user.notes_mirror_status or 'Notes mirror' }}">
+        <i class="bi bi-hdd-network"></i>
+        <span class="nn-mirror-when">
+          {%- if current_user.last_notes_mirror_at -%}
+            Mirrored {{ current_user.last_notes_mirror_at|timeago }}
+          {%- else -%}
+            Mirror set up — not run yet
+          {%- endif -%}
+        </span>
+      </a>
+      <button type="button" class="btn btn-sm btn-link p-0 px-1 text-muted nn-mirror-sync"
+              title="Sync now"><i class="bi bi-arrow-repeat"></i></button>
+    </div>
   {% endif %}
 </aside>
