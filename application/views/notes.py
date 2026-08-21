@@ -381,14 +381,18 @@ def _team_choices(user):
     return [(str(t.pk), t.name) for t in teams_of(user)]
 
 
-def _blocks_json(blocks) -> str:
-    """The block tree as JSON for the editor (see static/js/outliner.js)."""
-    import json
-
+def _blocks_data(blocks) -> list:
+    """The block tree as plain data for the editor (static/js/outliner.js)."""
     def node(b):
         return {"idx": b.idx, "content": b.content, "props": b.props,
                 "children": [node(c) for c in b.children]}
-    blob = json.dumps([node(b) for b in blocks], ensure_ascii=False)
+    return [node(b) for b in blocks]
+
+
+def _blocks_json(blocks) -> str:
+    """The same, as JSON for a <script> tag."""
+    import json
+    blob = json.dumps(_blocks_data(blocks), ensure_ascii=False)
     # This goes inside a <script type="application/json"> block, where the
     # parser looks for "</script>" and nothing else — a note containing that
     # text would otherwise end the tag and spill its body into the page as
@@ -661,6 +665,26 @@ def _render_blocks(item, spec, user, wiki_index) -> dict:
     render = current_app.jinja_env.filters["note_md"]
     return {str(b.idx): str(render(b.body, wiki_index, index))
             for b in outline.walk(blocks) if b.idx in want}
+
+
+@notes_bp.route("/parse", methods=["POST"])
+@login_required
+def parse_blocks():
+    """Pasted text, as blocks.
+
+    The editor deliberately has no parser — services/outline is the only one,
+    so the two can never disagree about where a block starts — which means
+    that when text arrives on the clipboard it has to ask here what it is.
+
+    ``parse_lines`` rather than ``parse``: a paste is a list of items, one per
+    line, which is both what Logseq does and what you get back when you cut an
+    outline and put it down somewhere else. Text we wrote ourselves takes the
+    strict path either way.
+    """
+    from application.services import outline
+    text = (request.form.get("text") or "")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return jsonify({"blocks": _blocks_data(outline.parse_lines(text))})
 
 
 @notes_bp.route("/search")

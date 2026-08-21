@@ -284,6 +284,7 @@
     });
     ta.addEventListener("blur", () => { if (editing === node) commit(node); });
     ta.addEventListener("keydown", (e) => onKey(e, node, ta));
+    ta.addEventListener("paste", (e) => onPaste(e, node, ta));
     // Moving the caret can open or close the popups too ("[[" is now behind
     // me"), which is what CodeMirror's cursorActivity used to cover.
     //
@@ -303,8 +304,10 @@
     ta.style.height = ta.scrollHeight + "px";
   }
 
-  /** Close the textarea and put the rendered block back. */
-  function commit(node) {
+  /** Close the textarea and put the rendered block back. ``alsoRender`` are
+   *  further blocks that changed at the same time — a paste puts several down
+   *  at once, and they must all come back rendered rather than as raw text. */
+  function commit(node, alsoRender) {
     const box = contentOf(node);
     const ta = box.querySelector("textarea");
     if (!ta) return;
@@ -315,7 +318,7 @@
     // the block is never blank in between.
     box.textContent = node.content;
     if (window.CairnNoteEditing) window.CairnNoteEditing.closed();
-    save({ render: node });
+    save({ render: alsoRender ? [node].concat(alsoRender) : node });
   }
 
   function focusBlock(node, caret) {
@@ -343,6 +346,17 @@
   }
 
   function blank() { return { content: "", props: {}, children: [] }; }
+
+  /** Give a freshly made block and everything under it an element, in place.
+   *  Their text shows raw until the save renders it, which is a moment, not a
+   *  state — but it is never blank. */
+  function placeTree(node) {
+    const tree = allNodes([node]);
+    tree.forEach((n) => {
+      if (!n.el) { makeBlockEl(n); contentOf(n).textContent = n.content || ""; }
+    });
+    tree.forEach(place);
+  }
 
   function indent(node) {
     const list = siblings(node);
@@ -438,6 +452,24 @@
     if ((e.metaKey || e.ctrlKey) && e.key === "s") {
       e.preventDefault(); commit(node); return;
     }
+    if ((e.metaKey || e.ctrlKey) && (e.key === "a" || e.key === "A")) {
+      // First press takes the block, a second takes the page. Each block is
+      // its own field, so without this "select all" could never reach past
+      // the line the caret happens to be on — and the whole note could not be
+      // copied, let alone cut.
+      //
+      // "Already holds the whole block" is the trigger, which is what the
+      // FIRST press just did. (Not ``atStart``: that means a collapsed caret
+      // at position zero, and after a select-all the selection is spread.)
+      const whole = ta.value.length > 0
+        && ta.selectionStart === 0 && ta.selectionEnd === ta.value.length;
+      if (!whole) return;
+      e.preventDefault();
+      commit(node);
+      ta.blur();
+      selectAllBlocks();
+      return;
+    }
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
       ta.value = cycleKeyword(node);
@@ -511,6 +543,16 @@
       commit(node);
       ta.blur();
     }
+  }
+
+  /** Mark the whole outline, so copy and cut can act on all of it. */
+  function selectAllBlocks() {
+    const sel = window.getSelection();
+    if (!sel) return;
+    sel.removeAllRanges();
+    const range = document.createRange();
+    range.selectNodeContents(root.querySelector(":scope > .ol-list") || root);
+    sel.addRange(range);
   }
 
   function previousVisible(node) {
@@ -714,6 +756,68 @@
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeBulletMenu();
   });
+
+  // ---- taking blocks out and putting them back ----------------------------
+  //
+  // A marked range spans whole blocks (see ``selection``), so what leaves on
+  // the clipboard is the outline's own Markdown — indentation and all — and
+  // what arrives can be laid back down as blocks rather than as one long line.
+
+  document.addEventListener("copy", (e) => {
+    if (editing) return;             // inside a block: the browser's own job
+    const picked = selection();
+    if (!picked.marked) return;      // nothing of OURS is marked: let it be
+    e.clipboardData.setData("text/plain", picked.text);
+    e.preventDefault();
+  });
+
+  document.addEventListener("cut", (e) => {
+    if (!canEdit || editing) return;
+    const picked = selection();
+    if (!picked.marked) return;
+    e.clipboardData.setData("text/plain", picked.text);
+    e.preventDefault();
+    window.getSelection().removeAllRanges();
+    remove(picked.blocks);
+    setStatus("Cut");
+  });
+
+  /** Text put down in a block. One line goes in where the caret is, as it
+   *  always has; more than one is an outline and is laid down as blocks. */
+  async function onPaste(e, node, ta) {
+    const text = (e.clipboardData || window.clipboardData).getData("text/plain");
+    if (!text || !/\r|\n/.test(text.trim())) return;   // single line: as before
+    e.preventDefault();
+    const fd = new FormData();
+    fd.append("csrf_token", csrf());
+    fd.append("text", text);
+    const data = await fetch("/notes/parse", {
+      method: "POST", body: fd, credentials: "same-origin",
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+    }).then((r) => r.json()).catch(() => null);
+    const fresh = data && data.blocks && data.blocks.length ? link(data.blocks) : null;
+    if (!fresh) return;
+
+    node.content = ta.value;
+    let after = node;
+    if (!node.content.trim()) {
+      // An empty block is a place to put things, not a thing: replace it.
+      const first = fresh.shift();
+      node.content = first.content;
+      node.props = first.props;
+      first.children.forEach((kid) => { kid.parent = node; node.children.push(kid); });
+      ta.value = node.content;
+    }
+    placeTree(node);
+    fresh.forEach((block) => {
+      insertAfter(after, block);
+      placeTree(block);
+      after = block;
+    });
+    commit(node, allNodes(fresh));
+    repaintAll();
+    focusBlock(after, "end");
+  }
 
   // ---- saving --------------------------------------------------------------
 
