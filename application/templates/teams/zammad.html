@@ -193,6 +193,15 @@
           {% if stats.time_skipped_old %}
             <li>Bookings before the cutoff, left alone: {{ stats.time_skipped_old }}</li>
           {% endif %}
+          {% if stats.time_skipped_unlinked %}
+            <li class="text-warning">
+              {{ stats.time_skipped_unlinked }} ticket(s) carry time with nowhere
+              to book it — they are unfiled or sit under a folder that isn't
+              linked to a billing project. The hours stay in Zammad and come in
+              the next time the sync looks at the ticket, which for an unchanged
+              ticket means a run with “check every ticket”. File them, or switch
+              on “Create customers from Zammad organisations”.</li>
+          {% endif %}
           {% if stats.time_customers_created %}
             <li>Customers created from organisations: {{ stats.time_customers_created }}</li>
           {% endif %}
