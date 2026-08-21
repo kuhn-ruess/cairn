@@ -2884,7 +2884,7 @@ body.ps-resizing * {
    was about gets the wide middle; where it bills sits under it, quiet. */
 .tt-row-grid {
   display: grid;
-  grid-template-columns: 5.5rem minmax(0, 1fr) 4.25rem auto;
+  grid-template-columns: 5.75rem minmax(0, 1fr) 5rem auto;
   grid-template-areas: "when main dur act";
   align-items: baseline;
   column-gap: .75rem;
@@ -2932,7 +2932,8 @@ body.ps-resizing * {
 .tt-row-meta a { color: var(--gv-fg3); }
 .tt-row-meta a:hover { color: var(--gv-yellow-br); }
 
-.tt-row-dur { font-weight: 600; color: var(--gv-fg0); }
+/* "12h 30m" is the longest this gets — it must never wrap into two lines. */
+.tt-row-dur { font-weight: 600; color: var(--gv-fg0); white-space: nowrap; }
 
 /* Row actions recede until the row is under the cursor — three icons per line
    were a column of noise down the page. Touch devices never hover, so there
