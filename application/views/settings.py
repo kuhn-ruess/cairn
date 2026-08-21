@@ -543,6 +543,26 @@ def inspector_layout():
     return render_template("settings/inspector_layout.html", layout=layout)
 
 
+@settings_bp.route("/inspector-layout/order", methods=["POST"])
+@login_required
+def inspector_layout_order():
+    """Save a new section order dragged in the inspector itself.
+
+    The same setting the layout page writes, from the place the sections
+    actually are — so arranging them doesn't mean going somewhere else and
+    imagining the result. Only the order moves here; showing and hiding stays
+    on the settings page, where there is room to explain it."""
+    from application.services.inspector_layout import reordered, resolved_layout
+
+    user = current_user._get_current_object()
+    shown = request.form.getlist("order[]") or request.form.getlist("order")
+    order = reordered(user, shown)
+    if order != [k for k, _ in resolved_layout(user)]:
+        user.inspector_layout = order
+        user.save()
+    return ("", 204)
+
+
 @settings_bp.route("/inspector-layout/reset", methods=["POST"])
 @login_required
 def inspector_layout_reset():

@@ -301,7 +301,8 @@
 
 {%- macro sec_checklist() -%}
   {% if task %}
-    <div class="inspector-section checklist-block" data-section="checklist" id="checklist"
+    <div class="inspector-section checklist-block" data-section="checklist"
+         data-section-key="checklist" id="checklist"
          data-collapsible>
       {% include "tasks/_checklist.html" %}
     </div>
@@ -312,7 +313,8 @@
   {% if task %}
     {% set tt = tt_task_time(task) %}
     {% if tt %}
-      <div class="inspector-section time-block" data-section="time" id="time" data-collapsible>
+      <div class="inspector-section time-block" data-section="time"
+           data-section-key="time" id="time" data-collapsible>
         {% include "timetracking/_task_time.html" %}
       </div>
     {% endif %}
@@ -324,7 +326,8 @@
      .dependencies-block wrappers (with their ids) are kept intact because
      related.js / dependencies.js swap their innerHTML after add/remove. #}
   {% if task %}
-    <div class="inspector-section" data-section="related" data-collapsible>
+    <div class="inspector-section" data-section="related" data-section-key="related"
+         data-collapsible>
       {{ block_header("related", "Related & Dependencies") }}
       <div class="section-collapsible">
         <div class="related-block" id="related">
@@ -342,7 +345,8 @@
 
 {%- macro sec_subtasks() -%}
   {% if task and task.kind == 'task' %}
-    <div class="inspector-section subtasks-block" data-section="subtasks">
+    <div class="inspector-section subtasks-block" data-section="subtasks"
+         data-section-key="subtasks">
       {% include "tasks/_subtasks.html" %}
     </div>
   {% endif %}
@@ -350,7 +354,8 @@
 
 {%- macro sec_comments() -%}
   {% if task %}
-    <div class="inspector-section comments-block" data-section="comments">
+    <div class="inspector-section comments-block" data-section="comments"
+         data-section-key="comments">
       <div class="d-flex align-items-center mb-2">
         <span class="form-label small text-uppercase text-muted mb-0">Comments</span>
         <span class="ms-2 badge text-bg-secondary">{{ task.comments|length }}</span>

@@ -57,3 +57,25 @@ def hidden_sections(user) -> set:
     would otherwise clear the parent, an absent ``assigned_to`` would unassign,
     an absent checkbox would unflag)."""
     return set(SECTION_KEYS) - set(visible_order(user))
+
+
+def reordered(user, shown: list) -> list:
+    """The saved order with ``shown`` rearranged into the order given.
+
+    Dragging happens in the inspector, which renders only what is visible —
+    and on the detail page not even all of that (comments and subtasks live in
+    their own column there). So the drop reports a *subset*, and the sections
+    it doesn't mention must keep their place rather than be shuffled to the end
+    where they'd resurface in a random order the next time they're shown.
+
+    Walk the saved order; every slot that holds one of the reported sections
+    takes the next one from the reported sequence, every other slot keeps what
+    it had. The subset is rearranged exactly where it already lived."""
+    known = set(SECTION_KEYS)
+    order = [k for k, _ in resolved_layout(user)]
+    moving = [k for k in dict.fromkeys(shown) if k in known and k in order]
+    if not moving:
+        return order
+    queue = iter(moving)
+    in_play = set(moving)
+    return [next(queue) if k in in_play else k for k in order]

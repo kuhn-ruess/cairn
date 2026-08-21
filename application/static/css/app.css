@@ -1182,6 +1182,35 @@ body.inspector-docked #bulk-bar {
 .inspector-section:last-of-type {
   margin-bottom: .85rem;
 }
+/* The drag grip (added by inspector-reorder.js). Out of the way until the
+   pointer is on the block: a handle on every section, always visible, would
+   read as clutter in a panel this dense. */
+.inspector-section[data-section-key] {
+  position: relative;
+}
+.inspector-grip {
+  position: absolute;
+  top: .35rem;
+  right: .4rem;
+  line-height: 1;
+  color: var(--gv-fg3);
+  opacity: 0;
+  cursor: grab;
+  transition: opacity .12s ease-in-out;
+}
+.inspector-section[data-section-key]:hover .inspector-grip,
+.inspector-grip:focus-visible {
+  opacity: .55;
+}
+.inspector-grip:active {
+  cursor: grabbing;
+  opacity: .9;
+}
+.inspector-section-ghost {
+  opacity: .35;
+  border-style: dashed;
+}
+
 /* Highlight the block you're currently editing so you never lose your place. */
 .inspector-section:focus-within {
   border-color: var(--gv-bg3);
