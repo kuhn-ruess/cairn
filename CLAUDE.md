@@ -213,7 +213,14 @@ Non-trivial logic that doesn't belong in a view or model lives here:
 - `todoist_import.py` — Todoist API ingest used by the CLI command
 - `zammad_billing.py` — where Zammad's time lands (one entry per ticket, day and agent: the day's bookings are summed into a single entry whose `external_ids` list the bookings it covers, so a re-sync updates the total instead of adding the parts beside it): customers auto-created from Zammad organisations (`external_id="zammad:org:<id>"`, one `intake` project per customer) and the team-level agent roster (`Team.zammad_agents`) that maps Zammad agents to Cairn accounts; assigning one re-attributes the time already booked
 - `cleanup.py` — per-user indexed bulk-delete of completed tasks past retention
-- `notes_sync.py` / `webdav.py` — the notes tree mirrored to a WebDAV folder as Markdown files (`_assets/<note-id>/` beside each note), **two-way**: each note stores `mirror_path` / `mirror_hash` / `mirror_tag`, the hash is the common ancestor, both sides changed → the file's version is parked as `… (conflict …).md` and comes back as its own note. A file gone trashes its note; a trashed note's file is deleted; an empty listing while notes claim files there deletes nothing. Config per user (`notes_mirror_*`), runs via Celery beat, `./cairn sync-notes`, or the button on Settings → Notes on a share
+- `notes_sync.py` / `webdav.py` — **Cairn's link syntaxes are translated in
+  the mirrored file** (`LinkMap`): `[[Title]]`, `((block-id))` and
+  `{{embed …}}` become relative Markdown links, so DEVONthink/Obsidian/any
+  editor can follow them. A reference keeps its id in the link's *fragment*
+  (`#block-…`, `#embed-…`) — other apps ignore it, and it is the only way the
+  id survives the round trip back. `LinkMap.path_of()` is the single answer to
+  "where does this note's file go"; do not call `path_for` a second time
+  alongside it. The notes tree mirrored to a WebDAV folder as Markdown files (`_assets/<note-id>/` beside each note), **two-way**: each note stores `mirror_path` / `mirror_hash` / `mirror_tag`, the hash is the common ancestor, both sides changed → the file's version is parked as `… (conflict …).md` and comes back as its own note. A file gone trashes its note; a trashed note's file is deleted; an empty listing while notes claim files there deletes nothing. Config per user (`notes_mirror_*`), runs via Celery beat, `./cairn sync-notes`, or the button on Settings → Notes on a share
 - `outline.py` — **a note body IS an outline.** `Item.note` stays one Markdown
   string, in Logseq's file format (one tab per level before the `- ` bullet, a
   block's further lines two spaces past it, `key:: value` on such a line being a

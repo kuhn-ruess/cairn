@@ -37,7 +37,9 @@ round before it writes, and the run is recorded in the sync log either way.
 from __future__ import annotations
 
 import hashlib
+import posixpath
 import re
+from urllib.parse import quote, unquote
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -108,14 +110,120 @@ def assets_dir(path: str, note_id) -> str:
     return f"{directory}/{tail}" if directory else tail
 
 
-def body_to_file(note, body: str, path: str) -> str:
-    """In-app attachment URLs → the relative paths the mirrored copy uses."""
+# ---------------------------------------------------------------------------
+# Links
+# ---------------------------------------------------------------------------
+
+# A Markdown link whose target is a local .md file, with an optional fragment:
+# what this module writes, and what it reads back.
+FILE_LINK_RE = re.compile(r"\[([^\]\n]*)\]\(([^)\s]+?\.md)(?:#([^)\s]*))?\)", re.I)
+
+
+class LinkMap:
+    """Everything needed to translate Cairn's link syntaxes into ordinary
+    Markdown links and back — built ONCE per round, not per note.
+
+    ``[[Title]]``, ``((block-id))`` and ``{{embed ((block-id))}}`` mean nothing
+    to anything but Cairn and Logseq, so in the mirrored folder they are
+    written as relative links to the target's file. DEVONthink, Obsidian, a
+    text editor and Quick Look all follow those.
+
+    A reference keeps its id in the link's FRAGMENT (``#block-<id>``,
+    ``#embed-<id>``). Other apps ignore a fragment they do not know and open
+    the file anyway — and it is the only way the id survives the round trip.
+    Drop it, and a block reference would come home as a plain note link, which
+    is a quiet loss of what the writer actually said.
+    """
+
+    def __init__(self, user, paths: dict):
+        from application.models.item import Item
+        self.by_title: dict = {}      # lowercased title -> (pk, path)
+        self.by_pk: dict = {}         # pk -> (title, path)
+        self.by_path: dict = {}       # lowercased file path -> pk
+        self.block_note: dict = {}    # block id -> pk
+        self._labels: dict = {}       # block id -> its text, parsed on demand
+        self._bodies: dict = {}       # pk -> body, for that parsing
+        taken: set = set()
+        for note in Item.objects(owner=user, kind="note").only(
+                "pk", "title", "note", "parent", "block_ids"):
+            path = path_for(note, paths, taken)
+            taken.add(path)
+            pk = str(note.pk)
+            key = (note.title or "").strip().lower()
+            if key and key not in self.by_title:
+                self.by_title[key] = (pk, path)
+            self.by_pk[pk] = (note.title or "", path)
+            self.by_path[path.lower()] = pk
+            self._bodies[pk] = note.note or ""
+            for bid in (note.block_ids or []):
+                self.block_note.setdefault(bid, pk)
+
+    def label(self, block_id: str) -> str:
+        """The referenced block's own text. Parsed only when a link needs it —
+        most notes reference nothing, and parsing every body to find that out
+        would be work done for nobody."""
+        if block_id in self._labels:
+            return self._labels[block_id]
+        from application.services import block_refs, outline
+        pk = self.block_note.get(block_id)
+        text = ""
+        if pk:
+            block = outline.find(outline.parse(self._bodies.get(pk, "")), block_id)
+            if block is not None:
+                text = block_refs.label_for(block)
+        self._labels[block_id] = text or (self.by_pk.get(pk, ("", ""))[0] if pk else "")
+        return self._labels[block_id]
+
+    def path_of(self, note) -> str:
+        """Where this note's file goes — the one answer everything uses."""
+        return self.by_pk.get(str(note.pk), ("", ""))[1]
+
+    def rel(self, target_path: str, from_path: str) -> str:
+        """``target`` as a link relative to the file holding it, URL-escaped."""
+        here = posixpath.dirname(from_path or "")
+        return quote(posixpath.relpath(target_path, here or "."), safe="/")
+
+    def resolve(self, href: str, from_path: str):
+        """A written link back to the note it points at, or None."""
+        target = posixpath.normpath(
+            posixpath.join(posixpath.dirname(from_path or ""), unquote(href)))
+        return self.by_path.get(target.lstrip("./").lower())
+
+
+def body_to_file(note, body: str, path: str, links=None) -> str:
+    """In-app attachment URLs → the relative paths the mirrored copy uses, and
+    Cairn's link syntaxes → ordinary Markdown links (see :class:`LinkMap`)."""
     for url, name, _data in _asset_names(note):
         body = body.replace(url, f"{ASSETS_DIR}/{note.pk}/{name}")
-    return body
+    if links is None:
+        return body
+
+    def block_link(block_id: str, kind: str) -> str:
+        pk = links.block_note.get(block_id)
+        if not pk:
+            return ""
+        title, target = links.by_pk[pk]
+        label = links.label(block_id) or title or "block"
+        return f"[{label}]({links.rel(target, path)}#{kind}-{block_id})"
+
+    def wiki(m):
+        target = (m.group(1) or "").strip()
+        label = (m.group(2) or "").strip() or target
+        hit = links.by_title.get(target.lower())
+        # No such note: leave the wiki link alone rather than writing a link to
+        # a file that is not there.
+        return f"[{label}]({links.rel(hit[1], path)})" if hit else m.group(0)
+
+    from application.services import block_refs, note_links
+    # Embeds first: their text contains a plain reference.
+    body = block_refs.EMBED_ANY_RE.sub(
+        lambda m: block_link(m.group(1), "embed") or m.group(0), body)
+    body = block_refs.BLOCKREF_RE.sub(
+        lambda m: block_link(m.group(1), "block") or m.group(0), body)
+    return note_links.WIKILINK_RE.sub(wiki, body)
 
 
-def body_from_file(note, body: str) -> str:
+def body_from_file(note, body: str, path: str = "", links=None) -> str:
     """The reverse. Written loosely on purpose: an editor may have moved the
     file (and with it the number of ``../``), and the app only cares about the
     note id and file name."""
@@ -128,10 +236,25 @@ def body_from_file(note, body: str) -> str:
     def repl(m):
         return by_name.get(m.group(1), m.group(0))
 
-    return pattern.sub(repl, body)
+    body = pattern.sub(repl, body)
+    if links is None:
+        return body
+
+    def unlink(m):
+        label, href, frag = m.group(1), m.group(2), (m.group(3) or "")
+        for kind, shape in (("embed-", "{{embed ((%s))}}"), ("block-", "((%s))")):
+            if frag.startswith(kind):
+                return shape % frag[len(kind):]
+        pk = links.resolve(href, path)
+        if not pk:
+            return m.group(0)          # a link to something else: leave it be
+        title = links.by_pk[pk][0]
+        return f"[[{title}]]" if label == title else f"[[{title}|{label}]]"
+
+    return FILE_LINK_RE.sub(unlink, body)
 
 
-def render(note, path: str) -> str:
+def render(note, path: str, links=None) -> str:
     """The complete file for ``note``: front matter, then the body."""
     tags = ", ".join(note.tags or [])
     head = [
@@ -144,7 +267,7 @@ def render(note, path: str) -> str:
         "---",
         "",
     ]
-    body = body_to_file(note, note.note or "", path)
+    body = body_to_file(note, note.note or "", path, links)
     return "\n".join(head) + body
 
 
@@ -295,6 +418,9 @@ class _Round:
         self.stats = stats
         self.dry_run = dry_run
         self.paths = folder_paths(user)
+        # Where every note lives and which blocks it holds — built once, so a
+        # note with links costs no queries of its own (see LinkMap).
+        self.links = LinkMap(user, self.paths)
         self.handled: set[str] = set()
 
     # ---------- the pass ----------
@@ -349,9 +475,12 @@ class _Round:
                     self.client.makedirs(folder_path)
                 self.stats.folders_created += 1
 
-        taken = set()
         for note in notes:
-            want = path_for(note, self.paths, taken)
+            # The map already worked out where every note goes; asking
+            # path_for a second time would run the same-name disambiguation
+            # over again and could land on a different answer, which is a link
+            # pointing at the wrong file.
+            want = self.links.path_of(note) or path_for(note, self.paths, set())
             try:
                 self.one(note, want)
             except DavError as exc:
@@ -368,7 +497,7 @@ class _Round:
     # ---------- one note ----------
 
     def one(self, note, want_path: str) -> None:
-        local_text = render(note, want_path)
+        local_text = render(note, want_path, self.links)
         local_hash = _hash(local_text)
         path = note.mirror_path or ""
         entry = self.files.get(path) if path else None
@@ -524,7 +653,7 @@ class _Round:
         """The file won: take its text (title, tags, body) into the note, then
         write the note back so the file carries current front matter again."""
         meta, body = parse(remote_text)
-        note.note = body_from_file(note, body)
+        note.note = body_from_file(note, body, path, self.links)
         self._title_from(note, meta, path)
         tags = meta.get("tags")
         if isinstance(tags, list):
@@ -542,7 +671,7 @@ class _Round:
         self.stats.notes_updated += 1
         # Write back: the body came from there, but ``updated`` moved, and a
         # stale one would read as a change next round and push for nothing.
-        self.write(note, path, render(note, path))
+        self.write(note, path, render(note, path, self.links))
         self.stats.files_written -= 1          # the same file, not a second
         if was_at and assets_dir(was_at, note.pk) != assets_dir(path, note.pk):
             # It was dragged into another folder over there; its attachments
@@ -553,7 +682,10 @@ class _Round:
         """A file no note claimed and whose id we don't know: import it."""
         stem = path.rsplit("/", 1)[-1][: -len(MD)]
         title = (meta.get("title") or "").strip() or stem
-        note = Item(owner=self.user, kind="note", title=title, note=body)
+        note = Item(owner=self.user, kind="note", title=title)
+        # Links to other notes' files become [[wiki links]] here too, the same
+        # way they do when a tracked file wins a round.
+        note.note = body_from_file(note, body, path, self.links)
         tags = meta.get("tags")
         if isinstance(tags, list):
             note.tags = [t for t in tags if t]
@@ -565,7 +697,7 @@ class _Round:
         self.stats.notes_created += 1
         # Write it back so the file gains its cairn-id and is tracked from now
         # on — at the path it already has, so nothing moves under the user.
-        self.write(note, path, render(note, path))
+        self.write(note, path, render(note, path, self.links))
         self.stats.files_written -= 1
 
     def drop_files_of_trashed_notes(self) -> None:
