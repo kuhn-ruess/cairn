@@ -171,7 +171,8 @@
           {% endif %}
         </div>
       </div>
-      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('teams.zammad') }}">
+      <a class="btn btn-sm btn-outline-secondary"
+         href="{{ url_for('teams.zammad', team=team.pk|string) }}">
         {{ 'Settings' if team.zammad_url else 'Connect' }}</a>
     </div>
   </div>

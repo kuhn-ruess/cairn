@@ -16,7 +16,7 @@
     project — you don't need a sync of your own, and two of them fetch the same
     tickets twice. Switch yours off below.
     {% if can_map %}
-      <a href="{{ url_for('teams.zammad') }}">Team settings</a>
+      <a href="{{ url_for('teams.zammad', team=team.pk|string) }}">Team settings</a>
     {% endif %}
   </div>
 {% endif %}

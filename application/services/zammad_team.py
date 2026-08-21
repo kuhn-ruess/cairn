@@ -370,3 +370,46 @@ def purge_team_import(team, *, dry_run: bool = True, tasks: bool = True,
         if not dry_run:
             customer.delete()
     return out
+
+
+# Fields that make up "the connection" — everything the Zammad page writes.
+# The token isn't here because it is encrypted against the team's id and has to
+# be re-encrypted for the new one (services.crypto), not copied.
+_CONNECTION_FIELDS = (
+    "zammad_url", "zammad_auto_sync", "zammad_import_time",
+    "zammad_time_auto_customer", "zammad_time_from", "zammad_include_closed",
+    "last_zammad_sync_at",
+)
+
+
+def move_team_connection(src, dst) -> dict:
+    """Move a Zammad connection (settings, token, agent roster) between teams.
+
+    Configuring the connection under the wrong team is easy to do and annoying
+    to undo by hand — the token is write-only in the UI and the agent roster is
+    the work of several syncs. So this moves the whole thing in one step and
+    leaves the old team without a connection, because two teams pointing at the
+    same instance would both sync it.
+
+    What was already *imported* stays where it is: those tasks, customers and
+    hours belong to whoever they were booked for. Use ``purge_team_import`` on
+    the old team and sync the new one if the data should move too."""
+    from application.services.crypto import decrypt_for, encrypt_for
+
+    for name in _CONNECTION_FIELDS:
+        setattr(dst, name, getattr(src, name))
+    dst.zammad_token = encrypt_for(dst, decrypt_for(src, src.zammad_token))
+    dst.zammad_agents = list(src.zammad_agents or [])
+    dst.save()
+
+    src.zammad_url = ""
+    src.zammad_token = ""
+    src.zammad_auto_sync = False
+    src.zammad_import_time = True
+    src.zammad_time_auto_customer = False
+    src.zammad_time_from = ""
+    src.zammad_include_closed = False
+    src.last_zammad_sync_at = None
+    src.zammad_agents = []
+    src.save()
+    return {"agents": len(dst.zammad_agents or [])}

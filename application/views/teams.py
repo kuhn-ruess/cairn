@@ -20,13 +20,18 @@ def _user_teams(user) -> list[Team]:
 
 
 def _select_team(user) -> Team | None:
-    """Pick which team to show on the page.
+    """Pick which team to show — and, on a POST, which team to *write to*.
 
-    ``?team=<pk>`` switches to any team the user is in (member or manager);
+    ``team=<pk>`` switches to any team the user is in (member or manager);
     otherwise default to a team they manage, then any team they're in.
+
+    It is read from ``request.values``, so a form's hidden ``team`` field counts
+    as much as the query string: a page reached with ``?team=`` used to post
+    back without it and silently save to the default team instead of the one on
+    screen — the settings landed in a team the user was not looking at.
     """
     teams = _user_teams(user)
-    raw = request.args.get("team")
+    raw = request.values.get("team")
     if raw:
         for t in teams:
             if str(t.pk) == raw:
@@ -345,7 +350,9 @@ def zammad():
     from application.services.crypto import decrypt_for, encrypt_for  # noqa: F401
     from application.services.permissions import team_members
     from application.services.zammad_import import ZammadError
-    from application.services.zammad_team import purge_team_import, sync_team
+    from application.services.zammad_team import (
+        move_team_connection, purge_team_import, sync_team,
+    )
 
     user = current_user._get_current_object()
     team = _select_team(user)
@@ -356,7 +363,26 @@ def zammad():
 
     stats = purge = None
     if request.method == "POST":
+        # Every form here says which team it means. Refuse the ones that don't
+        # rather than fall back to the default team — writing a connection into
+        # a team the user wasn't looking at is exactly the bug this prevents.
+        if (request.form.get("team") or "") != str(team.pk):
+            abort(400)
         action = request.form.get("action")
+        if action == "move":
+            # Matched against the teams this user manages rather than looked up
+            # by id — an id from elsewhere is then simply not a target.
+            wanted = (request.form.get("target") or "").strip()
+            target = next((t for t in _user_teams(user) if str(t.pk) == wanted
+                           and t != team and t.is_managed_by(user)), None)
+            if not target:
+                abort(403)
+            moved = move_team_connection(team, target)
+            flash(f"Zammad connection moved to {target.name} "
+                  f"(including {moved['agents']} agent mapping"
+                  f"{'' if moved['agents'] == 1 else 's'}). What was already "
+                  f"imported stayed with {team.name}.", "success")
+            return redirect(url_for("teams.zammad", team=str(target.pk)))
         url = (request.form.get("url") or "").strip()
         if url or request.form.get("token"):
             team.zammad_url = url
@@ -415,8 +441,12 @@ def zammad():
         rows.append({"user": m, "matched": str(m.pk) in mapped,
                      "target": target.title if target else ""})
     from application.services import sync_log
+    teams = _user_teams(user)
     return render_template(
-        "teams/zammad.html", team=team, all_teams=_user_teams(user),
+        "teams/zammad.html", team=team, all_teams=teams,
+        # Where the connection could be moved to: the other teams this user
+        # manages — moving it into a team you can't administer is not a fix.
+        move_targets=[t for t in teams if t != team and t.is_managed_by(user)],
         stats=stats, purge=purge, members=rows,
         # What the syncs have been doing — the team's own runs and its members'
         # personal ones, because "why is there no time from Tuesday" is the same

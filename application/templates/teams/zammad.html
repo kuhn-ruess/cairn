@@ -3,9 +3,29 @@
 {% block content %}
 <div style="max-width: 60rem;">
   <div class="small text-muted mb-1">
-    <a href="{{ url_for('teams.index') }}">{{ team.name }}</a> › Zammad
+    <a href="{{ url_for('teams.index', team=team.pk|string) }}">{{ team.name }}</a> › Zammad
   </div>
-  <h1 class="h4 mb-1"><i class="bi bi-life-preserver"></i> Zammad for {{ team.name }}</h1>
+  <div class="d-flex align-items-center gap-2 mb-1">
+    <h1 class="h4 mb-0 me-auto">
+      <i class="bi bi-life-preserver"></i> Zammad for {{ team.name }}</h1>
+    {% if all_teams and all_teams|length > 1 %}
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                data-bs-toggle="dropdown" title="Switch team">
+          <i class="bi bi-arrow-left-right"></i> Switch team
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          {% for t in all_teams %}
+            <li><a class="dropdown-item {% if t == team %}active{% endif %}"
+                   href="{{ url_for('teams.zammad', team=t.pk|string) }}">
+              {{ t.name }}
+              {% if t.zammad_url %}<i class="bi bi-link-45deg text-muted"></i>{% endif %}
+            </a></li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+  </div>
   <p class="text-muted small">
     One connection for the whole team instead of one per member. A service token
     reads the instance once; every ticket is filed under the person who owns it
@@ -18,6 +38,7 @@
   <form method="post" class="card mb-4">
     <div class="card-body">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="team" value="{{ team.pk }}">
       <input type="hidden" name="team" value="{{ team.pk }}">
 
       <div class="row g-3">
@@ -269,6 +290,44 @@
     </div>
   {% endif %}
 
+  {# ---- Configured under the wrong team? --------------------------------- #}
+  {% if move_targets and (team.zammad_url or has_token or team.zammad_agents) %}
+    <div class="card my-4">
+      <div class="card-header py-2">
+        <strong class="small">
+          <i class="bi bi-box-arrow-right"></i> Move this connection</strong>
+        <span class="text-muted small">— if it ended up under the wrong team</span>
+      </div>
+      <div class="card-body">
+        <p class="form-text small mt-0">
+          Takes the whole connection to another team you manage: URL, service
+          token, the options above and the
+          {{ team.zammad_agents|length }} agent mapping{{ '' if team.zammad_agents|length == 1 else 's' }}.
+          {{ team.name }} is left without a connection afterwards, so only one
+          team syncs the instance. What was already imported —
+          tasks, customers, booked hours — stays with {{ team.name }}; remove it
+          below and sync the other team if it should move as well.
+        </p>
+        <form method="post" class="d-flex gap-2 align-items-center flex-wrap">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="team" value="{{ team.pk }}">
+          <select name="target" class="form-select form-select-sm"
+                  style="max-width: 20rem;" required>
+            <option value="">Move to…</option>
+            {% for t in move_targets %}
+              <option value="{{ t.pk }}">
+                {{ t.name }}{% if t.zammad_url %} — replaces its connection{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-sm btn-outline-primary" name="action" value="move"
+                  onclick="return confirm('Move the Zammad connection to the selected team?');">
+            Move connection</button>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+
   {# ---- The way back ---------------------------------------------------- #}
   <div class="card border-danger my-4">
     <div class="card-header py-2">
@@ -322,6 +381,6 @@
   </div>
 
   <a class="btn btn-sm btn-outline-secondary"
-     href="{{ url_for('teams.index') }}">Back to {{ team.name }}</a>
+     href="{{ url_for('teams.index', team=team.pk|string) }}">Back to {{ team.name }}</a>
 </div>
 {% endblock %}
