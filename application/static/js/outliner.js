@@ -584,7 +584,12 @@
       paint(node);
       if (await save() === false) { delete node.props.id; paint(node); return; }
     }
-    window.location.search = `?zoom=${node.props.id}`;
+    // Only the zoom changes. Assigning to location.search would drop the
+    // folder, tag, search and sort the middle column is standing on, and the
+    // reader would land on the same note with "all notes" beside it.
+    const args = new URLSearchParams(window.location.search);
+    args.set("zoom", node.props.id);
+    window.location.search = args.toString();
   }
 
   /** "Copy block ref" — mints the id, saves, and puts ((id)) on the clipboard. */

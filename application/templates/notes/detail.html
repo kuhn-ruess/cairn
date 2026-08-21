@@ -102,6 +102,16 @@
      trailing ⁺, this just keeps it visually quieter than a real link. */
   #note-outline a[href*="/notes/new"] { color: var(--bs-secondary-color); }
   #note-save-status { min-height: 1.2rem; }
+
+  /* The shortcut sheet behind the "?" — two columns, keys against what they
+     do, so it can be scanned rather than read. */
+  .note-help { min-width: 21rem; max-width: 25rem; }
+  .note-help-keys {
+    display: grid; grid-template-columns: auto 1fr; gap: .35rem .8rem;
+    align-items: baseline; font-size: .82rem;
+  }
+  .note-help-keys dt { font-weight: 400; white-space: nowrap; }
+  .note-help-keys dd { margin: 0; color: var(--bs-secondary-color); }
   /* Floating "Create tasks" button, parked above the marked text. */
   .note-sel-capture { position: absolute; z-index: 1080; white-space: nowrap; }
   /* [[ autocomplete, positioned at the caret. */
@@ -132,6 +142,33 @@
               title="Show/hide the note list"><i class="bi bi-list-ul"></i></button>
       {{ fav.star("item:" ~ note.pk, "fs-5") }}
       <span id="note-save-status" class="small text-muted ms-auto"></span>
+      {% if can_edit %}
+        {# The outliner's keys, on ask. They were a paragraph under the note,
+           which is the one place they are of no use: you need them while your
+           hands are on the keyboard, and after the second note they are just
+           furniture. #}
+        <div class="dropdown">
+          <button type="button" class="btn btn-sm btn-outline-secondary"
+                  data-bs-toggle="dropdown" data-bs-auto-close="outside"
+                  title="Keyboard shortcuts"><i class="bi bi-question-circle"></i></button>
+          <div class="dropdown-menu dropdown-menu-end note-help p-3">
+            <p class="small text-muted mb-2">Changes save themselves.</p>
+            <dl class="note-help-keys mb-0">
+              <dt><kbd>Enter</kbd></dt><dd>New block</dd>
+              <dt><kbd>⇧Enter</kbd></dt><dd>New line inside the block</dd>
+              <dt><kbd>Tab</kbd> · <kbd>⇧Tab</kbd></dt><dd>Move it in and out</dd>
+              <dt><kbd>⌥⇧↑</kbd> · <kbd>⌥⇧↓</kbd></dt><dd>Move it up and down</dd>
+              <dt><kbd>⌫</kbd></dt><dd>At the start of a block, merge it into the one above</dd>
+              <dt><kbd>{{ '⌘' }}/Ctrl+↩</kbd></dt><dd>Cycle TODO → DOING → DONE</dd>
+              <dt>Click a bullet</dt><dd>Zoom into that block</dd>
+              <dt>Right-click a bullet</dt><dd>Copy a <code>((block reference))</code></dd>
+              <dt><code>/</code></dt><dd>Commands — links, tables, code, today's date</dd>
+              <dt><code>[[</code></dt><dd>Link another note</dd>
+              <dt><code>- [ ]</code></dt><dd>Make the block a checkbox</dd>
+            </dl>
+          </div>
+        </div>
+      {% endif %}
       <button type="button" class="btn btn-sm btn-outline-secondary" data-toggle-column="inspector"
               title="Show/hide the info panel"><i class="bi bi-info-circle"></i></button>
       <div class="dropdown">
@@ -197,11 +234,11 @@
            static/js/outliner.js edits them and writes the body back. ---- #}
     {% if zoom %}
       <nav class="ol-crumbs small mb-2">
-        <a href="{{ url_for('notes.detail', note_id=note.pk) }}">{{ note.title }}</a>
+        <a href="{{ url_for('notes.detail', note_id=note.pk, **list_args) }}">{{ note.title }}</a>
         {% for b in zoom_trail %}
           <span class="mx-1">›</span>
           {% if b.uuid %}
-            <a href="{{ url_for('notes.detail', note_id=note.pk, zoom=b.uuid) }}">{{ b.label }}</a>
+            <a href="{{ url_for('notes.detail', note_id=note.pk, zoom=b.uuid, **list_args) }}">{{ b.label }}</a>
           {% else %}<span>{{ b.label }}</span>{% endif %}
         {% endfor %}
       </nav>
@@ -216,16 +253,6 @@
        serialize back. See static/js/outliner.js. #}
     <script type="application/json" id="note-blocks">{{ blocks_json|safe }}</script>
     <ul class="list-group shadow-sm" id="wiki-complete"></ul>
-    {% if can_edit %}
-      <p class="small text-muted mb-4 note-doc-hint">
-        Changes save themselves. <kbd>Enter</kbd> starts a block,
-        <kbd>Tab</kbd> / <kbd>⇧Tab</kbd> move it in and out,
-        <kbd>⌥⇧↑</kbd>/<kbd>↓</kbd> move it up and down. Click a bullet to zoom
-        in, right-click it to copy a <code>((block reference))</code>.
-        <kbd>{{ '⌘' }}/Ctrl+↩</kbd> cycles TODO. Type <code>/</code> for
-        commands and <code>[[</code> to link another note.
-      </p>
-    {% endif %}
     {% with item=note %}{% include "layout/_storage_meter.html" %}{% endwith %}
    </div>{# /.note-doc-inner #}
   </div>

@@ -225,6 +225,14 @@ def _list_context(user, tree, args):
         sort = "updated"
     return {
         "rows": _note_rows(user, tree, folder=folder, tag=tag, q=q, sort=sort),
+        # What the middle column is currently showing, as query args. Any link
+        # that stays on the SAME note (zoom, the way back out of a zoom) has to
+        # carry these, or the folder the reader is working in silently resets
+        # to "all notes" underneath them.
+        "list_args": {k: v for k, v in (
+            ("folder", folder), ("tag", tag), ("q", q),
+            ("sort", sort if sort != "updated" else ""),
+        ) if v},
         "list_folder": folder,
         "list_tag": tag,
         "list_q": q,
