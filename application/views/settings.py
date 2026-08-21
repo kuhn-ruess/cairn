@@ -21,7 +21,7 @@ from application.services.calendar_sync import (
 )
 from application.services.todoist_import import TodoistError, import_for_user
 from application.services.zammad_import import (
-    ZammadError, import_for_user as zammad_import_for_user,
+    ZammadError, default_time_from, import_for_user as zammad_import_for_user,
 )
 
 settings_bp = Blueprint("settings", __name__, url_prefix="/settings")
@@ -650,7 +650,9 @@ def zammad():
         user.zammad_include_closed = bool(form.include_closed.data)
         user.zammad_import_time = bool(form.import_time.data)
         user.zammad_time_auto_customer = bool(form.auto_customer.data)
-        user.zammad_time_from = _valid_day(form.time_from.data)
+        # Empty is not "import everything" — see zammad_import.default_time_from.
+        user.zammad_time_from = (_valid_day(form.time_from.data)
+                                 or default_time_from(user))
         user.save()
 
     if form.validate_on_submit():
@@ -686,7 +688,8 @@ def zammad():
         # below once the sync succeeded).
         user.zammad_import_time = bool(form.import_time.data)
         user.zammad_time_auto_customer = bool(form.auto_customer.data)
-        user.zammad_time_from = _valid_day(form.time_from.data)
+        user.zammad_time_from = (_valid_day(form.time_from.data)
+                                 or default_time_from(user))
         try:
             stats = zammad_import_for_user(
                 user, url, token,

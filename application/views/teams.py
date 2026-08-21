@@ -349,7 +349,7 @@ def zammad():
     the reason it lives somewhere."""
     from application.services.crypto import decrypt_for, encrypt_for  # noqa: F401
     from application.services.permissions import team_members
-    from application.services.zammad_import import ZammadError
+    from application.services.zammad_import import ZammadError, default_time_from
     from application.services.zammad_team import (
         move_team_connection, purge_team_import, sync_team,
     )
@@ -393,7 +393,9 @@ def zammad():
         team.zammad_import_time = request.form.get("import_time") == "1"
         team.zammad_time_auto_customer = request.form.get("auto_customer") == "1"
         team.zammad_include_closed = request.form.get("include_closed") == "1"
-        team.zammad_time_from = _valid_day(request.form.get("time_from"))
+        # Empty is not "import everything" — see zammad_import.default_time_from.
+        team.zammad_time_from = (_valid_day(request.form.get("time_from"))
+                                 or default_time_from())
         team.save()
         if action in ("preview-purge", "purge"):
             # The way back, in two steps: see what would go, then type the

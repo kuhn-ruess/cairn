@@ -843,6 +843,19 @@ def _ticket_minutes(raw: dict):
         return None
 
 
+def default_time_from(user=None) -> str:
+    """The cutoff a connection starts with when nobody typed one: today.
+
+    An empty cutoff means "book every hour this instance ever recorded", and
+    those hours are usually already here from wherever time was kept before
+    (mite) — under that system's own ids, which nothing can match against
+    Zammad's. So they arrive a second time. A connection therefore goes live
+    *today* and only reaches into the past when someone asks it to by naming a
+    day."""
+    from application.services.tz import user_zone
+    return datetime.now(user_zone(user)).date().isoformat()
+
+
 def _ticket_has_time(raw: dict) -> bool:
     """Worth asking ``/time_accountings`` about? Unknown counts as yes — an
     install that doesn't maintain ``time_unit`` must not silently lose time."""

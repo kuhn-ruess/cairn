@@ -103,6 +103,16 @@ def sync_team(team, *, full: bool = False, dry_run: bool = False,
             minutes=zi._SINCE_OVERLAP_MIN)
         stats.since = since
 
+    # A connection goes live the day it first runs. Without a cutoff the run
+    # would book the instance's whole time history — hours that are already
+    # here from mite, under ids nothing can match against Zammad's, so they'd
+    # arrive a second time. Stamped once and then left alone, so this is a
+    # go-live date and not a rolling "today" that drops yesterday's bookings.
+    if not (team.zammad_time_from or "").strip():
+        team.zammad_time_from = zi.default_time_from()
+        if not dry_run:
+            team.save()
+
     opts = zi.TimeOptions.for_team(team)
     members = team_members(team)
     owners = _owner_map(team)

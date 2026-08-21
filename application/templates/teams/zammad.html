@@ -107,7 +107,10 @@
         <input type="date" name="time_from" value="{{ team.zammad_time_from or '' }}"
                class="form-control form-control-sm">
         <div class="form-text small">
-          The day this team went live here. Older bookings stay where they are.
+          The day this team went live here. Older bookings stay where they are —
+          they are usually already booked from whatever kept the time before,
+          and nothing can match those entries against Zammad's. Left empty, this
+          becomes the day of the first run.
         </div>
       </div>
 
