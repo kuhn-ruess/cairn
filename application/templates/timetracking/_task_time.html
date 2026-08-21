@@ -15,7 +15,7 @@
   Time tracking
   <span class="text-muted">({{ tt.total_minutes|duration }})</span>
   {% if tt.project %}
-    <span class="badge text-bg-light text-muted"
+    <span class="badge tt-chip"
           title="Billing project inherited from this task's project/folder">
       <i class="bi bi-receipt"></i>
       {% if tt.project_customer %}{{ tt.project_customer }} › {% endif %}{{ tt.project.name }}</span>
@@ -73,10 +73,10 @@
         {% endif %}
         {% if e.user_name %}<span class="small text-muted">· {{ e.user_name }}</span>{% endif %}
         {% if not e.billable %}
-          <span class="badge text-bg-secondary" title="Non-billable">n/b</span>
+          <span class="badge tt-chip-warn" title="Non-billable">n/b</span>
         {% endif %}
         {% for c in e.custom %}
-          <span class="badge text-bg-light text-muted" title="{{ c.label }}">
+          <span class="badge tt-chip" title="{{ c.label }}">
             {{ c.label }}: {{ c.value }}</span>
         {% endfor %}
         {% if e.locked %}

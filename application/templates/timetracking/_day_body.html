@@ -8,7 +8,7 @@
 {# ---- Week at a glance ---- #}
 <div class="btn-group btn-group-sm w-100 mb-3 tt-week" role="group">
   {% for w in d.week %}
-    <a class="btn {{ 'btn-primary' if w.is_day else 'btn-outline-secondary' }} d-flex flex-column py-1"
+    <a class="btn btn-outline-secondary {{ 'tt-day-on' if w.is_day }} d-flex flex-column py-1"
        href="{{ url_for('timetracking.day', d=w.date.isoformat()) }}">
       <span class="small">{{ w.date.strftime('%a %d.%m.') }}</span>
       <span class="fw-semibold">{{ w.minutes|duration if w.minutes else '–' }}</span>
@@ -73,7 +73,7 @@
     {% for e in d.entries %}
       <div class="list-group-item py-2">
         <div class="d-flex align-items-center gap-2 flex-wrap">
-          <span class="badge text-bg-light text-muted text-truncate" style="max-width: 18rem;"
+          <span class="badge tt-chip text-truncate" style="max-width: 18rem;"
                 title="{{ e.customer }} › {{ e.project }}">
             <i class="bi bi-receipt"></i> {{ e.customer }} › {{ e.project }}</span>
           {% if e.start_time %}
@@ -81,10 +81,10 @@
               {{ e.start_time }}–{{ e.end_time }}</span>
           {% endif %}
           <span class="flex-grow-1 text-truncate">
-            {% if e.service %}<span class="badge text-bg-light text-muted"
+            {% if e.service %}<span class="badge tt-chip"
               title="Service (imported from mite)">{{ e.service }}</span>{% endif %}
             {% for c in e.custom %}
-              <span class="badge text-bg-light text-muted"
+              <span class="badge tt-chip"
                     title="{{ c.label }}">{{ c.label }}: {{ c.value }}</span>
             {% endfor %}
             {% if e.external_ref %}
@@ -101,7 +101,7 @@
                 <i class="bi bi-link-45deg"></i>{{ e.source_label or 'task' }}</a>
             {% endif %}
           </span>
-          {% if not e.billable %}<span class="badge text-bg-secondary" title="Non-billable">n/b</span>{% endif %}
+          {% if not e.billable %}<span class="badge tt-chip-warn" title="Non-billable">n/b</span>{% endif %}
           <strong class="font-monospace">{{ e.minutes|duration }}</strong>
           {% if e.locked %}
             <span class="text-muted small" title="Billed — locked"><i class="bi bi-lock"></i></span>
@@ -181,7 +181,7 @@
       <div class="list-group mt-1">
         {% for e in d.removed %}
           <div class="list-group-item py-1 d-flex align-items-center gap-2 small text-muted">
-            <span class="badge text-bg-light text-muted">{{ e.project }}</span>
+            <span class="badge tt-chip">{{ e.project }}</span>
             <span class="flex-grow-1 text-truncate text-decoration-line-through">{{ e.note or '—' }}</span>
             <strong class="font-monospace">{{ e.minutes|duration }}</strong>
             <button type="button" class="btn btn-sm btn-link p-0 time-restore"

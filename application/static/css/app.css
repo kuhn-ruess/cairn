@@ -2861,3 +2861,34 @@ body.ps-resizing * {
                background: none; color: var(--gv-fg1); font-size: .85rem;
                padding: .3rem .45rem; border-radius: .25rem; }
 .tt-pick-opt:hover, .tt-pick-opt.active { background: var(--gv-bg2); }
+
+
+/* ---- Day sheet: week strip + entry chips --------------------------------
+   Two things shouted louder than they were worth. The selected day used to be
+   a filled yellow button, so the hours printed on it sat dark-on-bright and
+   were the hardest number on the page to read — it now marks itself the way
+   the toolbar pills do, tinted and outlined, with the text staying light. And
+   the per-entry badges (customer › project, service, custom fields) were solid
+   blocks competing with the note they describe; as outlined chips they still
+   group but no longer pull the eye. */
+.tt-week .tt-day-on,
+.tt-week .tt-day-on:hover,
+.tt-week .tt-day-on:focus {
+  background: var(--bs-primary-bg-subtle);
+  border-color: var(--gv-yellow);
+  color: var(--gv-fg0);
+}
+.tt-week .tt-day-on .fw-semibold { color: var(--gv-yellow-br); }
+
+.tt-chip.badge {
+  background: transparent !important;
+  border: 1px solid var(--bs-border-color);
+  color: var(--gv-fg3) !important;
+  font-weight: 400;
+}
+.tt-chip-warn.badge {
+  background: transparent !important;
+  border: 1px solid var(--gv-orange);
+  color: var(--gv-orange-br) !important;
+  font-weight: 400;
+}
