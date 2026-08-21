@@ -31,8 +31,16 @@ from mongoengine import Q
 # ``((0193f2a1-6c2e-7a10-9f1b-2c4d5e6f7a8b))``. Deliberately narrow: prose is
 # full of doubled parentheses, and only something shaped like an id may match.
 BLOCKREF_RE = re.compile(r"\(\(([0-9a-fA-F][0-9a-fA-F-]{7,63})\)\)")
-# ``{{embed ((uuid))}}`` — the whole of a block's content, nothing else.
-EMBED_RE = re.compile(r"^\{\{embed\s+\(\(([0-9a-fA-F][0-9a-fA-F-]{7,63})\)\)\}\}$")
+# ``{{embed ((uuid))}}``. Written by hand as often as pasted, so every
+# reasonable spelling of it counts: spaces inside the braces or none at all,
+# any capitalisation. A directive that is only ALMOST right renders as its own
+# source text, which reads as the feature doing nothing.
+_EMBED = r"\{\{\s*embed\s*\(\(([0-9a-fA-F][0-9a-fA-F-]{7,63})\)\)\s*\}\}"
+# As the whole of a block's content: that is when it renders as the block.
+EMBED_RE = re.compile(r"^" + _EMBED + r"$", re.I)
+# Anywhere at all: mid-sentence it cannot render nested blocks, but it must not
+# leave its braces lying in the text either — see :func:`expand`.
+EMBED_ANY_RE = re.compile(_EMBED, re.I)
 
 # How much of a referenced block is shown as the link's text.
 LABEL_LIMIT = 120
@@ -105,12 +113,19 @@ def label_for(block) -> str:
 def expand(text: str, resolved: dict) -> str:
     """Rewrite ``((…))`` into Markdown links against :func:`resolve`'s map.
 
+    An embed that is not a block's whole content cannot render as one — there
+    is no room for a subtree inside a sentence — so it is reduced to the plain
+    reference first. It reads as a link rather than leaving ``{{embed`` and
+    ``}}`` sitting in the text, which is what "the embed does nothing" looks
+    like from the outside.
+
     An id that resolves to nothing stays visible as the plain word "block
     reference" — quiet, but not silently vanished: a reference whose target was
     deleted is something the reader should be able to notice.
     """
     if not text or "((" not in text:
         return text or ""
+    text = EMBED_ANY_RE.sub(lambda m: f"(({m.group(1)}))", text)
 
     def repl(m):
         hit = resolved.get(m.group(1))
