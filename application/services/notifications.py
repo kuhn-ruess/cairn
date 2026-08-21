@@ -69,6 +69,27 @@ def notify_completed(task, *, by_user) -> None:
     )
 
 
+def notify_handed_back(task, *, by_user, to_users) -> None:
+    """A delegated task was handed back — tell whoever delegated it.
+
+    The counterpart to :func:`notify_assigned`, and the missing half of the
+    round trip: taking your name off a task puts it back in somebody else's
+    list, usually with work done on it and a comment nobody has read. Without
+    this it reappears silently, which is exactly how a handed-back task sits
+    untouched for a week."""
+    for recipient in to_users:
+        if recipient is None or recipient == by_user:
+            continue
+        _push(
+            recipient,
+            kind="unassigned",
+            text=f"{by_user} handed “{task.title}” back to you",
+            link=_task_link(task),
+            icon="bi-arrow-return-left",
+            actor=str(by_user),
+        )
+
+
 def notify_mention(recipient, *, by_user, task) -> None:
     """``recipient`` was @-mentioned in a comment on ``task`` by ``by_user``."""
     if recipient is None or recipient == by_user:

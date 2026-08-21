@@ -1367,9 +1367,16 @@ class Item(Document):
 
         if new_assignee is None:
             _prune_home(old)
+            # Who is losing this task from their list — captured before the
+            # fields that say so are cleared.
+            delegator = self.assigned_by
             self.assigned_to = None
             self.assigned_by = None
             self.assigned_at = None
+            # Handing it back is news for the people it lands on again: the
+            # owner, and whoever delegated it if that was somebody else.
+            if old is not None and actor is not None and actor != self.owner:
+                self._notify_handed_back(actor, [self.owner, delegator])
             return
         if new_assignee != old:
             _prune_home(old)
@@ -1387,6 +1394,20 @@ class Item(Document):
         # self-assignment (handled above by collapsing to None).
         if new_assignee != old:
             self._notify_assignee()
+
+    def _notify_handed_back(self, actor, recipients) -> None:
+        """Bell entry for an assignment somebody took off themselves."""
+        if self.pk is None:
+            return
+        from application.services.notifications import notify_handed_back
+        seen, to = set(), []
+        for r in recipients:
+            key = str(getattr(r, "pk", "")) or ""
+            if r is None or not key or key in seen:
+                continue
+            seen.add(key)
+            to.append(r)
+        notify_handed_back(self, by_user=actor, to_users=to)
 
     def _notify_assignee(self) -> None:
         """Push the “you were assigned X” bell entry for ``assigned_to``.
