@@ -456,6 +456,22 @@ def _outline_context(item, user) -> dict:
     )
 
 
+def _derived_title(item) -> str:
+    """A note's name taken from its own first line.
+
+    Writing the first block names the note — you should not have to type the
+    same words twice, once into a title field and once into the note. Leading
+    empty blocks are skipped, so a note that starts with a blank line still
+    finds its name.
+    """
+    from application.services import outline
+    for block in outline.walk(outline.parse(item.note or "")):
+        text = _note_preview(block.body, 80)
+        if text:
+            return text
+    return ""
+
+
 def _word_count(text) -> int:
     """Words in a note — its prose, not its bullets and ``id::`` lines."""
     from application.services import outline
@@ -538,6 +554,8 @@ def new():
             item = Item(
                 owner=user, kind="note", parent=parent,
                 title=title or "Untitled note", note="",
+                # No name given, so the first line becomes it.
+                title_auto=not title,
             )
             item.save()
             return redirect(url_for("notes.detail", note_id=str(item.pk)))
@@ -587,9 +605,18 @@ def edit(note_id):
         }), 409
     if "title" in request.form:
         title = (request.form.get("title") or "").strip()
-        # A folder is a page too, and an unnamed one is a folder, not a note.
-        item.title = title or ("Untitled folder" if item.kind == "folder"
-                               else "Untitled note")
+        # The editor posts the title on every save, so "did the reader type in
+        # that field?" is a comparison, not a flag on the request: only a value
+        # that differs from what is stored can have come from them.
+        if title != (item.title or ""):
+            # Named it themselves — the name is theirs now. Emptied it — it
+            # goes back to following the first block.
+            item.title_auto = not title
+            if title:
+                item.title = title
+        if not item.title:
+            item.title = ("Untitled folder" if item.kind == "folder"
+                          else "Untitled note")
     if "note" in request.form:
         # multipart/form-data normalises every newline in a field value to
         # CRLF. That was invisible while a note was one long string; an outline
@@ -609,6 +636,11 @@ def edit(note_id):
             index = note_links.title_index(user)
             note_links.rebuild(item, index,
                                extra=block_refs.referenced_note_ids(item, user))
+        # A name nobody has claimed follows the body. Folders are left out:
+        # a folder's name is its place in the tree, and renaming the container
+        # while you write inside it would be a surprise, not a convenience.
+        if item.title_auto and item.kind == "note":
+            item.title = _derived_title(item) or "Untitled note"
     item.save()
     if request.headers.get("X-Partial") == "1":
         return jsonify({"ok": True, "title": item.title, "note": item.note,

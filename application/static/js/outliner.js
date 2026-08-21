@@ -723,7 +723,22 @@
       setStatus("Save failed — your text is still here", "text-danger");
       return false;
     }
-    if (titleInput) savedTitle = data.title;
+    // The name may have followed the body (views.notes._derived_title), so
+    // show what came back — unless the reader is standing in that field, where
+    // overwriting what they are typing would be the rudest thing this could do.
+    if (titleInput && typeof data.title === "string") {
+      if (document.activeElement !== titleInput && titleInput.value !== data.title) {
+        titleInput.value = data.title;
+        // The navigator is server-rendered and would otherwise carry the old
+        // name until the next page load.
+        const row = document.querySelector(".nn-row.active .nn-name");
+        if (row) row.textContent = data.title;
+      }
+      // What the SERVER has, not what the field shows. A field left out of
+      // step (you emptied it and the name went back to following the body)
+      // has to stay dirty, or nothing would ever come back to correct it.
+      savedTitle = data.title;
+    }
     savedNote = data.note;
     stamp = data.stamp;
     // Not into a block the writer is back inside already. Indent, outdent and

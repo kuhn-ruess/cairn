@@ -227,6 +227,11 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   **A notes-FOLDER has a body too** and goes through all of this: it is a
   container for filing and for access *and* a page you can write on, so
   `[[Title]]` resolves to one and its blocks can be referenced.
+  A note's **title follows its first block** while `Item.title_auto` is set —
+  writing the first line names the note, in the tree, in search and in the
+  mirrored file. Typing in the title field clears the flag (the name is the
+  user's now); emptying that field sets it again. Folders are excluded: a
+  folder's name is its place in the tree.
   `note_links.pages_q()` is the single expression for "is a page with a body"
   — use it instead of writing `kind="note"` by hand. The **braindump pad** is
   an outline as well (`User.braindump`), and takes `parse_lines()` rather than

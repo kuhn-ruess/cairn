@@ -409,6 +409,13 @@ class Item(Document):
     # every body in the collection to find out who owns a block.
     block_ids = ListField(StringField())
 
+    # Does the title follow the first block? True while nobody has given the
+    # note a name of its own — you write the first line and that IS the name,
+    # in the tree, in search and in the mirrored file. Typing in the title
+    # field turns this off (the name is yours now); emptying that field turns
+    # it back on. See views.notes.edit.
+    title_auto = BooleanField(default=False)
+
     # ----- project-flavoured fields -----
     project_type = StringField(choices=PROJECT_TYPES, default="parallel")
     # Review cadence in days. Applies to tasks AND projects. ``None`` =
