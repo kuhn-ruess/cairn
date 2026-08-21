@@ -34,15 +34,40 @@
   .ol-folded > .ol-row > .ol-bullet.ol-parent::before {
     box-shadow: 0 0 0 .26rem rgba(128, 128, 128, .38); }
 
-  .ol-content { flex: 1 1 auto; min-width: 0; padding: .08rem 0 .08rem .15rem;
+  .ol-content { flex: 1 1 auto; min-width: 0; padding: .05rem 0 .05rem .15rem;
                 cursor: text; }
-  .ol-content > :last-child { margin-bottom: 0; }
-  .ol-content p { margin-bottom: .2rem; }
-  .ol-content h1, .ol-content h2, .ol-content h3,
-  .ol-content h4, .ol-content h5, .ol-content h6 { margin: .1rem 0 .2rem; }
+
+  /* The sheet's document spacing (notes/_nav.html) is meant for ONE long text:
+     a blank line under every paragraph, a lot of air above every heading. In an
+     outline each block IS a paragraph, so that spacing puts a gap between every
+     bullet and drops a heading's text far below its own bullet. Inside a block
+     the spacing comes from the row, not from the text.
+
+     Addressed by id on purpose: those rules live in a style block that the
+     page includes AFTER this one, so at equal specificity they would win. */
+  #note-outline .ol-content p { margin: 0; }
+  #note-outline .ol-content ul, #note-outline .ol-content ol { margin: 0 0 0 1.4em; }
+  #note-outline .ol-content li { margin: 0; }
+  #note-outline .ol-content h1, #note-outline .ol-content h2,
+  #note-outline .ol-content h3, #note-outline .ol-content h4,
+  #note-outline .ol-content h5, #note-outline .ol-content h6 { margin: 0 0 .1em; }
+  #note-outline .ol-content pre, #note-outline .ol-content blockquote,
+  #note-outline .ol-content table, #note-outline .ol-content img { margin: .2em 0; }
+  #note-outline .ol-content > :last-child { margin-bottom: 0; }
+
+  /* The keyword chip and the checkbox lead the block's first line, so that
+     line has to run on beside them — as a paragraph of its own it would drop
+     the text onto the next line and leave the chip stranded above it. */
+  #note-outline .ol-content > :is(.ol-kw, .ol-box) ~ p:first-of-type { display: inline; }
+  #note-outline .ol-box { vertical-align: -.08em; cursor: pointer; margin-right: .1rem; }
 
   .ol-children { margin-left: .92rem; padding-left: .62rem;
                  border-left: 1px solid var(--paper-edge); }
+  /* A block that opens with a heading gets its air from the ROW, so the bullet
+     moves with it instead of being left hanging above the text. */
+  #note-outline .ol-block:has(> .ol-row > .ol-content > :is(h1, h2, h3)) {
+    margin-top: 1.1em; }
+  #note-outline > .ol-list > .ol-block:first-child { margin-top: 0; }
 
   .ol-edit { width: 100%; border: 0; padding: 0; margin: 0; resize: none;
              overflow: hidden; background: transparent; color: var(--paper-ink);
@@ -176,9 +201,8 @@
         {% for b in zoom_trail %}
           <span class="mx-1">›</span>
           {% if b.uuid %}
-            <a href="{{ url_for('notes.detail', note_id=note.pk, zoom=b.uuid) }}"
-               >{{ b.body.split("\n")[0]|truncate(48) }}</a>
-          {% else %}<span>{{ b.body.split("\n")[0]|truncate(48) }}</span>{% endif %}
+            <a href="{{ url_for('notes.detail', note_id=note.pk, zoom=b.uuid) }}">{{ b.label }}</a>
+          {% else %}<span>{{ b.label }}</span>{% endif %}
         {% endfor %}
       </nav>
     {% endif %}

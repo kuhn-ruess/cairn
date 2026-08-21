@@ -366,7 +366,10 @@ def detail(note_id):
         block_index=block_index,
         embed_of=block_refs.embed_target,
         zoom=zoom if trail else "",
-        zoom_trail=trail[:-1],
+        # Plain labels, built here rather than in the template: a crumb should
+        # read "Wochenplanung", not "## Wochenplanung".
+        zoom_trail=[{"uuid": b.uuid, "label": _note_preview(b.body, 48) or "Block"}
+                    for b in trail[:-1]],
         word_count=_word_count(item.note),
         base_stamp=_stamp(item.updated_at),
         tag_choices=_tag_choices_tree(user.tags or []),
