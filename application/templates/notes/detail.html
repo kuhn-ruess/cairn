@@ -9,10 +9,43 @@
 <script src="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.js"></script>
 <style>
   /* The rendered body doubles as the click target that opens the editor, so
-     it needs to look inviting but never like a text field. */
-  #note-body-view { min-height: 8rem; cursor: text; border-radius: .4rem;
-                    padding: .25rem .4rem; margin-left: -.4rem; }
-  #note-body-view:hover { background: var(--bs-tertiary-bg); }
+     it needs to look inviting but never like a text field. On paper that means
+     the faintest possible warming of the sheet — anything stronger reads as a
+     control. */
+  #note-body-view { min-height: 12rem; cursor: text; border-radius: .4rem;
+                    padding: .25rem .5rem; margin-left: -.5rem; }
+  #note-body-view:hover { background: rgba(235, 219, 178, .04); }
+
+  /* Editing keeps the page exactly as it reads: same face, same size, same
+     measure, no box. Only code stays monospace. */
+  #note-body-edit .EasyMDEContainer .CodeMirror {
+    background: transparent; border: 0; padding: .25rem .5rem;
+    color: var(--paper-ink); font-family: var(--doc-face);
+    font-size: 1.05rem; line-height: 1.75;
+  }
+  #note-body-edit .CodeMirror .cm-comment,
+  #note-body-edit .CodeMirror .cm-formatting-code-block,
+  #note-body-edit .CodeMirror pre.cm-s-easymde .cm-comment {
+    font-family: var(--bs-font-monospace); font-size: .85em;
+  }
+  #note-body-edit .CodeMirror-cursor { border-left-color: var(--paper-ink); }
+  #note-body-edit .CodeMirror-selected { background: rgba(235, 219, 178, .12); }
+  /* The toolbar is a tool, not part of the page — quiet it down and let the
+     sheet stay the loudest thing. */
+  #note-body-edit .editor-toolbar {
+    background: transparent; border: 0; border-bottom: 1px solid var(--paper-edge);
+    border-radius: 0; padding: 0 0 .35rem; opacity: .75;
+  }
+  #note-body-edit .editor-toolbar:hover { opacity: 1; }
+  #note-body-edit .editor-toolbar button { color: var(--paper-ink-quiet); }
+  #note-body-edit .editor-toolbar button:hover,
+  #note-body-edit .editor-toolbar button.active {
+    background: transparent; border-color: transparent; color: var(--paper-ink-strong);
+  }
+  #note-body-edit .editor-statusbar { display: none; }
+  #note-body-edit .editor-preview-side, #note-body-edit .editor-preview {
+    background: var(--paper); font-family: var(--doc-face);
+  }
   /* [[wiki link]] to a note that doesn't exist yet — expand() marks it with a
      trailing ⁺, this just keeps it visually quieter than a real link. */
   #note-body-view a[href*="/notes/new"] { color: var(--bs-secondary-color); }
@@ -39,18 +72,18 @@
 <div class="notes-wrap">
   {% include "notes/_nav.html" %}
   {% include "notes/_list_column.html" %}
-  <div class="notes-content" id="note-detail"
+  <div class="notes-content note-doc" id="note-detail"
        data-note-id="{{ note.pk }}" data-stamp="{{ base_stamp }}"
        data-can-edit="{{ '1' if can_edit else '' }}">
+   <div class="note-doc-inner">
 
-    {# ---- Title + actions ---- #}
-    <div class="d-flex align-items-center gap-2 mb-1">
+    {# ---- Actions, then the title on its own line: a page's title is the
+         first thing on the page, not something sharing a row with buttons. ---- #}
+    <div class="note-doc-tools d-flex align-items-center gap-2 mb-2">
       <button type="button" class="btn btn-sm btn-outline-secondary" data-toggle-column="list"
               title="Show/hide the note list"><i class="bi bi-list-ul"></i></button>
       {{ fav.star("item:" ~ note.pk, "fs-5") }}
-      <input type="text" id="note-title" class="form-control form-control-lg fw-semibold border-0 px-0"
-             value="{{ note.title }}" style="background: transparent;"
-             {% if not can_edit %}readonly{% endif %}>
+      <span id="note-save-status" class="small text-muted ms-auto"></span>
       <button type="button" class="btn btn-sm btn-outline-secondary" data-toggle-column="inspector"
               title="Show/hide the info panel"><i class="bi bi-info-circle"></i></button>
       <div class="dropdown">
@@ -86,8 +119,13 @@
       </div>
     </div>
 
+    <input type="text" id="note-title" class="form-control border-0 px-0 mb-1"
+           value="{{ note.title }}" placeholder="Untitled note"
+           style="background: transparent;"
+           {% if not can_edit %}readonly{% endif %}>
+
     {# ---- Meta line ---- #}
-    <div class="small text-muted mb-3 d-flex flex-wrap gap-3">
+    <div class="note-doc-meta d-flex flex-wrap gap-3">
       <span title="{{ note.updated_at|localdt }}">
         <i class="bi bi-clock-history"></i> Updated <span id="note-updated">{{ note.updated_at|timeago }}</span>
       </span>
@@ -98,7 +136,6 @@
       {% elif selected_members %}
         <span><i class="bi bi-people"></i> Shared with {{ selected_members|length }} member(s)</span>
       {% endif %}
-      <span id="note-save-status" class="ms-auto"></span>
     </div>
 
     {# Autosave hit a note that had moved on (other tab / share partner). #}
@@ -116,12 +153,12 @@
     </div>
     <div id="note-body-edit" class="d-none mb-2">
       <textarea name="note" id="note-editor" class="form-control"
-                rows="18" style="font-family: var(--bs-font-monospace); font-size: .9rem;"
+                rows="18" style="font-family: var(--doc-face); font-size: 1.05rem; line-height: 1.75;"
                 placeholder="Write in Markdown… paste images, drag a link or email in, [[link]] another note.">{{ note.note }}</textarea>
     </div>
     <ul class="list-group shadow-sm" id="wiki-complete"></ul>
     {% if can_edit %}
-      <p class="small text-muted mb-4">
+      <p class="small text-muted mb-4 note-doc-hint">
         Changes save themselves. <kbd>Esc</kbd> closes the editor,
         <kbd>{{ '⌘' }}/Ctrl+S</kbd> saves right away. Type <code>/</code> for
         commands — <code>/link</code> searches your notes, tasks and projects
@@ -129,6 +166,7 @@
       </p>
     {% endif %}
     {% with item=note %}{% include "layout/_storage_meter.html" %}{% endwith %}
+   </div>{# /.note-doc-inner #}
   </div>
 
   {# ---- Inspector: tags + all links ---- #}
@@ -679,6 +717,11 @@
   // ---- [[wiki link]] completion ----------------------------------------
   const wiki = (function () {
     const box = document.getElementById("wiki-complete");
+    // The sheet is a CSS container (see notes/_nav.html), which by spec makes
+    // it the containing block for absolutely positioned children — and this
+    // popup is placed in page coordinates. Hang it off <body>, where the
+    // slash menu already lives, so the two agree and neither can drift.
+    if (box) document.body.appendChild(box);
     let items = [], active = -1, timer = null, open = false, from = null;
 
     function hide() { box.style.display = "none"; open = false; active = -1; }
