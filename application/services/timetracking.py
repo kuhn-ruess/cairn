@@ -227,6 +227,7 @@ def source_snapshot(item, user=None) -> dict:
 def add_entry(*, project: TimeTrackingProject, user, minutes: int,
               spent_on: datetime, note: str = "", source_item=None,
               source: dict | None = None, external_id: str | None = None,
+              external_ids: list | None = None,
               external_ref: str = "", external_url: str = "",
               external_user: str = "", actor: dict | None = None,
               custom: list | None = None, start_time: str = "",
@@ -291,6 +292,7 @@ def add_entry(*, project: TimeTrackingProject, user, minutes: int,
         amount_cents=amount,
         billable=bool(billable),
         external_id=external_id or None,
+        external_ids=list(external_ids or []),
         external_ref=external_ref or None,
         external_url=external_url or None,
         external_user=external_user or None,
@@ -1929,13 +1931,24 @@ def sync_external_entries(*, user, item, rows, project=None,
     """Mirror an external system's time for ``item``. Returns ``(added, fixed)``.
 
     Each row is ``{external_id, minutes, spent_on, note, external_ref,
-    external_url, user_id, user_name, external_user}``. Rows the team already
-    has are not appended again — dedup is by ``external_id`` across the **whole
-    team**, not just this item, because two people syncing the same ticket keep
-    their own Cairn task for it and would otherwise book the same hour twice.
-    A booking the team *deleted* here counts as known too: cancelling an
-    imported entry is a decision, and a sync that quietly re-added it every few
-    minutes would be impossible to argue with.
+    external_url, user_id, user_name, external_user}`` plus an optional
+    ``covered``: the source records this one row stands for. The Zammad sync
+    sends a day's bookings as a single row that way — one entry per day and
+    person rather than one per booking — and the ids it covers are stored on
+    the entry, so the dedup below recognises the total *and* each part of it.
+
+    Rows the team already has are not appended again — dedup is by
+    ``external_id`` across the **whole team**, not just this item, because two
+    people syncing the same ticket keep their own Cairn task for it and would
+    otherwise book the same hour twice. A booking the team *deleted* here
+    counts as known too: cancelling an imported entry is a decision, and a sync
+    that quietly re-added it every few minutes would be impossible to argue
+    with.
+
+    A row that grew since last time (more bookings that day) updates the entry's
+    minutes. Once the entry is **billed** it is frozen instead, and the bookings
+    it doesn't already cover are added as their own entries — the invoiced lump
+    stays exactly as invoiced, and the new hours still show up.
 
     A row the team already has is instead *corrected*: description, ticket
     number, deep link and — the point of the exercise — who the time belongs
@@ -1961,13 +1974,23 @@ def sync_external_entries(*, user, item, rows, project=None,
     if not wanted:
         return 0, 0
 
+    # Every id that could already be here: the day's own key, and each booking
+    # it sums up — an entry written before the day was summed carries the
+    # booking's id, and must be recognised as part of the total rather than
+    # left beside it.
+    keys = {k: {k} | set(r.get("covered") or []) for k, r in wanted.items()}
+    lookup = {i: k for k, ids in keys.items() for i in ids}
+
     # One indexed lookup for everything this team already knows of these ids.
-    seen = {}
-    for b in TimeBucket.objects(team=team,
-                                entries__external_id__in=list(wanted)):
+    seen: dict = {}
+    for b in TimeBucket.objects(
+            Q(entries__external_id__in=list(lookup))
+            | Q(entries__external_ids__in=list(lookup)), team=team):
         for e in b.entries:
-            if e.external_id in wanted:
-                seen[e.external_id] = (b, e)
+            hit = lookup.get(e.external_id or "") or next(
+                (lookup[i] for i in (e.external_ids or []) if i in lookup), None)
+            if hit:
+                seen.setdefault(hit, []).append((b, e))
 
     added = fixed = 0
     src = source_snapshot(item)
@@ -1975,8 +1998,9 @@ def sync_external_entries(*, user, item, rows, project=None,
         minutes = int(r.get("minutes") or 0)
         if minutes < 1:
             continue
-        hit = seen.get(ext)
-        if hit is None:
+        covered = list(r.get("covered") or [])
+        hits = seen.get(ext) or []
+        if not hits:
             add_entry(project=project, user=user, minutes=minutes,
                       spent_on=r["spent_on"], note=r.get("note", ""),
                       external_ref=r.get("external_ref", ""),
@@ -1984,19 +2008,78 @@ def sync_external_entries(*, user, item, rows, project=None,
                       external_user=r.get("external_user", ""),
                       actor={"user_id": r.get("user_id") or None,
                              "user_name": r.get("user_name") or ""},
-                      source=src, external_id=ext, billable=True)
+                      source=src, external_id=ext, external_ids=covered,
+                      billable=True)
             added += 1
             continue
-        bucket, entry = hit
+        # Whichever of them is the day's entry — prefer one that already is,
+        # otherwise the oldest, which is the one the sheet has been showing.
+        hits.sort(key=lambda be: (be[1].external_id != ext, be[1].entry_id))
+        bucket, entry = hits[0]
+        rest = hits[1:]
         if entry.locked or entry.status != "active":
+            # Billed, or cancelled on purpose: leave it exactly as it is and
+            # book only what it doesn't already stand for.
+            known = {entry.external_id or ""} | set(entry.external_ids or [])
+            for part in [c for c in covered if c not in known]:
+                add_entry(project=project, user=user,
+                          minutes=int(r.get("part_minutes", {}).get(part, 0)) or 0,
+                          spent_on=r["spent_on"], note=r.get("note", ""),
+                          external_ref=r.get("external_ref", ""),
+                          external_url=r.get("external_url", ""),
+                          external_user=r.get("external_user", ""),
+                          actor={"user_id": r.get("user_id") or None,
+                                 "user_name": r.get("user_name") or ""},
+                          source=src, external_id=part, billable=True)
+                added += 1
             continue
         changes = _external_corrections(entry, r)
+        # The day's total: what it is now, what it stands for, and — once the
+        # parts are folded in — the one line that replaces them.
+        if entry.minutes != minutes:
+            changes["set__entries__S__minutes"] = minutes
+        if entry.external_id != ext:
+            changes["set__entries__S__external_id"] = ext
+        if set(entry.external_ids or []) != set(covered):
+            changes["set__entries__S__external_ids"] = covered
         if changes and TimeBucket.objects(
             pk=bucket.pk,
             entries__match={"entry_id": entry.entry_id, "locked": {"$ne": True}},
         ).update_one(set__updated_at=_utcnow(), **changes):
             fixed += 1
+        for other_bucket, other in rest:
+            # Written per booking before the day was summed: its minutes are in
+            # the total now, so the line goes rather than being counted twice.
+            if other.locked or other.status != "active":
+                continue
+            TimeBucket.objects(pk=other_bucket.pk).update_one(
+                pull__entries__entry_id=other.entry_id,
+                inc__entry_count=-1, set__updated_at=_utcnow())
+        _recount(bucket.pk)
+        for other_bucket, _ in rest:
+            _recount(other_bucket.pk)
     return added, fixed
+
+
+def _recount(bucket_pk) -> None:
+    """Re-derive a bucket's cached totals from the entries it now holds.
+
+    The counters are maintained incrementally everywhere else; after a merge
+    (entries removed, another's minutes rewritten) deriving them is the only
+    way to be sure they still describe the document."""
+    bucket = TimeBucket.objects(pk=bucket_pk).first()
+    if bucket is None:
+        return
+    minutes = sum(e.minutes or 0 for e in bucket.entries if e.status == "active")
+    count = len(bucket.entries)
+    if bucket.total_minutes == minutes and bucket.entry_count == count:
+        return
+    if not bucket.entries:
+        bucket.delete()
+        return
+    TimeBucket.objects(pk=bucket_pk).update_one(
+        set__total_minutes=minutes, set__entry_count=count,
+        set__updated_at=_utcnow())
 
 
 def repair_imported_entries(*, user, item, note: str, external_ref: str = "",

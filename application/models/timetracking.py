@@ -269,6 +269,13 @@ class TimeEntry(EmbeddedDocument):
     # re-sync idempotent (an entry already carrying the id is never appended a
     # second time) and marks the entry as externally owned.
     external_id = StringField()
+    # Every source record this entry stands for. A day's Zammad bookings on one
+    # ticket are logged here as *one* entry — four ten-minute replies are one
+    # piece of work on the sheet, not four lines — so the entry's own
+    # ``external_id`` is the day's key and this holds the bookings it sums up.
+    # The dedup checks both, which is what keeps a re-sync from adding the
+    # individual bookings back alongside the total.
+    external_ids = ListField(StringField(max_length=100))
     # How the *source* of the work is shown and reached: the ticket number the
     # user knows it by, and a deep link to it. Snapshotted like everything else
     # here, so a report never has to dereference the task (which may be gone) to

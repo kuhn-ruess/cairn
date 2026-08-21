@@ -1181,7 +1181,14 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
     web_url = base.replace("/api/v1", "") + f"/#ticket/zoom/{zid}"
     ticket_note = (item.title or f"Zammad #{znum}")[:1000]
 
-    rows = []
+    # One entry per day and person, not per booking. Four ten-minute replies to
+    # the same ticket on the same day are one piece of work on the sheet and on
+    # the customer's — the individual bookings are Zammad's bookkeeping, not
+    # something anybody wants to read fifteen lines of. The entry's key is the
+    # day (``zammad:day:<ticket>:<day>:<agent>``) and it carries the booking ids
+    # it sums up, so a re-sync recognises the total instead of adding the parts
+    # back beside it.
+    groups: dict = {}
     for booking in bookings:
         try:
             minutes = round(float(booking.get("time_unit") or 0))
@@ -1194,20 +1201,39 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
         # recognises it.
         actor = _zammad_actor(base, token, booking.get("created_by_id"),
                               stats, team, user)
-        rows.append({
-            "external_id": f"zammad:{booking.get('id')}",
-            "minutes": minutes,
-            # Localise before handing it over: the bucket is picked from the
-            # *local* day, so a booking made near midnight can't land in the
-            # neighbouring day's document.
-            "spent_on": _article_dt(booking).astimezone(zone),
-            "note": ticket_note,
-            "external_ref": znum,
-            "external_url": web_url,
-            "user_id": actor["user_id"],
-            "user_name": actor["user_name"],
-            "external_user": actor["external_user"],
-        })
+        # Localise before grouping: the bucket is picked from the *local* day,
+        # so a booking made near midnight can't land in the neighbouring day's
+        # document — nor in the neighbouring day's total.
+        when = _article_dt(booking).astimezone(zone)
+        day = when.date().isoformat()
+        who = actor["external_user"] or actor["user_id"] or "-"
+        key = (day, who)
+        row = groups.get(key)
+        if row is None:
+            row = groups[key] = {
+                "external_id": f"zammad:day:{zid}:{day}:{who}",
+                "minutes": 0,
+                "covered": [],
+                # Per booking, for the one case the total can't absorb: the
+                # day's entry is already billed, so what it doesn't cover has
+                # to be booked on its own.
+                "part_minutes": {},
+                "spent_on": when,
+                "note": ticket_note,
+                "external_ref": znum,
+                "external_url": web_url,
+                "user_id": actor["user_id"],
+                "user_name": actor["user_name"],
+                "external_user": actor["external_user"],
+            }
+        row["minutes"] += minutes
+        row["covered"].append(f"zammad:{booking.get('id')}")
+        row["part_minutes"][f"zammad:{booking.get('id')}"] = minutes
+        # The earliest booking of the day dates the entry — a day's work starts
+        # when it starts.
+        if when < row["spent_on"]:
+            row["spent_on"] = when
+    rows = list(groups.values())
     if rows:
         added, fixed = sync_external_entries(user=user, item=item, rows=rows,
                                              project=project, team=opts.team)
