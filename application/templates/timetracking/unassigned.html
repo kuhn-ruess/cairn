@@ -86,7 +86,13 @@
                 {%- if r.locked %} · <span class="text-warning">{{ r.locked }} billed</span>{% endif %}
               </div>
             </td>
-            <td class="small text-muted">{{ r.customer.name }} › {{ r.project.name }}</td>
+            <td class="small text-muted">
+              {{ r.customer.name }} › {{ r.project.name }}
+              {% if r.resolved %}
+                <div class="text-info">its folder points at
+                  “{{ r.resolved.name }}” — move it there</div>
+              {% endif %}
+            </td>
             <td>
               {% if can_manage and not r.pairs %}
                 <span class="small text-muted">
@@ -104,7 +110,11 @@
                     <option value="">Move to…</option>
                     {% for t in targets %}
                       {% if t.id != r.project.id|string %}
-                        <option value="{{ t.id }}">{{ t.label }}{% if t.intake %} (intake){% endif %}</option>
+                        {# Preselect what the tree already says, so the common
+                           case is one click. #}
+                        <option value="{{ t.id }}"
+                                {% if r.resolved and t.id == r.resolved.id|string %}selected{% endif %}>
+                          {{ t.label }}{% if t.intake %} (intake){% endif %}</option>
                       {% endif %}
                     {% endfor %}
                   </select>

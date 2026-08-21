@@ -1267,15 +1267,28 @@ def unassigned_groups(team) -> list:
     rows = sorted(groups.values(),
                   key=lambda r: (-r["minutes"], r["label"].lower()))
     _attach_containers(rows)
-    return rows
+    # Time whose own subtree points at the very project it sits on is filed,
+    # not waiting: the import reuses a customer's single project as its intake
+    # target, so "sits on an intake project" alone says nothing.
+    return [r for r in rows
+            if not (r["resolved"] is not None
+                    and str(r["resolved"].id) == str(r["project"].id))]
 
 
 def _attach_containers(rows) -> None:
-    """Add ``container`` — the nearest folder/project above each row's task.
+    """Add ``container`` and ``resolved`` for each row's source task.
 
-    Linking *that* is what makes the next sync book straight to the right
-    project instead of the intake pile, so the page can offer it in the same
-    click. One query for all the tasks rather than one per row."""
+    ``container`` is the nearest folder/project above the task — linking *that*
+    is what makes the next sync book straight to the right project instead of
+    the intake pile, so the page can offer it in the same click.
+
+    ``resolved`` is what the tree already answers for that task, and it is the
+    difference between "nobody has said where this belongs" and "it is exactly
+    where it belongs". A customer's single project is flagged as its intake
+    target by the import (rather than a second project being invented), so time
+    that landed there correctly, through a link somebody made, sits on an
+    intake project too — and would otherwise be listed as unassigned while
+    being nothing of the sort."""
     from application.models.item import Item
 
     from bson import ObjectId
@@ -1292,11 +1305,12 @@ def _attach_containers(rows) -> None:
     ids = [o for o in (_oid(r["item_id"]) for r in rows if r["item_id"]) if o]
     if not ids:
         for r in rows:
-            r["container"] = None
+            r["container"] = r["resolved"] = None
         return
     tasks = {str(t.pk): t for t in Item.all_objects(pk__in=ids)}
     for r in rows:
         task = tasks.get(r["item_id"])
+        r["resolved"] = resolve_time_project(task) if task is not None else None
         node = task.parent if task is not None else None
         depth = 0
         while node is not None and node.kind not in ("project", "folder") \
