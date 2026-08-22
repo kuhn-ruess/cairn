@@ -302,11 +302,22 @@ def parse(text: str) -> tuple[dict, str]:
 # Paths
 # ---------------------------------------------------------------------------
 
-def folder_paths(user) -> dict:
-    """``{folder id: "Work/Acme"}`` for the user's notes folders."""
-    folders = list(Item.objects(owner=user, kind="folder", folder_domain="notes")
-                   .only("pk", "title", "parent"))
-    by_id = {str(f.pk): f for f in folders}
+def folder_paths(user, *, trashed=False) -> dict:
+    """``{folder id: "Work/Acme"}`` for the user's notes folders.
+
+    ``trashed=True`` gives the paths of the folders in the TRASH instead —
+    where their directories still sit over there, waiting to be cleaned up.
+    Ancestors are read from ``all_objects`` in that case, because a whole
+    branch usually goes at once and a live-only lookup would lose the path
+    halfway up.
+    """
+    manager = Item.all_objects if trashed else Item.objects
+    folders = list(manager(owner=user, kind="folder", folder_domain="notes")
+                   .only("pk", "title", "parent", "trashed_at"))
+    if trashed:
+        by_id_all = {str(f.pk): f for f in folders}
+        folders = [f for f in folders if f.trashed_at]
+    by_id = by_id_all if trashed else {str(f.pk): f for f in folders}
     out = {}
     for f in folders:
         parts, cur, seen = [], f, set()
@@ -345,6 +356,7 @@ class MirrorStats:
     notes_updated: int = 0
     notes_trashed: int = 0
     folders_created: int = 0
+    folders_deleted: int = 0
     assets_written: int = 0
     conflicts: int = 0
     unchanged: int = 0
@@ -358,6 +370,7 @@ class MirrorStats:
             "notes_updated": self.notes_updated,
             "notes_trashed": self.notes_trashed,
             "folders_created": self.folders_created,
+            "folders_deleted": self.folders_deleted,
             "assets_written": self.assets_written,
             "conflicts": self.conflicts,
             "unchanged": self.unchanged,
@@ -368,6 +381,8 @@ class MirrorStats:
         return (f"{self.files_written} file(s) written, {self.files_deleted} removed; "
                 f"{self.notes_created} note(s) created, {self.notes_updated} updated, "
                 f"{self.notes_trashed} trashed"
+                + (f"; {self.folders_deleted} empty folder(s) removed"
+                   if self.folders_deleted else "")
                 + (f"; {self.conflicts} conflict(s)" if self.conflicts else ""))
 
 
@@ -500,6 +515,9 @@ class _Round:
                 self.stats.errors.append(f"{path}: {exc}")
 
         self.drop_files_of_trashed_notes()
+        # After the files, so a folder that just lost its last one is empty by
+        # the time this looks.
+        self.drop_dirs_of_trashed_folders()
 
     # ---------- one note ----------
 
@@ -706,6 +724,50 @@ class _Round:
         # on — at the path it already has, so nothing moves under the user.
         self.write(note, path, render(note, path, self.links))
         self.stats.files_written -= 1
+
+    def drop_dirs_of_trashed_folders(self) -> None:
+        """A notes folder that went to the trash leaves its directory behind
+        over there. Take it — but only when it is really empty.
+
+        Deleting directories is where a mirror can do actual damage, so the
+        rule is deliberately narrow, and every part of it has to hold:
+
+        * the path is one THIS app built, for a folder that is now trashed —
+          never a directory somebody made over there;
+        * nothing is inside it but the ``_assets`` tree we put there ourselves.
+          A single file, or one folder of the user's own, and it stays;
+        * the share answered a listing at all (``may_delete``), the same guard
+          that stops an empty or failed listing from deleting anything;
+        * and it is asked of the SHARE, now — not of the listing this round
+          started with, which is older than the files just deleted.
+
+        Deepest first, so a whole trashed branch collapses in one round.
+        """
+        if not self.may_delete:
+            return
+        paths = folder_paths(self.user, trashed=True).values()
+        for path in sorted({p for p in paths if p}, key=lambda p: p.count("/"),
+                           reverse=True):
+            try:
+                if not self._only_our_leftovers(path):
+                    continue
+                if not self.dry_run:
+                    self.client.delete(path)
+                self.stats.folders_deleted += 1
+            except DavError as exc:
+                self.stats.errors.append(f"{path}: {exc}")
+
+    def _only_our_leftovers(self, path: str) -> bool:
+        """Is there nothing under ``path`` but the ``_assets`` tree?"""
+        for entry in self.client.walk(path):
+            rest = entry.path[len(path):].strip("/") if entry.path.startswith(path) \
+                else entry.path
+            first = rest.split("/", 1)[0]
+            if not entry.is_dir:
+                return False                 # a file: leave the whole thing
+            if first != ASSETS_DIR:
+                return False                 # someone else's folder
+        return True
 
     def drop_files_of_trashed_notes(self) -> None:
         if not self.may_delete:

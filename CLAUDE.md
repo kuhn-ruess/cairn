@@ -220,7 +220,11 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   (`#block-…`, `#embed-…`) — other apps ignore it, and it is the only way the
   id survives the round trip back. `LinkMap.path_of()` is the single answer to
   "where does this note's file go"; do not call `path_for` a second time
-  alongside it. The notes tree mirrored to a WebDAV folder as Markdown files (`_assets/<note-id>/` beside each note), **two-way**: each note stores `mirror_path` / `mirror_hash` / `mirror_tag`, the hash is the common ancestor, both sides changed → the file's version is parked as `… (conflict …).md` and comes back as its own note. A file gone trashes its note; a trashed note's file is deleted; an empty listing while notes claim files there deletes nothing. Config per user (`notes_mirror_*`), runs via Celery beat, `./cairn sync-notes`, or the button on Settings → Notes on a share
+  alongside it. A trashed folder's now-empty directory is removed over there
+  too — the only place the mirror deletes a *collection*, so the rule is
+  narrow on purpose (a path this app built, for a folder now in the trash,
+  with nothing under it but our own `_assets`, and only when the share
+  answered a listing at all). The notes tree mirrored to a WebDAV folder as Markdown files (`_assets/<note-id>/` beside each note), **two-way**: each note stores `mirror_path` / `mirror_hash` / `mirror_tag`, the hash is the common ancestor, both sides changed → the file's version is parked as `… (conflict …).md` and comes back as its own note. A file gone trashes its note; a trashed note's file is deleted; an empty listing while notes claim files there deletes nothing. Config per user (`notes_mirror_*`), runs via Celery beat, `./cairn sync-notes`, or the button on Settings → Notes on a share
 - `outline.py` — **a note body IS an outline.** `Item.note` stays one Markdown
   string, in Logseq's file format (one tab per level before the `- ` bullet, a
   block's further lines two spaces past it, `key:: value` on such a line being a
