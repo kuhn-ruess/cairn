@@ -68,6 +68,7 @@ commands beyond the user-facing ones in the README:
 - `./cairn sync-zammad-team [--team <id>] [--full] [--force] [--dry-run]` — the **team** sync (`services/zammad_team.py`): one connection (`Team.zammad_url` + service token) reads the instance once, files each ticket under the Cairn user its Zammad owner maps to (roster → that user's `zammad_sync_project`) and books all agents' time into the team. Replaces per-member syncs; configured under Team → Zammad (`views/teams.py`), because the connection belongs to the team, not to the billing module
 - `./cairn refile-zammad-owners --team <id> [--dry-run]` — one-off: hand imported tickets to the Cairn account their Zammad owner maps to. The first run on a new connection has an empty agent roster, so everything lands with the team's admin, and a sync never re-files an imported ticket afterwards. Only touches tasks still sitting where the import put them
 - `./cairn sync-zammad-all [--all-configured] [--force] [--concurrency N]` — the older **per-user** sync for all opted-in users in a thread pool. No-broker fallback / local-test equivalent of the Celery worker+beat (shares `application/services/zammad_auto.py`)
+- `./cairn rename-scratchpad-field [--dry-run]` — one-shot: the Braindump became the Scratchpad; moves `users.braindump` to `users.scratchpad` and the `org:braindump` favourite along with it
 - `./cairn migrate-tags-to-embedded` / `./cairn wipe-legacy-collections` — one-shot migrations from the older schema (see Architecture)
 
 ### Tests
@@ -244,8 +245,8 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   user's now); emptying that field sets it again. Folders are excluded: a
   folder's name is its place in the tree.
   `note_links.pages_q()` is the single expression for "is a page with a body"
-  — use it instead of writing `kind="note"` by hand. The **braindump pad** is
-  an outline as well (`User.braindump`), and takes `parse_lines()` rather than
+  — use it instead of writing `kind="note"` by hand. The **scratchpad** is
+  an outline as well (`User.scratchpad`), and takes `parse_lines()` rather than
   `parse()`: in a pad a LINE was always an item, where a note reads four
   unbroken lines as one paragraph.
   `linked_references()` is what a note shows underneath itself: the BLOCKS
@@ -257,7 +258,7 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   indexed query via `Item.block_ids`. Ids are minted lazily (`outline.ensure_id`),
   only when something actually points at a block, and a block reference joins the
   target note's normal `note_links` backlinks rather than getting a panel of its own
-- `capture.py` — marked blocks → tasks (into a picked project) or → a note; behind `/capture/*`, used by the braindump pad and by a note's rendered body. `parse_tasks` reads indentation with `expandtabs(4)`, which is why the outline's tab nesting converts straight into a task tree
+- `capture.py` — marked blocks → tasks (into a picked project) or → a note; behind `/capture/*`, used by the scratchpad and by a note's rendered body. `parse_tasks` reads indentation with `expandtabs(4)`, which is why the outline's tab nesting converts straight into a task tree
 - `quick_parse.py` — natural-language task parsing
 - `permissions.py` — sharing/visibility checks
 - `mail.py` / `crypto.py` — SMTP for password resets, token signing

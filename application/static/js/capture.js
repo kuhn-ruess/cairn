@@ -1,6 +1,6 @@
 /* Capture — "the text I just marked becomes tasks / a note".
    Drives the two dialogs in layout/_capture_modals.html and posts them to
-   /capture/*. Callers (braindump.js, the notes detail page) hand over the
+   /capture/*. Callers (scratchpad.js, the notes detail page) hand over the
    marked text and get told what was created:
 
      CairnCapture.tasks(text, { onDone })   // → task dialog

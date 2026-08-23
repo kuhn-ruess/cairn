@@ -740,10 +740,10 @@ def build_openapi_spec() -> dict:
                     "responses": {"204": {"description": "Deleted"}},
                 },
             },
-            "/braindump": {
+            "/scratchpad": {
                 "get": {
-                    "summary": "Get the saved braindump scratch-pad text",
-                    "tags": ["braindump"],
+                    "summary": "Get the saved scratchpad text",
+                    "tags": ["scratchpad"],
                     "responses": {
                         "200": {"description": "Text",
                                 "content": {"application/json": {"schema": {
@@ -753,8 +753,8 @@ def build_openapi_spec() -> dict:
                     },
                 },
                 "put": {
-                    "summary": "Save the braindump scratch-pad text",
-                    "tags": ["braindump"],
+                    "summary": "Save the scratchpad text",
+                    "tags": ["scratchpad"],
                     "requestBody": {
                         "required": True,
                         "content": {"application/json": {"schema": {
@@ -765,7 +765,7 @@ def build_openapi_spec() -> dict:
                     "responses": {"200": {"description": "Saved"}},
                 },
             },
-            "/braindump/convert": {
+            "/scratchpad/convert": {
                 "post": {
                     "summary": "Convert dumped text into tasks",
                     "description": ("One task per line, into ``project_id`` "
@@ -774,7 +774,7 @@ def build_openapi_spec() -> dict:
                                     "per line. Idempotent: a task with the same "
                                     "title in the same parent is updated, not "
                                     "duplicated."),
-                    "tags": ["braindump"],
+                    "tags": ["scratchpad"],
                     "requestBody": {
                         "required": True,
                         "content": {"application/json": {"schema": {

@@ -1,11 +1,12 @@
-"""Braindump — a scratch pad you empty by converting it.
+"""Scratchpad — a scratch pad you empty by converting it.
 
-GET  /braindump       — the pad
-POST /braindump/save  — persist it (autosave + Clear)
+GET  /scratchpad       — the pad
+GET  /scratchpad/frame — the same pad inside the floating window (an iframe)
+POST /scratchpad/save  — persist it (autosave + Clear)
 
 The pad is an OUTLINE, the same one a note is: every line a block, Tab and
 Shift-Tab moving it in and out, the text itself still plain Markdown in
-``User.braindump`` (services/outline). That is not decoration — the whole point
+``User.scratchpad`` (services/outline). That is not decoration — the whole point
 of the pad is that what you jot down becomes tasks, and a task tree IS an
 outline. Indentation used to be four spaces you typed yourself; now it is
 structure you can move.
@@ -19,24 +20,36 @@ import re
 from flask import Blueprint, current_app, jsonify, render_template, request
 from flask_login import current_user, login_required
 
-braindump_bp = Blueprint("braindump", __name__, url_prefix="/braindump")
+scratchpad_bp = Blueprint("scratchpad", __name__, url_prefix="/scratchpad")
 
 
-@braindump_bp.route("/")
+@scratchpad_bp.route("/")
 @login_required
 def index():
+    return render_template("scratchpad/index.html",
+                           **_pad_context(current_user._get_current_object()))
+
+
+@scratchpad_bp.route("/frame")
+@login_required
+def frame():
+    """The pad as its own little document, for the floating window's iframe."""
+    return render_template("scratchpad/frame.html", compact=True,
+                           **_pad_context(current_user._get_current_object()))
+
+
+def _pad_context(user) -> dict:
+    """Everything scratchpad/_pad.html needs — the page and the window alike."""
     from application.services import outline
     from application.services.containers import container_choices
     from application.views.notes import _blocks_json, _folder_choices, _wiki_index
     from application.views.notes import notes_tree_for_sidebar
 
-    user = current_user._get_current_object()
     # parse_lines, not parse: in the pad a LINE was always an item, and the
     # note parser would glue a page of them into one paragraph.
-    blocks = outline.parse_lines(user.braindump or "")
+    blocks = outline.parse_lines(user.scratchpad or "")
     tree = notes_tree_for_sidebar(user)
-    return render_template(
-        "braindump/index.html",
+    return dict(
         blocks=blocks,
         blocks_json=_blocks_json(blocks),
         # "[[" still links a note from the pad; a block reference does not
@@ -53,7 +66,7 @@ def index():
     )
 
 
-@braindump_bp.route("/save", methods=["POST"])
+@scratchpad_bp.route("/save", methods=["POST"])
 @login_required
 def save():
     """Persist the pad (debounced autosave, Clear, and every block edit).
@@ -72,13 +85,13 @@ def save():
         text = data.get("text") or ""
     # multipart/form-data normalises every newline to CRLF, and an outline is
     # read line by line — a stray "\r" would ride along inside every block.
-    user.braindump = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    user.scratchpad = (text or "").replace("\r\n", "\n").replace("\r", "\n")
     user.save()
     return jsonify({
         "ok": True,
-        "note": user.braindump,
+        "note": user.scratchpad,
         "stamp": "",              # nothing else writes the pad; no conflict to have
-        "words": len(re.findall(r"[\w'-]+", outline.plain(user.braindump) if user.braindump else "")),
+        "words": len(re.findall(r"[\w'-]+", outline.plain(user.scratchpad) if user.scratchpad else "")),
         "rendered": _render_blocks(user, data.get("render")),
     })
 
@@ -91,9 +104,9 @@ def _render_blocks(user, spec) -> dict:
     want = {int(p) for p in (spec or "").split(",") if p.strip().isdigit()}
     if not want:
         return {}
-    blocks = outline.parse_lines(user.braindump or "")
+    blocks = outline.parse_lines(user.scratchpad or "")
     # The note lookup is a query, so only pay for it when a link is in play.
-    index = _wiki_index(notes_tree_for_sidebar(user)) if "[[" in user.braindump else {}
+    index = _wiki_index(notes_tree_for_sidebar(user)) if "[[" in user.scratchpad else {}
     render = current_app.jinja_env.filters["note_md"]
     return {str(b.idx): str(render(b.body, index))
             for b in outline.walk(blocks) if b.idx in want}

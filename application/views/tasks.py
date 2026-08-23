@@ -3184,7 +3184,7 @@ def toggle_note_task(task_id):
     """Tick/untick a checklist line in an item's note straight from the
     rendered body — the same move the standalone notes offer. Works for any
     item with a note (task, project, section), since that is where checklists
-    written in the braindump or the note editor end up."""
+    written in the scratchpad or the note editor end up."""
     from application.services import md_tasks
     task = _editable_task_or_404(task_id)
     try:

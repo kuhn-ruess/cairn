@@ -1,4 +1,4 @@
-/* Markdown checklist lines — shared by the braindump pad (a plain textarea)
+/* Markdown checklist lines — shared by the scratchpad (a plain textarea)
    and the note editor (CodeMirror), so the two can't drift apart on what
    "- [ ]" means. Only the pure line transform lives here; each editor applies
    it to its own selection. (Not to be confused with checklist.js, which drives

@@ -1,6 +1,6 @@
 """Capture — the shared "turn this marked text into something" endpoints.
 
-Two pages feed these: the braindump pad (the marked part of the scratch text,
+Two pages feed these: the scratchpad (the marked part of the scratch text,
 or all of it) and a note's rendered body (what the reader marked there). The
 conversion itself lives in ``application/services/capture.py``; this module is
 only the permission check around it.

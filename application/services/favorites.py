@@ -13,7 +13,7 @@ from flask import url_for
 ORGANIZE_ITEMS = {
     "projects": {"label": "Projects", "icon": "bi-collection", "endpoint": "projects.index"},
     "notes": {"label": "Notes", "icon": "bi-journal-text", "endpoint": "notes.index"},
-    "braindump": {"label": "Braindump", "icon": "bi-stars", "endpoint": "braindump.index"},
+    "scratchpad": {"label": "Scratchpad", "icon": "bi-stars", "endpoint": "scratchpad.index"},
     "tree": {"label": "Tree", "icon": "bi-diagram-3", "endpoint": "tree.index"},
     "tags": {"label": "Tags", "icon": "bi-tag", "endpoint": "tags.index"},
     "perspectives": {"label": "Perspectives", "icon": "bi-binoculars", "endpoint": "custom_perspectives.index"},

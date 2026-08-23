@@ -291,7 +291,7 @@
 {# ---- Share modal ---- #}
 {% include "notes/_share_modal.html" %}
 
-{# ---- "mark text → tasks" dialog (shared with the braindump pad) ---- #}
+{# ---- "mark text → tasks" dialog (shared with the scratchpad) ---- #}
 {% include "layout/_capture_modals.html" %}
 
 <script src="{{ asset('js/slash-menu.js') }}"></script>
@@ -337,7 +337,7 @@
 
   // ---- mark text in the rendered note → tasks ----
   // The dialog (target project, preview) and the POST live in capture.js —
-  // the braindump pad drives the very same one.
+  // the scratchpad drives the very same one.
   (function () {
     const view = document.getElementById("note-outline");
     if (!view) return;

@@ -1,0 +1,24 @@
+{# The scratchpad as a small window that follows you through Cairn.
+
+   The pad itself lives in an iframe (scratchpad/frame.html): one editor per
+   document is the rule outliner.js is built on, so the window carries its own
+   document instead of a second editor in this page. That also means the window
+   costs nothing until it is opened — the frame's src is set by
+   static/js/scratchpad-panel.js the first time.
+
+   Not rendered on the pad's own page: the page IS the pad, and two editors on
+   one body would overwrite each other. #}
+<div class="scratchpad-panel" id="scratchpadPanel" hidden
+     data-frame-url="{{ url_for('scratchpad.frame') }}">
+  <div class="sp-head" id="scratchpadPanelHead">
+    <i class="bi bi-stars"></i>
+    <span class="sp-title">Scratchpad</span>
+    <a class="sp-btn" href="{{ url_for('scratchpad.index') }}" title="Open the full page">
+      <i class="bi bi-arrows-angle-expand"></i>
+    </a>
+    <button type="button" class="sp-btn" data-sp-close title="Close the window">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+  <iframe class="sp-frame" title="Scratchpad"></iframe>
+</div>

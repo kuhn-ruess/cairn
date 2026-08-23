@@ -1,0 +1,80 @@
+{# The pad itself — the same markup for the full page and for the floating
+   window (scratchpad/frame.html), so there is one editor to reason about.
+
+   ``compact`` is the window: same outline, same ids, but the heading and the
+   explanation are dropped and the buttons shrink to icons — a 22rem window has
+   no room for prose, and whoever opened it there has read it once already. #}
+{% import "notes/_outline.html" as ol with context %}
+<div class="scratchpad-page note-doc{% if compact %} scratchpad-compact{% endif %}">
+{% if compact %}
+<div class="d-flex align-items-center gap-1 mb-2 sp-tools">
+  <span class="text-muted small me-auto text-truncate" id="note-save-status"></span>
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="scratchpadChecklist"
+          title="Turn the marked blocks into checkboxes (and back)">
+    <i class="bi bi-ui-checks"></i>
+  </button>
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="scratchpadClear"
+          title="Clear the pad">
+    <i class="bi bi-eraser"></i>
+  </button>
+  <button type="button" class="btn btn-sm btn-outline-primary" id="scratchpadToNote"
+          title="Turn what is marked (or everything) into a note">
+    <i class="bi bi-journal-plus"></i>
+  </button>
+  <button type="button" class="btn btn-sm btn-primary" id="scratchpadToTasks"
+          title="Turn what is marked (or everything) into tasks">
+    <i class="bi bi-check2-square"></i> <span class="capture-scope">Everything</span>
+  </button>
+</div>
+{% else %}
+<div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+  <h1 class="h3 mb-0 me-auto"><i class="bi bi-stars"></i> Scratchpad</h1>
+  <span class="text-muted small me-2" id="note-save-status"></span>
+  <button type="button" class="btn btn-outline-secondary" id="scratchpadWindow"
+          title="Keep the pad in a small window that follows you through Cairn">
+    <i class="bi bi-pip"></i> Pin as window
+  </button>
+  <button type="button" class="btn btn-outline-secondary" id="scratchpadClear">
+    <i class="bi bi-eraser"></i> Clear
+  </button>
+  <button type="button" class="btn btn-outline-primary" id="scratchpadToNote">
+    <i class="bi bi-journal-plus"></i> <span class="capture-scope">Everything</span> → note
+  </button>
+  <button type="button" class="btn btn-primary" id="scratchpadToTasks">
+    <i class="bi bi-check2-square"></i> <span class="capture-scope">Everything</span> → tasks
+  </button>
+</div>
+
+<p class="text-muted small mb-1">
+  Write freely, then process it: <strong>mark</strong> a part (or nothing, for
+  the whole pad) and turn it into <strong>tasks</strong> — you pick the target
+  project — or into a <strong>note</strong>. What you convert leaves the pad,
+  so whatever stays here is still unprocessed. A marked block always converts
+  whole, with everything under it. Task lines take
+  <code>@tag</code> · <code>#project</code> · <code>p1</code> · <code>!</code> ·
+  <code>today</code>; <kbd>Enter</kbd> starts a line,
+  <kbd>Tab</kbd> / <kbd>⇧Tab</kbd> make it a sub-task or lift it back out,
+  <kbd>⌥⇧↑</kbd>/<kbd>↓</kbd> move it.
+</p>
+<div class="d-flex align-items-center gap-2 mb-2">
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="scratchpadChecklist"
+          title="Turn the marked blocks into checkboxes (and back)">
+    <i class="bi bi-ui-checks"></i> Checklist
+  </button>
+  <span class="small text-muted" id="scratchpadScope"></span>
+</div>
+{% endif %}
+
+<input type="hidden" id="scratchpadCsrf" name="csrf_token" value="{{ csrf_token() }}">
+
+{# The same outline a note has, posting to the pad's own save route. #}
+<div id="note-outline" class="note-body scratchpad-outline"
+     data-save-url="{{ url_for('scratchpad.save') }}"
+     data-can-edit="1">
+  {{ ol.outline(blocks, wiki_index, block_index, embed_of) }}
+</div>
+<script type="application/json" id="note-blocks">{{ blocks_json|safe }}</script>
+<ul class="list-group shadow-sm" id="wiki-complete"></ul>
+</div>
+
+{% include "layout/_capture_modals.html" %}

@@ -221,7 +221,7 @@ class LooseParseTest(unittest.TestCase):
 
 
 class ParseLinesTest(unittest.TestCase):
-    """The braindump pad: a LINE there was always an item, not prose. Running
+    """The scratchpad: a LINE there was always an item, not prose. Running
     the note parser over it would glue a page of items into one paragraph."""
 
     def test_every_line_is_a_block(self):

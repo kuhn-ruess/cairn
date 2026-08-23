@@ -238,10 +238,10 @@ class User(UserMixin, Document):
     #   org:<slug>    — an "Organize" nav entry (projects, notes, tree, …)
     favorites = ListField(StringField())
 
-    # Braindump scratch pad — the raw Markdown text the user is drafting on
-    # the /braindump page. Persisted server-side so the dump survives across
+    # Scratchpad — the raw Markdown outline the user is drafting on
+    # the /scratchpad page. Persisted server-side so it survives across
     # devices/browsers (not just localStorage) and stays put after a convert.
-    braindump = StringField(default="")
+    scratchpad = StringField(default="")
 
     # Today perspective preferences (persisted across sessions).
     today_grouping = StringField(default="none")

@@ -841,27 +841,27 @@ def me():
         }
     )
 
-# ---------------- braindump ----------------
+# ---------------- scratchpad ----------------
 
-@api_v1_bp.get("/braindump")
+@api_v1_bp.get("/scratchpad")
 @token_required
-def get_braindump():
-    return jsonify({"text": g.current_user.braindump or ""})
+def get_scratchpad():
+    return jsonify({"text": g.current_user.scratchpad or ""})
 
 
-@api_v1_bp.put("/braindump")
+@api_v1_bp.put("/scratchpad")
 @token_required
-def save_braindump():
+def save_scratchpad():
     data = request.get_json(silent=True) or {}
     user = g.current_user
-    user.braindump = data.get("text") or ""
+    user.scratchpad = data.get("text") or ""
     user.save()
-    return jsonify({"text": user.braindump})
+    return jsonify({"text": user.scratchpad})
 
 
-@api_v1_bp.post("/braindump/convert")
+@api_v1_bp.post("/scratchpad/convert")
 @token_required
-def convert_braindump():
+def convert_scratchpad():
     """Turn dumped text into tasks — one per line, into ``project_id`` (blank
     = Inbox). See application.services.capture."""
     from application.services import capture

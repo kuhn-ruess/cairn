@@ -927,6 +927,42 @@ def repair_section_parents(dry_run):
         click.echo(f"Fixed {fixed} item(s).")
 
 
+@cairn_cli.command("rename-scratchpad-field")
+@click.option("--dry-run", is_flag=True, help="Show what would change.")
+def rename_scratchpad_field(dry_run):
+    """One-shot: the Braindump became the Scratchpad — carry the text over.
+
+    Renames ``users.braindump`` to ``users.scratchpad`` and rewrites the
+    ``org:braindump`` favourite token. Idempotent: a database that has already
+    been renamed has no ``braindump`` key left and this does nothing.
+    """
+    db = User._get_collection().database
+    pads = list(db.users.find({"braindump": {"$exists": True}},
+                              {"braindump": 1, "scratchpad": 1}))
+    favs = list(db.users.find({"favorites": "org:braindump"}, {"_id": 1}))
+    if not pads and not favs:
+        click.echo("Nothing to rename — no 'braindump' left in the database.")
+        return
+    if dry_run:
+        click.echo(f"(dry-run) would move {len(pads)} pad(s) and "
+                   f"fix {len(favs)} favourite(s)")
+        return
+
+    for raw in pads:
+        # $rename refuses to overwrite, so a user who has already written the
+        # new field keeps it and only loses the stale one.
+        if raw.get("scratchpad"):
+            db.users.update_one({"_id": raw["_id"]}, {"$unset": {"braindump": ""}})
+        else:
+            # $rename overwrites the destination, so an empty new field is
+            # simply replaced by the text that was there before.
+            db.users.update_one({"_id": raw["_id"]},
+                                {"$rename": {"braindump": "scratchpad"}})
+    db.users.update_many({"favorites": "org:braindump"},
+                         {"$set": {"favorites.$": "org:scratchpad"}})
+    click.echo(f"Moved {len(pads)} pad(s), fixed {len(favs)} favourite(s).")
+
+
 @cairn_cli.command("migrate-tags-to-embedded")
 def migrate_tags_to_embedded():
     """One-shot: move the central ``tags`` collection into User.tags

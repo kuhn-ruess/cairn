@@ -1,7 +1,7 @@
 """Capture — turn a marked block of text into tasks or into a note.
 
 Both callers hand over the same thing: the lines a user marked with the mouse.
-The braindump pad passes the selected part of its scratch text (or all of it),
+The scratchpad passes the selected part of its scratch text (or all of it),
 a note passes what was marked in the rendered body.
 
 * :func:`create_tasks` — **one task per line**, into the project the user
@@ -102,7 +102,7 @@ def create_note(text: str, user, *, title: str = "", folder=None):
 
     note = Item(
         owner=user, kind="note", parent=folder,
-        title=(title or suggest_title(text) or "Braindump"),
+        title=(title or suggest_title(text) or "Scratchpad"),
         note=text or "",
     )
     if "[[" in note.note:

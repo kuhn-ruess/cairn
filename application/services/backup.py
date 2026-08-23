@@ -74,7 +74,7 @@ _MERGE_CONTENT_FIELDS = (
     "completed_task_retention_days",
     "trash_retention_days",
     "collapsed_items",
-    "braindump",
+    "scratchpad",
     "today_grouping",
     "today_filter_tag",
     "today_days",

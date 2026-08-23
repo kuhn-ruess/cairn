@@ -1,7 +1,7 @@
-/* Braindump — the two ways out of the pad.
+/* Scratchpad — the two ways out of the pad.
  *
  * The pad itself is an outline, edited by static/js/outliner.js exactly as a
- * note is, and saved to /braindump/save by the same code path. What is left
+ * note is, and saved to /scratchpad/save by the same code path. What is left
  * here is what is specific to a scratch pad: converting part of it away.
  *
  * The unit of conversion is the BLOCK. Marking spans rendered blocks, so
@@ -11,17 +11,17 @@
  * it had moved on; a block is a thing, and it is either still there or it is
  * not.
  *
- * Self-guards: does nothing unless the braindump page is on screen.
+ * Self-guards: does nothing unless the scratchpad page is on screen.
  */
 (function () {
-  const page = document.querySelector(".braindump-page");
+  const page = document.querySelector(".scratchpad-page");
   if (!page) return;
 
-  const tasksBtn = document.getElementById("braindumpToTasks");
-  const noteBtn = document.getElementById("braindumpToNote");
-  const checkBtn = document.getElementById("braindumpChecklist");
-  const scopeHint = document.getElementById("braindumpScope");
-  const clearBtn = document.getElementById("braindumpClear");
+  const tasksBtn = document.getElementById("scratchpadToTasks");
+  const noteBtn = document.getElementById("scratchpadToNote");
+  const checkBtn = document.getElementById("scratchpadChecklist");
+  const scopeHint = document.getElementById("scratchpadScope");
+  const clearBtn = document.getElementById("scratchpadClear");
   const status = document.getElementById("note-save-status");
 
   const outliner = () => window.CairnOutliner;
@@ -45,7 +45,7 @@
     if (scopeHint) {
       scopeHint.textContent = sc.marked
         ? `${sc.blocks.length} marked block(s), ${lines} line(s) — the buttons act on those`
-        : "Nothing marked — the buttons act on the whole braindump";
+        : "Nothing marked — the buttons act on the whole scratchpad";
     }
     [tasksBtn, noteBtn].forEach((btn) => {
       const label = btn && btn.querySelector(".capture-scope");
@@ -116,7 +116,7 @@
     clearBtn.addEventListener("click", async () => {
       const o = outliner();
       if (!o) return;
-      if (!o.isEmpty() && !confirm("Clear the braindump? The text is gone.")) return;
+      if (!o.isEmpty() && !confirm("Clear the scratchpad? The text is gone.")) return;
       await o.reset();
       setStatus("Cleared");
       refreshScope();

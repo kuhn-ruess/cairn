@@ -25,7 +25,7 @@
 
   const noteId = root.dataset.noteId;
   // Where the whole body is posted. A note posts to its own edit route; the
-  // braindump pad is not an Item at all and posts to its own. Everything else
+  // scratchpad is not an Item at all and posts to its own. Everything else
   // about editing is identical, which is the point of naming it.
   const saveUrl = root.dataset.saveUrl || `/notes/${noteId}/edit`;
   const canEdit = root.dataset.canEdit === "1";
@@ -1062,7 +1062,7 @@
 
   /** The blocks a text selection touches, and their Markdown.
    *
-   *  The braindump converts what you marked into tasks or a note and takes it
+   *  The scratchpad converts what you marked into tasks or a note and takes it
    *  OUT of the pad. Marking spans rendered blocks, so the unit is the block:
    *  whatever the selection touched, whole, subtrees included. Nothing marked
    *  means everything — the pad's own rule. */

@@ -178,7 +178,7 @@ def parse(text: str) -> list:
 def parse_lines(text: str) -> list:
     """:func:`parse` for text whose LINES were always items, not prose.
 
-    The braindump pad is the case: a line there is a task-to-be, and four
+    The scratchpad is the case: a line there is a task-to-be, and four
     spaces in front of it meant "sub-task" — which is exactly how
     ``services/capture.parse_tasks`` still reads it. Running the note parser
     over that would glue a whole page of items into one paragraph, because to a
