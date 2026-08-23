@@ -297,6 +297,7 @@
       if (window.CairnNoteEditing) window.CairnNoteEditing.changed();
     });
     if (window.CairnNoteEditing) window.CairnNoteEditing.opened();
+    if (vim) vim.opened(node, ta);
   }
 
   function grow(ta) {
@@ -318,6 +319,7 @@
     // the block is never blank in between.
     box.textContent = node.content;
     if (window.CairnNoteEditing) window.CairnNoteEditing.closed();
+    if (vim) vim.closed();
     save({ render: alsoRender ? [node].concat(alsoRender) : node });
   }
 
@@ -332,6 +334,15 @@
     const list = siblings(node);
     fresh.parent = node.parent;
     list.splice(indexOf(node) + 1, 0, fresh);
+    makeBlockEl(fresh);
+    place(fresh);
+    return fresh;
+  }
+
+  function insertBefore(node, fresh) {
+    const list = siblings(node);
+    fresh.parent = node.parent;
+    list.splice(indexOf(node), 0, fresh);
     makeBlockEl(fresh);
     place(fresh);
     return fresh;
@@ -438,6 +449,9 @@
 
   function onKey(e, node, ta) {
     popupAte = false;
+    // Vim first: in normal mode a key is a command, and the "/" menu or the
+    // "[[" completion opening on one would be the same key doing two things.
+    if (vim && vim.handleKey(e, node, ta)) return;
     if (window.CairnNoteEditing && window.CairnNoteEditing.handleKey(e)) {
       popupAte = true;
       return;
@@ -1092,13 +1106,150 @@
     (nodes || []).forEach(removeNode);
     if (!model.length) model = link([blank()]);
     // Whatever was zoomed or shown may have been among them.
+    //
+    // Not filtered when the scope IS the model: ``listFor`` asks "is this node
+    // in the scope?" to decide that a block belongs in the outline's top list,
+    // and a filtered copy answers no for every block inserted afterwards — the
+    // model would grow a block the page never shows.
     const live = new Set(allNodes());
-    scope = scope.filter((n) => live.has(n));
+    if (scope !== model) scope = scope.filter((n) => live.has(n));
     if (!scope.length) scope = model;
     if (!allNodes(scope).every((n) => n.el)) rebuild();
     repaintAll();
     return save();
   }
+
+  // ---- vim ------------------------------------------------------------------
+  //
+  // The keys themselves live in static/js/outliner-vim.js; what this file owns
+  // is the model, so vim gets a host of exactly the operations it must not
+  // reimplement. Two clones with different rules: a SNAPSHOT keeps block ids
+  // (undo puts the same blocks back), a COPY drops them (a put makes new
+  // blocks, and a duplicated id would break every reference pointing at one).
+
+  function cloneTree(node, keepId) {
+    const props = Object.assign({}, node.props || {});
+    if (!keepId) delete props.id;
+    return {
+      content: node.content || "",
+      props,
+      children: (node.children || []).map((c) => cloneTree(c, keepId)),
+    };
+  }
+
+  function snapshot() {
+    const ta = editing ? contentOf(editing).querySelector("textarea") : null;
+    return {
+      nodes: model.map((n) => cloneTree(n, true)),
+      at: editing ? docIndex(editing) : -1,
+      caret: ta ? ta.selectionStart : 0,
+      // A zoom is remembered the way attach() reads it — by the block's id.
+      // Not by identity ("is scope the model array?"): a delete rebuilds that
+      // array, and every undo after one would have snapped the page into a
+      // zoom nobody asked for.
+      zoom: root.dataset.zoom || "",
+    };
+  }
+
+  function restoreSnapshot(snap) {
+    if (editing) { editing.el.classList.remove("ol-editing"); editing = null; }
+    model = link(snap.nodes.map((n) => cloneTree(n, true)));
+    const zoomed = snap.zoom
+      ? allNodes().find((n) => n.props.id === snap.zoom) : null;
+    scope = zoomed ? [zoomed] : model;
+    rebuild();
+    repaintAll();
+    const target = snap.at >= 0 ? allNodes()[snap.at] : null;
+    if (target) focusBlock(target, snap.caret);
+    // Everything on screen was just drawn from text; ask for it rendered back.
+    save({ render: allNodes(scope) });
+  }
+
+  const vim = (root.dataset.vim === "1" && window.CairnVim && canEdit)
+    ? window.CairnVim.attach({
+      editing: () => editing,
+      textarea: () => (editing ? contentOf(editing).querySelector("textarea") : null),
+      order: () => visible(scope),
+      prev: previousVisible,
+      next: nextVisible,
+      open: (node, caret) => focusBlock(node, caret),
+      close: () => { if (editing) commit(editing); },
+      status: (text) => setStatus(text),
+      save: (node) => save(node ? { render: node } : undefined),
+      indent: (node) => { if (indent(node)) { repaintAll(); } },
+      outdent: (node) => { if (outdent(node)) { repaintAll(); } },
+      toggleFold,
+      snapshot,
+      restore: restoreSnapshot,
+
+      setText(node, text) {
+        node.content = text;
+        const ta = contentOf(node).querySelector("textarea");
+        if (ta) grow(ta);
+        scheduleSave();
+        if (window.CairnNoteEditing) window.CairnNoteEditing.changed();
+      },
+
+      insertBelow(node) {
+        const made = blank();
+        // Same rule Enter follows: a block with children open under it gets
+        // its new neighbour INSIDE, or the new line jumps over what it belongs to.
+        if ((node.children.length && !collapsed(node))
+            || (scope.indexOf(node) >= 0 && scope !== model)) insertFirstChild(node, made);
+        else insertAfter(node, made);
+        scheduleSave();
+        return made;
+      },
+
+      insertAbove(node) {
+        const made = blank();
+        insertBefore(node, made);
+        scheduleSave();
+        return made;
+      },
+
+      removeNodes: (nodes) => remove(nodes),
+
+      /** Where the caret belongs once ``nodes`` are gone: the next block
+       *  outside them, else the one before. Not simply "the next block" — the
+       *  next one is usually the first CHILD, which is being taken away with
+       *  its parent, and a caret opened in a detached element is a keyboard
+       *  quietly talking to the page instead of the note. */
+      afterRemoving(nodes) {
+        const doomed = new Set();
+        nodes.forEach((n) => allNodes([n]).forEach((d) => doomed.add(d)));
+        const order = visible(scope);
+        const last = order.indexOf(nodes[nodes.length - 1]);
+        for (let i = last + 1; i < order.length; i += 1) {
+          if (!doomed.has(order[i])) return order[i];
+        }
+        const first = order.indexOf(nodes[0]);
+        for (let i = first - 1; i >= 0; i -= 1) {
+          if (!doomed.has(order[i])) return order[i];
+        }
+        return null;
+      },
+
+      copyTrees: (nodes) => nodes.map((n) => cloneTree(n, false)),
+
+      putTrees(node, trees, before) {
+        let anchor = node, first = null;
+        const landed = [];
+        trees.forEach((tree, i) => {
+          const made = link([cloneTree(tree, false)], node.parent)[0];
+          if (before && i === 0) insertBefore(node, made);
+          else insertAfter(anchor, made);
+          placeTree(made);
+          anchor = made;
+          first = first || made;
+          allNodes([made], landed);
+        });
+        repaintAll();
+        save({ render: landed });
+        return first;
+      },
+    })
+    : null;
 
   window.CairnOutliner = {
     save,

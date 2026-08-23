@@ -238,6 +238,11 @@ class User(UserMixin, Document):
     #   org:<slug>    — an "Organize" nav entry (projects, notes, tree, …)
     favorites = ListField(StringField())
 
+    # Vim keys in the notes/scratchpad outliner (static/js/outliner-vim.js).
+    # Off by default: modal editing is a preference, and a writer who never
+    # asked for it would find the keyboard answering commands instead of text.
+    editor_vim_mode = BooleanField(default=False)
+
     # Scratchpad — the raw Markdown outline the user is drafting on
     # the /scratchpad page. Persisted server-side so it survives across
     # devices/browsers (not just localStorage) and stays put after a convert.

@@ -123,6 +123,7 @@
     <div id="note-outline" class="note-body mb-2"
          data-note-id="{{ note.pk }}" data-stamp="{{ base_stamp }}"
          data-zoom="{{ zoom }}"
+         data-vim="{{ '1' if current_user.editor_vim_mode else '0' }}"
          data-can-edit="{{ '1' if can_edit else '0' }}">
       {{ ol.outline(blocks, wiki_index, block_index, embed_of) }}
     </div>
@@ -540,5 +541,7 @@
   });
 })();
 </script>
+{# Before outliner.js: it attaches the vim host while it initialises. #}
+<script src="{{ asset('js/outliner-vim.js') }}"></script>
 <script src="{{ asset('js/outliner.js') }}"></script>
 {% endblock %}

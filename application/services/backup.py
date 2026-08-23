@@ -75,6 +75,7 @@ _MERGE_CONTENT_FIELDS = (
     "trash_retention_days",
     "collapsed_items",
     "scratchpad",
+    "editor_vim_mode",
     "today_grouping",
     "today_filter_tag",
     "today_days",

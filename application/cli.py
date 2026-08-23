@@ -1043,7 +1043,8 @@ def seed_demo(username):
 
     proj = Item(
         owner=user,
-        name="Set up Cairn",
+        kind="project",
+        title="Set up Cairn",
         project_type="sequential",
         review_interval_days=7,
     ).save()

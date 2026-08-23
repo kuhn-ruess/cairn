@@ -224,6 +224,7 @@ def profile():
         # start == end (or end < start) disables the lunch break.
         user.plan_lunch_start, user.plan_lunch_end = (ls, le) if le > ls else (0, 0)
         user.focus_on_login = bool(request.form.get("focus_on_login"))
+        user.editor_vim_mode = bool(request.form.get("editor_vim_mode"))
         user.caldav_calendar_enabled = bool(request.form.get("caldav_calendar_enabled"))
         cal_src = (request.form.get("caldav_calendar_source") or "due").strip()
         user.caldav_calendar_source = cal_src if cal_src in ("due", "plan") else "due"

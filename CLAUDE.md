@@ -197,6 +197,17 @@ API; `outliner.js` hands them a handle of that shape over whichever block is
 open. Saving is the whole body, throttled, against `base_stamp` — unchanged
 from the document editor it replaced.
 
+**Vim keys** (`static/js/outliner-vim.js`, per-user via `User.editor_vim_mode`,
+`data-vim` on `#note-outline`) are opt-in and modal: a BLOCK is a line, so
+`dd`/`yy`/`p`/`>>` act on the block and its subtree while the character-wise
+commands act inside the open textarea. `outliner.js` builds a host — the model
+operations vim must not reimplement, including `snapshot`/`restore` for `u` and
+`Ctrl-r` — and calls `vim.handleKey` **before** the `/` menu and the `[[`
+completion, which must not fire on a key that is a command. In insert mode the
+file only watches for Escape, so everything else about editing is untouched.
+`/` searches the note (`n`/`N`); the `/` command menu still belongs to insert
+mode.
+
 ### REST API
 
 `application/api/v1.py` mounts at `/api/v1`. Auth is via `token_required`

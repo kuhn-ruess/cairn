@@ -3350,3 +3350,32 @@ body.scratchpad-frame .sp-tools {
     border-radius: .5rem .5rem 0 0; resize: none; padding-bottom: 0;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Vim keys in the outliner (static/js/outliner-vim.js)
+
+   The bar is vim's own status line: the mode on the left, the pending command
+   or the "/" prompt beside it. Built by the JS, so a page without the file has
+   nothing of this.
+   --------------------------------------------------------------------------- */
+.vim-bar {
+  position: fixed; left: 0; bottom: 0; z-index: 1049;
+  display: flex; align-items: center; gap: .6rem;
+  padding: .15rem .6rem;
+  font-family: var(--bs-font-monospace); font-size: .78rem; line-height: 1.5;
+  background: var(--bs-tertiary-bg); border-top: 1px solid var(--bs-border-color);
+  border-right: 1px solid var(--bs-border-color); border-top-right-radius: .3rem;
+  color: var(--bs-secondary-color);
+}
+.vim-bar .vim-mode { font-weight: 700; letter-spacing: .04em; }
+.vim-bar[data-mode="insert"] .vim-mode { color: var(--bs-success, #98971a); }
+.vim-bar[data-mode="visual"] .vim-mode { color: var(--bs-info, #458588); }
+.vim-bar[data-mode="normal"] .vim-mode { color: var(--bs-primary, #d79921); }
+/* The pending command reads as what it is: keys you have typed but not
+   finished ("2d", "/rele"). */
+.vim-bar .vim-cmd { color: var(--bs-body-color); min-height: 1em; }
+
+/* Normal mode draws a block cursor, which a textarea can only do as a
+   one-character selection — so the thin caret has to go, or there are two. */
+textarea.ol-edit.vim-normal { caret-color: transparent; }
+textarea.ol-edit.vim-normal::selection { background: var(--bs-primary, #d79921); color: var(--bs-body-bg); }

@@ -70,6 +70,7 @@
 {# The same outline a note has, posting to the pad's own save route. #}
 <div id="note-outline" class="note-body scratchpad-outline"
      data-save-url="{{ url_for('scratchpad.save') }}"
+     data-vim="{{ '1' if current_user.editor_vim_mode else '0' }}"
      data-can-edit="1">
   {{ ol.outline(blocks, wiki_index, block_index, embed_of) }}
 </div>
