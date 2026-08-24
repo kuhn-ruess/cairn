@@ -1004,20 +1004,27 @@ def today():
     all_tags = sorted(user.tags or [], key=lambda t: t.name.lower())
 
     # External calendar events ---------------------------------------
+    # ``[start_dt, end_dt)`` is already the window in the USER's zone, so it is
+    # what the page shows. The fetch is widened by FETCH_SLACK only because an
+    # all-day event encodes its date as midnight UTC and would otherwise fall
+    # outside its own local day; ``events_in_window`` then cuts the slack back
+    # off. Without that second step the slack itself leaked — a Berlin user saw
+    # yesterday evening's appointments listed under Today.
     from application.services.calendar_sync import (
-        collect_next_event, fetch_events,
+        FETCH_SLACK, collect_next_event, event_day, events_in_window,
+        fetch_events,
     )
     events = []
     next_event = None
-    fetch_since = start_dt - timedelta(hours=6) if is_today_now else start_dt
-    fetch_until = end_dt + (timedelta(hours=6) if is_today_now else timedelta(0))
     for cal in (user.calendars or []):
         if not cal.show_in_today:
             continue
         try:
-            events.extend(fetch_events(cal, fetch_since, fetch_until, user=user))
+            events.extend(fetch_events(cal, start_dt - FETCH_SLACK,
+                                       end_dt + FETCH_SLACK, user=user))
         except Exception as exc:  # noqa: BLE001
             flash(f"{cal.name}: {exc}", "warning")
+    events = events_in_window(events, start_dt, end_dt)
     events.sort(key=lambda e: e.start)
     if not events and is_today_now:
         try:
@@ -1055,9 +1062,9 @@ def today():
     # template can render section headers per day.
     events_by_day = {}
     if days > 1:
+        _day_tz = resolve_tz(user)
         for ev in events:
-            key = ev.start.date()
-            events_by_day.setdefault(key, []).append(ev)
+            events_by_day.setdefault(event_day(ev, _day_tz), []).append(ev)
 
     # Multi-day LIST view: mix events and tasks into one list per day,
     # sorted by start time. Lets the user see "Tuesday: 09:00 standup,
@@ -1088,7 +1095,7 @@ def today():
             d = _to_user_list(ev.start)
             if not d:
                 continue
-            day_key = d.date()
+            day_key = event_day(ev, _list_tz)
             if day_key in daily_buckets:
                 daily_buckets[day_key].append({
                     "kind": "event", "obj": ev,

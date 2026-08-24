@@ -18,7 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from flask import current_app
@@ -693,30 +693,45 @@ def _post_form(url: str, data: dict[str, str]) -> dict[str, Any]:
         raise CalendarError(f"OAuth network error: {exc}") from exc
 
 
-# ----- Multi-calendar helper for the Today view ----------------------------
+# ----- Multi-calendar helpers for the Today view ---------------------------
+#
+# An ALL-DAY event carries a date, not an instant: every reader above encodes
+# it as midnight UTC (``_parse_google_dt`` / ``_normalise_ical_dt``). So it must
+# never be converted into a zone — in Los Angeles that midnight is 17:00 the
+# day before, which would file the event on the wrong day. Read the date
+# straight off it; only timed events get ``astimezone``.
+#
+# That encoding is also why the fetch window has to be widened before it is
+# filtered: an all-day event for the user's today sits at 00:00 UTC, which can
+# be up to 12h outside the user's local day in either direction.
+FETCH_SLACK = timedelta(hours=14)
 
 
-def collect_today_events(user) -> list[CalendarEvent]:
-    """Fetch events for the user's "today".
+def event_day(ev: CalendarEvent, tz) -> date:
+    """The local date ``ev`` belongs to."""
+    return ev.start.date() if ev.all_day else ev.start.astimezone(tz).date()
 
-    Window is widened from a strict UTC day so events scheduled in
-    Europe/America local time around midnight aren't dropped — anything
-    starting from 6h before UTC midnight through the end of UTC's "today"
-    is in scope.
+
+def events_in_window(events, since: datetime, until: datetime) -> list[CalendarEvent]:
+    """Keep the events that belong to the local window ``[since, until)``.
+
+    A timed event belongs to the day it STARTS on — that is the day whose list
+    and timeline can render it. An all-day event is matched by date instead,
+    over its whole span (``DTEND`` is exclusive), so a multi-day one shows on
+    every day it covers.
     """
-    now = datetime.now(timezone.utc)
-    since = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=6)
-    until = since + timedelta(hours=36)
-
-    out: list[CalendarEvent] = []
-    for cal in (user.calendars or []):
-        if not cal.show_in_today:
-            continue
-        try:
-            out.extend(fetch_events(cal, since, until, user=user))
-        except CalendarError as exc:
-            log.warning("calendar %s failed: %s", cal.name, exc)
-    out.sort(key=lambda e: e.start)
+    first, last = since.date(), (until - timedelta(microseconds=1)).date()
+    out = []
+    for ev in events:
+        if ev.all_day:
+            ev_first = ev.start.date()
+            ev_last = ev.end.date()
+            if ev_last > ev_first:
+                ev_last -= timedelta(days=1)
+            if ev_first <= last and ev_last >= first:
+                out.append(ev)
+        elif since <= ev.start < until:
+            out.append(ev)
     return out
 
 
