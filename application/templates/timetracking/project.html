@@ -358,7 +358,7 @@
 
   {# ---- Everything that cannot be undone ------------------------------- #}
   {% if can_manage %}
-    {% set _mins = logged %}
+    {% set _mins = logged_total %}
     <div class="card border-danger mb-4">
       <div class="card-header py-2">
         <strong class="small text-danger">
@@ -377,7 +377,7 @@
             <input type="hidden" name="team" value="{{ team.pk }}">
             <input type="hidden" name="back" value="{{ request.path }}">
             <span class="small text-muted" style="flex: 1 1 100%;">
-              Moves everything booked here{% if _mins %} ({{ _mins|duration }} this month){% endif %}
+              Moves everything booked here{% if _mins %} ({{ _mins|duration }} in total){% endif %}
               onto another project — across customers too. Billed entries stay
               where they were settled.
             </span>

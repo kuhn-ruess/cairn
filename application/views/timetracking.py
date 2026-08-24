@@ -242,9 +242,10 @@ def index():
     consumption = team_consumption(team, f"{today.year:04d}-{today.month:02d}")
     budgets = {str(p.id): budget_status(p, consumption.get(str(p.id)))
                for p in projects}
-    # What a reset would destroy, from the same consumption pass — no query per
-    # project just to label a danger-zone button.
-    logged = {str(p.id): consumption.get(str(p.id), {}).get("minutes", 0)
+    # The row's "this month" figure, from the same consumption pass — the
+    # month's minutes, not the project's lifetime total. Reading the wrong one
+    # here is what made this list disagree with the report.
+    logged = {str(p.id): consumption.get(str(p.id), {}).get("month_minutes", 0)
               for p in projects}
 
     return render_template(
@@ -1763,7 +1764,10 @@ def project_detail(pid):
         "timetracking/project.html", team=team, all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user), p=p, share_cols=share_cols,
         budget=budget_status(p, consumption.get(str(p.id))),
-        logged=consumption.get(str(p.id), {}).get("minutes", 0),
+        # Two different numbers, and the danger zone needs the other one: the
+        # header reports the month, moving or purging takes everything.
+        logged=consumption.get(str(p.id), {}).get("month_minutes", 0),
+        logged_total=consumption.get(str(p.id), {}).get("minutes", 0),
         links=linked, link_info=describe_containers(linked, team=team),
         linkable=container_choices(user, selectable_kinds=("project", "folder")),
         move_targets=move_targets)
