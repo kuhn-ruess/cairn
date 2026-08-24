@@ -237,49 +237,16 @@ def index():
     # Budget vs. actual — one bucket pass for the whole team, then a status per
     # project (None when no budget set).
     from application.services.tz import user_zone
-    from application.services.timetracking import (
-        PERIOD_PRESETS, budget_status, resolve_period, team_consumption)
+    from application.services.timetracking import budget_status, team_consumption
     today = datetime.now(user_zone(user)).date()
-    # The window the reader picked. "What did we do for this customer in
-    # August, and how much of it is still open" is the question this page is
-    # opened with — the same presets as the report, so moving between the two
-    # doesn't mean re-stating the period.
-    preset = request.args.get("period") or "this_month"
-    date_from, date_to = resolve_period(
-        preset, request.args.get("from"), request.args.get("to"), today)
-    unbilled = request.args.get("open") == "1"
-    consumption = team_consumption(
-        team, f"{today.year:04d}-{today.month:02d}",
-        date_from=date_from, date_to=date_to, viewer=user,
-        unbilled_only=unbilled)
+    consumption = team_consumption(team, f"{today.year:04d}-{today.month:02d}")
     budgets = {str(p.id): budget_status(p, consumption.get(str(p.id)))
                for p in projects}
-    # The row's figure is the selected window's — reading the lifetime total
-    # under a "this month" label is what made this list disagree with the
-    # report. Budgets keep their own months (see team_consumption).
-    logged = {str(p.id): consumption.get(str(p.id), {}).get("period_minutes", 0)
+    # The row's "this month" figure, from the same consumption pass — the
+    # month's minutes, not the project's lifetime total. Reading the wrong one
+    # here is what made this list disagree with the report.
+    logged = {str(p.id): consumption.get(str(p.id), {}).get("month_minutes", 0)
               for p in projects}
-    amounts = {str(p.id): consumption.get(str(p.id), {}).get("period_amount_cents", 0)
-               for p in projects}
-    # A customer's own total for the window, summed here rather than in the
-    # template: what gets invoiced is a customer's line, not a project's.
-    totals = {}
-    for p in projects:
-        t = totals.setdefault(str(p.customer.id), {"minutes": 0, "amount_cents": 0})
-        t["minutes"] += logged[str(p.id)]
-        t["amount_cents"] += amounts[str(p.id)]
-    # Carried into every link that leaves this page, so the report opens on the
-    # window you were already looking at.
-    window = {"period": preset, "from": date_from.isoformat(),
-              "to": date_to.isoformat()}
-    # The same window as the report reads it — "only unbilled" is the report's
-    # Status filter, so the two pages stay the same view of the same time.
-    report_window = dict(window, **({"locked": "0"} if unbilled else {}))
-    # The preset's own words behind each figure ("6h this month"), so a row
-    # still says what it is measuring once the filter bar is scrolled away.
-    window_label = (f"{date_from.isoformat()} – {date_to.isoformat()}"
-                    if preset == "custom"
-                    else dict(PERIOD_PRESETS).get(preset, "this month").lower())
 
     return render_template(
         "timetracking/index.html",
@@ -293,17 +260,7 @@ def index():
         links_by_project=links_by_project,
         link_info=link_info,
         logged=logged,
-        amounts=amounts,
-        totals=totals,
         budgets=budgets,
-        presets=PERIOD_PRESETS,
-        preset=preset,
-        date_from=date_from,
-        date_to=date_to,
-        window=window,
-        report_window=report_window,
-        unbilled=unbilled,
-        window_label=window_label,
     )
 
 

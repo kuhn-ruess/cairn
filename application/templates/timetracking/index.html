@@ -37,60 +37,15 @@
   </p>
   {% if show_archive %}
     <a class="btn btn-sm btn-outline-secondary"
-       href="{{ url_for('timetracking.index', team=team.pk, **window) }}">
+       href="{{ url_for('timetracking.index', team=team.pk) }}">
       <i class="bi bi-arrow-left"></i> Back to active</a>
   {% elif archived_count %}
     <a class="btn btn-sm btn-outline-secondary"
-       href="{{ url_for('timetracking.index', team=team.pk, archive=1, **window) }}"
+       href="{{ url_for('timetracking.index', team=team.pk, archive=1) }}"
        title="Archived customers and projects, kept out of the way">
       <i class="bi bi-archive"></i> Archive ({{ archived_count }})</a>
   {% endif %}
 </div>
-
-{# The window every figure on this page is measured in. The same presets as
-   the report, plus the one question this page is opened with at invoicing
-   time: what of it is still open. Archived stays a separate switch — it asks
-   *which* projects, not *when*. #}
-<form method="get" class="row g-2 align-items-end mb-3">
-  <input type="hidden" name="team" value="{{ team.pk }}">
-  {% if show_archive %}<input type="hidden" name="archive" value="1">{% endif %}
-  <div class="col-auto">
-    <label class="form-label small mb-0">Period</label>
-    <select name="period" class="form-select form-select-sm"
-            onchange="this.form.submit()">
-      {% for key, label in presets %}
-        <option value="{{ key }}" {% if preset == key %}selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div class="col-auto">
-    <label class="form-label small mb-0">From</label>
-    <input type="date" name="from" value="{{ date_from.isoformat() }}"
-           class="form-control form-control-sm">
-  </div>
-  <div class="col-auto">
-    <label class="form-label small mb-0">To</label>
-    <input type="date" name="to" value="{{ date_to.isoformat() }}"
-           class="form-control form-control-sm">
-  </div>
-  <div class="col-auto">
-    <label class="form-check small mb-1"
-           title="Hide what has already been settled — what is left is what there is to invoice">
-      <input type="checkbox" class="form-check-input" name="open" value="1"
-             {% if unbilled %}checked{% endif %} onchange="this.form.submit()">
-      only unbilled
-    </label>
-  </div>
-  <div class="col-auto">
-    <button class="btn btn-sm btn-primary">Apply</button>
-  </div>
-  <div class="col-auto ms-auto">
-    <a class="btn btn-sm btn-outline-secondary"
-       href="{{ url_for('timetracking.report', team=team.pk, **report_window) }}"
-       title="The same window, entry by entry — where time is exported and marked billed">
-      <i class="bi bi-table"></i> Open in report</a>
-  </div>
-</form>
 
 {% if customers %}
   {# Type-to-find over what is already on the page. The list is rendered in
@@ -159,15 +114,6 @@
           <i class="bi bi-person-vcard"></i> {{ c.name }}</a>
         {% if c.archived %}<span class="badge text-bg-secondary">archived</span>{% endif %}
       </h2>
-      {% set ct = totals.get(c.id|string) %}
-      <span class="small text-muted text-nowrap">
-        {{ (ct.minutes if ct else 0)|duration }} {{ window_label }}{% if ct and ct.amount_cents %}
-          · {{ ct.amount_cents|eur }}{% endif %}
-      </span>
-      <a class="btn btn-sm btn-outline-secondary"
-         href="{{ url_for('timetracking.report', team=team.pk, customer=c.id, **report_window) }}"
-         title="This customer's hours in the selected period — the sheet to invoice from">
-        <i class="bi bi-table"></i> Hours</a>
       <a class="btn btn-sm btn-outline-secondary"
          href="{{ url_for('timetracking.customer_detail', cid=c.id, team=team.pk) }}"
          title="Address, tax details, billing information">
@@ -215,7 +161,7 @@
             {% endif %}
 
             <span class="ms-auto small text-muted text-nowrap">
-              {{ logged.get(p.id|string, 0)|duration }} {{ window_label }}
+              {{ logged.get(p.id|string, 0)|duration }} this month
             </span>
             <span class="small text-muted text-nowrap" style="min-width: 5rem; text-align: right;">
               {{ p.hourly_rate_cents|eur }}{% if p.hourly_rate_cents %} / h{% endif %}
