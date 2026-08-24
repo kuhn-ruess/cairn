@@ -114,6 +114,25 @@ class ExpandVeventsTest(unittest.TestCase):
         self.assertEqual(["2026-08-26"],
                          [e.start.astimezone(timezone.utc).date().isoformat() for e in events])
 
+    def test_the_wall_clock_survives_a_daylight_saving_change(self):
+        """"Every Tuesday at 14:00" is a wall-clock rule. Expanded in UTC it
+        drifts by an hour the moment the window crosses the switch — and an
+        appointment at the wrong time is worse than one that is missing."""
+        berlin = ZoneInfo("Europe/Berlin")
+        weekly_14h = (
+            "BEGIN:VEVENT\r\nUID:w\r\nSUMMARY:Weekly 14:00\r\n"
+            "DTSTART;TZID=Europe/Berlin:20260901T140000\r\n"
+            "DTEND;TZID=Europe/Berlin:20260901T150000\r\n"
+            "RRULE:FREQ=WEEKLY\r\nEND:VEVENT\r\n"
+        )
+        # 2026-10-25 is the end of summer time in Europe/Berlin.
+        events = expand(weekly_14h, start="2026-10-20", days=21)
+        self.assertEqual(3, len(events))
+        for occ in events:
+            self.assertEqual(14, occ.start.astimezone(berlin).hour,
+                             f"{occ.start.isoformat()} is not 14:00 in Berlin")
+            self.assertEqual(15, occ.end.astimezone(berlin).hour)
+
     def test_an_unreadable_rule_keeps_the_appointment_itself(self):
         broken = WEEKLY.replace("RRULE:FREQ=WEEKLY", "RRULE:FREQ=NONSENSE")
         events = expand(broken, start="2025-08-25", days=1)

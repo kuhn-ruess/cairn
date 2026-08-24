@@ -547,7 +547,10 @@ def _occurrence_starts(comp, base: "CalendarEvent", since: datetime,
         return None
     from dateutil.rrule import rrulestr, rruleset
 
-    dtstart = base.start.astimezone(timezone.utc)
+    # Expand in the appointment's OWN zone, not in UTC: "every Thursday at
+    # 14:00" is a wall-clock rule, and a series expanded in UTC silently moves
+    # by an hour the moment the window crosses a daylight-saving change.
+    dtstart = base.start.astimezone(_expansion_zone(base.start))
     rset = rruleset()
     try:
         for value in (rrule if isinstance(rrule, list) else [rrule] if rrule else []):
@@ -569,6 +572,28 @@ def _occurrence_starts(comp, base: "CalendarEvent", since: datetime,
         if len(starts) >= _MAX_OCCURRENCES:
             break
     return starts
+
+
+def _expansion_zone(start: datetime):
+    """A timezone that answers correctly for dates other than ``start``'s own.
+
+    icalendar 5 hands back pytz zones, and a pytz zone carries the offset of
+    the moment it was resolved at: build a datetime for another date with that
+    same tzinfo and it keeps the old offset, so an autumn occurrence of a
+    series that began in summer comes out an hour off — which is exactly what
+    generating occurrences does. Re-resolving the zone BY NAME through
+    ``zoneinfo`` gives one that computes its offset per date. Falls back to UTC
+    for anything nameless (a fixed-offset zone has nothing to recompute).
+    """
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    tz = start.tzinfo
+    name = getattr(tz, "zone", None) or getattr(tz, "key", None)
+    if not name:
+        return timezone.utc
+    try:
+        return ZoneInfo(str(name))
+    except (ZoneInfoNotFoundError, ValueError):
+        return timezone.utc
 
 
 def _ical_datetimes(prop) -> "list[datetime]":
