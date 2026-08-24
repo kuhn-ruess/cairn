@@ -206,6 +206,11 @@ def index():
     qs = Item.objects(
         fq & Q(pk__in=list(viewable_container_pks(user))),
         kind__in=["project", "folder"],
+        # The notes tree is a second tree of folders (folder_domain="notes").
+        # The sidebar navigator has always kept it out; this list did not, so a
+        # notes folder named after a project showed up beside it and read as a
+        # duplicate.
+        folder_domain__ne="notes",
     )
     # A folder is normally statusless-and-visible, but it can now be
     # explicitly completed/dropped (the Complete button) — hide those like a

@@ -2682,6 +2682,7 @@ def move_options(task_id):
                 cvis,
                 kind__in=["project", "folder", "section"],
                 status="active",
+                folder_domain__ne="notes",   # a note's folder is not a place for a task
             ).order_by("+name").limit(800)
         )
         scored = []
@@ -2706,6 +2707,7 @@ def move_options(task_id):
             cvis,
             kind__in=["project", "folder"],
             parent=None, status="active",
+            folder_domain__ne="notes",
         ).order_by("+name").limit(50):
             suggestions.append(_entry(p))
         return jsonify({

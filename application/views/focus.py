@@ -79,7 +79,8 @@ def choose():
     user = current_user._get_current_object()
     from application.services.permissions import container_visibility_q
     folders = list(
-        Item.objects(container_visibility_q(user), kind="folder")
+        Item.objects(container_visibility_q(user), kind="folder",
+                     folder_domain__ne="notes")
         .only("pk", "title", "parent")
         .order_by("+title")
     )
