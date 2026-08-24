@@ -354,14 +354,38 @@ class User(UserMixin, Document):
     # ---------- notification helpers ----------
 
     NOTIFICATION_CAP = 50
+    NOTIFICATION_KEEP_DAYS = 30
 
     @property
     def unread_notification_count(self) -> int:
         return sum(1 for n in (self.notifications or []) if not n.read)
 
+    def prune_notifications(self) -> bool:
+        """Drop READ notifications older than ``NOTIFICATION_KEEP_DAYS``.
+
+        An unread one never expires by age — it is still waiting to be seen,
+        and only the cap can push it out. Runs on the two occasions the user
+        document is written anyway (a new notification, and marking read), so
+        the list ages out without a sweep to schedule.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self.NOTIFICATION_KEEP_DAYS)
+        keep = []
+        for n in self.notifications or []:
+            created = n.created_at
+            if created is not None and created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if n.read and created is not None and created < cutoff:
+                continue
+            keep.append(n)
+        if len(keep) == len(self.notifications or []):
+            return False
+        self.notifications = keep
+        return True
+
     def add_notification(self, **kwargs) -> None:
         """Append a notification (newest last) and trim to the cap."""
         from application.models.notification import Notification
+        self.prune_notifications()
         self.notifications.append(Notification(**kwargs))
         overflow = len(self.notifications) - self.NOTIFICATION_CAP
         if overflow > 0:
@@ -378,7 +402,7 @@ class User(UserMixin, Document):
             if not n.read:
                 n.read = True
                 changed = True
-        return changed
+        return self.prune_notifications() or changed
 
     # ---------- favorites ----------
 

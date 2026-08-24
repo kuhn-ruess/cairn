@@ -2,8 +2,11 @@
  *
  * The list is rendered server-side; this just clears the unread state. When
  * the dropdown opens (or "Mark all read" is clicked) we POST to mark every
- * notification read, drop the badge, and un-highlight the rows. No reload —
- * the next page load renders them already-read.
+ * notification read and drop the badge. The rows KEEP their unread styling
+ * while the dropdown is open — marking them read on open is what stops the
+ * badge from nagging, but the point of opening it is to see which ones are
+ * new, and restyling them under the cursor takes exactly that away. No
+ * reload — the next page load renders them already-read.
  */
 (function () {
   const bell = document.getElementById("notifBell");
@@ -24,11 +27,6 @@
       .then(() => {
         badge.hidden = true;
         badge.textContent = "0";
-        bell.querySelectorAll(".notif-item").forEach((el) => {
-          el.classList.remove("bg-body-tertiary");
-          const icon = el.querySelector("i");
-          if (icon) { icon.classList.remove("text-primary"); icon.classList.add("text-muted"); }
-        });
       })
       .catch(() => {});
   }

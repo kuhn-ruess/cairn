@@ -141,13 +141,26 @@
              href="{{ n.link or '#' }}" style="white-space: normal;">
             <i class="bi {{ n.icon or 'bi-bell' }} mt-1 {{ 'text-primary' if not n.read else 'text-muted' }}"></i>
             <span class="flex-grow-1 lh-sm">
-              <span class="d-block small">{{ n.text }}</span>
+              <span class="d-block small {{ 'fw-semibold' if not n.read }}">{{ n.text }}</span>
               <span class="d-block text-muted" style="font-size:.72rem;">{{ n.created_at | timeago }}</span>
             </span>
+            {# The dot is what says "new" at a glance — the row tint alone is
+               too quiet to read as a state, and it is all a read row loses. #}
+            {% if not n.read %}
+              <span class="badge bg-primary rounded-circle p-1 mt-1 align-self-start"
+                    title="Unread"><span class="visually-hidden">Unread</span></span>
+            {% endif %}
           </a>
         {% else %}
           <div class="px-3 py-4 text-muted small text-center">You're all caught up.</div>
         {% endfor %}
+        {% if current_user.notifications %}
+          <div class="dropdown-divider my-0"></div>
+          <div class="px-3 py-2 text-muted" style="font-size:.72rem;">
+            Read notifications are removed after
+            {{ current_user.NOTIFICATION_KEEP_DAYS }} days.
+          </div>
+        {% endif %}
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       </div>
     </div>
