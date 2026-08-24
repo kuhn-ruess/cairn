@@ -688,6 +688,10 @@ def detail(project_id):
         # Legacy stored prefs → the nested "Project" view.
         grouping = "project"
     show_completed = request.args.get("completed") == "1"
+    # "Mine" — the one filter that is about the VIEWER, which is why it lives
+    # in the URL and never on the (shared) container: in a team folder the
+    # question "what of this is mine?" has a different answer per person.
+    mine_only = request.args.get("mine") == "1"
     view_mode = (request.args.get("view") or project.view_mode or "list").strip()
     if view_mode not in ("list", "kanban", "calendar", "gantt"):
         view_mode = "list"
@@ -703,7 +707,10 @@ def detail(project_id):
     # nothing stays hidden inside a sub-project — the sub-project becomes
     # just a badge on the task row. Kanban / calendar keep their own
     # collection regardless of the grouping preference.
-    flatten = grouping != "project" and view_mode == "list"
+    # "Mine" always reads flat: my tasks are a list of things to do, not a
+    # tree. Nesting would also hide a task of mine that sits under somebody
+    # else's — the filter would drop its parent and the task with it.
+    flatten = mine_only or (grouping != "project" and view_mode == "list")
 
     sections = list(
         Item.objects(parent=project, kind="section").order_by("+name")
@@ -790,7 +797,9 @@ def detail(project_id):
     # sections are inline parts of the project). Sub-projects live on
     # their own pages and are listed as a tree at the top of this view.
     # ``?descendants=1`` opts into the rolled-up view.
-    include_descendants = request.args.get("descendants") == "1"
+    # A team FOLDER holds projects, not tasks — "mine" there has to reach the
+    # whole subtree or it would answer with an empty page.
+    include_descendants = request.args.get("descendants") == "1" or mine_only
     if flatten or include_descendants:
         project_ids = _descendant_ids(project)
     else:
@@ -835,6 +844,17 @@ def detail(project_id):
         if t.pk not in seen:
             seen.add(t.pk)
             all_tasks.append(t)
+    if mine_only:
+        # Mine = assigned to me, plus my own that nobody was assigned. Read off
+        # the raw references: touching t.assigned_to would dereference once per
+        # task.
+        me = user.pk
+        all_tasks = [
+            t for t in all_tasks
+            if _raw_ref_pk(t, "assigned_to") == me
+            or (_raw_ref_pk(t, "assigned_to") is None
+                and _raw_ref_pk(t, "owner") == me)
+        ]
     # "Available only" (persisted per project): drop every blocked task —
     # deferred, ancestor-deferred, follow-up-pending or sequentially-blocked —
     # from the whole page (list / kanban / calendar) before grouping.
@@ -1038,6 +1058,7 @@ def detail(project_id):
         flatten=flatten,
         grouping=grouping,
         show_completed=show_completed,
+        mine_only=mine_only,
         include_descendants=include_descendants,
         sequential=sequential,
         ancestors=_ancestor_chain(project),
@@ -2136,6 +2157,25 @@ def import_csv(project_id):
     idx_relates_out = [i for i, h in enumerate(headers)
                        if "ausgehende vorgangsverknüpfung" in h]
 
+    # Who a row's assignee IS here. Jira writes a person as a display name, a
+    # username or an e-mail depending on the export, so all three are keys —
+    # plus the local part of the address, which is what a Jira account name
+    # often is. Only people the importer may actually assign to (themselves +
+    # their teams) are candidates; a name outside that set is reported rather
+    # than silently dropped, because a task assigned to nobody looks exactly
+    # like one nobody has to do.
+    from application.services.permissions import assignable_users
+    people: dict = {}
+    for candidate in assignable_users(user):
+        keys = [candidate.email, candidate.username,
+                getattr(candidate, "display_name", "")]
+        local = (candidate.email or "").split("@")[0]
+        for key in keys + [local]:
+            key = (key or "").strip().lower()
+            if key and key not in people:
+                people[key] = candidate
+    unmatched_assignees: dict = {}
+
     created = updated = skipped = 0
     seen_csv_ids: set = set()
     for values in body:
@@ -2195,6 +2235,26 @@ def import_csv(project_id):
                     target.priority = int(prio_val)
                 except ValueError:
                     pass
+        # Bearbeiter → assigned_to. The fields are set directly rather than
+        # through assign_to(): that fires a bell notification per row, and an
+        # import must never do that (see models/notification.py). Assigning to
+        # the importer themselves is the same as unassigned — they own it.
+        assignee_val = _row_get(values, "assignee", "bearbeiter",
+                                "zugewiesen an", "assigned to")
+        if assignee_val:
+            match = people.get(assignee_val.strip().lower())
+            if match is None:
+                unmatched_assignees[assignee_val] = \
+                    unmatched_assignees.get(assignee_val, 0) + 1
+            elif match == user:
+                target.assigned_to = None
+                target.assigned_by = None
+                target.assigned_at = None
+            elif target.assigned_to != match:
+                target.assigned_to = match
+                target.assigned_by = user
+                target.assigned_at = datetime.now(timezone.utc)
+
         flagged_val = _row_get(values, "flagged")
         if flagged_val:
             target.flagged = flagged_val.lower() in ("1", "true", "yes", "y")
@@ -2423,6 +2483,15 @@ def import_csv(project_id):
         parts.append("title column=none")
     flash("CSV processed — " + ", ".join(parts) + ".",
           "success" if (created or updated) else "warning")
+    if unmatched_assignees:
+        named = ", ".join(
+            f"{name} ({count})" for name, count in
+            sorted(unmatched_assignees.items(), key=lambda kv: -kv[1])[:8])
+        flash(
+            f"No Cairn account for {len(unmatched_assignees)} assignee(s), so "
+            f"those tasks stayed unassigned: {named}. Only your teammates can "
+            f"be assigned — invite them, or match the name to their account "
+            f"(display name, username or e-mail).", "warning")
     return redirect(url_for("projects.detail", project_id=project_id))
 
 

@@ -539,8 +539,17 @@
         </button>
       </form>
     {% endif %}
+    {# "Mine" is per-viewer, so it rides in the URL. Only shown to people who
+       share anything with anyone — on a solo project everything is yours. #}
+    {% if current_user.team or current_user.is_team_admin %}
+      <a class="btn btn-sm {% if mine_only %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+         href="?group={{ grouping }}&completed={% if show_completed %}1{% endif %}{% if not mine_only %}&mine=1{% endif %}"
+         title="Only tasks assigned to me, plus my own that nobody was assigned — from everything below this folder">
+        <i class="bi bi-person{{ '-fill' if mine_only else '' }}"></i> Mine
+      </a>
+    {% endif %}
     <a class="btn btn-sm {% if show_completed %}btn-primary{% else %}btn-outline-secondary{% endif %}"
-       href="?group={{ grouping }}&completed={% if show_completed %}0{% else %}1{% endif %}">
+       href="?group={{ grouping }}&completed={% if show_completed %}0{% else %}1{% endif %}{% if mine_only %}&mine=1{% endif %}">
       <i class="bi bi-check2-all"></i> Completed
     </a>
     {% if not flatten and sub_projects %}
