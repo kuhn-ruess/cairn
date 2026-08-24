@@ -89,6 +89,12 @@ def _apply(form: ProjectForm, project: Item) -> None:
     # the CSV import dialog (see projects.import_csv), so a normal inspector
     # save must leave any previously-imported base URL untouched.
     kind = form.kind.data or "project"
+    # Switching the kind dropdown between project and folder IS a conversion —
+    # send it through the same path as the button, or a project's tasks would
+    # be left sitting under a folder, where the model says they cannot live.
+    if (project.pk and kind != project.kind
+            and {kind, project.kind} <= {"project", "folder"}):
+        convert_container_kind(project, kind)
     project.kind = kind
     # Cross-module links. Both are re-resolved through the saver's own scope, so
     # a tampered POST can't bind to a stranger's notes folder or billing project.
@@ -177,6 +183,54 @@ def _apply(form: ProjectForm, project: Item) -> None:
         project.next_review_at = None
         project.last_reviewed_at = None
         project.auto_complete_when_done = False
+
+def convert_container_kind(project: Item, to_kind: str) -> Item | None:
+    """Turn a project into a folder, or a folder/section into a project.
+
+    A folder holds projects and folders only (see the ``Item`` docstring), so
+    the direct tasks and sections of a project that becomes one need somewhere
+    to live: they move into a NEW project of the same name inside the folder,
+    which is where they already were as far as the user reads the tree. That
+    project is returned so the caller can say it was created; ``None`` means
+    there was nothing to rehome.
+
+    Trashed children come along (``all_objects``) — otherwise restoring one
+    later would drop a task straight under a folder.
+    """
+    if to_kind == "folder":
+        homeless = list(Item.all_objects(parent=project,
+                                         kind__in=["task", "section"]))
+        holder = None
+        if homeless:
+            holder = Item(
+                owner=project.owner, kind="project", folder_domain="tasks",
+                title=project.name, parent=project,
+                project_type=project.project_type or "parallel",
+                status="active",
+            ).save()
+            Item.all_objects(parent=project, kind__in=["task", "section"]).update(
+                set__parent=holder)
+        project.kind = "folder"
+        project.folder_domain = "tasks"
+        project.project_type = "parallel"
+        # A folder carries no execution or review semantics.
+        project.review_interval_days = 0
+        project.next_review_at = None
+        project.last_reviewed_at = None
+        project.auto_complete_when_done = False
+        if project.status not in ("completed", "dropped"):
+            project.status = "active"
+        return holder
+
+    project.kind = "project"
+    project.project_type = project.project_type or "parallel"
+    if project.status not in ("completed", "dropped"):
+        project.status = "active"
+    # Neither a folder nor a section is ever reviewed; give the new project the
+    # standard cadence rather than a project that never comes up for review.
+    project.review_interval_days = project.review_interval_days or 7
+    return None
+
 
 def _kind_of(project: Item) -> str:
     if project.is_section:
@@ -1616,32 +1670,67 @@ def convert_to_task(project_id):
     flash(f"Converted project into task: {project.title}", "success")
     return redirect(url_for("tasks.detail", task_id=str(project.pk)))
 
-@projects_bp.route("/<section_id>/convert-to-project", methods=["POST"])
+@projects_bp.route("/<project_id>/convert-to-folder", methods=["POST"])
 @login_required
-def convert_section_to_project(section_id):
-    """Promote a section into a standalone project — a section already
-    holds child tasks, and so does a project, so the children carry over
-    untouched. The section's parent is a project (per the Item docstring),
-    which is a valid project parent, so it simply becomes a sub-project
-    there. Mirrors ``tasks.convert_to_project``: pick sensible project
-    defaults that a section never carried.
+def convert_to_folder(project_id):
+    """Promote a project to a folder — the other direction of
+    ``convert_to_project``, for the project that has grown into a place you
+    file things rather than a thing you do.
+
+    Sub-projects and sub-folders are already what a folder holds, so they stay
+    put. Direct tasks and sections are not: they move into a new project of the
+    same name inside the folder (see ``convert_container_kind``).
     """
     from flask import jsonify
     user = current_user._get_current_object()
-    section = Item.objects(pk=section_id).first()
-    if not section or section.owner != user:
+    project = Item.objects(pk=project_id).first()
+    if not project or project.owner != user:
         abort(404)
-    section.kind = "project"
-    section.project_type = section.project_type or "parallel"
-    section.status = "active"
-    # Sections are created with review_interval_days=0 (never reviewed);
-    # give the new project the standard cadence.
-    section.review_interval_days = section.review_interval_days or 7
-    section.save()
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return jsonify({"ok": True, "project_id": str(section.pk)})
-    flash(f"Converted section into project: {section.title}", "success")
-    return redirect(url_for("projects.detail", project_id=str(section.pk)))
+    if project.kind != "project":
+        abort(404)
+    holder = convert_container_kind(project, "folder")
+    project.save()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest" \
+            or request.headers.get("X-Inspector-Request") == "1":
+        return jsonify({"ok": True, "folder_id": str(project.pk),
+                        "holder_id": str(holder.pk) if holder else ""})
+    if holder:
+        flash(f"Converted into folder: {project.title} — its tasks are now in "
+              f"the project “{holder.title}” inside it.", "success")
+    else:
+        flash(f"Converted project into folder: {project.title}", "success")
+    return redirect(url_for("projects.detail", project_id=str(project.pk)))
+
+
+@projects_bp.route("/<project_id>/convert-to-project", methods=["POST"])
+@login_required
+def convert_to_project(project_id):
+    """Turn a section or a folder into a standalone project.
+
+    A section already holds child tasks, and so does a project, so the children
+    carry over untouched; its parent is a project, which is a valid project
+    parent. A folder holds projects and folders, and a project may hold those
+    too — so that direction is a straight relabel as well. Both pick up the
+    project defaults the old kind never carried.
+    """
+    from flask import jsonify
+    user = current_user._get_current_object()
+    project = Item.objects(pk=project_id).first()
+    if not project or project.owner != user:
+        abort(404)
+    if project.kind not in ("section", "folder"):
+        abort(404)
+    # The notes tree is not the project tree: a folder of notes has no business
+    # becoming a project full of tasks.
+    if project.kind == "folder" and project.folder_domain == "notes":
+        abort(404)
+    convert_container_kind(project, "project")
+    project.save()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest" \
+            or request.headers.get("X-Inspector-Request") == "1":
+        return jsonify({"ok": True, "project_id": str(project.pk)})
+    flash(f"Converted into project: {project.title}", "success")
+    return redirect(url_for("projects.detail", project_id=str(project.pk)))
 
 @projects_bp.route("/<project_id>/sections/new", methods=["POST"])
 @login_required
