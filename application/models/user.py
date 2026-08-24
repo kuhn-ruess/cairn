@@ -281,9 +281,10 @@ class User(UserMixin, Document):
     plan_day_end = IntField(default=18, min_value=1, max_value=24)
     # Buffer (minutes) auto-plan keeps between consecutive tasks.
     plan_buffer_min = IntField(default=0, min_value=0, max_value=120)
-    # Lunch break kept free by auto-plan (hours). start == end → disabled.
-    plan_lunch_start = IntField(default=0, min_value=0, max_value=23)
-    plan_lunch_end = IntField(default=0, min_value=0, max_value=23)
+    # Lunch break kept free by auto-plan, as minutes since midnight (12:30 is
+    # 750) — a break is rarely a whole hour on the hour. start == end → off.
+    plan_lunch_start_min = IntField(default=0, min_value=0, max_value=1439)
+    plan_lunch_end_min = IntField(default=0, min_value=0, max_value=1439)
 
     # Custom sidebar perspective ordering. Empty = use the canonical default
     # (all perspectives shown). When non-empty, only these keys are shown,

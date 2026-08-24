@@ -74,17 +74,20 @@
                value="{{ current_user.plan_buffer_min or 0 }}">
         <span class="text-muted small">min</span>
 
+        {# Minutes since midnight on the model; a time input speaks HH:MM.
+           Both empty = no lunch break, which is what an empty field posts. #}
+        {% set lunch_on = (current_user.plan_lunch_end_min or 0) > (current_user.plan_lunch_start_min or 0) %}
         <span class="text-muted small ms-3">Lunch break</span>
-        <input id="plan-lunch-start" type="number" name="plan_lunch_start"
-               min="0" max="23" style="width: 5rem;"
-               class="form-control form-control-sm"
-               value="{{ current_user.plan_lunch_start or 0 }}">
+        <input id="plan-lunch-start" type="time" name="plan_lunch_start"
+               style="width: 7.5rem;" class="form-control form-control-sm"
+               value="{{ '%02d:%02d'|format(current_user.plan_lunch_start_min // 60,
+                                            current_user.plan_lunch_start_min % 60) if lunch_on }}">
         <label class="form-label mb-0 small" for="plan-lunch-end">to</label>
-        <input id="plan-lunch-end" type="number" name="plan_lunch_end"
-               min="0" max="23" style="width: 5rem;"
-               class="form-control form-control-sm"
-               value="{{ current_user.plan_lunch_end or 0 }}">
-        <span class="text-muted small">o’clock (set equal to disable)</span>
+        <input id="plan-lunch-end" type="time" name="plan_lunch_end"
+               style="width: 7.5rem;" class="form-control form-control-sm"
+               value="{{ '%02d:%02d'|format(current_user.plan_lunch_end_min // 60,
+                                            current_user.plan_lunch_end_min % 60) if lunch_on }}">
+        <span class="text-muted small">(leave empty for no break)</span>
       </div>
 
       <hr class="my-3">

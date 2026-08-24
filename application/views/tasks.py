@@ -2579,12 +2579,13 @@ def auto_plan():
 
     events_busy = [(it["start"], it["end"]) for it in cls["timed"] if it["kind"] == "event"]
     timed_tasks = [it for it in cls["timed"] if it["kind"] == "task"]
-    # Optional lunch break kept free (start == end → disabled).
-    ls, le = user.plan_lunch_start or 0, user.plan_lunch_end or 0
+    # Optional lunch break kept free, in minutes since midnight
+    # (start == end → disabled).
+    ls, le = user.plan_lunch_start_min or 0, user.plan_lunch_end_min or 0
     lunch_busy = []
     if le > ls:
-        lunch_busy = [(_dt.combine(d, _t(ls, 0)).replace(tzinfo=tz),
-                       _dt.combine(d, _t(le, 0)).replace(tzinfo=tz))]
+        lunch_busy = [(_dt.combine(d, _t(ls // 60, ls % 60)).replace(tzinfo=tz),
+                       _dt.combine(d, _t(le // 60, le % 60)).replace(tzinfo=tz))]
 
     if mode == "repack":
         # Destructive: re-plan backlog AND already-timed tasks from scratch;

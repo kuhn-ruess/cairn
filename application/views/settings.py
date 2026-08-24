@@ -116,6 +116,20 @@ class NotesMirrorForm(FlaskForm):
     test = SubmitField("Test connection")
 
 
+def _minutes_of_day(raw) -> int:
+    """``"12:30"`` → 750, minutes since midnight. Anything unreadable — an
+    empty field above all, which is how the lunch break is switched off —
+    reads as 0. A bare ``"12"`` is accepted too; a time input always posts
+    ``HH:MM``, but a hand-written form post shouldn't silently mean 00:12."""
+    parts = (raw or "").strip().split(":")
+    try:
+        hours = int(parts[0])
+        minutes = int(parts[1]) if len(parts) > 1 else 0
+    except ValueError:
+        return 0
+    return max(0, min(23 * 60 + 59, hours * 60 + minutes))
+
+
 @settings_bp.route("/")
 @login_required
 def index():
@@ -216,13 +230,10 @@ def profile():
             user.plan_buffer_min = max(0, min(120, int(request.form.get("plan_buffer_min") or 0)))
         except ValueError:
             user.plan_buffer_min = 0
-        try:
-            ls = max(0, min(23, int(request.form.get("plan_lunch_start") or 0)))
-            le = max(0, min(23, int(request.form.get("plan_lunch_end") or 0)))
-        except ValueError:
-            ls = le = 0
-        # start == end (or end < start) disables the lunch break.
-        user.plan_lunch_start, user.plan_lunch_end = (ls, le) if le > ls else (0, 0)
+        ls = _minutes_of_day(request.form.get("plan_lunch_start"))
+        le = _minutes_of_day(request.form.get("plan_lunch_end"))
+        # start == end (or end < start, or either one empty) → no lunch break.
+        user.plan_lunch_start_min, user.plan_lunch_end_min = (ls, le) if le > ls else (0, 0)
         user.focus_on_login = bool(request.form.get("focus_on_login"))
         user.editor_vim_mode = bool(request.form.get("editor_vim_mode"))
         user.caldav_calendar_enabled = bool(request.form.get("caldav_calendar_enabled"))
