@@ -755,6 +755,8 @@ class _Round:
                     self.client.delete(path)
                 self.stats.folders_deleted += 1
             except DavError as exc:
+                if exc.status == 404:
+                    continue      # already gone over there: nothing to clean up
                 self.stats.errors.append(f"{path}: {exc}")
 
     def _only_our_leftovers(self, path: str) -> bool:
