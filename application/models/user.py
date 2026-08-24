@@ -57,6 +57,12 @@ class ApiToken(EmbeddedDocument):
 class User(UserMixin, Document):
     meta = {
         "collection": "users",
+        # Keys in the stored document that no field claims are IGNORED rather
+        # than fatal. Schemas here change directly, without migrations, and
+        # mongoengine's default is to raise FieldDoesNotExist on load — so a
+        # renamed field turned every stored user into an unreadable document,
+        # and with it every page that dereferences one (which is every page).
+        "strict": False,
         # ``team`` indexed so bulk team-membership ops stay fast.
         # ``api_tokens.token`` indexed so token-based auth stays a
         # single keyed lookup (the embedded layout doesn't change the
