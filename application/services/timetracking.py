@@ -797,12 +797,25 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
     return rows
 
 
-def team_consumption(team, current_period: str) -> dict:
+def team_consumption(team, current_period: str, *, date_from=None,
+                     date_to=None, viewer=None, unbilled_only=False) -> dict:
     """One deref-free pass over the team's buckets → per-project totals.
 
     Returns ``{project_id: {minutes, amount_cents, month_minutes,
-    month_amount_cents}}`` (month_* limited to ``current_period``). Used to draw
-    budget bars without a query per project."""
+    month_amount_cents, period_minutes, period_amount_cents}}``:
+
+    * ``minutes`` / ``amount_cents`` — the project's lifetime total.
+    * ``month_*`` — limited to ``current_period`` (a ``YYYY-MM`` string). What
+      a recurring budget is measured against, so it stays tied to the actual
+      calendar month whatever window the reader picked.
+    * ``period_*`` — the **selected** window ``date_from``…``date_to``, and
+      with ``unbilled_only`` only what is not settled yet. Absent a window it
+      mirrors ``month_*``, which is the overview's default.
+
+    All three in one pass: the page needs every one of them and the buckets are
+    read once either way. Entries are placed by :func:`local_date`, not by
+    their bucket's day, so a reader in another timezone gets the same month
+    boundary the report uses."""
     out = {}
     for b in TimeBucket.objects(team=team):
         # ``period`` is a day; the "this month" columns match on its prefix.
@@ -812,12 +825,21 @@ def team_consumption(team, current_period: str) -> dict:
                 continue
             d = out.setdefault(e.project_id, {
                 "minutes": 0, "amount_cents": 0,
-                "month_minutes": 0, "month_amount_cents": 0})
+                "month_minutes": 0, "month_amount_cents": 0,
+                "period_minutes": 0, "period_amount_cents": 0})
             d["minutes"] += e.minutes or 0
             d["amount_cents"] += e.amount_cents or 0
             if is_cur:
                 d["month_minutes"] += e.minutes or 0
                 d["month_amount_cents"] += e.amount_cents or 0
+            if date_from is None:
+                in_window = is_cur
+            else:
+                dd = local_date(e.spent_on, viewer)
+                in_window = dd is not None and date_from <= dd <= date_to
+            if in_window and not (unbilled_only and e.locked):
+                d["period_minutes"] += e.minutes or 0
+                d["period_amount_cents"] += e.amount_cents or 0
     return out
 
 
