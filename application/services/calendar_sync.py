@@ -17,7 +17,7 @@ import logging
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -431,12 +431,10 @@ def _fetch_ical(calendar, since: datetime, until: datetime) -> list[CalendarEven
         raise CalendarError("icalendar library not installed") from exc
 
     parsed = ICalendar.from_ical(data)
-    events: list[CalendarEvent] = []
-    for comp in parsed.walk("VEVENT"):
-        ev = _vevent_to_event(comp, calendar)
-        if ev is None or ev.start > until or ev.end < since:
-            continue
-        events.append(ev)
+    events = [
+        ev for ev in expand_vevents(parsed.walk("VEVENT"), calendar, since, until)
+        if not (ev.start > until or ev.end < since)
+    ]
     calendar.last_synced_at = datetime.now(timezone.utc)
     calendar.last_error = ""
     # Embedded — caller (fetch_events) persists via the parent user.
@@ -467,6 +465,122 @@ def _vevent_to_event(comp, calendar) -> "CalendarEvent | None":
         calendar_name=calendar.name,
         calendar_pk=str(getattr(calendar, "pk_ref", "") or ""),
     )
+
+
+# A series with no UNTIL and no COUNT is infinite; the window bounds the
+# expansion, but a daily-since-2005 rule with a wide window still has to stop
+# somewhere. Any real calendar day is far below this.
+_MAX_OCCURRENCES = 500
+
+
+def expand_vevents(comps, calendar, since: datetime,
+                   until: datetime) -> list["CalendarEvent"]:
+    """Every event the given ``VEVENT`` components contribute to the window.
+
+    A calendar hands over a recurring appointment as ONE component carrying an
+    ``RRULE`` — a CalDAV ``calendar-query`` and a subscribed ``.ics`` both do
+    this, and neither expands it for us. Read literally, a weekly jour fixe is
+    therefore a single event on the day the series began, which every window
+    check then drops: the appointment is invisible for as long as it recurs.
+    Expanding is what makes it visible on the days it actually falls on.
+
+    A modified single occurrence travels as its own component with a
+    ``RECURRENCE-ID``. Such a component is not a series, and it *replaces* the
+    occurrence the rule would otherwise generate at that time — so those are
+    collected first and the generated one is skipped.
+
+    ``EXDATE`` (a cancelled occurrence) and ``RDATE`` (an extra one) are part
+    of the same rule set and honoured alongside the ``RRULE``.
+    """
+    comps = list(comps)
+    overrides: dict[tuple[str, str], object] = {}
+    for comp in comps:
+        rid = comp.get("RECURRENCE-ID")
+        if rid is not None:
+            uid = str(comp.get("UID", ""))
+            overrides[(uid, _occurrence_key(_normalise_ical_dt(rid.dt)))] = comp
+
+    out: list[CalendarEvent] = []
+    for comp in comps:
+        base = _vevent_to_event(comp, calendar)
+        if base is None:
+            continue
+        if comp.get("RECURRENCE-ID") is not None:
+            # The exception itself: a single event, keyed like the occurrence
+            # it stands in for so the two can never both show.
+            key = _occurrence_key(_normalise_ical_dt(comp["RECURRENCE-ID"].dt))
+            out.append(replace(base, uid=f"{base.uid}#{key}"))
+            continue
+        starts = _occurrence_starts(comp, base, since, until)
+        if starts is None:
+            out.append(base)          # not a series
+            continue
+        duration = base.end - base.start
+        for start in starts:
+            key = _occurrence_key(start)
+            if (base.uid, key) in overrides:
+                continue              # a modified occurrence replaces this one
+            out.append(replace(base, uid=f"{base.uid}#{key}",
+                               start=start, end=start + duration))
+    return out
+
+
+def _occurrence_key(start: datetime) -> str:
+    """The id suffix an occurrence is known by — also how a ``RECURRENCE-ID``
+    is matched against a generated start, so both go through this."""
+    return start.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _occurrence_starts(comp, base: "CalendarEvent", since: datetime,
+                       until: datetime) -> "list[datetime] | None":
+    """The starts a recurring component has inside the window, or ``None``
+    when it doesn't recur at all.
+
+    The rule set is assembled from the PARSED properties rather than from the
+    component's text: an ``EXDATE;TZID=Europe/Berlin`` re-serialised into a
+    rule string loses its zone and comes back naive, which dateutil then
+    refuses to compare against the aware occurrences it just generated.
+    """
+    rrule = comp.get("RRULE")
+    rdate = comp.get("RDATE")
+    if not rrule and not rdate:
+        return None
+    from dateutil.rrule import rrulestr, rruleset
+
+    dtstart = base.start.astimezone(timezone.utc)
+    rset = rruleset()
+    try:
+        for value in (rrule if isinstance(rrule, list) else [rrule] if rrule else []):
+            rset.rrule(rrulestr(f"RRULE:{value.to_ical().decode()}", dtstart=dtstart))
+    except (ValueError, TypeError):
+        # An unparseable rule is not a reason to lose the appointment itself.
+        return None
+    for dt in _ical_datetimes(rdate):
+        rset.rdate(dt)
+    for dt in _ical_datetimes(comp.get("EXDATE")):
+        rset.exdate(dt)
+
+    # An occurrence that STARTED before the window can still run into it, so
+    # reach back by its own length rather than stopping at the window's edge.
+    duration = base.end - base.start
+    starts = []
+    for occ in rset.between(since - duration, until, inc=True):
+        starts.append(occ)
+        if len(starts) >= _MAX_OCCURRENCES:
+            break
+    return starts
+
+
+def _ical_datetimes(prop) -> "list[datetime]":
+    """Flatten an ``RDATE`` / ``EXDATE`` property — one or many, each holding
+    one or many values — into aware UTC datetimes."""
+    if not prop:
+        return []
+    out = []
+    for entry in (prop if isinstance(prop, list) else [prop]):
+        for value in getattr(entry, "dts", []) or []:
+            out.append(_normalise_ical_dt(value.dt).astimezone(timezone.utc))
+    return out
 
 
 def _normalise_ical_dt(value) -> datetime:
@@ -609,11 +723,12 @@ def _fetch_caldav(calendar, user, since: datetime, until: datetime) -> list[Cale
             parsed = ICalendar.from_ical(raw)
         except Exception:  # noqa: BLE001 — skip a single unparseable resource
             continue
-        for comp in parsed.walk("VEVENT"):
-            ev = _vevent_to_event(comp, calendar)
-            if ev is None or ev.start > until or ev.end < since:
-                continue
-            events.append(ev)
+        # One resource holds a whole series: the master with its RRULE plus a
+        # component per modified occurrence, which only mean anything together.
+        events.extend(
+            ev for ev in expand_vevents(parsed.walk("VEVENT"), calendar, since, until)
+            if not (ev.start > until or ev.end < since)
+        )
     calendar.last_synced_at = datetime.now(timezone.utc)
     calendar.last_error = ""
     events.sort(key=lambda e: e.start)
