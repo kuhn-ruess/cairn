@@ -619,7 +619,10 @@ def _report_filters(args=None):
     args = request.args if args is None else args
     user = current_user._get_current_object()
     today = datetime.now(user_zone(user)).date()
-    preset = args.get("period") or "this_month"
+    # Dates given without a preset ARE the period — a hand-built link with
+    # ?from=&to= means the range it names, not the current month.
+    preset = args.get("period") or (
+        "custom" if (args.get("from") or args.get("to")) else "this_month")
     date_from, date_to = resolve_period(
         preset, args.get("from"), args.get("to"), today)
 

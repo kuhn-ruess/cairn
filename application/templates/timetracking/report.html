@@ -21,21 +21,29 @@
   <div class="row g-2 align-items-end">
     <div class="col-auto">
       <label class="form-label small mb-0">Period</label>
-      <select name="period" class="form-select form-select-sm" onchange="this.form.submit()">
+      {# A preset names its own range, so it clears the two date fields on the
+         way out — otherwise the range still in them would win over the preset
+         just picked. #}
+      <select name="period" class="form-select form-select-sm"
+              onchange="this.form.from.value=''; this.form.to.value=''; this.form.submit();">
         {% for val, label in presets %}
           <option value="{{ val }}" {% if f.preset == val %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
     </div>
+    {# Touching a date IS choosing a custom range: the preset follows the dates
+       and the report applies straight away, with no second field to remember. #}
     <div class="col-auto">
       <label class="form-label small mb-0">From</label>
       <input type="date" name="from" value="{{ f.date_from.isoformat() }}"
-             class="form-control form-control-sm">
+             class="form-control form-control-sm"
+             onchange="this.form.period.value='custom'; this.form.submit();">
     </div>
     <div class="col-auto">
       <label class="form-label small mb-0">To</label>
       <input type="date" name="to" value="{{ f.date_to.isoformat() }}"
-             class="form-control form-control-sm">
+             class="form-control form-control-sm"
+             onchange="this.form.period.value='custom'; this.form.submit();">
     </div>
     <div class="col-auto">
       <label class="form-label small mb-0">Customer</label>
