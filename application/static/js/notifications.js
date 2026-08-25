@@ -1,36 +1,90 @@
 /* Navbar notification bell.
  *
- * The list is rendered server-side; this just clears the unread state. When
- * the dropdown opens (or "Mark all read" is clicked) we POST to mark every
- * notification read and drop the badge. The rows KEEP their unread styling
- * while the dropdown is open — marking them read on open is what stops the
- * badge from nagging, but the point of opening it is to see which ones are
- * new, and restyling them under the cursor takes exactly that away. No
- * reload — the next page load renders them already-read.
+ * The list is rendered server-side; this keeps the read state in step with
+ * what you actually did. Opening the dropdown marks NOTHING — the badge is
+ * how many are left to go through, and a batch you work through one at a
+ * time has to keep saying which ones are still waiting. A row is marked read
+ * when you open it (the POST rides the navigation with `keepalive`), and
+ * "Mark all read" is the deliberate sweep for the rest.
  */
 (function () {
   const bell = document.getElementById("notifBell");
   if (!bell) return;
 
-  const toggle = bell.querySelector('[data-bs-toggle="dropdown"]');
   const badge = document.getElementById("notifBadge");
   const markAllBtn = document.getElementById("notifMarkAll");
   const url = bell.dataset.markReadUrl;
 
-  function markRead() {
-    if (!badge || badge.hidden) return; // nothing unread
-    const fd = new FormData();
-    const csrf = bell.querySelector('input[name="csrf_token"]')
+  function csrf() {
+    const el = bell.querySelector('input[name="csrf_token"]')
       || document.querySelector('input[name="csrf_token"]');
-    if (csrf) fd.append("csrf_token", csrf.value);
-    fetch(url, { method: "POST", body: fd, headers: { "X-Requested-With": "XMLHttpRequest" } })
-      .then(() => {
-        badge.hidden = true;
-        badge.textContent = "0";
-      })
-      .catch(() => {});
+    return el ? el.value : "";
   }
 
-  if (toggle) toggle.addEventListener("shown.bs.dropdown", markRead);
-  if (markAllBtn) markAllBtn.addEventListener("click", markRead);
+  /* ids omitted → mark all read. `keepalive` so a click that navigates away
+     still delivers the POST. */
+  function post(ids) {
+    const fd = new FormData();
+    fd.append("csrf_token", csrf());
+    (ids || []).forEach((id) => fd.append("ids", id));
+    return fetch(url, {
+      method: "POST",
+      body: fd,
+      keepalive: true,
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+    }).catch(() => {});
+  }
+
+  function restyle(row) {
+    row.classList.remove("notif-unread", "bg-body-tertiary");
+    const icon = row.querySelector("i");
+    if (icon) icon.classList.replace("text-primary", "text-muted");
+    const text = row.querySelector(".fw-semibold");
+    if (text) text.classList.remove("fw-semibold");
+    const dot = row.querySelector(".notif-dot");
+    if (dot) dot.hidden = true;
+  }
+
+  function setBadge(n) {
+    if (!badge) return;
+    badge.textContent = String(n);
+    badge.hidden = n < 1;
+  }
+
+  function unreadRows() {
+    return bell.querySelectorAll(".notif-item.notif-unread");
+  }
+
+  bell.addEventListener("click", (ev) => {
+    const row = ev.target.closest(".notif-item");
+    if (!row) return;
+    // Opening in a new tab/window leaves this page (and this bell) alone.
+    const newTab = ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1;
+    if (newTab) return;
+
+    const href = row.getAttribute("href") || "#";
+    if (!row.classList.contains("notif-unread")) {
+      // A notification with nowhere to go stays put instead of jumping the page.
+      if (href === "#") ev.preventDefault();
+      return;
+    }
+
+    restyle(row);
+    setBadge(unreadRows().length);
+    const done = post([row.dataset.notifId]);
+    ev.preventDefault();
+    if (href === "#") return;
+    // Follow the link only once the row is actually marked read: the target
+    // page renders this same bell, and it must not come back still unread.
+    const go = () => window.location.assign(href);
+    done.then(go, go);
+  });
+
+  if (markAllBtn) {
+    markAllBtn.addEventListener("click", () => {
+      post();
+      unreadRows().forEach(restyle);
+      setBadge(0);
+    });
+  }
 })();

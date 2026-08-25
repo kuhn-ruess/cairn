@@ -14,7 +14,8 @@ notifications_bp = Blueprint("notifications", __name__, url_prefix="/notificatio
 @login_required
 def mark_read():
     """Mark notifications read. With no ``ids`` form field, marks all read
-    (the dropdown calls this when it opens). Returns the new unread count."""
+    ("Mark all read"); the bell otherwise sends the single id of the row that
+    was opened. Returns the new unread count."""
     user = current_user._get_current_object()
     ids = request.form.getlist("ids") or None
     if user.mark_notifications_read(ids):

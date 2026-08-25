@@ -115,7 +115,9 @@
     </button>
 
     {# Notification bell — renders from the embedded list already on
-       current_user, so no extra query. JS marks all read when it opens. #}
+       current_user, so no extra query. Opening it marks NOTHING read: a
+       notification is read when you open it, so the list still answers
+       "which of these have I been through" on the next visit. #}
     {% set _unread = current_user.unread_notification_count %}
     <div class="dropdown me-2" id="notifBell"
          data-mark-read-url="{{ url_for('notifications.mark_read') }}">
@@ -137,19 +139,22 @@
         </div>
         <div class="dropdown-divider my-0"></div>
         {% for n in current_user.notifications|reverse %}
-          <a class="dropdown-item d-flex gap-2 py-2 notif-item{% if not n.read %} bg-body-tertiary{% endif %}"
-             href="{{ n.link or '#' }}" style="white-space: normal;">
+          {# Every row carries its id and both styling states, so opening one
+             restyles it in place — going through a batch has to leave a mark
+             where you got to, not restyle the whole list at once. #}
+          <a class="dropdown-item d-flex gap-2 py-2 notif-item{% if not n.read %} notif-unread bg-body-tertiary{% endif %}"
+             href="{{ n.link or '#' }}" data-notif-id="{{ n.pk_ref }}"
+             style="white-space: normal;">
             <i class="bi {{ n.icon or 'bi-bell' }} mt-1 {{ 'text-primary' if not n.read else 'text-muted' }}"></i>
             <span class="flex-grow-1 lh-sm">
-              <span class="d-block small {{ 'fw-semibold' if not n.read }}">{{ n.text }}</span>
+              <span class="d-block small{% if not n.read %} fw-semibold{% endif %}">{{ n.text }}</span>
               <span class="d-block text-muted" style="font-size:.72rem;">{{ n.created_at | timeago }}</span>
             </span>
             {# The dot is what says "new" at a glance — the row tint alone is
                too quiet to read as a state, and it is all a read row loses. #}
-            {% if not n.read %}
-              <span class="badge bg-primary rounded-circle p-1 mt-1 align-self-start"
-                    title="Unread"><span class="visually-hidden">Unread</span></span>
-            {% endif %}
+            <span class="badge bg-primary rounded-circle p-1 mt-1 align-self-start notif-dot"
+                  title="Unread"{% if n.read %} hidden{% endif %}>
+              <span class="visually-hidden">Unread</span></span>
           </a>
         {% else %}
           <div class="px-3 py-4 text-muted small text-center">You're all caught up.</div>
@@ -157,7 +162,7 @@
         {% if current_user.notifications %}
           <div class="dropdown-divider my-0"></div>
           <div class="px-3 py-2 text-muted" style="font-size:.72rem;">
-            Read notifications are removed after
+            Opening one marks it read. Read notifications are removed after
             {{ current_user.NOTIFICATION_KEEP_DAYS }} days.
           </div>
         {% endif %}
