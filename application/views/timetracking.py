@@ -1653,9 +1653,34 @@ def customer_detail(cid):
     # Who this one could be merged into. Archived customers are offered too:
     # a duplicate is quite often archived out of the way instead of merged,
     # and that is exactly the record whose hours need to come back.
+    others = list(Customer.objects(team=team, id__ne=c.id))
+    # A duplicate is by definition a name that appears twice, so on the one
+    # page where that matters the name alone cannot identify the target. Those
+    # entries — and only those — carry what tells them apart: the key an
+    # importer knows the record by, and how many projects hang under it.
+    seen = {}
+    for o in others + [c]:
+        key = (o.name or "").strip().lower()
+        seen[key] = seen.get(key, 0) + 1
+    counts = {}
+    if any(n > 1 for n in seen.values()):
+        for p in TimeTrackingProject.objects(team=team).only(
+                "customer").as_pymongo():
+            cid = p.get("customer")
+            counts[cid] = counts.get(cid, 0) + 1
+
+    def _label(o):
+        label = o.name + (" (archived)" if o.archived else "")
+        if seen.get((o.name or "").strip().lower(), 0) < 2:
+            return label
+        n = counts.get(o.id, 0)
+        marks = [f"{n} project{'' if n == 1 else 's'}"]
+        if o.external_id:
+            marks.append(o.external_id)
+        return f"{label} — {' · '.join(marks)}"
+
     merge_targets = sorted(
-        ({"id": str(o.id), "label": o.name + (" (archived)" if o.archived else "")}
-         for o in Customer.objects(team=team, id__ne=c.id)),
+        ({"id": str(o.id), "label": _label(o)} for o in others),
         key=lambda r: r["label"].lower())
     return render_template(
         "timetracking/customer.html", team=team, all_teams=_user_teams(user),
