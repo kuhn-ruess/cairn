@@ -173,6 +173,43 @@
   {% endif %}
 </ul>
 
+{% if can_manage and merge_targets %}
+  {# The same client under two records — what an import leaves behind when it
+     met them under a key it didn't recognise. Merging moves the hours rather
+     than deleting them, which is why this sits above the delete. #}
+  <details class="mt-4">
+    <summary class="small" style="cursor:pointer;">
+      <i class="bi bi-sign-merge-left"></i> Merge this customer into another one
+    </summary>
+    <form method="post" class="mt-2 d-flex gap-2 align-items-center flex-wrap"
+          action="{{ url_for('timetracking.customer_merge', cid=customer.id) }}"
+          style="max-width: 720px;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="team" value="{{ team.pk }}">
+      <span class="small text-muted" style="flex: 1 1 100%;">
+        Moves every project and every logged hour onto the customer you pick,
+        hands over the import keys so the next sync goes straight there, and
+        then deletes “{{ customer.name }}”. Projects of the same name are folded
+        into one. A booking both records already carry arrives cancelled, so an
+        hour is never counted twice.
+      </span>
+      {# Nothing preselected: the merge cannot be undone and the typed name
+         only confirms which customer *goes*, not which one it goes into. #}
+      <select name="target_id" required class="form-select form-select-sm"
+              style="max-width: 20rem;">
+        <option value="" selected disabled>Merge into…</option>
+        {% for oc in merge_targets %}
+          <option value="{{ oc.id }}">{{ oc.label }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" name="confirm" class="form-control form-control-sm"
+             style="max-width: 14rem;" autocomplete="off"
+             placeholder="Type “{{ customer.name }}”">
+      <button class="btn btn-sm btn-outline-primary">Merge</button>
+    </form>
+  </details>
+{% endif %}
+
 {% if can_manage %}
   <details class="mt-4">
     <summary class="small text-danger" style="cursor:pointer;">

@@ -1411,6 +1411,168 @@ def delete_customer(customer) -> dict:
             "entries": n_entries, "unlinked": unlinked}
 
 
+def _append_entries(team, customer, period: str, entries: list) -> None:
+    """Append a batch of already-built entries to ``(team, customer, day)``.
+
+    One write per bucket rather than one per entry: a merge moves a whole day
+    at a time and the entries are not being raced for — they came out of a
+    document that is about to be deleted. The part is re-read for each chunk
+    because filling one is exactly what opens the next."""
+    entries = list(entries)
+    while entries:
+        newest = (TimeBucket.objects(team=team, customer=customer, period=period)
+                  .order_by("-part").only("part", "entry_count").first())
+        part = (newest.part or 1) if newest is not None else 1
+        used = (newest.entry_count or 0) if newest is not None else 0
+        if used >= MAX_ENTRIES_PER_BUCKET:
+            part, used = part + 1, 0
+        room = MAX_ENTRIES_PER_BUCKET - used
+        chunk, entries = entries[:room], entries[room:]
+        TimeBucket.objects(
+            team=team, customer=customer, period=period, part=part,
+        ).update_one(
+            upsert=True,
+            push_all__entries=chunk,
+            inc__total_minutes=sum(e.minutes or 0 for e in chunk
+                                   if e.status == "active"),
+            inc__entry_count=len(chunk),
+            set__updated_at=_utcnow(),
+            set_on_insert__created_at=_utcnow(),
+        )
+
+
+def merge_customers(source, target, *, fold_projects: bool = True) -> dict:
+    """Fold ``source`` into ``target`` and delete it. Returns a count summary.
+
+    Two records for one client is what an importer leaves behind when it meets
+    them under a key it did not recognise yet — the client is in Cairn from
+    mite as ``mite:41``, Zammad offers them as ``zammad:org:7``, and a second
+    file is opened on the same company. Both importers adopt by name now, but
+    nothing merges what they already split, and a customer cannot simply be
+    deleted: the hours are underneath it.
+
+    Three things move, in the order that a crash between them leaves work to
+    redo rather than time destroyed:
+
+    * **Projects.** One of the same name on the target *is* the same project:
+      its entries are re-pointed at the survivor and the emptied duplicate goes
+      (``fold_projects``). Every other project is re-parented, which leaves its
+      entries' ``project_id`` snapshot correct without touching a single one of
+      them. Only one project can be the customer's intake, so an incoming one
+      yields to the intake the target already has.
+    * **Entries.** The bucket *is* the customer plus the day, so each source
+      bucket's entries are appended to the target's bucket for that day and the
+      empty shell is dropped. The rate is **not** re-frozen the way a project
+      move re-freezes it: the project travelled with the entry, so the terms it
+      was captured under still apply.
+    * **Identity.** Every key the source answered to moves onto the target, so
+      the next import goes straight there instead of re-creating what was just
+      merged. Billing details only fill *gaps* — the target's own values win.
+
+    **Nothing is counted twice.** An entry whose external key the target
+    already carries is the same booking imported under both records; it moves
+    with the rest (this module does not delete logged time) but arrives
+    cancelled, so it is in the trash to look at instead of in the total. One
+    already billed is the exception — a locked entry is frozen and stays
+    active, counted in ``duplicates_kept`` for a human to settle."""
+    if str(source.id) == str(target.id):
+        raise ValueError("A customer cannot be merged into itself.")
+    team = source.team
+    if str(team.id) != str(target.team.id):
+        raise ValueError("Customers of different teams cannot be merged.")
+
+    out = {"projects_moved": 0, "projects_folded": 0, "entries_moved": 0,
+           "duplicates_cancelled": 0, "duplicates_kept": 0, "relinked": 0}
+
+    # --- projects ----------------------------------------------------------
+    # Fold only into a live project: folding into an archived twin would file
+    # the time somewhere the pickers no longer offer.
+    by_name = {}
+    for p in TimeTrackingProject.objects(team=team, customer=target,
+                                         archived=False):
+        by_name.setdefault((p.name or "").strip().lower(), p)
+    has_intake = intake_project(team, target) is not None
+    survivors = {}  # id of a folded project -> the project that survives it
+    for p in TimeTrackingProject.objects(team=team, customer=source):
+        twin = by_name.get((p.name or "").strip().lower()) if fold_projects else None
+        if twin is not None:
+            survivors[str(p.id)] = twin
+            # A Cairn folder billing to the duplicate follows the survivor;
+            # all_objects so a link on a trashed item is re-pointed too.
+            out["relinked"] += Item.all_objects(time_project=p.id).update(
+                set__time_project=twin.id)
+            known = {k for k in [twin.external_id, *(twin.external_ids or [])] if k}
+            more = [k for k in [p.external_id, *(p.external_ids or [])]
+                    if k and k not in known]
+            if more:
+                twin.external_ids = list(twin.external_ids or []) + more
+                twin.save()
+            p.delete()
+            out["projects_folded"] += 1
+            continue
+        p.customer = target
+        if p.intake and has_intake:
+            p.intake = False
+        elif p.intake:
+            has_intake = True
+        p.save()
+        if not p.archived:
+            by_name.setdefault((p.name or "").strip().lower(), p)
+        out["projects_moved"] += 1
+
+    # --- entries -----------------------------------------------------------
+    for bucket in TimeBucket.objects(team=team, customer=source).order_by(
+            "+period", "+part"):
+        period = bucket.period
+        # What the target already holds for that day, read once: the entry ids
+        # (so a re-run after a half-finished merge adds nothing) and every
+        # external key (so a booking imported under both records lands once).
+        seen_ids, seen_keys = set(), set()
+        for b in TimeBucket.objects(team=team, customer=target, period=period):
+            for e in b.entries:
+                seen_ids.add(e.entry_id)
+                seen_keys.update(k for k in [e.external_id, *(e.external_ids or [])] if k)
+        moving = []
+        for e in bucket.entries:
+            if e.entry_id in seen_ids:
+                continue
+            keys = {k for k in [e.external_id, *(e.external_ids or [])] if k}
+            twin = survivors.get(e.project_id)
+            if twin is not None:
+                e.project_id = str(twin.id)
+                e.project_name = twin.name
+            if keys & seen_keys:
+                if e.locked:
+                    out["duplicates_kept"] += 1
+                elif e.status == "active":
+                    e.status = "cancelled"
+                    e.cancelled_at = _utcnow()
+                    out["duplicates_cancelled"] += 1
+            seen_ids.add(e.entry_id)
+            seen_keys |= keys
+            moving.append(e)
+        if moving:
+            _append_entries(team, target, period, moving)
+            out["entries_moved"] += len(moving)
+        bucket.delete()
+
+    # --- identity ----------------------------------------------------------
+    known = {k for k in [target.external_id, *(target.external_ids or [])] if k}
+    more = [k for k in [source.external_id, *(source.external_ids or [])]
+            if k and k not in known]
+    if more:
+        target.external_ids = list(target.external_ids or []) + more
+    for field in ("legal_name", "address", "vat_id", "tax_number",
+                  "invoice_email", "contact_name", "phone",
+                  "payment_terms_days", "customer_number", "billing_note",
+                  "note"):
+        if not getattr(target, field, None) and getattr(source, field, None):
+            setattr(target, field, getattr(source, field))
+    target.save()
+    source.delete()
+    return out
+
+
 def described(note: str, source_label: str, show_source: bool) -> str:
     """The description as it should *read*: the task it was logged from, then
     the note. Composed here, never stored — see ``show_source``."""

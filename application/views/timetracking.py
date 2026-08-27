@@ -1650,10 +1650,18 @@ def customer_detail(cid):
     consumption = team_consumption(team, f"{today.year:04d}-{today.month:02d}")
     minutes_by_project = {str(p.id): consumption.get(str(p.id), {}).get("minutes", 0)
                           for p in projects}
+    # Who this one could be merged into. Archived customers are offered too:
+    # a duplicate is quite often archived out of the way instead of merged,
+    # and that is exactly the record whose hours need to come back.
+    merge_targets = sorted(
+        ({"id": str(o.id), "label": o.name + (" (archived)" if o.archived else "")}
+         for o in Customer.objects(team=team, id__ne=c.id)),
+        key=lambda r: r["label"].lower())
     return render_template(
         "timetracking/customer.html", team=team, all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user), customer=c, projects=projects,
         minutes_by_project=minutes_by_project,
+        merge_targets=merge_targets,
         total_minutes=sum(minutes_by_project.values()))
 
 
@@ -1696,6 +1704,61 @@ def customer_edit(cid):
     if request.form.get("from") == "index":
         return redirect(url_for("timetracking.index", team=team.pk))
     return redirect(url_for("timetracking.customer_detail", cid=str(c.id),
+                            team=team.pk))
+
+
+@timetracking_bp.route("/customers/<cid>/merge", methods=["POST"])
+@login_required
+@team_required
+def customer_merge(cid):
+    """Fold this customer into another one and delete it.
+
+    The way out of the state an importer leaves behind when it met a client it
+    already had under a key it didn't recognise: one company, two files, the
+    hours split across both. Manager only and the name typed out, like every
+    other path here that a customer cannot be un-done from — the time is not
+    destroyed (it moves), but the record it hung under is."""
+    from application.services.timetracking import merge_customers
+
+    team = _team()
+    user = current_user._get_current_object()
+    if not team.is_managed_by(user):
+        abort(403)
+    src = _customer_or_404(cid, team)
+    if not (request.form.get("target_id") or "").strip():
+        flash("Pick the customer to merge into.", "warning")
+        return redirect(url_for("timetracking.customer_detail", cid=str(src.id),
+                                team=team.pk))
+    target = _customer_or_404(request.form.get("target_id"), team)
+    if str(target.id) == str(src.id):
+        flash("Pick a different customer to merge into.", "warning")
+        return redirect(url_for("timetracking.customer_detail", cid=str(src.id),
+                                team=team.pk))
+    if (request.form.get("confirm") or "").strip() != src.name:
+        flash(f"Type the customer name exactly (“{src.name}”) to merge it — "
+              "nothing was changed.", "warning")
+        return redirect(url_for("timetracking.customer_detail", cid=str(src.id),
+                                team=team.pk))
+    name = src.name
+    res = merge_customers(src, target)
+    msg = (f"Merged “{name}” into “{target.name}”: "
+           f"{res['entries_moved']} time entr"
+           f"{'y' if res['entries_moved'] == 1 else 'ies'} and "
+           f"{res['projects_moved'] + res['projects_folded']} project(s) moved")
+    if res["projects_folded"]:
+        msg += (f" ({res['projects_folded']} folded into a project of the same "
+                f"name)")
+    msg += "."
+    if res["duplicates_cancelled"]:
+        msg += (f" {res['duplicates_cancelled']} entr"
+                f"{'y was' if res['duplicates_cancelled'] == 1 else 'ies were'} "
+                f"the same booking imported under both customers and arrived "
+                f"cancelled — see the trash.")
+    if res["duplicates_kept"]:
+        msg += (f" {res['duplicates_kept']} duplicate(s) were already billed "
+                f"and were left active — check them.")
+    flash(msg, "success")
+    return redirect(url_for("timetracking.customer_detail", cid=str(target.id),
                             team=team.pk))
 
 
