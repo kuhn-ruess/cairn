@@ -24,6 +24,19 @@
                value="{{ current_user.email }}">
         <div class="form-text small">Used to sign in and for password resets.</div>
       </div>
+      <div class="mb-1 mt-3">
+        <label class="form-label" for="profile-import-aliases">Other names in imports</label>
+        <textarea id="profile-import-aliases" name="import_aliases" rows="3"
+                  class="form-control form-control-sm font-monospace"
+                  placeholder="you@othercompany.example&#10;jira.account.name"
+        >{{ (current_user.import_aliases or [])|join('\n') }}</textarea>
+        <div class="form-text small">
+          One per line. Addresses and account names that mean <em>you</em> in another
+          system — a CSV import assigns a row naming one of these to your account
+          instead of leaving the task unassigned. Matching only: this is not a second
+          sign-in address, and it never overrides a real teammate's e-mail or username.
+        </div>
+      </div>
     </div>
   </div>
 

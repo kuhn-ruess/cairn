@@ -379,6 +379,48 @@ def assignable_users(actor) -> list:
     return out
 
 
+def assignee_index(actor) -> dict:
+    """``{written name: user}`` for resolving an imported assignee.
+
+    An import writes a person as whatever the exporting system stored: a
+    display name, a username, an e-mail, or the local part of one. Every one of
+    those is a key here, plus each candidate's ``import_aliases`` — the
+    addresses and names they are known by *elsewhere*, which is the only way a
+    row saying ``bastian.kuhn.extern@drv-bund.de`` can find the Cairn account
+    behind it.
+
+    Candidates are the people the actor may assign to at all
+    (:func:`assignable_users`), so an import can never reach outside the team.
+
+    Two passes, and the order is the point: **a real identity always beats an
+    alias.** Otherwise anyone could list a colleague's address as their own
+    alias and quietly collect that colleague's imported tasks. Within one pass
+    the first candidate wins, and the actor is first."""
+    return build_assignee_index(assignable_users(actor))
+
+
+def build_assignee_index(candidates) -> dict:
+    """The key-building half of :func:`assignee_index`, over a given list of
+    candidate users — no database, so the precedence rule is testable."""
+    people: dict = {}
+
+    def add(key, user):
+        key = (key or "").strip().lower()
+        if key and key not in people:
+            people[key] = user
+
+    candidates = list(candidates)
+    for candidate in candidates:
+        add(candidate.email, candidate)
+        add(candidate.username, candidate)
+        add(getattr(candidate, "display_name", ""), candidate)
+        add((candidate.email or "").split("@")[0], candidate)
+    for candidate in candidates:
+        for alias in getattr(candidate, "import_aliases", None) or []:
+            add(alias, candidate)
+    return people
+
+
 def resolve_assignable_user_by_name(actor, name):
     """Resolve a ``+name`` token to an assignable user. Matches username or
     display name, case-insensitive: exact match first, then a unique prefix.

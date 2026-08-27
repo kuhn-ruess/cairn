@@ -73,6 +73,15 @@ class User(UserMixin, Document):
     username = StringField(required=True, unique=True, max_length=64)
     email = EmailField(required=True, unique=True)
     display_name = StringField(max_length=128)
+    # Other names this person is written as in systems we import from: the
+    # e-mail of a Jira/DRV account, a foreign username, a spelling of their
+    # name nobody here uses. An import can only assign to a teammate, so a row
+    # naming an address Cairn has never seen lands unassigned — which reads
+    # exactly like a task nobody has to do. Listing the address here is how the
+    # owner of the account says "that is also me".
+    # Matching only: an alias never beats a real identity (see
+    # services.permissions.assignee_index) and is not a way to sign in.
+    import_aliases = ListField(StringField(max_length=200))
     password_hash = StringField(required=True)
     is_active_user = BooleanField(default=True)
     is_admin = BooleanField(default=False)

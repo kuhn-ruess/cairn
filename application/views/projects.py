@@ -2157,23 +2157,14 @@ def import_csv(project_id):
     idx_relates_out = [i for i, h in enumerate(headers)
                        if "ausgehende vorgangsverknüpfung" in h]
 
-    # Who a row's assignee IS here. Jira writes a person as a display name, a
-    # username or an e-mail depending on the export, so all three are keys —
-    # plus the local part of the address, which is what a Jira account name
-    # often is. Only people the importer may actually assign to (themselves +
-    # their teams) are candidates; a name outside that set is reported rather
-    # than silently dropped, because a task assigned to nobody looks exactly
-    # like one nobody has to do.
-    from application.services.permissions import assignable_users
-    people: dict = {}
-    for candidate in assignable_users(user):
-        keys = [candidate.email, candidate.username,
-                getattr(candidate, "display_name", "")]
-        local = (candidate.email or "").split("@")[0]
-        for key in keys + [local]:
-            key = (key or "").strip().lower()
-            if key and key not in people:
-                people[key] = candidate
+    # Who a row's assignee IS here: display name, username, e-mail, the local
+    # part of one, or an alias a teammate listed for exactly this
+    # (services.permissions.assignee_index). Only people the importer may
+    # actually assign to are candidates; a name outside that set is reported
+    # rather than silently dropped, because a task assigned to nobody looks
+    # exactly like one nobody has to do.
+    from application.services.permissions import assignee_index
+    people = assignee_index(user)
     unmatched_assignees: dict = {}
 
     created = updated = skipped = 0
@@ -2490,8 +2481,10 @@ def import_csv(project_id):
         flash(
             f"No Cairn account for {len(unmatched_assignees)} assignee(s), so "
             f"those tasks stayed unassigned: {named}. Only your teammates can "
-            f"be assigned — invite them, or match the name to their account "
-            f"(display name, username or e-mail).", "warning")
+            f"be assigned. If one of these is you (or a colleague) under "
+            f"another address, add it under Settings → Profile → “Other names "
+            f"in imports” and run the import again; otherwise invite them to "
+            f"the team.", "warning")
     return redirect(url_for("projects.detail", project_id=project_id))
 
 

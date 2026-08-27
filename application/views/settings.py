@@ -206,6 +206,17 @@ def profile():
                 return redirect(url_for("settings.profile"))
             user.email = email
         user.display_name = display_name or None
+        # Other names this account answers to when something is imported — one
+        # per line, matched case-insensitively. Normalised here so the matcher
+        # (services.permissions.assignee_index) can stay a plain dict lookup.
+        seen = set()
+        aliases = []
+        for line in (request.form.get("import_aliases") or "").splitlines():
+            alias = line.strip().lower()[:200]
+            if alias and alias not in seen:
+                seen.add(alias)
+                aliases.append(alias)
+        user.import_aliases = aliases[:20]
 
         tz = (request.form.get("timezone") or "").strip()
         if tz and tz not in all_tzs:
