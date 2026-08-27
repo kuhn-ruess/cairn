@@ -366,9 +366,425 @@ def build_openapi_spec() -> dict:
                         "skipped": {"type": "integer"},
                     },
                 },
+                # --- time tracking. Money is in cents, durations in minutes,
+                # exactly as stored — no float ever touches a rate.
+                "TimeTeam": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "format": "objectid"},
+                        "name": {"type": "string"},
+                    },
+                },
+                "TimeCustomer": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "format": "objectid"},
+                        "team_id": {"type": "string", "format": "objectid"},
+                        "name": {"type": "string"},
+                        "note": {"type": "string"},
+                        "archived": {"type": "boolean"},
+                        "external_id": {
+                            "type": "string", "nullable": True,
+                            "description": ("The key the importer stamped when "
+                                            "it created this record, e.g. "
+                                            "`mite:41` or `zammad:org:7`."),
+                        },
+                        "external_ids": {
+                            "type": "array", "items": {"type": "string"},
+                            "description": ("Further keys the same customer "
+                                            "answers to, adopted from records "
+                                            "an importer found it already had."),
+                        },
+                        "legal_name": {"type": "string", "nullable": True},
+                        "address": {"type": "string"},
+                        "vat_id": {"type": "string", "nullable": True},
+                        "tax_number": {"type": "string", "nullable": True},
+                        "invoice_email": {"type": "string", "nullable": True},
+                        "contact_name": {"type": "string", "nullable": True},
+                        "phone": {"type": "string", "nullable": True},
+                        "payment_terms_days": {"type": "integer", "nullable": True},
+                        "customer_number": {"type": "string", "nullable": True},
+                        "billing_note": {"type": "string"},
+                        "created_at": {"type": "string", "format": "date-time"},
+                    },
+                },
+                "TimeProject": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "format": "objectid"},
+                        "team_id": {"type": "string", "format": "objectid"},
+                        "customer_id": {"type": "string", "format": "objectid"},
+                        "name": {"type": "string"},
+                        "note": {"type": "string"},
+                        "hourly_rate_cents": {"type": "integer", "nullable": True},
+                        "budget_value": {"type": "integer", "nullable": True},
+                        "budget_type": {
+                            "type": "string", "nullable": True,
+                            "enum": ["minutes", "cents",
+                                     "minutes_per_month", "cents_per_month"],
+                        },
+                        "archived": {"type": "boolean"},
+                        "intake": {
+                            "type": "boolean",
+                            "description": ("Incoming external time for this "
+                                            "customer books here. At most one "
+                                            "project per customer carries it."),
+                        },
+                        "time_mode": {"type": "string",
+                                      "enum": ["duration", "clock"]},
+                        "external_id": {"type": "string", "nullable": True},
+                        "external_ids": {"type": "array",
+                                         "items": {"type": "string"}},
+                        "custom_fields": {"type": "array", "items": {
+                            "type": "object",
+                            "properties": {
+                                "key": {"type": "string"},
+                                "label": {"type": "string"},
+                                "field_type": {"type": "string",
+                                               "enum": ["text", "select"]},
+                                "default": {"type": "string"},
+                                "options": {"type": "array",
+                                            "items": {"type": "string"}},
+                            },
+                        }},
+                        "created_at": {"type": "string", "format": "date-time"},
+                    },
+                },
+                "TimeEntry": {
+                    "type": "object",
+                    "description": ("One logged chunk of time. Addressed by "
+                                    "`bucket_id` + `entry_id`; entries live "
+                                    "embedded in a per-customer-per-day "
+                                    "document, so there is no list index to "
+                                    "rely on."),
+                    "properties": {
+                        "entry_id": {"type": "string"},
+                        "bucket_id": {"type": "string", "format": "objectid"},
+                        "customer_id": {"type": "string", "nullable": True},
+                        "customer": {"type": "string"},
+                        "project_id": {"type": "string"},
+                        "project": {"type": "string"},
+                        "user_id": {"type": "string", "nullable": True},
+                        "user_name": {"type": "string"},
+                        "external_user": {
+                            "type": "string", "nullable": True,
+                            "description": ("Who booked it in the source "
+                                            "system, for imported time whose "
+                                            "author has no Cairn account yet."),
+                        },
+                        "spent_on": {"type": "string", "format": "date"},
+                        "start_time": {"type": "string", "nullable": True},
+                        "end_time": {"type": "string", "nullable": True},
+                        "minutes": {"type": "integer"},
+                        "note": {"type": "string"},
+                        "description": {"type": "string"},
+                        "source_label": {"type": "string", "nullable": True},
+                        "service": {"type": "string", "nullable": True},
+                        "billable": {"type": "boolean"},
+                        "amount_cents": {"type": "integer", "nullable": True},
+                        "locked": {
+                            "type": "boolean",
+                            "description": "Billed, and therefore frozen.",
+                        },
+                        "status": {"type": "string",
+                                   "enum": ["active", "cancelled"]},
+                        "archived_project": {"type": "boolean"},
+                        "custom": {"type": "array", "items": {
+                            "type": "object",
+                            "properties": {
+                                "key": {"type": "string"},
+                                "label": {"type": "string"},
+                                "value": {"type": "string"},
+                            },
+                        }},
+                        "external_ref": {"type": "string", "nullable": True},
+                        "external_url": {"type": "string", "nullable": True},
+                    },
+                },
+                "DuplicateCustomerGroup": {
+                    "type": "object",
+                    "description": ("Records that look like one client filed "
+                                    "twice. Heaviest first — the one carrying "
+                                    "the history is normally the survivor."),
+                    "properties": {
+                        "name": {"type": "string"},
+                        "customers": {"type": "array", "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string", "format": "objectid"},
+                                "name": {"type": "string"},
+                                "archived": {"type": "boolean"},
+                                "external_id": {"type": "string",
+                                                "nullable": True},
+                                "external_ids": {"type": "array",
+                                                 "items": {"type": "string"}},
+                                "minutes": {"type": "integer"},
+                                "entries": {"type": "integer"},
+                                "projects": {"type": "array", "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "id": {"type": "string"},
+                                        "name": {"type": "string"},
+                                        "intake": {"type": "boolean"},
+                                        "archived": {"type": "boolean"},
+                                    },
+                                }},
+                            },
+                        }},
+                    },
+                },
+                "MergeResult": {
+                    "type": "object",
+                    "properties": {
+                        "merged": {"type": "string",
+                                   "description": "Name of the customer that was folded in."},
+                        "into": {"$ref": "#/components/schemas/TimeCustomer"},
+                        "stats": {
+                            "type": "object",
+                            "properties": {
+                                "projects_moved": {"type": "integer"},
+                                "projects_folded": {
+                                    "type": "integer",
+                                    "description": ("Projects of the same name "
+                                                    "merged into the survivor's."),
+                                },
+                                "entries_moved": {"type": "integer"},
+                                "duplicates_cancelled": {
+                                    "type": "integer",
+                                    "description": ("Bookings the target already "
+                                                    "carried; they moved but "
+                                                    "arrived cancelled, so no "
+                                                    "hour is counted twice."),
+                                },
+                                "duplicates_kept": {
+                                    "type": "integer",
+                                    "description": ("Duplicates that were already "
+                                                    "billed — frozen, left active, "
+                                                    "reported for a human."),
+                                },
+                                "relinked": {"type": "integer"},
+                            },
+                        },
+                    },
+                },
             },
         },
         "paths": {
+            "/time/teams": {
+                "get": {
+                    "summary": "Teams this token may act in",
+                    "description": ("The billing module is team-scoped. Every "
+                                    "/time endpoint takes an optional `team` "
+                                    "query parameter and falls back to "
+                                    "`default_team_id` from here."),
+                    "tags": ["time"],
+                    "responses": {
+                        "200": {"description": "Teams",
+                                "content": {"application/json": {"schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "items": {"type": "array", "items": {
+                                            "$ref": "#/components/schemas/TimeTeam"}},
+                                        "default_team_id": {"type": "string",
+                                                            "nullable": True},
+                                    },
+                                }}}},
+                        "403": {"description": "Not a member of any team"},
+                    },
+                },
+            },
+            "/time/customers": {
+                "get": {
+                    "summary": "List billing customers",
+                    "tags": ["time"],
+                    "parameters": [
+                        {"name": "team", "in": "query", "schema": {"type": "string", "format": "objectid"}, "description": "Team to operate on. Omitted → the caller's default team (see GET /time/teams)."},
+                        {"name": "q", "in": "query", "schema": {"type": "string"},
+                         "description": "Case-insensitive substring of the name."},
+                        {"name": "include_archived", "in": "query",
+                         "schema": {"type": "string", "enum": ["1"]}},
+                    ],
+                    "responses": {
+                        "200": {"description": "Customers",
+                                "content": {"application/json": {"schema": {
+                                    "type": "object",
+                                    "properties": {"items": {
+                                        "type": "array", "items": {
+                                            "$ref": "#/components/schemas/TimeCustomer"}}},
+                                }}}},
+                    },
+                },
+            },
+            "/time/customers/duplicates": {
+                "get": {
+                    "summary": "Customers that look like one client filed twice",
+                    "description": ("An importer that met a client under a key "
+                                    "it did not recognise opened a second "
+                                    "record on it. The importers adopt by name "
+                                    "now, so this returns what they created "
+                                    "before they did — and nothing merges those "
+                                    "on its own, because the logged hours under "
+                                    "a customer mean it cannot simply be "
+                                    "deleted. Feed a group to "
+                                    "POST /time/customers/{id}/merge."),
+                    "tags": ["time"],
+                    "parameters": [{"name": "team", "in": "query", "schema": {"type": "string", "format": "objectid"}, "description": "Team to operate on. Omitted → the caller's default team (see GET /time/teams)."}],
+                    "responses": {
+                        "200": {"description": "Duplicate groups",
+                                "content": {"application/json": {"schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "team_id": {"type": "string"},
+                                        "count": {"type": "integer"},
+                                        "items": {"type": "array", "items": {
+                                            "$ref": "#/components/schemas/DuplicateCustomerGroup"}},
+                                    },
+                                }}}},
+                    },
+                },
+            },
+            "/time/customers/{customer_id}": {
+                "get": {
+                    "summary": "Get one customer",
+                    "tags": ["time"],
+                    "parameters": [
+                        {"name": "customer_id", "in": "path", "required": True,
+                         "schema": {"type": "string"}},
+                        {"name": "team", "in": "query", "schema": {"type": "string", "format": "objectid"}, "description": "Team to operate on. Omitted → the caller's default team (see GET /time/teams)."},
+                    ],
+                    "responses": {
+                        "200": {"description": "Customer",
+                                "content": {"application/json": {"schema": {
+                                    "$ref": "#/components/schemas/TimeCustomer"}}}},
+                        "404": {"description": "Not found"},
+                    },
+                },
+            },
+            "/time/customers/{customer_id}/merge": {
+                "post": {
+                    "summary": "Fold this customer into another and delete it",
+                    "description": ("Everything moves: the projects (one of the "
+                                    "same name is folded into the survivor's), "
+                                    "every logged hour, and the import keys — so "
+                                    "the next sync goes to the survivor instead "
+                                    "of re-creating what was just merged. A "
+                                    "booking the target already carries arrives "
+                                    "cancelled rather than doubling the total; "
+                                    "one already billed is frozen, left active "
+                                    "and reported. Irreversible: team managers "
+                                    "only, and read-only tokens cannot call it."),
+                    "tags": ["time"],
+                    "parameters": [
+                        {"name": "customer_id", "in": "path", "required": True,
+                         "schema": {"type": "string"},
+                         "description": "The customer that is folded in and deleted."},
+                        {"name": "team", "in": "query", "schema": {"type": "string", "format": "objectid"}, "description": "Team to operate on. Omitted → the caller's default team (see GET /time/teams)."},
+                    ],
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {
+                            "type": "object",
+                            "properties": {"into": {
+                                "type": "string", "format": "objectid",
+                                "description": "The customer that survives."}},
+                            "required": ["into"],
+                        }}},
+                    },
+                    "responses": {
+                        "200": {"description": "What moved",
+                                "content": {"application/json": {"schema": {
+                                    "$ref": "#/components/schemas/MergeResult"}}}},
+                        "400": {"description": "`into` missing or the same customer"},
+                        "403": {"description": "Not a team manager, or a read-only token"},
+                        "404": {"description": "Unknown customer"},
+                    },
+                },
+            },
+            "/time/projects": {
+                "get": {
+                    "summary": "List billing projects",
+                    "description": ("Bounded by what the caller may see: a "
+                                    "manager or biller gets the team's, anyone "
+                                    "else gets those linked at or below a "
+                                    "container they own or belong to."),
+                    "tags": ["time"],
+                    "parameters": [
+                        {"name": "team", "in": "query", "schema": {"type": "string", "format": "objectid"}, "description": "Team to operate on. Omitted → the caller's default team (see GET /time/teams)."},
+                        {"name": "customer_id", "in": "query",
+                         "schema": {"type": "string"}},
+                        {"name": "include_archived", "in": "query",
+                         "schema": {"type": "string", "enum": ["1"]}},
+                    ],
+                    "responses": {
+                        "200": {"description": "Projects",
+                                "content": {"application/json": {"schema": {
+                                    "type": "object",
+                                    "properties": {"items": {
+                                        "type": "array", "items": {
+                                            "$ref": "#/components/schemas/TimeProject"}}},
+                                }}}},
+                    },
+                },
+            },
+            "/time/entries": {
+                "get": {
+                    "summary": "List logged time",
+                    "description": ("The same reader and the same filters as "
+                                    "the report page. Range: `period` (a "
+                                    "preset) or `from`/`to`, which ARE the "
+                                    "period when given without one; the "
+                                    "default is this month."),
+                    "tags": ["time"],
+                    "parameters": [
+                        {"name": "team", "in": "query", "schema": {"type": "string", "format": "objectid"}, "description": "Team to operate on. Omitted → the caller's default team (see GET /time/teams)."},
+                        {"name": "period", "in": "query",
+                         "schema": {"type": "string",
+                                    "enum": ["today", "yesterday", "this_week",
+                                             "last_week", "this_month",
+                                             "last_month", "this_year",
+                                             "custom"]}},
+                        {"name": "from", "in": "query",
+                         "schema": {"type": "string", "format": "date"}},
+                        {"name": "to", "in": "query",
+                         "schema": {"type": "string", "format": "date"}},
+                        {"name": "customer_id", "in": "query",
+                         "schema": {"type": "string"}},
+                        {"name": "project_id", "in": "query",
+                         "schema": {"type": "string"}},
+                        {"name": "user_id", "in": "query",
+                         "schema": {"type": "string"},
+                         "description": ("`none` selects imported time whose "
+                                         "author has no Cairn account.")},
+                        {"name": "state", "in": "query",
+                         "schema": {"type": "string",
+                                    "enum": ["active", "cancelled", "all"],
+                                    "default": "active"},
+                         "description": ("Deleted time is cancelled, never "
+                                         "dropped, so it stays findable.")},
+                        {"name": "billable", "in": "query",
+                         "schema": {"type": "string", "enum": ["1", "0"]}},
+                        {"name": "locked", "in": "query",
+                         "schema": {"type": "string", "enum": ["1", "0"]}},
+                    ],
+                    "responses": {
+                        "200": {"description": "Entries",
+                                "content": {"application/json": {"schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "team_id": {"type": "string"},
+                                        "from": {"type": "string", "format": "date"},
+                                        "to": {"type": "string", "format": "date"},
+                                        "count": {"type": "integer"},
+                                        "total_minutes": {
+                                            "type": "integer",
+                                            "description": "Active entries only."},
+                                        "items": {"type": "array", "items": {
+                                            "$ref": "#/components/schemas/TimeEntry"}},
+                                    },
+                                }}}},
+                    },
+                },
+            },
             "/me": {
                 "get": {
                     "summary": "Identify the token holder",

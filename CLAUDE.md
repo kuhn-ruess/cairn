@@ -212,9 +212,24 @@ mode.
 
 `application/api/v1.py` mounts at `/api/v1`. Auth is via `token_required`
 (checks `Authorization: Bearer <token>` or `X-API-Token: <token>` against
-`ApiToken` docs); the blueprint is CSRF-exempt. Visibility scope is owner OR
-`assigned_to == current_user` (`_scope()` helper) — keep that pattern when
-adding endpoints, so shared/assigned items remain visible.
+`ApiToken` docs); the blueprint is CSRF-exempt. A read-only token is refused
+any mutating method in `token_required` itself, before the endpoint runs.
+
+There are **two** visibility axes, and a new endpoint belongs to one of them:
+
+- **Items** (tasks/projects/notes) are owner-scoped: owner OR
+  `assigned_to == current_user` (`_scope()` helper) — keep that pattern, so
+  shared/assigned items remain visible.
+- **`/time/*`** is the billing module, which is **team**-scoped. `_tt_team()`
+  resolves `?team=<id>` against the caller's participating teams (403 without
+  any, 404 for one they're not in — the same two answers the web module gives);
+  reads go through `reachable_project_ids()` and writes through
+  `Team.is_managed_by()`. Reuse those rather than restating them: a second
+  definition of "may see" is how the API and the UI drift apart.
+
+`application/api/openapi.py` is the hand-written spec served at
+`/api/v1/openapi.json` and rendered at `/api/v1/docs`. Add a path there for
+every route you add — `tests/test_time_api.py` asserts the two agree.
 
 ### Services layer (`application/services/`)
 

@@ -10,6 +10,10 @@ from application.api.serializers import tag as ser_tag
 from application.api.serializers import task as ser_task
 from application.api.serializers import task_compact as ser_task_compact
 from application.api.serializers import perspective as ser_perspective
+from application.api.serializers import tt_customer as ser_tt_customer
+from application.api.serializers import tt_entry as ser_tt_entry
+from application.api.serializers import tt_project as ser_tt_project
+from application.api.serializers import tt_team as ser_tt_team
 
 from application.models.user import User
 from application.models.item import (
@@ -823,6 +827,226 @@ def list_perspectives():
             "custom": [ser_perspective(p) for p in (user.custom_perspectives or [])],
         }
     )
+
+
+# ---------------- time tracking ----------------
+#
+# The billing module is **team**-scoped, which is a different axis from the
+# owner/assignee ``_scope()`` everything above uses: what a token may read here
+# follows the team roles (``reachable_project_ids``), and what it may change
+# follows team management. Reusing those two functions rather than restating
+# them is deliberate — a second definition of "may see" is how the API and the
+# UI drift apart.
+#
+# Read-only tokens are already barred from every mutating method by
+# ``token_required``, so the merge below is closed to them without asking.
+
+
+class _ApiError(Exception):
+    """A failure a helper can raise from anywhere, rendered as the same JSON
+    body ``_bad_request`` produces."""
+
+    def __init__(self, message: str, status: int = 400):
+        super().__init__(message)
+        self.message, self.status = message, status
+
+
+@api_v1_bp.errorhandler(_ApiError)
+def _api_error(exc):
+    return jsonify({"error": exc.message}), exc.status
+
+
+def _tt_team():
+    """The team this call operates on — mirrors ``views.timetracking._team``.
+
+    ``?team=<id>`` when the caller belongs to it, otherwise their pinned
+    default. 403 without a team at all, 404 for a team they are not in: the
+    same two answers the web module gives, so a token can never learn that a
+    team exists by being told it is forbidden rather than missing."""
+    from application.services.timetracking import default_team, user_teams
+    teams = user_teams(g.current_user)
+    if not teams:
+        raise _ApiError("not a member of any team", 403)
+    raw = (request.args.get("team") or "").strip()
+    if not raw:
+        return default_team(g.current_user)
+    for t in teams:
+        if str(t.pk) == raw:
+            return t
+    raise _ApiError("unknown team", 404)
+
+
+def _tt_customer(cid, team):
+    from bson import ObjectId
+    from application.models.timetracking import Customer
+    from application.services.timetracking import to_oid
+    c = Customer.objects(pk=to_oid(cid) or ObjectId(), team=team).first()
+    if c is None:
+        raise _ApiError("not found", 404)
+    return c
+
+
+def _tt_manager(team):
+    if not team.is_managed_by(g.current_user):
+        raise _ApiError("team managers only", 403)
+
+
+@api_v1_bp.get("/time/teams")
+@token_required
+def tt_list_teams():
+    """The teams this token may act in, and which one the endpoints below
+    default to when ``?team=`` is omitted."""
+    from application.services.timetracking import default_team, user_teams
+    teams = user_teams(g.current_user)
+    current = default_team(g.current_user) if teams else None
+    return jsonify({
+        "items": [ser_tt_team(t) for t in
+                  sorted(teams, key=lambda t: (t.name or "").lower())],
+        "default_team_id": str(current.pk) if current else None,
+    })
+
+
+@api_v1_bp.get("/time/customers")
+@token_required
+def tt_list_customers():
+    """``?q=`` matches the name (case-insensitive substring); archived
+    customers are left out unless ``?include_archived=1``."""
+    from application.models.timetracking import Customer
+    team = _tt_team()
+    qs = Customer.objects(team=team)
+    if request.args.get("include_archived") != "1":
+        qs = qs.filter(archived__ne=True)
+    q = (request.args.get("q") or "").strip()
+    if q:
+        qs = qs.filter(name__icontains=q)
+    return jsonify({"items": [ser_tt_customer(c)
+                              for c in qs.order_by("+name")]})
+
+
+@api_v1_bp.get("/time/customers/duplicates")
+@token_required
+def tt_customer_duplicates():
+    """Customers that look like one client filed twice, grouped by name.
+
+    The importers adopt an existing customer by name now, so what this returns
+    is what they created *before* they did — records nothing merges on its own,
+    because the hours underneath them mean a customer cannot simply be deleted.
+    Each group is heaviest-first: the record carrying the history is normally
+    the one to merge the others into (``POST /time/customers/<id>/merge``)."""
+    from application.services.timetracking import duplicate_customers
+    team = _tt_team()
+    groups = duplicate_customers(team)
+    return jsonify({"team_id": str(team.pk), "items": groups,
+                    "count": len(groups)})
+
+
+@api_v1_bp.get("/time/customers/<cid>")
+@token_required
+def tt_get_customer(cid):
+    team = _tt_team()
+    return jsonify(ser_tt_customer(_tt_customer(cid, team)))
+
+
+@api_v1_bp.post("/time/customers/<cid>/merge")
+@token_required
+def tt_merge_customer(cid):
+    """Fold this customer into the one named by ``into`` and delete it.
+
+    Everything moves — projects, every logged hour, and the import keys, so the
+    next sync goes to the survivor instead of re-creating what was just merged.
+    A booking the target already carries arrives cancelled rather than doubling
+    the total; one already billed is left alone and reported. See
+    ``services.timetracking.merge_customers`` for why in that order.
+
+    Irreversible, so it is closed to non-managers and to read-only tokens, and
+    ``into`` must be given explicitly — there is no sensible default for which
+    record survives."""
+    from application.services.timetracking import merge_customers
+    team = _tt_team()
+    _tt_manager(team)
+    data = request.get_json(silent=True) or {}
+    into = (data.get("into") or "").strip()
+    if not into:
+        return _bad_request("into is required — the customer to merge INTO")
+    source = _tt_customer(cid, team)
+    target = _tt_customer(into, team)
+    if str(source.pk) == str(target.pk):
+        return _bad_request("into must be a different customer")
+    name = source.name
+    stats = merge_customers(source, target)
+    return jsonify({"merged": name, "into": ser_tt_customer(target),
+                    "stats": stats})
+
+
+@api_v1_bp.get("/time/projects")
+@token_required
+def tt_list_projects():
+    """Billing projects, bounded by what the caller may see: a manager or biller
+    gets the team's, anyone else gets those linked at or below a container they
+    own or belong to. ``?customer_id=`` narrows to one customer."""
+    from bson import ObjectId
+    from application.models.timetracking import TimeTrackingProject
+    from application.services.timetracking import (
+        reachable_project_ids, to_oid)
+    team = _tt_team()
+    visible = reachable_project_ids(g.current_user, team)
+    qs = TimeTrackingProject.objects(team=team)
+    if request.args.get("include_archived") != "1":
+        qs = qs.filter(archived__ne=True)
+    raw = (request.args.get("customer_id") or "").strip()
+    if raw:
+        qs = qs.filter(customer=to_oid(raw) or ObjectId())
+    return jsonify({"items": [ser_tt_project(p) for p in qs.order_by("+name")
+                              if str(p.pk) in visible]})
+
+
+@api_v1_bp.get("/time/entries")
+@token_required
+def tt_list_entries():
+    """Logged time, over the same reader and the same filters as the report.
+
+    Range: ``?period=`` (a preset) or ``?from=``/``?to=`` (which *are* the
+    period when given without one), defaulting to this month. ``state`` is
+    ``active`` (default), ``cancelled`` — deleted time is cancelled and never
+    dropped, so it has to stay findable — or ``all``. ``billable`` and
+    ``locked`` take ``1``/``0``."""
+    from application.services.timetracking import (
+        archived_project_ids, build_report_rows, reachable_project_ids,
+        resolve_period)
+    from application.services.tz import user_zone
+    team = _tt_team()
+    user = g.current_user
+    args = request.args
+    today = datetime.now(user_zone(user)).date()
+    preset = args.get("period") or (
+        "custom" if (args.get("from") or args.get("to")) else "this_month")
+    date_from, date_to = resolve_period(
+        preset, args.get("from"), args.get("to"), today)
+
+    def _tri(name):
+        v = args.get(name)
+        return True if v == "1" else False if v == "0" else None
+
+    state = args.get("state")
+    rows = build_report_rows(
+        team=team, scope_ids=reachable_project_ids(user, team),
+        date_from=date_from, date_to=date_to,
+        customer_id=args.get("customer_id") or None,
+        project_id=args.get("project_id") or None,
+        user_id=args.get("user_id") or None,
+        billable=_tri("billable"), locked=_tri("locked"),
+        state=state if state in ("active", "cancelled", "all") else "active",
+        archived_ids=archived_project_ids(team), viewer=user,
+    )
+    items = [ser_tt_entry(r) for r in rows]
+    return jsonify({
+        "team_id": str(team.pk),
+        "from": date_from.isoformat(), "to": date_to.isoformat(),
+        "count": len(items),
+        "total_minutes": sum(r["minutes"] for r in rows
+                             if r["status"] == "active"),
+        "items": items,
+    })
 
 
 # ---------------- misc ----------------

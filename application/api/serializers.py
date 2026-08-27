@@ -267,3 +267,105 @@ def task(t) -> dict[str, Any]:
         "updated_at": iso(t.updated_at),
         "completed_at": iso(t.completed_at),
     }
+
+
+# ---------------- time tracking ----------------
+#
+# The billing module is team-scoped, not owner-scoped like everything above,
+# so these carry ``team_id`` rather than an owner. Money is in **cents** and
+# durations in **minutes**, exactly as stored — no float ever touches a rate.
+
+
+def tt_team(t) -> dict[str, Any]:
+    return {"id": str(t.pk), "name": t.name}
+
+
+def tt_customer(c) -> dict[str, Any]:
+    return {
+        "id": str(c.pk),
+        "team_id": ref_ids([c._data.get("team")])[0] if c._data.get("team") else None,
+        "name": c.name,
+        "note": c.note or "",
+        "archived": bool(c.archived),
+        # Every key an importer recognises this customer by. ``external_id`` is
+        # the one an importer stamped when it created the record; the rest were
+        # adopted from records it turned out to already have.
+        "external_id": c.external_id or None,
+        "external_ids": list(c.external_ids or []),
+        "legal_name": c.legal_name or None,
+        "address": c.address or "",
+        "vat_id": c.vat_id or None,
+        "tax_number": c.tax_number or None,
+        "invoice_email": c.invoice_email or None,
+        "contact_name": c.contact_name or None,
+        "phone": c.phone or None,
+        "payment_terms_days": c.payment_terms_days,
+        "customer_number": c.customer_number or None,
+        "billing_note": c.billing_note or "",
+        "created_at": iso(c.created_at),
+    }
+
+
+def tt_project(p) -> dict[str, Any]:
+    """A billing project. ``customer_id`` is read raw so listing a team's
+    projects never dereferences one customer per row (see ``ref_ids``)."""
+    return {
+        "id": str(p.pk),
+        "team_id": ref_ids([p._data.get("team")])[0] if p._data.get("team") else None,
+        "customer_id": (ref_ids([p._data.get("customer")])[0]
+                        if p._data.get("customer") else None),
+        "name": p.name,
+        "note": p.note or "",
+        "hourly_rate_cents": p.hourly_rate_cents,
+        "budget_value": p.budget_value,
+        "budget_type": p.budget_type,
+        "archived": bool(p.archived),
+        # Where this customer's incoming external time books. At most one
+        # project per customer carries it.
+        "intake": bool(p.intake),
+        "time_mode": p.time_mode,
+        "external_id": p.external_id or None,
+        "external_ids": list(p.external_ids or []),
+        "custom_fields": [{"key": f.key, "label": f.label,
+                           "field_type": f.field_type,
+                           "default": f.default or "",
+                           "options": list(f.options or [])}
+                          for f in (p.custom_fields or [])],
+        "created_at": iso(p.created_at),
+    }
+
+
+def tt_entry(row: dict) -> dict[str, Any]:
+    """One row of ``services.timetracking.build_report_rows``.
+
+    That function is already the deref-free reader every report goes through,
+    so the API takes its rows rather than walking the buckets a second way —
+    one shape of "a logged entry" for the whole app. ``bucket_id`` plus
+    ``entry_id`` is how an entry is addressed; the list index never is."""
+    return {
+        "entry_id": row["entry_id"],
+        "bucket_id": row["bucket_id"],
+        "customer_id": row["customer_id"] or None,
+        "customer": row["customer"],
+        "project_id": row["project_id"],
+        "project": row["project"],
+        "user_id": row["user_id"] or None,
+        "user_name": row["user_name"] or "",
+        "external_user": row["external_user"] or None,
+        "spent_on": row["spent_on"].isoformat() if row["spent_on"] else None,
+        "start_time": row["start_time"] or None,
+        "end_time": row["end_time"] or None,
+        "minutes": row["minutes"],
+        "note": row["note"],
+        "description": row["description"],
+        "source_label": row["source_label"] or None,
+        "service": row["service"] or None,
+        "billable": row["billable"],
+        "amount_cents": row["amount_cents"],
+        "locked": row["locked"],
+        "status": row["status"],
+        "archived_project": row["archived"],
+        "custom": row["custom"],
+        "external_ref": row["external_ref"] or None,
+        "external_url": row["external_url"] or None,
+    }

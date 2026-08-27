@@ -1411,6 +1411,71 @@ def delete_customer(customer) -> dict:
             "entries": n_entries, "unlinked": unlinked}
 
 
+def duplicate_customers(team) -> list[dict]:
+    """The team's customers that look like one client filed twice, grouped.
+
+    What an importer leaves behind when it meets a client under a key it does
+    not recognise: the company is already here as ``mite:41``, Zammad offers it
+    as ``zammad:org:7``, and a second record is opened on it. Both importers
+    adopt by name now, so this finds precisely the records they would no longer
+    create — the comparison is the same trimmed, case-folded name they adopt by.
+
+    Each record carries what the decision actually needs: the keys it answers
+    to, its projects (and which one takes imported time), and how much time
+    hangs under it. The one with the history is normally the one to keep, so
+    the heaviest comes first in each group.
+
+    Three reads for the whole team, all deref-free — this is offered to a
+    person staring at a list of customers, not to a loop."""
+    groups = {}
+    for c in Customer.objects(team=team):
+        groups.setdefault((c.name or "").strip().casefold(), []).append(c)
+    groups = {k: v for k, v in groups.items() if len(v) > 1}
+    if not groups:
+        return []
+    wanted = {c.id for rows in groups.values() for c in rows}
+
+    projects = {}
+    for p in TimeTrackingProject.objects(team=team).only(
+            "id", "customer", "name", "intake", "archived").as_pymongo():
+        if p.get("customer") in wanted:
+            projects.setdefault(p["customer"], []).append(p)
+
+    minutes, counts = {}, {}
+    for b in TimeBucket.objects(team=team).only(
+            "customer", "entries.minutes", "entries.status").as_pymongo():
+        cid = b.get("customer")
+        if cid not in wanted:
+            continue
+        for e in b.get("entries") or []:
+            counts[cid] = counts.get(cid, 0) + 1
+            if (e.get("status") or "active") == "active":
+                minutes[cid] = minutes.get(cid, 0) + (e.get("minutes") or 0)
+
+    out = []
+    for key in sorted(groups):
+        rows = []
+        for c in groups[key]:
+            mine = projects.get(c.id) or []
+            rows.append({
+                "id": str(c.id),
+                "name": c.name,
+                "archived": bool(c.archived),
+                "external_id": c.external_id or None,
+                "external_ids": list(c.external_ids or []),
+                "minutes": minutes.get(c.id, 0),
+                "entries": counts.get(c.id, 0),
+                "projects": [{"id": str(p["_id"]), "name": p.get("name") or "",
+                              "intake": bool(p.get("intake")),
+                              "archived": bool(p.get("archived"))}
+                             for p in sorted(mine, key=lambda r: (r.get("name") or "").lower())],
+            })
+        # Heaviest first: that is the record the others should be merged into.
+        rows.sort(key=lambda r: (-r["minutes"], -r["entries"], r["name"]))
+        out.append({"name": groups[key][0].name, "customers": rows})
+    return out
+
+
 def _append_entries(team, customer, period: str, entries: list) -> None:
     """Append a batch of already-built entries to ``(team, customer, day)``.
 
