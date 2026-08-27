@@ -886,9 +886,14 @@ def _tt_customer(cid, team):
     return c
 
 
-def _tt_manager(team):
-    if not team.is_managed_by(g.current_user):
-        raise _ApiError("team managers only", 403)
+def _tt_biller(team):
+    """Who may shape the team's books over the API — the same answer the web
+    module gives (``views.timetracking._billing_manager``): a manager, or a
+    member the manager named a biller. A biller already settles the month on
+    the whole book; filing that book is the same job."""
+    from application.services.timetracking import can_bill
+    if not can_bill(g.current_user, team):
+        raise _ApiError("team managers and billers only", 403)
 
 
 @api_v1_bp.get("/time/teams")
@@ -947,6 +952,26 @@ def tt_get_customer(cid):
     return jsonify(ser_tt_customer(_tt_customer(cid, team)))
 
 
+@api_v1_bp.post("/time/customers/<cid>/archive")
+@token_required
+def tt_archive_customer(cid):
+    """Archive this customer, or bring it back — ``{"archived": true|false}``.
+
+    Archived means out of the way, not gone: the history stays and still
+    bills, but the customer *and every project under it* drop out of the
+    pickers. Reversible, which is why it takes a biller rather than a
+    manager."""
+    team = _tt_team()
+    _tt_biller(team)
+    c = _tt_customer(cid, team)
+    data = request.get_json(silent=True) or {}
+    if "archived" not in data:
+        return _bad_request("archived is required (true or false)")
+    c.archived = bool(data.get("archived"))
+    c.save()
+    return jsonify(ser_tt_customer(c))
+
+
 @api_v1_bp.post("/time/customers/<cid>/merge")
 @token_required
 def tt_merge_customer(cid):
@@ -958,12 +983,12 @@ def tt_merge_customer(cid):
     the total; one already billed is left alone and reported. See
     ``services.timetracking.merge_customers`` for why in that order.
 
-    Irreversible, so it is closed to non-managers and to read-only tokens, and
-    ``into`` must be given explicitly — there is no sensible default for which
-    record survives."""
+    Irreversible, so it is closed to anyone below a biller and to read-only
+    tokens, and ``into`` must be given explicitly — there is no sensible
+    default for which record survives."""
     from application.services.timetracking import merge_customers
     team = _tt_team()
-    _tt_manager(team)
+    _tt_biller(team)
     data = request.get_json(silent=True) or {}
     into = (data.get("into") or "").strip()
     if not into:

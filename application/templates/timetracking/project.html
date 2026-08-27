@@ -143,15 +143,16 @@
           </div>
         </label>
 
-        <label class="form-check small mb-0">
-          <input type="checkbox" name="archived" value="1" class="form-check-input"
-                 {% if p.archived %}checked{% endif %}>
-          <strong>Archived</strong>
-          <div class="text-muted">
-            Keeps its history and drops out of the pickers, the management list
-            and the report.
-          </div>
-        </label>
+        {# Archiving lives outside this form on purpose — it is a decision
+           about the book, not a setting of the project. See the button by the
+           Save row. #}
+        {% if p.archived %}
+          <p class="small text-muted mb-0">
+            <i class="bi bi-archive"></i> <strong>Archived</strong> — the
+            history is kept; it is out of the pickers, the management list and
+            the report.
+          </p>
+        {% endif %}
       </div>
     </div>
 
@@ -234,6 +235,25 @@
         Back to the list</a>
     </div>
   </form>
+
+  <div class="mb-4">
+    {# Archiving is a statement about the book, not a setting of the record:
+       its own one-click action, its own permission (biller or manager), and
+       reversible from the same spot. #}
+    {% if can_file %}
+      <form method="post" class="d-inline"
+            action="{{ url_for('timetracking.project_archive', pid=p.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="team" value="{{ team.pk }}">
+        <input type="hidden" name="back" value="{{ request.path }}">
+        <input type="hidden" name="archived" value="{% if p.archived %}0{% else %}1{% endif %}">
+        <button class="btn btn-sm btn-outline-secondary"
+                title="{% if p.archived %}Bring it back into the pickers{% else %}Keep the history, drop it out of the pickers{% endif %}">
+          <i class="bi bi-archive"></i>
+          {% if p.archived %}Unarchive{% else %}Archive{% endif %}</button>
+      </form>
+    {% endif %}
+  </div>
 
   {# ---- Where the time comes from -------------------------------------- #}
   <div class="card mb-3">

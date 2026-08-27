@@ -660,6 +660,40 @@ def build_openapi_spec() -> dict:
                     },
                 },
             },
+            "/time/customers/{customer_id}/archive": {
+                "post": {
+                    "summary": "Archive this customer, or bring it back",
+                    "description": ("Archived is out of the way, not gone: the "
+                                    "history stays and still bills, but the "
+                                    "customer and every project under it drop "
+                                    "out of the pickers. Reversible, so a "
+                                    "biller may do it."),
+                    "tags": ["time"],
+                    "parameters": [
+                        {"name": "customer_id", "in": "path", "required": True,
+                         "schema": {"type": "string"}},
+                        {"name": "team", "in": "query",
+                         "schema": {"type": "string", "format": "objectid"},
+                         "description": "Team to operate on. Omitted → the caller's default team (see GET /time/teams)."},
+                    ],
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {
+                            "type": "object",
+                            "properties": {"archived": {"type": "boolean"}},
+                            "required": ["archived"],
+                        }}},
+                    },
+                    "responses": {
+                        "200": {"description": "The customer as it now stands",
+                                "content": {"application/json": {"schema": {
+                                    "$ref": "#/components/schemas/TimeCustomer"}}}},
+                        "400": {"description": "`archived` missing"},
+                        "403": {"description": "Not a manager or biller, or a read-only token"},
+                        "404": {"description": "Unknown customer"},
+                    },
+                },
+            },
             "/time/customers/{customer_id}/merge": {
                 "post": {
                     "summary": "Fold this customer into another and delete it",
@@ -671,8 +705,9 @@ def build_openapi_spec() -> dict:
                                     "booking the target already carries arrives "
                                     "cancelled rather than doubling the total; "
                                     "one already billed is frozen, left active "
-                                    "and reported. Irreversible: team managers "
-                                    "only, and read-only tokens cannot call it."),
+                                    "and reported. Irreversible: managers and "
+                                    "billers only, and read-only tokens cannot "
+                                    "call it."),
                     "tags": ["time"],
                     "parameters": [
                         {"name": "customer_id", "in": "path", "required": True,

@@ -54,18 +54,22 @@ class TimeApiTests(unittest.TestCase):
 
         self.boss = self._user("boss")
         self.mate = self._user("mate", level="premium")
+        self.biller = self._user("biller", level="premium")
         self.outsider = self._user("outsider")
         self.team = Team(name="Kuhn & Rueß", admin=self.boss,
-                         admins=[self.boss]).save()
+                         admins=[self.boss], billers=[self.biller]).save()
         # Membership is a reference on the USER, not a list on the team
         # (services.permissions.participating_teams).
         self.mate.team = self.team
         self.mate.save()
+        self.biller.team = self.team
+        self.biller.save()
         self.other_team = Team(name="Somebody else", admin=self.outsider,
                                admins=[self.outsider]).save()
 
         _, self.boss_token = self.boss.issue_api_token("test")
         _, self.mate_token = self.mate.issue_api_token("test")
+        _, self.biller_token = self.biller.issue_api_token("test")
         _, self.ro_token = self.boss.issue_api_token("ro", read_only=True)
         _, self.outsider_token = self.outsider.issue_api_token("test")
 
@@ -210,12 +214,57 @@ class TimeApiTests(unittest.TestCase):
                        json={"into": str(c.pk)})
         self.assertEqual(r.status_code, 400)
 
-    def test_merge_is_closed_to_non_managers(self):
+    def test_merge_is_closed_to_a_plain_member(self):
         keep, dupe = self._customer("Acme"), self._customer("Acme GmbH")
         r = self._post(f"/api/v1/time/customers/{dupe.pk}/merge",
                        token=self.mate_token, json={"into": str(keep.pk)})
         self.assertEqual(r.status_code, 403)
         self.assertIsNotNone(self.Customer.objects(pk=dupe.pk).first())
+
+    def test_a_biller_may_merge(self):
+        """A biller settles the month on the whole book; filing that book is
+        the same job, and manager-only meant fetching someone else to tidy up."""
+        keep, dupe = self._customer("Acme"), self._customer("Acme GmbH")
+        r = self._post(f"/api/v1/time/customers/{dupe.pk}/merge",
+                       token=self.biller_token, json={"into": str(keep.pk)})
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNone(self.Customer.objects(pk=dupe.pk).first())
+
+    # -- archive ---------------------------------------------------------
+
+    def test_a_biller_may_archive_and_unarchive(self):
+        c = self._customer("Acme")
+        r = self._post(f"/api/v1/time/customers/{c.pk}/archive",
+                       token=self.biller_token, json={"archived": True})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json["archived"])
+        c.reload()
+        self.assertTrue(c.archived)
+        # Reversible, from the same place.
+        self._post(f"/api/v1/time/customers/{c.pk}/archive",
+                   token=self.biller_token, json={"archived": False})
+        c.reload()
+        self.assertFalse(c.archived)
+
+    def test_archive_is_closed_to_a_plain_member(self):
+        c = self._customer("Acme")
+        r = self._post(f"/api/v1/time/customers/{c.pk}/archive",
+                       token=self.mate_token, json={"archived": True})
+        self.assertEqual(r.status_code, 403)
+        c.reload()
+        self.assertFalse(c.archived)
+
+    def test_archive_needs_the_flag_spelled_out(self):
+        """No default: a bare POST must not decide which way to flip it."""
+        c = self._customer("Acme")
+        r = self._post(f"/api/v1/time/customers/{c.pk}/archive")
+        self.assertEqual(r.status_code, 400)
+
+    def test_archive_is_closed_to_read_only_tokens(self):
+        c = self._customer("Acme")
+        r = self._post(f"/api/v1/time/customers/{c.pk}/archive",
+                       token=self.ro_token, json={"archived": True})
+        self.assertEqual(r.status_code, 403)
 
     def test_merge_is_closed_to_read_only_tokens(self):
         """The token check fires before the endpoint, so a read-only token is

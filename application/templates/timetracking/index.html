@@ -114,6 +114,22 @@
           <i class="bi bi-person-vcard"></i> {{ c.name }}</a>
         {% if c.archived %}<span class="badge text-bg-secondary">archived</span>{% endif %}
       </h2>
+      {% if can_file %}
+        {# Archiving from the list, where you are when you notice a customer has
+           stopped being one. Its own action and its own permission — see
+           views.timetracking.customer_archive. #}
+        <form method="post" class="d-inline"
+              action="{{ url_for('timetracking.customer_archive', cid=c.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="team" value="{{ team.pk }}">
+          <input type="hidden" name="back" value="{{ request.full_path }}">
+          <input type="hidden" name="archived" value="{% if c.archived %}0{% else %}1{% endif %}">
+          <button class="btn btn-sm btn-outline-secondary"
+                  title="{% if c.archived %}Bring it and its projects back into the pickers{% else %}Keep the history, drop it and its projects out of the pickers{% endif %}">
+            <i class="bi bi-archive"></i>
+            {% if c.archived %}Unarchive{% endif %}</button>
+        </form>
+      {% endif %}
       <a class="btn btn-sm btn-outline-secondary"
          href="{{ url_for('timetracking.customer_detail', cid=c.id, team=team.pk) }}"
          title="Address, tax details, billing information">
@@ -166,6 +182,19 @@
             <span class="small text-muted text-nowrap" style="min-width: 5rem; text-align: right;">
               {{ p.hourly_rate_cents|eur }}{% if p.hourly_rate_cents %} / h{% endif %}
             </span>
+            {% if can_file %}
+              <form method="post" class="d-inline"
+                    action="{{ url_for('timetracking.project_archive', pid=p.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="team" value="{{ team.pk }}">
+                <input type="hidden" name="back" value="{{ request.full_path }}">
+                <input type="hidden" name="archived" value="{% if p.archived %}0{% else %}1{% endif %}">
+                <button class="btn btn-sm btn-outline-secondary"
+                        title="{% if p.archived %}Bring it back into the pickers{% else %}Keep the history, drop it out of the pickers{% endif %}">
+                  <i class="bi bi-archive"></i>
+                  {% if p.archived %}Unarchive{% endif %}</button>
+              </form>
+            {% endif %}
             <a class="btn btn-sm btn-outline-secondary"
                href="{{ url_for('timetracking.project_detail', pid=p.id, team=team.pk) }}">
               <i class="bi bi-pencil"></i> Open</a>

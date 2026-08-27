@@ -110,11 +110,13 @@
             key here to make its time land on this customer.
           </div>
 
-          <label class="form-check small">
-            <input type="checkbox" name="archived" value="1" class="form-check-input"
-                   {% if customer.archived %}checked{% endif %}>
-            Archived — keeps its history, drops out of the pickers
-          </label>
+          {# Archiving lives outside this form — see the button by Save. #}
+          {% if customer.archived %}
+            <p class="small text-muted mb-0">
+              <i class="bi bi-archive"></i> Archived — the history is kept; the
+              customer and every project under it are out of the pickers.
+            </p>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -126,6 +128,23 @@
        href="{{ url_for('timetracking.index', team=team.pk) }}">Back</a>
   </div>
 </form>
+
+{# Archiving is a statement about the book, not a detail of the record: its own
+   one-click action, its own permission (biller or manager), reversible from the
+   same spot. #}
+{% if can_file %}
+  <form method="post" class="mt-2"
+        action="{{ url_for('timetracking.customer_archive', cid=customer.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="team" value="{{ team.pk }}">
+    <input type="hidden" name="back" value="{{ request.path }}">
+    <input type="hidden" name="archived" value="{% if customer.archived %}0{% else %}1{% endif %}">
+    <button class="btn btn-sm btn-outline-secondary"
+            title="{% if customer.archived %}Bring it back into the pickers{% else %}Keep the history, drop it and its projects out of the pickers{% endif %}">
+      <i class="bi bi-archive"></i>
+      {% if customer.archived %}Unarchive{% else %}Archive{% endif %}</button>
+  </form>
+{% endif %}
 
 {# Its projects, and the row that adds one. This page is the whole picture of
    one customer, so "add a project for them" belongs here and not only on the
@@ -173,7 +192,7 @@
   {% endif %}
 </ul>
 
-{% if can_manage and merge_targets %}
+{% if can_file and merge_targets %}
   {# The same client under two records — what an import leaves behind when it
      met them under a key it didn't recognise. Merging moves the hours rather
      than deleting them, which is why this sits above the delete. #}

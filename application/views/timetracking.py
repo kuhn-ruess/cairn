@@ -22,6 +22,7 @@ from application.services.timetracking import (
     add_entry,
     ref_label,
     to_oid,
+    can_bill,
     cancel_entry,
     custom_values,
     day_sheet,
@@ -93,6 +94,21 @@ def set_default_team():
         flash(f"Time tracking now opens in “{team.name}”.", "success")
     user.save()
     return redirect(request.referrer or url_for("timetracking.index", team=team.pk))
+
+
+def _billing_manager(team):
+    """Who may shape the team's books: a manager, or a member the manager has
+    named a biller.
+
+    A biller settles the month — they already see the whole book
+    (``reachable_project_ids``) and lock time on it. Filing that book is the
+    same job: archiving a customer that stopped being one, and folding two
+    records for one client into one. Manager-only there meant the person doing
+    the work had to fetch somebody else to tidy up behind them. Reopening
+    billed time and deleting a customer outright stay with the managers —
+    those undo what was settled rather than keeping it in order."""
+    if not can_bill(current_user._get_current_object(), team):
+        abort(403)
 
 
 def _customer_or_404(cid, team):
@@ -253,6 +269,7 @@ def index():
         team=team,
         all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user),
+        can_file=can_bill(user, team),
         customers=customers,
         show_archive=show_archive,
         archived_count=archived_count,
@@ -652,7 +669,7 @@ def _report_filters(args=None):
 
 def _report_context(args=None):
     """Everything the report body renders from, for a page load or a swap."""
-    from application.services.timetracking import can_bill, project_fields
+    from application.services.timetracking import project_fields
     team = _team()
     user = current_user._get_current_object()
     f = _report_filters(args)
@@ -1684,7 +1701,8 @@ def customer_detail(cid):
         key=lambda r: r["label"].lower())
     return render_template(
         "timetracking/customer.html", team=team, all_teams=_user_teams(user),
-        can_manage=team.is_managed_by(user), customer=c, projects=projects,
+        can_manage=team.is_managed_by(user), can_file=can_bill(user, team),
+        customer=c, projects=projects,
         minutes_by_project=minutes_by_project,
         merge_targets=merge_targets,
         total_minutes=sum(minutes_by_project.values()))
@@ -1700,7 +1718,9 @@ def customer_edit(cid):
     if name:
         c.name = name[:200]
     c.note = (request.form.get("note") or "").strip()
-    c.archived = request.form.get("archived") == "1"
+    # ``archived`` is deliberately not read here: it is a statement about the
+    # book, not a detail of the customer, so it has its own route and its own
+    # permission (customer_archive).
 
     # Billing details — stored as given (see the model): this is what someone
     # reads off when invoicing, not something to normalise behind their back.
@@ -1732,6 +1752,42 @@ def customer_edit(cid):
                             team=team.pk))
 
 
+@timetracking_bp.route("/customers/<cid>/archive", methods=["POST"])
+@login_required
+@team_required
+def customer_archive(cid):
+    """Archive a customer, or bring one back. Reversible, hence one click.
+
+    Archived means "out of the way", not "gone": the history stays, still
+    bills, and still appears in a report that asks for it. What changes is that
+    the customer *and every project under it* drop out of the pickers — see
+    ``archived_project_ids``, where archiving a customer is the broader of the
+    two statements. The same move a billing project offers, one level up."""
+    team = _team()
+    _billing_manager(team)
+    c = _customer_or_404(cid, team)
+    c.archived = request.form.get("archived") == "1"
+    c.save()
+    flash(f"“{c.name}” {'archived' if c.archived else 'is active again'}.",
+          "success")
+    return _back(team)
+
+
+@timetracking_bp.route("/projects/<pid>/archive", methods=["POST"])
+@login_required
+@team_required
+def project_archive(pid):
+    """Archive a billing project, or bring one back — see customer_archive."""
+    team = _team()
+    _billing_manager(team)
+    p = _project_or_404(pid, team)
+    p.archived = request.form.get("archived") == "1"
+    p.save()
+    flash(f"“{p.name}” {'archived' if p.archived else 'is active again'}.",
+          "success")
+    return _back(team)
+
+
 @timetracking_bp.route("/customers/<cid>/merge", methods=["POST"])
 @login_required
 @team_required
@@ -1747,8 +1803,7 @@ def customer_merge(cid):
 
     team = _team()
     user = current_user._get_current_object()
-    if not team.is_managed_by(user):
-        abort(403)
+    _billing_manager(team)
     src = _customer_or_404(cid, team)
     if not (request.form.get("target_id") or "").strip():
         flash("Pick the customer to merge into.", "warning")
@@ -1853,7 +1908,8 @@ def project_detail(pid):
 
     return render_template(
         "timetracking/project.html", team=team, all_teams=_user_teams(user),
-        can_manage=team.is_managed_by(user), p=p, share_cols=share_cols,
+        can_manage=team.is_managed_by(user), can_file=can_bill(user, team),
+        p=p, share_cols=share_cols,
         budget=budget_status(p, consumption.get(str(p.id))),
         # Two different numbers, and the danger zone needs the other one: the
         # header reports the month, moving or purging takes everything.
@@ -1906,7 +1962,7 @@ def project_edit(pid):
     p.custom_fields = parse_project_fields(_field_rows(request.form))
     p.time_mode = "clock" if request.form.get("time_mode") == "clock" else "duration"
     p.show_source = request.form.get("show_source") == "1"
-    p.archived = request.form.get("archived") == "1"
+    # See customer_edit: archiving has its own route and permission.
     p.save()
     # One intake project per customer, so switching it on has to switch it off
     # elsewhere — hence the service call rather than a plain field assignment.
