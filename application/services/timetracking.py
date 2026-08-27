@@ -541,6 +541,7 @@ def item_entries(user, item) -> list[dict]:
     if not teams:
         return []
     src_id = str(item.pk)
+    live_names = current_project_names(teams)
     rows = []
     for b in TimeBucket.objects(team__in=teams, entries__source_item_id=src_id):
         cust_name = None   # dereferenced once per bucket, never per entry
@@ -565,7 +566,7 @@ def item_entries(user, item) -> list[dict]:
                 "locked": e.locked,
                 "billable": e.billable,
                 "user_name": e.user_name,
-                "project_name": e.project_name,
+                "project_name": live_names.get(e.project_id) or e.project_name,
                 "amount_cents": e.amount_cents,
             })
     rows.sort(key=lambda r: r["spent_on"], reverse=True)
@@ -717,6 +718,30 @@ def archived_project_ids(team) -> set:
         Q(team=team) & q).only("id").as_pymongo()}
 
 
+def current_project_names(teams) -> dict:
+    """``{project id: what that project is called now}`` — for display only.
+
+    Every entry carries the project's name *as it read when the time was
+    booked*. That snapshot is what keeps a sheet readable after the project was
+    deleted, and it stays. But while the project is still there its own name is
+    the true one: renaming "Synced: Beratung" to "Beratung" has to reach the
+    report, the export, the day sheet and the trash — not only the management
+    list, which reads the project directly and was therefore the one place that
+    ever looked right.
+
+    One projection per read path, never a lookup per row. Every display path
+    goes through here and falls back to the snapshot, so an entry whose project
+    is gone still says what it was booked on."""
+    if not isinstance(teams, (list, tuple, set)):
+        teams = [teams] if teams else []
+    teams = list(teams)
+    if not teams:
+        return {}
+    return {str(p["_id"]): p["name"]
+            for p in TimeTrackingProject.objects(team__in=teams)
+            .only("id", "name").as_pymongo() if p.get("name")}
+
+
 def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
                       project_id=None, user_id=None, billable=None, locked=None,
                       state="active", archived_ids=None, viewer=None):
@@ -740,6 +765,9 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
     # lookup for the whole report, not one per row.
     with_source = {str(p["_id"]) for p in TimeTrackingProject.objects(
         team=team, show_source=True).only("id").as_pymongo()}
+    # The snapshot on the entry is the fallback, not the answer — see
+    # current_project_names.
+    live_names = current_project_names(team)
     if customer_id:
         q = q.filter(customer=customer_id)
     rows = []
@@ -775,7 +803,7 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
                 "customer": cust_name,
                 "customer_id": str(b.customer.id) if b.customer else "",
                 "project_id": e.project_id,
-                "project": e.project_name,
+                "project": live_names.get(e.project_id) or e.project_name,
                 "user_name": e.user_name,
                 "user_id": e.user_id,
                 "external_user": e.external_user or "",
@@ -995,6 +1023,7 @@ def cancelled_entries(*, team, viewer) -> list[dict]:
     actor = _actor(viewer)
     privileged = team.is_managed_by(actor) or actor in (team.billers or [])
     uid = str(actor.id)
+    live_names = current_project_names(team)
     rows = []
     for b in TimeBucket.objects(team=team, entries__status="cancelled"):
         cust_name = None
@@ -1009,7 +1038,7 @@ def cancelled_entries(*, team, viewer) -> list[dict]:
                 "entry_id": e.entry_id,
                 "bucket_id": str(b.id),
                 "customer": cust_name,
-                "project": e.project_name,
+                "project": live_names.get(e.project_id) or e.project_name,
                 "project_id": e.project_id,
                 "user_name": e.user_name or "—",
                 "user_id": e.user_id or "",
@@ -2172,6 +2201,7 @@ def day_sheet(user, day: date) -> dict:
     # a busy day may return several parts, which just merge into the list.
     lo, hi = day_range_q(week_days[0], week_days[-1])
     uid = str(actor.id)
+    live_names = current_project_names(teams)
     week = {d: 0 for d in week_days}
     entries, removed = [], []
     for b in TimeBucket.objects(team__in=teams, period__gte=lo, period__lte=hi):
@@ -2187,7 +2217,7 @@ def day_sheet(user, day: date) -> dict:
                     removed.append({
                         "entry_id": e.entry_id, "bucket_id": str(b.id),
                         "minutes": e.minutes or 0, "note": e.note or "",
-                        "project": e.project_name,
+                        "project": live_names.get(e.project_id) or e.project_name,
                         "cancelled_at": e.cancelled_at,
                     })
                 continue
@@ -2202,7 +2232,7 @@ def day_sheet(user, day: date) -> dict:
                 "bucket_id": str(b.id),
                 "customer": cust_name,
                 "project_id": e.project_id,
-                "project": e.project_name,
+                "project": live_names.get(e.project_id) or e.project_name,
                 "minutes": e.minutes or 0,
                 "start_time": e.start_time or "",
                 "end_time": e.end_time or "",
