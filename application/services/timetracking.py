@@ -664,12 +664,18 @@ def reachable_project_ids(user, team) -> set:
 
     Team managers + billers see every project in the team. A regular member
     sees projects linked at or below any Cairn container they own or are a
-    member of (full-depth subtree walk)."""
+    member of (full-depth subtree walk).
+
+    A biller is deliberately *not* bounded by their subtree. Billing is the
+    whole team's books: the person who settles the month is typically in the
+    office, owns no GTD containers at all, and a subtree scope leaves them with
+    an empty report and nothing to bill — the role would name a right it never
+    grants. They still can't *manage* (edit projects, unlock billed time); that
+    stays with the managers."""
     actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
-    # Team managers see/bill everything. Everyone else — billers included — is
-    # bounded by their subtree: a biller bills the projects they have rights to,
-    # not the whole team (their billing reach == their visibility reach).
-    if team.is_managed_by(actor):
+    # Managers and billers see/bill everything in the team; everyone else is
+    # bounded by the containers they own or are a member of.
+    if team.is_managed_by(actor) or actor in (team.billers or []):
         return {str(p.id) for p in TimeTrackingProject.objects(team=team).only("id")}
     container_ids, frontier = set(), [
         it.id for it in Item.objects(
@@ -1644,7 +1650,8 @@ def public_project_report(project, month: str | None = None,
 
 def can_bill(user, team) -> bool:
     """A team manager, or a member the manager has named a biller, may settle
-    (lock) time — each still bounded by their reachable project scope."""
+    (lock) time. Both see the team's whole book (reachable_project_ids); only
+    a manager may unlock what was billed."""
     actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
     return team.is_managed_by(actor) or actor in (team.billers or [])
 
@@ -1653,8 +1660,9 @@ def set_locked(*, team, user, items, locked: bool) -> int:
     """Lock (bill) or unlock the given ``(bucket_id, entry_id)`` pairs.
 
     Locking marks entries billed + frozen (records who/when). Only a biller/
-    manager may lock, and only entries whose project is in their reachable scope;
-    only managers may unlock. Returns how many entries actually changed."""
+    manager may lock, and only entries whose project is in their reachable scope
+    (the whole team, for both); only managers may unlock. Returns how many
+    entries actually changed."""
     actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
     if locked and not can_bill(actor, team):
         return 0

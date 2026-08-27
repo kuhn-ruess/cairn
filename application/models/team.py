@@ -109,10 +109,11 @@ class Team(Document):
     # ``Team.objects(admin=user)`` therefore means "teams this user pays for".
     admin = ReferenceField(User, required=True)
     admins = ListField(ReferenceField(User))
-    # Members allowed to *bill* (lock) time entries. A biller can settle time
-    # across every TimeTrackingProject reachable from a Cairn item they're a
-    # member of — scoped by the GTD subtree they have rights to, not account-wide
-    # (this is the deliberate edge over mite, which only has account-wide admins).
+    # Members allowed to *bill* (lock) time entries. A biller settles the team's
+    # books: they see every TimeTrackingProject in the team, exactly like a
+    # manager, because the person who bills the month usually owns no projects
+    # of their own. What they still can't do is manage — edit projects, or
+    # reopen time that was already billed. Both stay with the managers.
     billers = ListField(ReferenceField(User))
     created_at = DateTimeField(default=_utcnow)
     invites = EmbeddedDocumentListField(TeamInvite)

@@ -58,9 +58,10 @@
     <h2 class="h6 mb-0"><i class="bi bi-person-check"></i> Members ({{ members|length }})</h2>
     {% if can_manage %}
       <div class="small text-muted mt-1">
-        <strong>Biller</strong> = may mark logged time as <em>billed</em> (lock entries) in
-        <a href="{{ url_for('timetracking.index') }}">Time tracking</a>, for the projects they can access.
-        Admins can already bill everything.
+        <strong>Biller</strong> = sees the whole team's logged time in
+        <a href="{{ url_for('timetracking.index') }}">Time tracking</a> and may mark it
+        <em>billed</em> (lock entries). They still can't edit projects or reopen billed
+        time — that stays with admins, who can already bill everything.
       </div>
     {% endif %}
   </div>
