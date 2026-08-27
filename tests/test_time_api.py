@@ -236,13 +236,27 @@ class TimeApiTests(unittest.TestCase):
 
     # -- projects / entries ----------------------------------------------
 
-    def test_projects_list_is_bounded_by_what_the_caller_may_see(self):
+    def test_projects_are_team_wide_like_the_management_page(self):
+        """Structure is visible to every member — ``views.timetracking.index``
+        shows any member the whole customer/project list, so bounding this by
+        the narrower billing scope would have the API and the UI disagree."""
         c = self._customer("Acme")
         self._project(c, "Beratung")
         self.assertEqual(len(self._get("/api/v1/time/projects").json["items"]), 1)
-        # A plain member owns no containers, so nothing is linked to them.
         self.assertEqual(len(self._get("/api/v1/time/projects",
-                                       token=self.mate_token).json["items"]), 0)
+                                       token=self.mate_token).json["items"]), 1)
+
+    def test_logged_time_is_bounded_by_the_billing_scope(self):
+        """The other half of the rule: a plain member owns no containers, so no
+        project is linked to them and the report scope is empty."""
+        from datetime import datetime, timezone
+        c = self._customer("Acme")
+        p = self._project(c, "Beratung")
+        self._log(p, "2026-08-05", 60,
+                  spent_on=datetime(2026, 8, 5, 9, 0, tzinfo=timezone.utc))
+        url = "/api/v1/time/entries?from=2026-08-01&to=2026-08-31"
+        self.assertEqual(self._get(url).json["count"], 1)
+        self.assertEqual(self._get(url, token=self.mate_token).json["count"], 0)
 
     def test_projects_can_be_narrowed_to_one_customer(self):
         a, b = self._customer("Acme"), self._customer("Beta")

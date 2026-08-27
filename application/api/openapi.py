@@ -703,10 +703,11 @@ def build_openapi_spec() -> dict:
             "/time/projects": {
                 "get": {
                     "summary": "List billing projects",
-                    "description": ("Bounded by what the caller may see: a "
-                                    "manager or biller gets the team's, anyone "
-                                    "else gets those linked at or below a "
-                                    "container they own or belong to."),
+                    "description": ("Every billing project of the team — the "
+                                    "same structure the module's management "
+                                    "page shows any member. The narrower "
+                                    "billing scope governs logged time, so it "
+                                    "applies to /time/entries, not here."),
                     "tags": ["time"],
                     "parameters": [
                         {"name": "team", "in": "query", "schema": {"type": "string", "format": "objectid"}, "description": "Team to operate on. Omitted → the caller's default team (see GET /time/teams)."},

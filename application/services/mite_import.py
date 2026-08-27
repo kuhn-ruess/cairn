@@ -372,6 +372,15 @@ def _import_customers(client, team, stats, dry_run, include_archived=True) -> di
         cust.archived = archived
         if not dry_run:
             cust.save()
+        # Both indexes learn what this run just created. Without it the
+        # adoption above only ever sees what existed *before* the loop, so two
+        # mite rows carrying the same name each open their own Cairn customer —
+        # which is precisely how one client ends up filed twice, and the reason
+        # the name lookup exists at all. (Same for a row that appears in both
+        # the active and the archived list: its key would be re-created rather
+        # than recognised.)
+        existing[ext] = cust
+        by_name.setdefault(name.strip().lower(), cust)
         out[str(r.get("id"))] = cust
     return out
 
@@ -447,6 +456,11 @@ def _import_projects(client, team, customers, stats, dry_run,
         proj.archived = archived
         if not dry_run:
             proj.save()
+        # See _import_customers: the indexes have to know what this run made,
+        # or two same-named projects under one customer both get created.
+        existing[ext] = proj
+        if cust.id:
+            by_name.setdefault((str(cust.id), name.strip().lower()), proj)
         out[str(r.get("id"))] = proj
     return out
 

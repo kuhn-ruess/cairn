@@ -222,8 +222,10 @@ There are **two** visibility axes, and a new endpoint belongs to one of them:
   shared/assigned items remain visible.
 - **`/time/*`** is the billing module, which is **team**-scoped. `_tt_team()`
   resolves `?team=<id>` against the caller's participating teams (403 without
-  any, 404 for one they're not in — the same two answers the web module gives);
-  reads go through `reachable_project_ids()` and writes through
+  any, 404 for one they're not in — the same two answers the web module gives).
+  Within a team, *structure* (customers, projects, their totals) is visible to
+  every member — that is what `views.timetracking.index` shows — while *logged
+  time* is bounded by `reachable_project_ids()` and writes by
   `Team.is_managed_by()`. Reuse those rather than restating them: a second
   definition of "may see" is how the API and the UI drift apart.
 

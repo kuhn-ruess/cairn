@@ -981,23 +981,25 @@ def tt_merge_customer(cid):
 @api_v1_bp.get("/time/projects")
 @token_required
 def tt_list_projects():
-    """Billing projects, bounded by what the caller may see: a manager or biller
-    gets the team's, anyone else gets those linked at or below a container they
-    own or belong to. ``?customer_id=`` narrows to one customer."""
+    """The team's billing projects. ``?customer_id=`` narrows to one customer.
+
+    Team-wide, deliberately, and NOT bounded by ``reachable_project_ids``: the
+    module's own management page (``views.timetracking.index``) shows every
+    customer and project of the team to any member, so bounding this would make
+    the API answer a question the UI answers differently. What that scope
+    governs is *logged time*, which is why ``/time/entries`` uses it and this
+    does not."""
     from bson import ObjectId
     from application.models.timetracking import TimeTrackingProject
-    from application.services.timetracking import (
-        reachable_project_ids, to_oid)
+    from application.services.timetracking import to_oid
     team = _tt_team()
-    visible = reachable_project_ids(g.current_user, team)
     qs = TimeTrackingProject.objects(team=team)
     if request.args.get("include_archived") != "1":
         qs = qs.filter(archived__ne=True)
     raw = (request.args.get("customer_id") or "").strip()
     if raw:
         qs = qs.filter(customer=to_oid(raw) or ObjectId())
-    return jsonify({"items": [ser_tt_project(p) for p in qs.order_by("+name")
-                              if str(p.pk) in visible]})
+    return jsonify({"items": [ser_tt_project(p) for p in qs.order_by("+name")]})
 
 
 @api_v1_bp.get("/time/entries")
