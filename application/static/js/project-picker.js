@@ -69,6 +69,25 @@
     return shown;
   }
 
+  /* No hit is an answer too: the panel used to go silently blank, which reads
+   * exactly like a search that broke. One line, and it names what was typed. */
+  function empty(wrap, needle) {
+    const list = wrap.querySelector(".tt-pick-list");
+    let note = list.querySelector(".tt-pick-none");
+    if (!needle) {
+      if (note) note.remove();
+      return;
+    }
+    if (!note) {
+      note = document.createElement("div");
+      note.className = "tt-pick-none text-muted small";
+      list.appendChild(note);
+    }
+    note.textContent = needle.length < 2
+      ? "Keep typing to search every project…"
+      : "No billing project matches “" + needle + "”.";
+  }
+
   /* The page carries a shortlist — the projects this person actually books on.
    * Everything else is asked for, so a team with a thousand projects costs the
    * capture bar nothing until someone goes looking for the thousandth. */
@@ -90,29 +109,38 @@
           if (!search || search.value.trim() !== q.trim()) return;
           const sel = wrap.querySelector("select");
           const list = wrap.querySelector(".tt-pick-list");
-          const have = new Set(Array.from(sel.options).map((o) => o.value));
           wrap.querySelectorAll(".tt-pick-opt[data-remote]").forEach((r) => r.remove());
+          // What still has a row after that — the shortlist. NOT what the
+          // <select> holds: an earlier answer for a shorter prefix ("nol"
+          // before "nolte") already put its options there, and skipping those
+          // would drop exactly the projects being searched for. The options it
+          // left stay valid, so they are reused rather than added twice.
+          const listed = new Set(Array.from(list.querySelectorAll(".tt-pick-opt"))
+            .map((r) => sel.options[Number(r.dataset.index)])
+            .filter(Boolean).map((o) => o.value));
           (data.projects || []).forEach((p) => {
-            if (have.has(p.id)) return;
-            // Give the <select> the option too: it stays the source of truth,
-            // and the capture code reads the field definitions off it.
-            const opt = document.createElement("option");
-            opt.value = p.id;
-            opt.textContent = p.label;
-            opt.dataset.mode = p.mode || "duration";
-            opt.dataset.fields = JSON.stringify(p.fields || []);
-            sel.appendChild(opt);
+            if (listed.has(p.id)) return;
+            let idx = Array.from(sel.options).findIndex((o) => o.value === p.id);
+            if (idx < 0) {
+              // Give the <select> the option too: it stays the source of truth,
+              // and the capture code reads the field definitions off it.
+              const opt = document.createElement("option");
+              opt.value = p.id;
+              opt.textContent = p.label;
+              opt.dataset.mode = p.mode || "duration";
+              opt.dataset.fields = JSON.stringify(p.fields || []);
+              sel.appendChild(opt);
+              idx = sel.options.length - 1;
+            }
             const row = document.createElement("button");
             row.type = "button";
             row.className = "tt-pick-opt";
             row.dataset.remote = "1";
-            row.dataset.index = String(sel.options.length - 1);
+            row.dataset.index = String(idx);
             row.textContent = p.label;
             list.appendChild(row);
           });
-          if (!filter(wrap, search.value)) {
-            wrap.querySelector(".tt-pick-list").dataset.empty = "1";
-          }
+          empty(wrap, filter(wrap, search.value) ? "" : q.trim());
         })
         .catch(() => {});
     }, 160));
@@ -123,6 +151,7 @@
     wrap.classList.add(OPEN);
     wrap.querySelector(".tt-pick-btn").setAttribute("aria-expanded", "true");
     filter(wrap, "");
+    empty(wrap, "");
     const search = wrap.querySelector(".tt-pick-search");
     search.value = "";
     search.focus();
@@ -166,7 +195,7 @@
     const search = ev.target.closest(".tt-pick-search");
     if (!search) return;
     const wrap = search.closest(".tt-pick");
-    filter(wrap, search.value);
+    empty(wrap, filter(wrap, search.value) ? "" : search.value.trim());
     remote(wrap, search.value);
   });
 

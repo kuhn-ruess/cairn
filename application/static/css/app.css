@@ -2887,6 +2887,7 @@ body.ps-resizing * {
                background: none; color: var(--gv-fg1); font-size: .85rem;
                padding: .3rem .45rem; border-radius: .25rem; }
 .tt-pick-opt:hover, .tt-pick-opt.active { background: var(--gv-bg2); }
+.tt-pick-none { padding: .35rem .5rem; }
 
 
 /* ---- Day sheet: week strip and logged entries ---------------------------
