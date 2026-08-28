@@ -112,7 +112,11 @@
         <a class="text-decoration-none"
            href="{{ url_for('timetracking.customer_detail', cid=c.id, team=team.pk) }}">
           <i class="bi bi-person-vcard"></i> {{ c.name }}</a>
-        {% if c.archived %}<span class="badge text-bg-secondary">archived</span>{% endif %}
+        {% if c.archived %}<span class="badge text-bg-secondary">archived</span>
+        {% elif c.id|string in retired %}
+          <span class="badge text-bg-secondary"
+                title="Every project of this customer is archived, so there is nothing to book on — unarchive one to bring the customer back">
+            all projects archived</span>{% endif %}
       </h2>
       {% if can_file %}
         {# Archiving from the list, where you are when you notice a customer has

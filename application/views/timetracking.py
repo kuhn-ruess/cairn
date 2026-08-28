@@ -216,16 +216,30 @@ def index():
     def _is_archived(p):
         return bool(p.archived) or str(p.customer.id) in dead_customers
 
-    archived_count = sum(1 for c in all_customers if c.archived) + \
+    # A customer whose projects have ALL been archived is out of circulation
+    # too: nothing under it can be booked on, so it belongs in the archive
+    # rather than as an empty card in the working set (which is where it read
+    # as "here, but unusable" — you find it here and then not in the picker).
+    # NOT the same as a customer with no projects at all: that one is new, and
+    # this list is exactly where you go to give it its first project.
+    counted: dict[str, list[bool]] = {}
+    for p in all_projects:
+        counted.setdefault(str(p.customer.id), []).append(bool(p.archived))
+    spent = {cid for cid, flags in counted.items() if flags and all(flags)}
+
+    def _retired(c):
+        return bool(c.archived) or str(c.id) in spent
+
+    archived_count = sum(1 for c in all_customers if _retired(c)) + \
         sum(1 for p in all_projects if p.archived)
     if show_archive:
         projects = [p for p in all_projects if _is_archived(p)]
         with_archived = {str(p.customer.id) for p in projects}
         customers = [c for c in all_customers
-                     if c.archived or str(c.id) in with_archived]
+                     if _retired(c) or str(c.id) in with_archived]
     else:
         projects = [p for p in all_projects if not _is_archived(p)]
-        customers = [c for c in all_customers if not c.archived]
+        customers = [c for c in all_customers if not _retired(c)]
 
     # Group projects under their customer, and collect the linked GTD items per
     # project in one query (no per-row lookups in the template).
@@ -273,6 +287,8 @@ def index():
         customers=customers,
         show_archive=show_archive,
         archived_count=archived_count,
+        # Archived by consequence, not by hand — the archive view says which.
+        retired=spent,
         by_customer=by_customer,
         links_by_project=links_by_project,
         link_info=link_info,
