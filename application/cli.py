@@ -184,6 +184,73 @@ def import_mite(username, account, key, team_id, date_from, date_to,
         click.echo(f"  … and {len(stats.errors) - 20} more")
 
 
+@cairn_cli.command("import-time-csv")
+@click.argument("csv_path", type=click.Path(exists=True, dir_okay=False))
+@click.option("--team", "team_id", required=True, help="Team to book into.")
+@click.option("--user", "username", help="Cairn account the time belongs to "
+                                         "(default: keep the file's Benutzer "
+                                         "column as a bare name).")
+@click.option("--project", "project_id",
+              help="Book every row on this billing project id, instead of "
+                   "resolving the file's Kunde/Projekt columns.")
+@click.option("--dry-run", is_flag=True, help="Report only, don't write.")
+def import_time_csv(csv_path, team_id, username, project_id, dry_run):
+    """Import time entries from a mite CSV export into a team.
+
+    For the days that never made it across: a colleague exports them from mite
+    and they are read back here rather than retyped. Idempotent — a row is
+    recognised by its day, author, project, duration and note, so running the
+    same file twice imports nothing twice.
+
+    mite's project names are often per person ("Büro") where Cairn's are not
+    ("Büro Jasmin"); --project pins the whole file to one project when the
+    names can't be matched. Always look at a --dry-run first.
+    """
+    from application.models.team import Team
+    from application.models.timetracking import TimeTrackingProject
+    from application.services import time_csv
+    from application.services.tz import user_zone
+
+    team = Team.objects(pk=team_id).first() if len(team_id) == 24 else None
+    if team is None:
+        raise click.ClickException(f"no team {team_id}")
+    author = None
+    if username:
+        author = User.objects(username=username).first() or \
+            User.objects(email=username.lower()).first()
+        if author is None:
+            raise click.ClickException(f"user '{username}' not found")
+    project = None
+    if project_id:
+        project = TimeTrackingProject.objects(pk=project_id, team=team).first()
+        if project is None:
+            raise click.ClickException(f"no billing project {project_id} in "
+                                       f"{team.name}")
+
+    with open(csv_path, encoding="utf-8-sig") as fh:
+        parsed = time_csv.parse(fh.read())
+    for err in parsed.errors:
+        click.echo(f"  ! {err}")
+    if not parsed.rows:
+        raise click.ClickException("nothing to import")
+
+    stats = time_csv.import_rows(
+        team=team, rows=parsed.rows, project=project, author=author,
+        zone=user_zone(author) if author else None, dry_run=dry_run)
+
+    click.echo(f"team: {team.name}{'  (dry run)' if dry_run else ''}")
+    for row in parsed.rows:
+        click.echo(f"  {row.spent_on} {row.minutes // 60}h{row.minutes % 60:02d}"
+                   f"  {row.customer} › {project.name if project else row.project}"
+                   f"  {(author.display_name or author.username) if author else row.user}"
+                   f"  {' '.join(row.note.split())[:60]}")
+    click.echo(f"entries: {stats['imported']} imported "
+               f"({stats['minutes'] // 60}h {stats['minutes'] % 60}m), "
+               f"{stats['duplicates']} already there, {stats['failed']} failed")
+    for err in stats["errors"][:20]:
+        click.echo(f"  ! {err}")
+
+
 @cairn_cli.command("sync-zammad-team")
 @click.option("--team", "team_id", help="Only this team (id). Default: all due.")
 @click.option("--full", is_flag=True, help="Check every ticket, not only changes.")
