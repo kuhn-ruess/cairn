@@ -12,11 +12,16 @@
       between members of the same team.
     </p>
     <hr>
-    <p class="mb-2">Want your own team? Start one and invite members — you pay
-      for their Premium seats (your own admin seat is free).</p>
-    <a class="btn btn-primary btn-sm" href="{{ url_for('billing.index') }}">
-      <i class="bi bi-people"></i> Start a team — Family €5 (5 seats) or Organisation €5/seat
-    </a>
+    {% if subscriptions_enabled() %}
+      <p class="mb-2">Want your own team? Start one and invite members — you pay
+        for their Premium seats (your own admin seat is free).</p>
+      <a class="btn btn-primary btn-sm" href="{{ url_for('billing.index') }}">
+        <i class="bi bi-people"></i> Start a team — Family €5 (5 seats) or Organisation €5/seat
+      </a>
+    {% else %}
+      <p class="text-muted small mb-0">Want your own team? Ask an
+        administrator to set one up for you.</p>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

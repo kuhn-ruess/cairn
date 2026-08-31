@@ -72,6 +72,14 @@ class BaseConfig:
     SMTP_FROM = ""
     SMTP_TLS = "1"
 
+    # ---- Subscriptions ----
+    # The whole commercial model — plans, trials, the free tier, and the
+    # sign-up form that feeds it — is OFF unless a deployment says otherwise.
+    # An installation with it off is a closed one: nobody registers themselves,
+    # people are invited (see teams), and everyone is premium. Turn it on with
+    # BKTODO_SUBSCRIPTIONS_ENABLED=1; everything below only applies then.
+    SUBSCRIPTIONS_ENABLED = False
+
     # ---- Stripe subscription billing ----
     # New users get TRIAL_DAYS of premium for free; afterwards they either
     # subscribe (premium €2/mo, team €5/mo) or fall back to free.

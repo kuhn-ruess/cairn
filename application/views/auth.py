@@ -112,19 +112,55 @@ def _unique_username(base: str) -> str:
         n += 1
 
 
+def _pending_invite():
+    """The team invite this visitor is registering against, if any.
+
+    ``teams.accept`` parks the token in the session when an invited person
+    turns out to have no account yet; on a deployment that sells nothing it is
+    the *only* thing that opens the sign-up form."""
+    from application.models.team import Team
+    token = session.get("pending_team_invite")
+    if not token:
+        return None
+    hit = Team.find_by_invite_token(token)
+    if not hit:
+        return None
+    _team, inv = hit
+    return inv if inv.is_valid else None
+
+
 @auth_bp.route("/register", methods=["GET", "POST"])
 @limiter.limit(lambda: current_app.config["RATELIMIT_REGISTER"],
                methods=["POST"],
                error_message="Too many sign-up attempts. Please try again later.")
 def register():
+    from application.services.billing import subscriptions_enabled
     if current_user.is_authenticated:
         return redirect(url_for("dashboard.home"))
 
+    open_signup = subscriptions_enabled()
+    invite = _pending_invite()
+    if not open_signup and invite is None:
+        # Nothing is sold here, so there is no sign-up desk: an account comes
+        # from an invitation (or from ``./cairn create-user``).
+        flash("This Cairn is invite-only — ask an admin for an invitation.",
+              "info")
+        return redirect(url_for("auth.login"))
+
     form = RegisterForm()
+    if not open_signup and invite is not None and request.method == "GET":
+        # The address is not the visitor's choice below; show it that way.
+        form.email.data = invite.email
     if form.validate_on_submit():
         display_name = form.display_name.data.strip()
         email = form.email.data.lower().strip()
-        if User.objects(email=email).first():
+        if not open_signup and email != (invite.email or "").lower():
+            # The invite is the account: letting it mint any address would make
+            # a leaked link a sign-up form again — and ``teams.accept`` would
+            # refuse the join afterwards anyway.
+            flash(f"This invitation is for {invite.email} — register with that "
+                  "address.", "warning")
+        elif User.objects(email=email).first():
             flash("Email already registered.", "danger")
         else:
             username = _unique_username(_slugify_username(display_name))
@@ -134,8 +170,11 @@ def register():
                 display_name=display_name,
             )
             user.set_password(form.password.data)
-            # New users get a free premium trial; level reflects it immediately.
-            user.start_trial(current_app.config.get("TRIAL_DAYS", 30))
+            if open_signup:
+                # New users get a free premium trial; level reflects it
+                # immediately. Without plans there is nothing to trial —
+                # recompute_level makes the account premium outright.
+                user.start_trial(current_app.config.get("TRIAL_DAYS", 30))
             from application.services.billing import recompute_level
             recompute_level(user, save=False)
             user.save()

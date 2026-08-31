@@ -177,7 +177,9 @@
       </button>
       <ul class="dropdown-menu dropdown-menu-end">
         <li><a class="dropdown-item" href="{{ url_for('settings.profile') }}"><i class="bi bi-person-gear"></i> Profile</a></li>
-        <li><a class="dropdown-item" href="{{ url_for('settings.subscription') }}"><i class="bi bi-star"></i> Subscription</a></li>
+        {% if subscriptions_enabled() %}
+          <li><a class="dropdown-item" href="{{ url_for('settings.subscription') }}"><i class="bi bi-star"></i> Subscription</a></li>
+        {% endif %}
         <li><a class="dropdown-item" href="{{ url_for('settings.index') }}"><i class="bi bi-gear"></i> All settings</a></li>
         {% if current_user.is_team_admin or current_user.team %}
           <li><hr class="dropdown-divider"></li>

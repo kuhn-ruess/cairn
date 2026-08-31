@@ -21,7 +21,10 @@ derives it (precedence): global_admin > active team payer (team_admin) > member
 covered by a team's active billing (premium) > own premium sub (premium) >
 trial (premium) > free. ``global_admin`` is never touched automatically.
 
-Billing is OFF when ``STRIPE_SECRET_KEY`` is empty.
+The whole model is OFF unless ``SUBSCRIPTIONS_ENABLED`` says otherwise
+(:func:`subscriptions_enabled`): a closed installation invites its people and
+every account is premium, so nothing here demotes anybody. With it on, billing
+additionally needs ``STRIPE_SECRET_KEY``.
 """
 from __future__ import annotations
 
@@ -45,8 +48,18 @@ def _cfg(key: str, default=""):
     return current_app.config.get(key, default)
 
 
+def subscriptions_enabled() -> bool:
+    """Whether this deployment sells anything at all.
+
+    Off (the default) is a closed installation: no plans, no trial, no free
+    tier, and no sign-up form — people arrive by invitation and everyone is
+    premium (:func:`recompute_level`). It is the *outer* switch, so a stray
+    Stripe key in the environment cannot bring the model back on its own."""
+    return bool(_cfg("SUBSCRIPTIONS_ENABLED"))
+
+
 def billing_enabled() -> bool:
-    return bool(_cfg("STRIPE_SECRET_KEY"))
+    return subscriptions_enabled() and bool(_cfg("STRIPE_SECRET_KEY"))
 
 
 def _stripe():
@@ -205,6 +218,14 @@ def recompute_level(user, *, save: bool = True) -> str:
     if user.level == "global_admin":
         return user.level
 
+    if not subscriptions_enabled():
+        # Nothing is sold here, so nothing may demote anyone: every account is
+        # premium. ``team_admin`` is granted by hand (``./cairn set-level``,
+        # which is also what creates the team) and stays where it was put —
+        # deriving it from a payment nobody makes would take teams away.
+        return _set_level(user, user.level if user.level == "team_admin"
+                          else "premium", save=save)
+
     active, plan = _entitlement(user)
     covered = user.team is not None and team_billing_active(user.team)
 
@@ -222,6 +243,10 @@ def recompute_level(user, *, save: bool = True) -> str:
     if new == "team_admin":
         _ensure_owned_team(user)
 
+    return _set_level(user, new, save=save)
+
+
+def _set_level(user, new: str, *, save: bool) -> str:
     if user.level != new:
         log.info("billing: %s level %s → %s", user.username, user.level, new)
         user.level = new
@@ -478,6 +503,18 @@ def reconcile_all() -> dict:
     from application.models.user import User
 
     counters = {"downgraded": 0, "teams_dissolved": 0, "users": 0}
+
+    if not subscriptions_enabled():
+        # No plan can have lapsed, so nothing may be taken away — least of all
+        # a team, which here was never paid for in the first place. All the
+        # sweep does is lift accounts to premium, which is what an installation
+        # that was switched over needs for the users it already had.
+        for user in User.objects(level__ne="global_admin"):
+            counters["users"] += 1
+            before = user.level
+            if recompute_level(user) != before:
+                counters["downgraded"] += 1
+        return counters
 
     for team in list(Team.objects()):
         if team.admin is None:

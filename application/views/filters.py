@@ -142,6 +142,14 @@ def register_filters(app):
 
     app.jinja_env.globals["asset"] = _asset
 
+    def _subscriptions_enabled():
+        """Does this deployment sell plans? Everything that mentions money,
+        levels or signing up asks here before it renders."""
+        from application.services.billing import subscriptions_enabled
+        return subscriptions_enabled()
+
+    app.jinja_env.globals["subscriptions_enabled"] = _subscriptions_enabled
+
     import re as _re
     from markupsafe import Markup as _Markup
     _HEX = _re.compile(r"^#[0-9A-Fa-f]{3,8}$")

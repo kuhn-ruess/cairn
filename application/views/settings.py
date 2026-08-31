@@ -440,8 +440,14 @@ def subscription():
     """Show the user's account level + what each level unlocks.
 
     Read-only: upgrading is a global-admin action via the CLI
-    (``./cairn set-level``). The page tells the user how to request it."""
+    (``./cairn set-level``). The page tells the user how to request it.
+
+    Gone entirely where no plans are sold — there is one tier there, and a
+    page listing what the other ones would cost only raises the question."""
+    from application.services.billing import subscriptions_enabled
     from application.services.permissions import FREE_PROJECT_LIMIT
+    if not subscriptions_enabled():
+        abort(404)
     user = current_user._get_current_object()
     tiers = [
         {

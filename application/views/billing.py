@@ -20,6 +20,18 @@ from application.services import billing
 billing_bp = Blueprint("billing", __name__, url_prefix="/billing")
 
 
+@billing_bp.before_request
+def _only_when_subscriptions_are_on():
+    """Nothing under /billing exists on a deployment that sells nothing —
+    the webhook included, since there is no subscription it could be about.
+
+    The blueprint is still registered so that a stray ``url_for('billing.…')``
+    in a template renders a dead link instead of raising a BuildError."""
+    from flask import abort
+    if not billing.subscriptions_enabled():
+        abort(404)
+
+
 @billing_bp.route("/")
 @login_required
 def index():

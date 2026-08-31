@@ -313,3 +313,28 @@ datetime-local form values are interpreted when pushed to Google Calendar.
 (e.g. free has `FREE_PROJECT_LIMIT`) and sharing. `team_admin` owns one
 `Team` and can invite members. Only `global_admin` can grant levels via
 `./cairn set-level`.
+
+### The subscription model is off by default
+
+`BKTODO_SUBSCRIPTIONS_ENABLED` (config `SUBSCRIPTIONS_ENABLED`, default
+**False**) is the outer switch for the whole commercial model, asked through
+`services/billing.subscriptions_enabled()` — and in templates through the Jinja
+global of the same name. With it off the deployment is a closed one:
+
+- `/billing/*` 404s (the blueprint stays registered so a stray `url_for`
+  doesn't 500), as does `/settings/subscription`; every card, badge, seat
+  counter and price line is hidden.
+- **Nobody registers themselves.** `/auth/register` redirects to the login page
+  unless the session carries a valid `pending_team_invite` — the token
+  `teams.accept` parks there for an invited person who has no account yet — and
+  then only for the address the invite was issued to. `./cairn create-user`
+  is the other way in.
+- **Everyone is premium.** `recompute_level` returns early: `global_admin` and
+  `team_admin` stay as set (the latter is granted by hand, and deriving it from
+  a payment nobody makes would take teams away), everyone else is `premium`.
+  Nothing demotes, no trial is started, and `reconcile_all` neither downgrades
+  nor dissolves — running `./cairn reconcile-subscriptions` after flipping the
+  switch is what lifts the accounts that were already there.
+
+`billing_enabled()` (Stripe configured) is now *inside* that switch, so a stray
+key in the environment can't bring the model back on its own.

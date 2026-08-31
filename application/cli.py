@@ -30,6 +30,10 @@ def create_user(username, email, password, admin):
         raise click.ClickException(f"email '{email}' already exists")
     user = User(username=username, email=email, display_name=username, is_admin=admin)
     user.set_password(password)
+    # ``level`` defaults to free, which is only a real tier where plans are
+    # sold — the same call decides it for a self-registered account.
+    from application.services.billing import recompute_level
+    recompute_level(user, save=False)
     user.save()
     click.echo(f"Created user {user.username} ({user.pk})")
 
@@ -461,6 +465,10 @@ def reconcile_subscriptions():
     Cron-friendly backstop for missed/late Stripe webhooks — run nightly.
     Idempotent: in steady state webhooks keep everything in sync and this
     reports zero changes.
+
+    With subscriptions switched off it only re-derives levels — which is how
+    an installation that was switched over lifts the accounts it already had
+    to premium. Nothing is downgraded and no team is dissolved.
     """
     from application.services.billing import reconcile_all
     counters = reconcile_all()

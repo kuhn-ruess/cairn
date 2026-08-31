@@ -8,6 +8,7 @@
 </div>
 
 {% if can_manage %}
+  {% if subscriptions_enabled() %}
   <div class="card mb-4 {% if not billing_active %}border-warning{% endif %}" style="max-width: 720px;">
     <div class="card-body">
       <h2 class="h6 mb-2"><i class="bi bi-credit-card"></i> Team billing</h2>
@@ -34,6 +35,7 @@
       {% endif %}
     </div>
   </div>
+  {% endif %}
 
   <div class="card mb-4" style="max-width: 600px;">
     <div class="card-body">
@@ -115,8 +117,9 @@
               </form>
             {% endif %}
           {% endif %}
-          {# Hand billing over — only the current payer can, only to a co-admin #}
-          {% if is_payer and is_member_admin and not is_member_payer %}
+          {# Hand billing over — only the current payer can, only to a co-admin.
+             Where nothing is billed there is no payer role to hand over. #}
+          {% if subscriptions_enabled() and is_payer and is_member_admin and not is_member_payer %}
             <form method="post" action="{{ url_for('teams.set_payer', user_id=m.pk) }}"
                   onsubmit="return confirm('Hand billing over to {{ m.username }}? Your team subscription will be cancelled and they must start a new one.');">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

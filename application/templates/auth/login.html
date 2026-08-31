@@ -32,10 +32,14 @@
             <a href="{{ url_for('auth.forgot_password') }}">Forgot password?</a>
           </p>
         </form>
-        <hr>
-        <p class="small text-center mb-0">
-          No account? <a href="{{ url_for('auth.register') }}">Create one</a>.
-        </p>
+        {# Without plans there is no sign-up desk — except for someone holding
+           an invite, who has to be able to make the account it was issued for. #}
+        {% if subscriptions_enabled() or session.get('pending_team_invite') %}
+          <hr>
+          <p class="small text-center mb-0">
+            No account? <a href="{{ url_for('auth.register') }}">Create one</a>.
+          </p>
+        {% endif %}
       </div>
     </div>
   </div>

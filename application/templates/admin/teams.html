@@ -42,7 +42,7 @@
 {% if teams %}
   <table class="table align-middle">
     <thead>
-      <tr><th>Name</th><th>Admin</th><th>Billing</th><th class="text-end">Actions</th></tr>
+      <tr><th>Name</th><th>Admin</th>{% if subscriptions_enabled() %}<th>Billing</th>{% endif %}<th class="text-end">Actions</th></tr>
     </thead>
     <tbody>
       {% for t in teams %}
@@ -50,9 +50,10 @@
           <td>
             {{ t.name }}
             {% if t.family %}<span class="badge text-bg-info ms-1">family</span>{% endif %}
-            {% if t.admin and t.admin.comp_plan == 'team' %}<span class="badge text-bg-success ms-1">free</span>{% endif %}
+            {% if subscriptions_enabled() and t.admin and t.admin.comp_plan == 'team' %}<span class="badge text-bg-success ms-1">free</span>{% endif %}
           </td>
           <td>{{ t.admin if t.admin else '—' }}</td>
+          {% if subscriptions_enabled() %}
           <td class="small">
             {% if t.admin and t.admin.comp_plan == 'team' %}
               Complimentary
@@ -62,7 +63,9 @@
               <span class="text-muted">no active plan</span>
             {% endif %}
           </td>
+          {% endif %}
           <td class="text-end">
+            {% if subscriptions_enabled() %}
             <form method="post" action="{{ url_for('admin.team_family', team_id=t.pk) }}" class="d-inline m-0">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-sm btn-outline-info"
@@ -77,6 +80,7 @@
                 {{ 'Charge again' if (t.admin and t.admin.comp_plan == 'team') else 'Mark free' }}
               </button>
             </form>
+            {% endif %}
             <form method="post"
                   action="{{ url_for('admin.teams_delete', team_id=t.pk) }}"
                   class="d-inline m-0"

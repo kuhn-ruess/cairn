@@ -26,6 +26,7 @@
       </div>
     </a>
   </div>
+  {% if subscriptions_enabled() %}
   <div class="col-md-6">
     <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.subscription') }}">
       <div class="card-body">
@@ -36,6 +37,7 @@
       </div>
     </a>
   </div>
+  {% endif %}
   <div class="col-md-6">
     <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.todoist') }}">
       <div class="card-body">

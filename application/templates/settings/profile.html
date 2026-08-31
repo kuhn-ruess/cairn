@@ -178,10 +178,15 @@
       <p class="text-muted small mb-3">
         <strong>Done</strong> / <strong>dropped</strong> tasks are deleted after
         <strong>{{ current_user.FREE_RETENTION_DAYS if current_user.level == 'free' else current_user.PREMIUM_RETENTION_DAYS }} days</strong>
-        on your {{ 'Free' if current_user.level == 'free' else 'Premium' }} plan.
-        You can set a <em>shorter</em> window below (you can't keep them longer
-        than your plan allows). <code>0</code> = use the plan default. The sweep
-        runs nightly.
+        {% if subscriptions_enabled() %}
+          on your {{ 'Free' if current_user.level == 'free' else 'Premium' }} plan.
+          You can set a <em>shorter</em> window below (you can't keep them longer
+          than your plan allows). <code>0</code> = use the plan default.
+        {% else %}
+          by default. You can set a <em>shorter</em> window below;
+          <code>0</code> = use the default.
+        {% endif %}
+        The sweep runs nightly.
         <span class="text-body">
           {% if plan_keep %}Currently kept: {{ plan_keep }} days.
           {% else %}<strong>Currently kept: forever</strong> — nothing is swept.{% endif %}
