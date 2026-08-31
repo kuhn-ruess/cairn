@@ -206,7 +206,9 @@ operations vim must not reimplement, including `snapshot`/`restore` for `u` and
 completion, which must not fire on a key that is a command. In insert mode the
 file only watches for Escape, so everything else about editing is untouched.
 `/` searches the note (`n`/`N`); the `/` command menu still belongs to insert
-mode.
+mode. **The scratchpad is excluded** — its `data-vim` is hard `0` and the file
+isn't even loaded there: a pad is what you type into before the thought is
+gone, and an editor that opens in NORMAL eats the first sentence.
 
 ### REST API
 
