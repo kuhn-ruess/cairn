@@ -102,11 +102,13 @@ def _billing_manager(team):
 
     A biller settles the month — they already see the whole book
     (``reachable_project_ids``) and lock time on it. Filing that book is the
-    same job: archiving a customer that stopped being one, and folding two
-    records for one client into one. Manager-only there meant the person doing
-    the work had to fetch somebody else to tidy up behind them. Reopening
-    billed time and deleting a customer outright stay with the managers —
-    those undo what was settled rather than keeping it in order."""
+    same job: archiving a customer that stopped being one, folding two records
+    for one client into one, and moving hours onto the project they actually
+    belong to — the intake pile, or the duplicate an import created. Manager-
+    only there meant the person doing the work had to fetch somebody else to
+    tidy up behind them. Reopening billed time and deleting a customer or a
+    project outright stay with the managers — those undo what was settled
+    rather than keeping it in order."""
     if not can_bill(current_user._get_current_object(), team):
         abort(403)
 
@@ -1334,10 +1336,11 @@ def report_bill():
                          "user", "billable", "locked", "state", "archived")}
         return redirect(url_for("timetracking.report", **args))
     if action == "move":
-        # Re-filing time onto another project changes what gets invoiced to
-        # whom — a manager's call, same as billing it.
-        if not team.is_managed_by(user):
-            abort(403)
+        # Re-filing time onto another project is settling the month, not
+        # undoing it — a biller's call, same as billing it. Billed entries are
+        # frozen where they were settled (``move_entries``), so this can't
+        # rewrite what a customer already saw on an invoice.
+        _billing_manager(team)
         target = _project_or_404(request.form.get("target_id"), team)
         res = move_entries(team=team, pairs=pairs, target=target, actor=user)
         if res["moved"]:
@@ -2047,8 +2050,7 @@ def project_move_entries(pid):
 
     team = _team()
     user = current_user._get_current_object()
-    if not team.is_managed_by(user):
-        abort(403)
+    _billing_manager(team)
     src = _project_or_404(pid, team)
     target = _project_or_404(request.form.get("target_id"), team)
     if str(target.id) == str(src.id):

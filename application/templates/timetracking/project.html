@@ -376,8 +376,8 @@
     </div>
   </div>
 
-  {# ---- Everything that cannot be undone ------------------------------- #}
-  {% if can_manage %}
+  {# ---- Moving the time, and everything that cannot be undone ---------- #}
+  {% if can_manage or can_file %}
     {% set _mins = logged_total %}
     <div class="card border-danger mb-4">
       <div class="card-header py-2">
@@ -387,6 +387,9 @@
       </div>
       <div class="card-body">
 
+        {# Emptying this project onto another one is how two projects become
+           one: move the time, then archive (or delete) what is left. Filing
+           the book is the biller's job — destroying it is not. #}
         <details class="mb-2">
           <summary class="small" style="cursor:pointer;">
             <i class="bi bi-arrow-left-right"></i> Move all logged time to another project
@@ -410,6 +413,7 @@
           </form>
         </details>
 
+        {% if can_manage %}
         <details class="mb-2">
           <summary class="small text-danger" style="cursor:pointer;">
             <i class="bi bi-eraser"></i> Delete all time logged here, keep the project
@@ -458,6 +462,7 @@
               Delete project</button>
           </form>
         </details>
+        {% endif %}
 
       </div>
     </div>

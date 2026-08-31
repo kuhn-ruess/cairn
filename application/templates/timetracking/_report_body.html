@@ -82,17 +82,18 @@
       {% if can_unlock %}
         <button class="btn btn-sm btn-outline-secondary" name="action" value="unlock">
           <i class="bi bi-unlock"></i> Reopen selected</button>
-        {# Re-file selected time onto another project — the per-entry version of
-           the wholesale move on the manage page. #}
-        <select name="target_id" class="form-select form-select-sm"
-                style="max-width: 18rem;">
-          {% for op in move_targets %}
-            <option value="{{ op.id }}">{{ op.label }}</option>
-          {% endfor %}
-        </select>
-        <button class="btn btn-sm btn-outline-primary" name="action" value="move">
-          <i class="bi bi-arrow-left-right"></i> Move selected</button>
       {% endif %}
+      {# Re-file selected time onto another project — the per-entry version of
+         the wholesale move on the manage page. Whoever bills the month files
+         it; billed entries stay where they were settled. #}
+      <select name="target_id" class="form-select form-select-sm"
+              style="max-width: 18rem;">
+        {% for op in move_targets %}
+          <option value="{{ op.id }}">{{ op.label }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-sm btn-outline-primary" name="action" value="move">
+        <i class="bi bi-arrow-left-right"></i> Move selected</button>
       {% if field_columns %}
         {# Set one of the projects' own fields on everything ticked — the same
            edit twenty times is what the per-row editor made of this. #}
