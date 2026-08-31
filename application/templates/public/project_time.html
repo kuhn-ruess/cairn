@@ -38,6 +38,21 @@
     .public-table .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
     .public-table tfoot td { border-bottom: none; font-weight: 600;
                              padding-top: .7rem; }
+    /* The budget: one bar, because "how much is left" is a proportion and a
+       proportion is read faster than two numbers. Money budgets print no
+       amount here — only the share — so the hours beside it can't be divided
+       into an hourly rate. */
+    .budget { max-width: 34rem; margin: 0 0 1.5rem; }
+    .budget-head { display: flex; justify-content: space-between; gap: 1rem;
+                   font-size: .85rem; color: var(--gv-fg3);
+                   margin-bottom: .35rem; }
+    .budget-left { font-variant-numeric: tabular-nums; }
+    .budget-track { background: var(--gv-bg1); border-radius: 4px; height: 10px; }
+    .budget-fill { height: 10px; border-radius: 4px; min-width: 2px;
+                   background: var(--gv-aqua-br); }
+    .budget-fill.warn { background: var(--gv-yellow-br); }
+    .budget-fill.over { background: var(--gv-red-br); }
+    .budget-over { color: var(--gv-red-br); }
     .public-footer { text-align: center; color: var(--gv-fg4);
                      font-size: .75rem; margin-top: 3rem; }
     /* One measure across a handful of named things — a ranked bar list, which
@@ -68,6 +83,33 @@
       {% if month %}in {{ months|selectattr('key', 'equalto', month)|map(attribute='label')|first }}{% else %}total{% endif %}
     </span>
   </div>
+
+  {% if budget %}
+    {# Budget and what is left of it. Not tied to the month filter above: a
+       total budget counts all time ever, a retainer the running month. #}
+    <div class="budget">
+      <div class="budget-head">
+        <span>
+          Budget{% if budget.recurring %} <span class="text-muted">this month</span>{% endif %}
+          {%- if not budget.is_money %}:
+            {{ budget.used|duration }} of {{ budget.limit|duration }}
+          {%- endif %}
+        </span>
+        <span class="budget-left{% if budget.over %} budget-over{% endif %}">
+          {% if budget.over %}
+            {% if budget.is_money %}{{ budget.raw_pct - 100 }}%{% else %}{{ (budget.used - budget.limit)|duration }}{% endif %} over budget
+          {% else %}
+            {% if budget.is_money %}{{ 100 - budget.raw_pct }}%{% else %}{{ (budget.limit - budget.used)|duration }}{% endif %} left
+            <span class="text-muted">· {{ budget.raw_pct }}% used</span>
+          {% endif %}
+        </span>
+      </div>
+      <div class="budget-track">
+        <div class="budget-fill{% if budget.over %} over{% elif budget.raw_pct >= 80 %} warn{% endif %}"
+             style="width: {{ budget.pct }}%;"></div>
+      </div>
+    </div>
+  {% endif %}
 
   <div class="public-bar">
     {# Month filter — plain links, so the view is shareable and bookmarkable. #}

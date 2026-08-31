@@ -1782,12 +1782,24 @@ def public_project_report(project, month: str | None = None,
     buckets = TimeBucket.objects(team=project.team, customer=project.customer)
     pid = str(project.id)
     rows, months, total = [], {}, 0
+    # Budget consumption is a property of the project, not of the month being
+    # looked at, so it is summed over every entry — before the month filter
+    # below — in the pass that is already walking the buckets.
+    from application.services.tz import user_zone
+    cur_period = datetime.now(user_zone(None)).strftime("%Y-%m")
+    cons = {"minutes": 0, "amount_cents": 0,
+            "month_minutes": 0, "month_amount_cents": 0}
     for b in buckets:
         for e in b.entries:
             if e.project_id != pid or e.status != "active":
                 continue
             dd = local_date(e.spent_on)
             key = f"{dd.year:04d}-{dd.month:02d}"
+            cons["minutes"] += e.minutes or 0
+            cons["amount_cents"] += e.amount_cents or 0
+            if key == cur_period:
+                cons["month_minutes"] += e.minutes or 0
+                cons["month_amount_cents"] += e.amount_cents or 0
             mo = months.setdefault(key, {"key": key, "label": dd.strftime("%B %Y"),
                                          "minutes": 0})
             mo["minutes"] += e.minutes or 0
@@ -1893,6 +1905,12 @@ def public_project_report(project, month: str | None = None,
         # which took the split switcher with it and left no way back.
         "groups": groups,
         "total_minutes": total,
+        # The project's budget and what is left of it. Independent of the month
+        # being viewed: a total budget is all-time, a retainer is the running
+        # month. ``None`` when no budget is set. A *money* budget is rendered on
+        # this page as a percentage only — the amount would give the hourly rate
+        # away next to the hours (see the module note on the sheet's columns).
+        "budget": budget_status(project, cons),
         "months": [months[k] for k in sorted(months, reverse=True)],
         "month": month or "",
         # A project booked by the clock shows the columns even on a month whose
