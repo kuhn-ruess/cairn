@@ -878,6 +878,114 @@
     e.preventDefault();
   });
 
+  /** The part of a mark that falls inside one block's rendered text. */
+  function partIn(range, box) {
+    const part = document.createRange();
+    part.selectNodeContents(box);
+    if (box.contains(range.startContainer)) {
+      part.setStart(range.startContainer, range.startOffset);
+    }
+    if (box.contains(range.endContainer)) {
+      part.setEnd(range.endContainer, range.endOffset);
+    }
+    return part;
+  }
+
+  /** Delete what is marked — that, and nothing else.
+   *
+   *  A mark inside ONE block never gets here: that block is open and the key
+   *  belongs to its textarea. Across blocks the mark covers the tail of the
+   *  first block, whole blocks in between, and the head of the last, so that
+   *  is exactly what goes — the TEXT, block by block. Two rules keep it from
+   *  taking more than it was shown:
+   *
+   *  * A block that ends up empty is dropped only when nothing hangs under
+   *    it. A subtree is never taken along; the mark did not cover it.
+   *  * Either end that cannot be placed in its source exactly (a mark that
+   *    straddled markup the renderer ate) calls the whole thing off. Half a
+   *    delete is worse than none.
+   *
+   *  Returns false when it did not act, so the key falls through. */
+  function deleteMarked(range) {
+    const cuts = [];
+    const boxes = Array.from(root.querySelectorAll(".ol-content"))
+      .filter((b) => !b.closest("[data-embed]") && range.intersectsNode(b));
+    for (const box of boxes) {
+      const node = nodeFor(box);
+      if (!node) return false;
+      const part = partIn(range, box);
+      if (!part.toString()) continue;          // touched, nothing taken
+      const src = node.content || "";
+      const holdsStart = box.contains(range.startContainer);
+      const holdsEnd = box.contains(range.endContainer);
+      if (holdsStart && holdsEnd) return false;   // one block: the editor's
+      let keep;
+      if (holdsStart) {
+        const at = sourceRange(node, box, part);
+        if (!at) return false;
+        keep = src.slice(0, at[0]);
+      } else if (holdsEnd) {
+        const at = sourceRange(node, box, part);
+        if (!at) return false;
+        keep = src.slice(at[1]);
+      } else {
+        keep = "";                              // covered whole
+      }
+      cuts.push({ node, keep });
+    }
+    if (cuts.length < 2) return false;
+
+    // Deepest and last first, so a block that loses every child can go too.
+    const dropped = [];
+    cuts.reverse().forEach(({ node, keep }) => {
+      if (!keep.trim() && !node.children.length) {
+        removeNode(node);
+        dropped.push(node);
+      } else {
+        node.content = keep;
+        if (node.el) contentOf(node).textContent = keep;
+      }
+    });
+    if (!model.length) model = link([blank()]);
+    const live = new Set(allNodes());
+    if (scope !== model) scope = scope.filter((n) => live.has(n));
+    if (!scope.length) scope = model;
+    if (!allNodes(scope).every((n) => n.el)) rebuild();
+    repaintAll();
+    save({ render: cuts.map((c) => c.node).filter((n) => live.has(n)) });
+    return true;
+  }
+
+  // Backspace and Delete take the marked text out, exactly as far as the mark
+  // went. There is no history behind a note, so the step before this one is
+  // kept for Ctrl-Z (below) — the one thing that makes a delete safe to press.
+  let undoDelete = null;
+
+  document.addEventListener("keydown", (e) => {
+    if (!canEdit || editing) return;
+    if (e.key !== "Backspace" && e.key !== "Delete") return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+    if (!root.contains(sel.anchorNode) || !root.contains(sel.focusNode)) return;
+    if (markedBox()) return;                  // inside one block: not ours
+    const snap = snapshot();
+    if (!deleteMarked(sel.getRangeAt(0))) return;
+    e.preventDefault();
+    undoDelete = snap;
+    sel.removeAllRanges();
+    setStatus("Deleted — Ctrl-Z puts it back");
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (!canEdit || editing || !undoDelete) return;
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+    e.preventDefault();
+    restoreSnapshot(undoDelete);
+    undoDelete = null;
+    setStatus("Back");
+  });
+
   document.addEventListener("cut", (e) => {
     if (!canEdit || editing) return;
     if (markedBox()) return;
