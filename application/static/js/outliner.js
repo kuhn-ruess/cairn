@@ -777,8 +777,24 @@
   // the clipboard is the outline's own Markdown — indentation and all — and
   // what arrives can be laid back down as blocks rather than as one long line.
 
+  /** True when the mark sits INSIDE one block's text — a word, a phrase.
+   *
+   *  Then the clipboard is the browser's job: a reader who marked one word
+   *  asked for that word, and handing them the block (with its subtree, in
+   *  Markdown) is not what they reached for. A mark that spans blocks, or
+   *  that ``selectAllBlocks`` laid over the list, has its common ancestor
+   *  above any single ``.ol-content`` and is ours. */
+  function insideOneBlock() {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
+    const at = sel.getRangeAt(0).commonAncestorContainer;
+    const el = at.nodeType === 1 ? at : at.parentElement;
+    return !!(el && el.closest(".ol-content"));
+  }
+
   document.addEventListener("copy", (e) => {
     if (editing) return;             // inside a block: the browser's own job
+    if (insideOneBlock()) return;    // a word out of one block: likewise
     const picked = selection();
     if (!picked.marked) return;      // nothing of OURS is marked: let it be
     e.clipboardData.setData("text/plain", picked.text);
@@ -787,6 +803,7 @@
 
   document.addEventListener("cut", (e) => {
     if (!canEdit || editing) return;
+    if (insideOneBlock()) return;
     const picked = selection();
     if (!picked.marked) return;
     e.clipboardData.setData("text/plain", picked.text);
@@ -1068,12 +1085,6 @@
   attach();
   repaintAll();
 
-  // An empty note is almost always about to be written in.
-  if (canEdit && !savedNote.trim()) {
-    if (!model.length) rebuild();
-    focusBlock(scope[0] || model[0], 0);
-  }
-
   /** The blocks a text selection touches, and their Markdown.
    *
    *  The scratchpad converts what you marked into tasks or a note and takes it
@@ -1275,4 +1286,12 @@
     },
     focusFirst() { focusBlock(scope[0] || model[0], "end"); },
   };
+
+  // An empty note is almost always about to be written in. Last, because
+  // opening an editor reaches for ``vim`` — doing it while that const is
+  // still in its dead zone throws, and the rest of this file never runs.
+  if (canEdit && !savedNote.trim()) {
+    if (!model.length) rebuild();
+    focusBlock(scope[0] || model[0], 0);
+  }
 })();
