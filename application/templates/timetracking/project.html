@@ -2,6 +2,7 @@
 {% block title %}{{ p.name }} · Cairn{% endblock %}
 {% block content %}
 {% import "timetracking/_nav.html" as nav with context %}
+{% import "timetracking/_csv_import.html" as csv with context %}
 {{ nav.tt_nav('manage', team, all_teams, can_manage) }}
 
 {# One billing project, in the order someone actually works through it:
@@ -314,6 +315,27 @@
       </form>
     </div>
   </div>
+
+  {# ---- Hours that were booked somewhere else -------------------------- #}
+  {% if can_manage %}
+    <div class="card mb-3">
+      <div class="card-header py-2">
+        <strong class="small"><i class="bi bi-filetype-csv"></i> Import time from a mite CSV</strong>
+        <span class="text-muted small">— straight onto this project</span>
+      </div>
+      <div class="card-body">
+        <p class="form-text small mt-0">
+          A mite time export
+          (<code>Datum;Start;Ende;Kunde;Projekt;…</code>) booked on
+          <strong>{{ p.name }}</strong>, whatever the file's own project column
+          says — the days that never made it across, without retyping them.
+          Repeatable: a row is recognised by its day, author, duration and note,
+          so the same file never imports twice. Start with a dry run.
+        </p>
+        {{ csv.csv_import_form(team, p, none, members) }}
+      </div>
+    </div>
+  {% endif %}
 
   {# ---- The customer's own view --------------------------------------- #}
   <div class="card mb-3">

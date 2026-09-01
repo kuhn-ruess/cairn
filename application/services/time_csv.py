@@ -230,7 +230,7 @@ def import_rows(*, team, rows, project=None, author=None, zone=None,
             stats["failed"] += 1
             stats["errors"].append(
                 f"line {row.line}: no billing project “{row.project}” under "
-                f"“{row.customer}” — pass --project to file these somewhere")
+                f"“{row.customer}” — pick a project to book these on")
             continue
         rate = proj.hourly_rate_cents
         # Noon in the team's zone, like every other write path: it keeps the

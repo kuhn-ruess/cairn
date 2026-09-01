@@ -127,6 +127,24 @@ def _project_or_404(pid, team):
     return p
 
 
+def _project_choices(team):
+    """Every open billing project of the team as ``(id, "Customer › Project")``,
+    for the selects that pick one. Archived ones are left out: nothing new
+    should be booked onto them."""
+    return sorted(
+        ((str(o.id), f"{o.customer.name} › {o.name}")
+         for o in TimeTrackingProject.objects(team=team, archived=False)),
+        key=lambda r: r[1].lower())
+
+
+def _member_choices(team):
+    """The team's people as ``(id, name)``, for the selects that pick one."""
+    from application.services.permissions import team_members
+
+    return sorted(((str(m.id), m.display_name or m.username)
+                   for m in team_members(team)), key=lambda r: r[1].lower())
+
+
 def _back(team, **kw):
     """Where a form on a project's page should return to.
 
@@ -1480,7 +1498,9 @@ def import_page():
     if not team.is_managed_by(user):
         abort(403)
     return render_template("timetracking/import_mite.html", team=team,
-                           all_teams=_user_teams(user))
+                           all_teams=_user_teams(user),
+                           projects=_project_choices(team),
+                           members=_member_choices(team))
 
 
 @timetracking_bp.route("/reset", methods=["POST"])
@@ -1591,6 +1611,73 @@ def import_mite():
               f"“cairn import-mite” for the full list.", "warning")
     return redirect(url_for("timetracking.import_page", team=team.pk))
 
+
+@timetracking_bp.route("/import/csv", methods=["POST"])
+@login_required
+@team_required
+def import_time_csv():
+    """A mite CSV export, read into this team — optionally straight into one
+    billing project.
+
+    ``cairn import-time-csv`` on the page: the sheet a colleague exports for the
+    days that never made it across. Pinning a project is what ``--project``
+    does, and here it is the normal case — the file usually covers one project,
+    and mite's per-person names ("Büro") rarely match Cairn's ("Büro Jasmin").
+    Idempotent: a row is recognised by day, author, project, duration and note,
+    so re-uploading the same file imports nothing twice. Manager-only, like the
+    rest of this page — an import writes hours into other people's names.
+    """
+    from application.services import time_csv
+    from application.services.permissions import team_members
+    from application.services.tz import user_zone
+
+    team = _team()
+    user = current_user._get_current_object()
+    if not team.is_managed_by(user):
+        abort(403)
+
+    project = None
+    pid = (request.form.get("project") or "").strip()
+    if pid:
+        project = _project_or_404(pid, team)
+    author = None
+    uid = (request.form.get("user") or "").strip()
+    if uid:
+        author = next((m for m in team_members(team) if str(m.id) == uid), None)
+        if author is None:
+            abort(404)
+
+    fileobj = request.files.get("file")
+    if not fileobj or not fileobj.filename:
+        flash("No file uploaded.", "danger")
+        return _back(team)
+    parsed = time_csv.parse(fileobj.read().decode("utf-8-sig", errors="replace"))
+    if not parsed.rows:
+        flash(parsed.errors[0] if parsed.errors
+              else "Nothing to import — no readable row in that file.", "danger")
+        return _back(team)
+
+    dry_run = request.form.get("dry_run") == "1"
+    stats = time_csv.import_rows(
+        team=team, rows=parsed.rows, project=project, author=author,
+        zone=user_zone(author or user), dry_run=dry_run)
+
+    hours = f"{stats['minutes'] // 60}h {stats['minutes'] % 60}m"
+    flash(f"{'Dry run — nothing written. Would import' if dry_run else 'Imported'}: "
+          f"{stats['imported']} entr{'y' if stats['imported'] == 1 else 'ies'} "
+          f"({hours})"
+          + (f", {stats['duplicates']} already there" if stats["duplicates"] else "")
+          + (f", {stats['failed']} without a project" if stats["failed"] else "")
+          + (f" — into {project.customer.name} › {project.name}" if project else "")
+          + ".", "success" if stats["imported"] else "warning")
+    # The file's own unreadable lines and the rows no project could be found
+    # for are two different problems, and both are the operator's to fix.
+    for err in (parsed.errors + stats["errors"])[:5]:
+        flash(err, "warning")
+    if len(parsed.errors) + len(stats["errors"]) > 5:
+        flash(f"…and {len(parsed.errors) + len(stats['errors']) - 5} more issues.",
+              "warning")
+    return _back(team)
 
 # ---------------------------------------------------------------------------
 # Customers
@@ -1936,6 +2023,7 @@ def project_detail(pid):
         logged_total=consumption.get(str(p.id), {}).get("minutes", 0),
         links=linked, link_info=describe_containers(linked, team=team),
         linkable=container_choices(user, selectable_kinds=("project", "folder")),
+        members=_member_choices(team) if team.is_managed_by(user) else [],
         move_targets=move_targets)
 
 

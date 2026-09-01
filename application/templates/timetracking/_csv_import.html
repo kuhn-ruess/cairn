@@ -1,0 +1,49 @@
+{# The mite CSV upload, on the import page and on a billing project's page.
+
+   ``pinned`` is the project the rows are booked on — passed on a project's own
+   page, where there is nothing to choose; without it the file's Kunde/Projekt
+   columns are resolved by name, and the select overrides that for the whole
+   file (mite's per-person "Büro" against Cairn's "Büro Jasmin"). #}
+{%- macro csv_import_form(team, pinned=none, projects=none, members=none) -%}
+<form method="post" action="{{ url_for('timetracking.import_time_csv') }}"
+      enctype="multipart/form-data"
+      class="d-flex gap-2 flex-wrap align-items-end">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="team" value="{{ team.pk }}">
+  <input type="hidden" name="back" value="{{ request.full_path }}">
+  <div>
+    <label class="form-label small text-muted mb-0">CSV file</label>
+    <input type="file" name="file" accept=".csv,text/csv" required
+           class="form-control form-control-sm" style="max-width: 18rem;">
+  </div>
+  {% if pinned %}
+    <input type="hidden" name="project" value="{{ pinned.id }}">
+  {% else %}
+    <div>
+      <label class="form-label small text-muted mb-0">Book on</label>
+      <select name="project" class="form-select form-select-sm"
+              style="max-width: 22rem;" data-searchable-select="1"
+              data-searchable-placeholder="Search projects…">
+        <option value="">The file's Kunde › Projekt columns</option>
+        {% for pid, label in projects or [] %}
+          <option value="{{ pid }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  {% endif %}
+  <div>
+    <label class="form-label small text-muted mb-0">Booked by</label>
+    <select name="user" class="form-select form-select-sm" style="max-width: 14rem;">
+      <option value="">The file's Benutzer column</option>
+      {% for uid, name in members or [] %}
+        <option value="{{ uid }}">{{ name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <label class="form-check form-check-inline m-0 small">
+    <input type="checkbox" class="form-check-input" name="dry_run" value="1" checked>
+    dry run
+  </label>
+  <button class="btn btn-sm btn-primary">Import CSV</button>
+</form>
+{%- endmacro -%}
