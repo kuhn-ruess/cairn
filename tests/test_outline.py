@@ -157,6 +157,16 @@ class DetectionTest(unittest.TestCase):
             ("[ ] bread", {}, []),
         ])
 
+    def test_a_list_inside_fenced_code_is_not_a_human_indenting(self):
+        # A YAML list (or any "- " line) in a snippet is data, not a tell —
+        # reading it as one sent our own note to the loose parser, which then
+        # took the code block apart.
+        body = "- ```yaml\n  - a\n  - b\n  ```\n"
+        self.assertTrue(outline.is_outline(body))
+        self.assertEqual(shape(outline.parse(body)),
+                         [("```yaml\n- a\n- b\n```", {}, [])])
+        self.assertEqual(outline.serialize(outline.parse(body)), body)
+
     def test_a_tab_indented_legacy_list_already_reads_as_nesting(self):
         blocks = outline.parse("Intro\n- a\n\t- b\n")
         self.assertEqual(shape(blocks), [

@@ -158,16 +158,46 @@ def is_outline(text: str) -> bool:
     list inside a single block. It reads as nesting on the next load, which is
     what the person who typed it meant, and from then on it carries tabs and is
     stable. It converges after one step and never loses text.
+
+    None of the tells is read inside a fenced code block — see :func:`_unfenced`.
     """
-    text = text or ""
-    if NESTED_BULLET_RE.search(text) or BLOCK_PROP_RE.search(text):
+    lines = _unfenced(text)
+    joined = "\n".join(lines)
+    if NESTED_BULLET_RE.search(joined) or BLOCK_PROP_RE.search(joined):
         return True
-    if SPACED_ITEM_RE.search(text):
+    if SPACED_ITEM_RE.search(joined):
         return False
-    for line in text.split("\n"):
+    for line in lines:
         if line.strip():
             return bool(BULLET_RE.match(line))
     return False
+
+
+def _unfenced(text: str) -> list:
+    """``text``'s lines with the inside of every fenced code block dropped.
+
+    What sits in a fence is data, and it says nothing about who wrote the file:
+    a YAML list or a Markdown snippet in there is a ``  - `` line like any
+    other, which read as "a human indented this by hand" and sent a note we
+    wrote ourselves to the LOOSE parser — which then took the fence apart. The
+    fence lines themselves are kept: the opening one carries the bullet the
+    first tell reads.
+    """
+    out, fence = [], None
+    for line in (text or "").split("\n"):
+        # A fence opened on a bullet line carries the ``- `` in front of it,
+        # which is exactly how :func:`_split` reads it: the bullet is ours, the
+        # rest of the line is the block's text.
+        bullet = BULLET_RE.match(line)
+        m = FENCE_RE.match((bullet.group(2) or "") if bullet else line)
+        if m:
+            mark = m.group(1)[0] * 3
+            fence = None if fence == mark else (fence or mark)
+            out.append(line)
+            continue
+        if fence is None:
+            out.append(line)
+    return out
 
 
 def parse(text: str) -> list:
