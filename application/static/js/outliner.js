@@ -450,6 +450,16 @@
 
   // ---- keys ----------------------------------------------------------------
 
+  // ``` or ~~~ opening/closing a code fence — the JS half of outline.FENCE_RE.
+  const FENCE_RE = /^\s*(`{3,}|~{3,})/;
+
+  /** Is the caret inside a fenced code block? An odd number of fence lines
+   *  before it means the last one opened a fence nothing has closed yet. */
+  function inFence(text, at) {
+    return text.slice(0, at).split("\n")
+      .filter((line) => FENCE_RE.test(line)).length % 2 === 1;
+  }
+
   // Did an open popup take the last key? Its keyup must then be left alone.
   let popupAte = false;
 
@@ -497,6 +507,11 @@
       return;
     }
     if (e.key === "Enter" && !e.shiftKey) {
+      // Not inside a fenced code block: code is written in LINES, and a split
+      // there would cut the fence in half and leave two blocks that are no
+      // longer code. The parser reads a fence the same way — inside one, even
+      // a "- " line is code (services/outline._split).
+      if (inFence(ta.value, at)) return;
       e.preventDefault();
       // Split at the caret, the way every outliner does: what is left of it
       // stays, what is right of it starts the new block.
