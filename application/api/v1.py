@@ -9,6 +9,8 @@ from application.api.serializers import project as ser_project
 from application.api.serializers import tag as ser_tag
 from application.api.serializers import task as ser_task
 from application.api.serializers import task_compact as ser_task_compact
+from application.api.serializers import note as ser_note
+from application.api.serializers import note_share as ser_note_share
 from application.api.serializers import perspective as ser_perspective
 from application.api.serializers import tt_customer as ser_tt_customer
 from application.api.serializers import tt_entry as ser_tt_entry
@@ -719,6 +721,220 @@ def _apply_project_payload(p: Item, data: dict) -> None:
                 raise ValueError(f"member {mid} not shareable")
             members.append(m)
         p.members = members
+
+# ---------------- notes ----------------
+#
+# A note and a notes FOLDER are the same document (``kind`` apart): both are
+# containers for filing AND pages with a body, which is why one serializer and
+# one set of routes covers them. The folder tree they live in is the ``notes``
+# one — ``folder_domain``, the field that keeps the notes navigator and the
+# project navigator from bleeding into each other.
+#
+# Writing a body goes through ``services.notes_write``, the same code the
+# editor saves through: a body written without it leaves the block-id
+# inventory, the backlink index and the derived title behind.
+
+def _notes_q():
+    """Notes and notes folders — never the project tree's folders."""
+    return Q(kind="note") | Q(kind="folder", folder_domain="notes")
+
+
+def _note_by_id(note_id, *, own=False):
+    """One note or notes folder, by id. ``own`` restricts to the caller's own
+    (sharing and deleting are the owner's), otherwise anything they may see —
+    the caller still has to be allowed to edit before it is written."""
+    from bson.errors import InvalidId
+    from mongoengine.errors import ValidationError
+    q = {"pk": note_id, "kind__in": ["note", "folder"]}
+    if own:
+        q["owner"] = g.current_user
+    try:
+        item = Item.objects(**q).first()
+    except (InvalidId, ValidationError):
+        return None
+    if item and item.kind == "folder" and item.folder_domain != "notes":
+        return None          # a project folder: not this tree
+    return item
+
+
+@api_v1_bp.get("/notes")
+@token_required
+def list_notes():
+    """The notes tree, flat. ``parent_id=none`` gives the top level; without
+    ``kind`` both notes and folders come back, so one call can draw a tree."""
+    qs = Item.objects(_scope() & _notes_q())
+    kind = request.args.get("kind")
+    if kind:
+        if kind not in ("note", "folder"):
+            return _bad_request(f"invalid kind: {kind}")
+        qs = qs.filter(kind=kind)
+    parent_id = (request.args.get("parent_id") or "").strip()
+    if parent_id:
+        qs = qs.filter(parent=None) if parent_id == "none" \
+            else qs.filter(parent=parent_id)
+    updated_since = request.args.get("updated_since")
+    if updated_since:
+        since = _parse_dt(updated_since)
+        if not since:
+            return _bad_request("invalid updated_since")
+        qs = qs.filter(updated_at__gte=since)
+    # ``compact=true`` leaves the Markdown out — a client drawing the tree
+    # does not need every note's text.
+    body = request.args.get("compact") != "true"
+    limit = max(1, min(int(request.args.get("limit", 100) or 100), 500))
+    offset = max(0, min(int(request.args.get("offset", 0) or 0), 1_000_000))
+    qs = qs.order_by("-updated_at").skip(offset).limit(limit)
+    items = [ser_note(n, body=body) for n in qs.select_related(max_depth=1)]
+    return jsonify({"items": items, "limit": limit, "offset": offset})
+
+
+@api_v1_bp.post("/notes")
+@token_required
+def create_note():
+    user = g.current_user
+    data = request.get_json(silent=True) or {}
+    kind = (data.get("kind") or "note").strip()
+    if kind not in ("note", "folder"):
+        return _bad_request(f"invalid kind: {kind}")
+    parent = None
+    raw_parent = (data.get("parent_id") or "").strip()
+    if raw_parent:
+        parent = _note_by_id(raw_parent, own=True)
+        if not parent or parent.kind != "folder":
+            return _bad_request("parent_id is not one of your notes folders")
+    title = (data.get("title") or "").strip()
+    if kind == "folder" and not title:
+        return _bad_request("a folder needs a title")
+    item = Item(owner=user, kind=kind, parent=parent,
+                title=title or "Untitled note",
+                # No name given, so the note's first line becomes it.
+                title_auto=(kind == "note" and not title),
+                tags=[str(t) for t in (data.get("tags") or []) if t])
+    if kind == "folder":
+        item.folder_domain = "notes"
+        item.status = "active"
+    from application.services.notes_write import apply_body
+    apply_body(item, data.get("note") or "", user)
+    item.save()
+    return jsonify(ser_note(item)), 201
+
+
+@api_v1_bp.get("/notes/<note_id>")
+@token_required
+def get_note(note_id):
+    item = _note_by_id(note_id)
+    if not item or not item.can_be_viewed_by(g.current_user):
+        return _bad_request("not found", 404)
+    return jsonify(ser_note(item))
+
+
+@api_v1_bp.patch("/notes/<note_id>")
+@token_required
+def update_note(note_id):
+    user = g.current_user
+    item = _note_by_id(note_id)
+    if not item or not item.can_be_edited_by(user):
+        return _bad_request("not found", 404)
+    data = request.get_json(silent=True) or {}
+    from application.services.notes_write import apply_body, apply_title
+    if "title" in data:
+        apply_title(item, data["title"])
+    if "parent_id" in data:
+        raw = (data.get("parent_id") or "").strip()
+        if not raw:
+            item.parent = None
+        else:
+            parent = _note_by_id(raw, own=True)
+            if not parent or parent.kind != "folder" or parent.pk == item.pk:
+                return _bad_request("parent_id is not one of your notes folders")
+            item.parent = parent
+    if "tags" in data:
+        item.tags = [str(t) for t in (data.get("tags") or []) if t]
+    if "note" in data:
+        apply_body(item, data["note"], user)
+    item.save()
+    return jsonify(ser_note(item))
+
+
+@api_v1_bp.delete("/notes/<note_id>")
+@token_required
+def delete_note(note_id):
+    """Into the trash, with the subtree — the same soft delete the UI does, so
+    it can be restored there. ``cleanup-trash`` purges it later."""
+    from application.services.trash import trash_item
+    item = _note_by_id(note_id, own=True)
+    if not item:
+        return _bad_request("not found", 404)
+    trash_item(item)
+    return "", 204
+
+
+# ---------------- notes: sharing ----------------
+#
+# Who else may see a note is the one thing the notes tree had no way to say
+# over the API, while the project tree has had ``member_ids`` all along.
+# Sharing a FOLDER is the useful case: everything filed under it is shared
+# with it, and a share set further down overrides the one above.
+
+def _share_user(actor, raw):
+    """A share target named by id, username or email — all three, because a
+    client that has never listed the team knows only the name. The scope is
+    ``resolve_assignable_user``'s either way: someone the actor shares a team
+    with, never an arbitrary account."""
+    from application.services.permissions import can_share_with, resolve_assignable_user
+    target = resolve_assignable_user(actor, raw)
+    if target:
+        return target
+    key = str(raw or "").strip()
+    if not key:
+        return None
+    named = User.objects(Q(username__iexact=key) | Q(email__iexact=key)).first()
+    return named if named and can_share_with(actor, named) else None
+
+
+@api_v1_bp.get("/notes/<note_id>/share")
+@token_required
+def get_note_share(note_id):
+    item = _note_by_id(note_id, own=True)
+    if not item:
+        return _bad_request("not found", 404)
+    return jsonify(ser_note_share(item))
+
+
+@api_v1_bp.put("/notes/<note_id>/share")
+@token_required
+def set_note_share(note_id):
+    """Replace the share list, the way the dialog does: what is in the body is
+    what the note ends up shared with, and an empty body unshares it."""
+    from application.services.permissions import teams_of
+    user = g.current_user
+    item = _note_by_id(note_id, own=True)
+    if not item:
+        return _bad_request("not found", 404)
+    data = request.get_json(silent=True) or {}
+
+    members = []
+    for raw in data.get("member_ids") or []:
+        target = _share_user(user, raw)
+        if not target:
+            return _bad_request(f"member {raw} not shareable")
+        if not any(m.pk == target.pk for m in members):
+            members.append(target)
+
+    allowed = {str(t.pk): t for t in teams_of(user)}
+    teams = []
+    for raw in data.get("team_ids") or []:
+        team = allowed.get(str(raw))
+        if not team:
+            return _bad_request(f"team {raw} not shareable")
+        if not any(t.pk == team.pk for t in teams):
+            teams.append(team)
+
+    item.members = members
+    item.shared_teams = teams
+    item.save()
+    return jsonify(ser_note_share(item))
+
 
 # ---------------- tags (embedded on user) ----------------
 

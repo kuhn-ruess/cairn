@@ -612,31 +612,13 @@ def edit(note_id):
         if not item.title:
             item.title = ("Untitled folder" if item.kind == "folder"
                           else "Untitled note")
-    if "note" in request.form:
-        # multipart/form-data normalises every newline in a field value to
-        # CRLF. That was invisible while a note was one long string; an outline
-        # is read line by line, so a stray "\r" would ride along inside every
-        # block's text and come back out in the mirrored file.
-        item.note = (request.form.get("note", "") or "").replace("\r\n", "\n").replace("\r", "\n")
-    from application.services import block_refs, note_links
     index = {}
     if "note" in request.form:
-        # The id:: inventory is a parse of this one body, no query — it has to
-        # be current or a block someone just referenced can't be found.
-        block_refs.rebuild(item)
-        body = item.note or ""
-        # The link lookups are queries, so only pay for them when there is
-        # something to resolve — autosave posts this route every few seconds.
-        if ("[[" in body or "((" in body or "](/notes/" in body
-                or item._data.get("note_links")):
-            index = note_links.title_index(user)
-            note_links.rebuild(item, index,
-                               extra=block_refs.referenced_note_ids(item, user))
-        # A name nobody has claimed follows the body. Folders are left out:
-        # a folder's name is its place in the tree, and renaming the container
-        # while you write inside it would be a surprise, not a convenience.
-        if item.title_auto and item.kind == "note":
-            item.title = _derived_title(item) or "Untitled note"
+        # The body, the block-id inventory, the link index and the derived
+        # name move together — see services/notes_write, which the API writes
+        # notes through as well.
+        from application.services.notes_write import apply_body
+        index = apply_body(item, request.form.get("note", ""), user)
     item.save()
     if request.headers.get("X-Partial") == "1":
         return jsonify({"ok": True, "title": item.title, "note": item.note,

@@ -269,6 +269,45 @@ def task(t) -> dict[str, Any]:
     }
 
 
+def note(n, *, body: bool = True) -> dict[str, Any]:
+    """A note or a notes FOLDER — one serializer, because a folder is a page
+    with a body too (it is both a container and something you write on).
+
+    ``body=False`` is the list projection: everything but the Markdown, so a
+    client can pull the whole tree without pulling every note's text. Who it
+    is shared with is not in here — that costs a dereference per row and has
+    its own endpoint."""
+    out = {
+        "id": str(n.pk),
+        "kind": n.kind,
+        "title": n.title,
+        # False once the title has been typed in: the name is the user's then,
+        # and no longer follows the note's first line.
+        "title_auto": bool(n.title_auto),
+        "parent_id": str(n.parent.pk) if n.parent else None,
+        "tags": list(n.tags or []),
+        "created_at": iso(n.created_at),
+        "updated_at": iso(n.updated_at),
+    }
+    if body:
+        out["note"] = rewrite_attachment_urls(n.note, n.pk)
+    return out
+
+
+def note_share(item) -> dict[str, Any]:
+    """Who a note (or a notes folder) is shared with — the two axes the share
+    dialog has: named members and whole teams. Everything filed under a shared
+    folder inherits this, which is why the folder is the useful one to set."""
+    return {
+        "id": str(item.pk),
+        "kind": item.kind,
+        "title": item.title,
+        "members": [user_brief(u) for u in (item.members or [])],
+        "teams": [{"id": str(t.pk), "name": t.name}
+                  for t in (item.shared_teams or [])],
+    }
+
+
 # ---------------- time tracking ----------------
 #
 # The billing module is team-scoped, not owner-scoped like everything above,

@@ -40,6 +40,91 @@ def build_openapi_spec() -> dict:
                 },
             },
             "schemas": {
+                "Note": {
+                    "type": "object",
+                    "description": ("A note, or a notes FOLDER — the same "
+                                    "document apart from ``kind``: a folder is "
+                                    "a container for filing AND a page with a "
+                                    "body of its own."),
+                    "properties": {
+                        "id": {"type": "string", "format": "objectid"},
+                        "kind": {"type": "string", "enum": ["note", "folder"]},
+                        "title": {"type": "string"},
+                        "title_auto": {
+                            "type": "boolean",
+                            "description": ("True while the name still follows "
+                                            "the note's first line. Sending a "
+                                            "title clears it; sending an empty "
+                                            "one hands the name back."),
+                        },
+                        "note": {
+                            "type": "string",
+                            "description": ("Markdown, in the outline format: "
+                                            "one tab per level before the "
+                                            "'- ' bullet. Left out of a "
+                                            "``compact=true`` list."),
+                        },
+                        "parent_id": {"type": "string", "nullable": True},
+                        "tags": {"type": "array", "items": {"type": "string"}},
+                        "created_at": {"type": "string", "format": "date-time"},
+                        "updated_at": {"type": "string", "format": "date-time"},
+                    },
+                },
+                "NoteWrite": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"type": "string", "enum": ["note", "folder"],
+                                  "default": "note"},
+                        "title": {"type": "string"},
+                        "note": {"type": "string"},
+                        "parent_id": {"type": "string", "nullable": True,
+                                       "description": "A notes folder you own."},
+                        "tags": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "NoteShare": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "kind": {"type": "string", "enum": ["note", "folder"]},
+                        "title": {"type": "string"},
+                        "members": {"type": "array", "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "username": {"type": "string"},
+                                "display_name": {"type": "string"},
+                            },
+                        }},
+                        "teams": {"type": "array", "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "name": {"type": "string"},
+                            },
+                        }},
+                    },
+                },
+                "NoteShareWrite": {
+                    "type": "object",
+                    "description": ("Replaces the share, the way the dialog "
+                                    "does: what is in here is what the note "
+                                    "ends up shared with, and an empty body "
+                                    "unshares it."),
+                    "properties": {
+                        "member_ids": {
+                            "type": "array", "items": {"type": "string"},
+                            "description": ("Each entry is a user id, a "
+                                            "username or an email address. "
+                                            "Only people you share a team "
+                                            "with; anyone else is a 400."),
+                        },
+                        "team_ids": {
+                            "type": "array", "items": {"type": "string"},
+                            "description": "Teams you take part in.",
+                        },
+                    },
+                },
                 "Error": {
                     "type": "object",
                     "properties": {"error": {"type": "string"}},
@@ -1190,6 +1275,145 @@ def build_openapi_spec() -> dict:
                     "summary": "Delete a tag (removes from every task)",
                     "tags": ["tags"],
                     "responses": {"204": {"description": "Deleted"}},
+                },
+            },
+            "/notes": {
+                "get": {
+                    "summary": "List notes and notes folders",
+                    "description": ("The notes tree, flat: notes plus the "
+                                    "folders of the notes navigator (never the "
+                                    "project tree's folders). Everything you "
+                                    "own or that is shared with you."),
+                    "tags": ["notes"],
+                    "parameters": [
+                        {"name": "kind", "in": "query",
+                         "schema": {"type": "string", "enum": ["note", "folder"]}},
+                        {"name": "parent_id", "in": "query",
+                         "schema": {"type": "string"},
+                         "description": "A folder id, or `none` for the top level."},
+                        {"name": "updated_since", "in": "query",
+                         "schema": {"type": "string", "format": "date-time"}},
+                        {"name": "compact", "in": "query",
+                         "schema": {"type": "string", "enum": ["true", "false"]},
+                         "description": "Leave the Markdown body out."},
+                        {"name": "limit", "in": "query",
+                         "schema": {"type": "integer", "default": 100, "maximum": 500}},
+                        {"name": "offset", "in": "query",
+                         "schema": {"type": "integer", "default": 0}},
+                    ],
+                    "responses": {
+                        "200": {"description": "Notes",
+                                "content": {"application/json": {"schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "items": {"type": "array", "items": {
+                                            "$ref": "#/components/schemas/Note"}},
+                                        "limit": {"type": "integer"},
+                                        "offset": {"type": "integer"},
+                                    },
+                                }}}},
+                    },
+                },
+                "post": {
+                    "summary": "Create a note or a notes folder",
+                    "tags": ["notes"],
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {
+                            "$ref": "#/components/schemas/NoteWrite"}}},
+                    },
+                    "responses": {
+                        "201": {"description": "Created",
+                                "content": {"application/json": {"schema": {
+                                    "$ref": "#/components/schemas/Note"}}}},
+                        "400": {"description": "Bad request",
+                                "content": {"application/json": {"schema": {
+                                    "$ref": "#/components/schemas/Error"}}}},
+                    },
+                },
+            },
+            "/notes/{note_id}": {
+                "parameters": [
+                    {"name": "note_id", "in": "path", "required": True,
+                     "schema": {"type": "string"}},
+                ],
+                "get": {
+                    "summary": "Get one note or notes folder",
+                    "tags": ["notes"],
+                    "responses": {
+                        "200": {"description": "Note",
+                                "content": {"application/json": {"schema": {
+                                    "$ref": "#/components/schemas/Note"}}}},
+                        "404": {"description": "Not found"},
+                    },
+                },
+                "patch": {
+                    "summary": "Update a note or notes folder",
+                    "description": ("Only the fields you send. Writing `note` "
+                                    "re-indexes the note's links and block ids "
+                                    "and, while `title_auto` holds, renames it "
+                                    "after its first line."),
+                    "tags": ["notes"],
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {
+                            "$ref": "#/components/schemas/NoteWrite"}}},
+                    },
+                    "responses": {
+                        "200": {"description": "Updated",
+                                "content": {"application/json": {"schema": {
+                                    "$ref": "#/components/schemas/Note"}}}},
+                        "404": {"description": "Not found"},
+                    },
+                },
+                "delete": {
+                    "summary": "Move a note or notes folder to the trash",
+                    "description": ("The subtree goes with it. Soft: it can be "
+                                    "restored from the trash in the UI until "
+                                    "the retention window purges it."),
+                    "tags": ["notes"],
+                    "responses": {
+                        "204": {"description": "Trashed"},
+                        "404": {"description": "Not found"},
+                    },
+                },
+            },
+            "/notes/{note_id}/share": {
+                "parameters": [
+                    {"name": "note_id", "in": "path", "required": True,
+                     "schema": {"type": "string"}},
+                ],
+                "get": {
+                    "summary": "Who a note or folder is shared with",
+                    "tags": ["notes"],
+                    "responses": {
+                        "200": {"description": "Share",
+                                "content": {"application/json": {"schema": {
+                                    "$ref": "#/components/schemas/NoteShare"}}}},
+                        "404": {"description": "Not found, or not yours"},
+                    },
+                },
+                "put": {
+                    "summary": "Share a note or folder with people and teams",
+                    "description": ("Yours to set, so only the owner may. "
+                                    "Sharing a FOLDER shares everything filed "
+                                    "under it; a share set on something "
+                                    "further down overrides it there."),
+                    "tags": ["notes"],
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {
+                            "$ref": "#/components/schemas/NoteShareWrite"}}},
+                    },
+                    "responses": {
+                        "200": {"description": "The share as it now stands",
+                                "content": {"application/json": {"schema": {
+                                    "$ref": "#/components/schemas/NoteShare"}}}},
+                        "400": {"description": "Someone you may not share with",
+                                "content": {"application/json": {"schema": {
+                                    "$ref": "#/components/schemas/Error"}}}},
+                        "404": {"description": "Not found, or not yours"},
+                    },
                 },
             },
             "/scratchpad": {
