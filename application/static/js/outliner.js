@@ -878,6 +878,25 @@
     e.preventDefault();
   });
 
+  // Backspace or Delete on a mark takes those blocks out, the way the cut
+  // does — a mark you cannot delete is a mark that does nothing. Only whole
+  // blocks ever reach this: a mark inside ONE block opened that block, and
+  // the key then belongs to its textarea.
+  document.addEventListener("keydown", (e) => {
+    if (!canEdit || editing) return;
+    if (e.key !== "Backspace" && e.key !== "Delete") return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !root.contains(sel.anchorNode)) return;
+    if (markedBox()) return;         // inside one block: not ours to delete
+    const picked = selection();
+    if (!picked.marked) return;
+    e.preventDefault();
+    sel.removeAllRanges();
+    remove(picked.blocks);
+    setStatus("Deleted");
+  });
+
   document.addEventListener("cut", (e) => {
     if (!canEdit || editing) return;
     if (markedBox()) return;
