@@ -274,8 +274,14 @@
     node.el.classList.add("ol-editing");
     grow(ta);
     ta.focus();
-    const at = caret === "end" || caret === undefined ? ta.value.length : caret;
-    ta.setSelectionRange(at, at);
+    // A pair is a mark carried in from the rendered block (see the click
+    // handler): what was marked stays marked, so it can be typed over.
+    if (Array.isArray(caret)) {
+      ta.setSelectionRange(caret[0], caret[1]);
+    } else {
+      const at = caret === "end" || caret === undefined ? ta.value.length : caret;
+      ta.setSelectionRange(at, at);
+    }
     ta.addEventListener("input", () => {
       grow(ta);
       node.content = ta.value;
@@ -625,12 +631,20 @@
     if (!box || !canEdit) return;
     // Things that are meant to be clicked stay clickable.
     if (e.target.closest("a, img, input")) return;
-    // Marking text ends in a click too — anywhere in the outline, not only
-    // inside this one block. Opening the editor there would throw the
-    // selection away at the moment the reader reached for it, which is exactly
-    // how you mark a passage to turn into tasks.
+    // Marking text ends in a click too. A mark ACROSS blocks is left exactly
+    // as it is — that is how you mark a passage to turn into tasks, and
+    // opening an editor would throw it away at the moment the reader reached
+    // for it. A mark inside ONE block is the opposite: it is an edit about to
+    // happen (delete the word, type over it), so that block opens and the
+    // mark comes along into its textarea.
     const sel = window.getSelection();
-    if (sel && !sel.isCollapsed && root.contains(sel.anchorNode)) return;
+    if (sel && !sel.isCollapsed && root.contains(sel.anchorNode)) {
+      const marked = markedBox();
+      const inside = marked && nodeFor(marked);
+      if (!inside) return;
+      openEditor(inside, sourceRange(inside, marked, sel.getRangeAt(0)) || "end");
+      return;
+    }
     const n = nodeFor(box);
     if (n) openEditor(n, "end");
   });
@@ -777,24 +791,45 @@
   // the clipboard is the outline's own Markdown — indentation and all — and
   // what arrives can be laid back down as blocks rather than as one long line.
 
-  /** True when the mark sits INSIDE one block's text — a word, a phrase.
+  /** The block a mark sits INSIDE — a word, a phrase — or null when it spans
+   *  blocks (its common ancestor is then above any single ``.ol-content``,
+   *  which is also where ``selectAllBlocks`` leaves it).
    *
-   *  Then the clipboard is the browser's job: a reader who marked one word
-   *  asked for that word, and handing them the block (with its subtree, in
-   *  Markdown) is not what they reached for. A mark that spans blocks, or
-   *  that ``selectAllBlocks`` laid over the list, has its common ancestor
-   *  above any single ``.ol-content`` and is ours. */
-  function insideOneBlock() {
+   *  Such a mark is one block's own text and belongs to that block: to the
+   *  browser's clipboard, and to the block's editor. A reader who marked one
+   *  word asked for that word, not for the block (with its subtree, in
+   *  Markdown) — and not to be told they cannot delete it. */
+  function markedBox() {
     const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
     const at = sel.getRangeAt(0).commonAncestorContainer;
     const el = at.nodeType === 1 ? at : at.parentElement;
-    return !!(el && el.closest(".ol-content"));
+    const box = el && el.closest(".ol-content");
+    return box && !box.closest("[data-embed]") ? box : null;
+  }
+
+  /** Where a mark on a block's RENDERED text sits in its source.
+   *
+   *  The two are not the same string — ``**bold**`` reads as "bold", a
+   *  checkbox as nothing at all — so the mark is looked up by its own text,
+   *  from where it sits in the rendered line. Markup only ever makes the
+   *  source longer, so the source offset is at or past that. A mark that
+   *  straddled markup is not found and has no range. */
+  function sourceRange(node, box, range) {
+    const text = range.toString();
+    if (!text) return null;
+    const before = document.createRange();
+    before.selectNodeContents(box);
+    before.setEnd(range.startContainer, range.startOffset);
+    const src = node.content || "";
+    let at = src.indexOf(text, before.toString().length);
+    if (at < 0) at = src.indexOf(text);
+    return at < 0 ? null : [at, at + text.length];
   }
 
   document.addEventListener("copy", (e) => {
     if (editing) return;             // inside a block: the browser's own job
-    if (insideOneBlock()) return;    // a word out of one block: likewise
+    if (markedBox()) return;         // a word out of one block: likewise
     const picked = selection();
     if (!picked.marked) return;      // nothing of OURS is marked: let it be
     e.clipboardData.setData("text/plain", picked.text);
@@ -803,7 +838,7 @@
 
   document.addEventListener("cut", (e) => {
     if (!canEdit || editing) return;
-    if (insideOneBlock()) return;
+    if (markedBox()) return;
     const picked = selection();
     if (!picked.marked) return;
     e.clipboardData.setData("text/plain", picked.text);
@@ -1002,10 +1037,12 @@
   const reload = document.getElementById("note-conflict-reload");
   if (reload) reload.addEventListener("click", () => window.location.reload());
 
-  // Clicking anywhere off the outline closes the open block.
+  // Clicking anywhere off the outline closes the open block — except on the
+  // things that ACT on it, which need it open (and marked) when they run.
   document.addEventListener("mousedown", (e) => {
     if (!editing) return;
-    if (e.target.closest("#note-outline, #wiki-complete, .slash-menu, #note-title")) return;
+    if (e.target.closest("#note-outline, #wiki-complete, .slash-menu, #note-title,"
+                         + " [data-keeps-block-open]")) return;
     commit(editing);
   });
 
@@ -1094,6 +1131,12 @@
   function selection() {
     const sel = window.getSelection();
     const nodes = [];
+    // A mark inside one block lives in that block's textarea (the click
+    // handler puts it there), where the document has no selection to read.
+    const ta = editing ? contentOf(editing).querySelector("textarea") : null;
+    if (ta && ta.selectionStart !== ta.selectionEnd) {
+      return { marked: true, blocks: [editing], text: serialize([editing]) };
+    }
     if (sel && !sel.isCollapsed && sel.rangeCount) {
       const range = sel.getRangeAt(0);
       allNodes().forEach((n) => {
@@ -1273,6 +1316,14 @@
     isEmpty: () => !allNodes().some((n) => (n.content || "").trim()),
     selection,
     remove,
+    /** Write a block's text from outside — the pad's checklist button.
+     *  Through the open textarea when this is the block being edited, or what
+     *  that textarea still shows would overwrite it again when it closes. */
+    setText(node, text) {
+      node.content = text;
+      const ta = editing === node ? contentOf(node).querySelector("textarea") : null;
+      if (ta) { ta.value = text; grow(ta); }
+    },
     /** Save, and have these blocks rendered back — for a caller that edited
      *  their content directly (the pad's checklist button). */
     rerender: (nodes) => save({ render: nodes }),

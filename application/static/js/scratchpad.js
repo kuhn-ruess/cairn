@@ -69,6 +69,18 @@
     refreshScope();
   }
 
+  // These act on what is marked, and a mark inside a block lives in that
+  // block's open textarea (outliner.js opens the block a mark lands in). Both
+  // ways of closing it have to be held off, or the mark is gone before the
+  // button reads it: the outline closes the open block on a mousedown
+  // anywhere off itself, and the textarea commits on blur. The button still
+  // gets its click.
+  [tasksBtn, noteBtn, checkBtn].forEach((btn) => {
+    if (!btn) return;
+    btn.dataset.keepsBlockOpen = "1";
+    btn.addEventListener("mousedown", (e) => e.preventDefault());
+  });
+
   if (tasksBtn) {
     tasksBtn.addEventListener("click", () => {
       const sc = scope();
@@ -102,10 +114,9 @@
       // line-based version decided too (md-checklist.js), so the button keeps
       // behaving the way it reads: one press, one direction.
       const boxed = /^\[[ xX]\]/.test(targets[0].content.trim());
-      targets.forEach((b) => {
-        b.content = boxed ? b.content.replace(/^\s*\[[ xX]\]\s*/, "")
-                          : `[ ] ${b.content}`;
-      });
+      targets.forEach((b) => o.setText(b, boxed
+        ? b.content.replace(/^\s*\[[ xX]\]\s*/, "")
+        : `[ ] ${b.content}`));
       await o.rerender(targets);
       refreshScope();
     });
