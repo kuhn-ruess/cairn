@@ -614,6 +614,26 @@
       return;
     }
 
+    // Marking text ends in a click too — and that click is not a click on
+    // whatever is under the pointer: a drag past the end of a line lets go
+    // outside the row, or outside the block. Only the mark says where it
+    // belongs, so it is read before any of that.
+    //
+    // A mark ACROSS blocks is left exactly as it is: that is how you mark a
+    // passage to turn into tasks, and opening an editor would throw it away
+    // at the moment the reader reached for it. A mark inside ONE block is the
+    // opposite — an edit about to happen (delete the word, type over it) — so
+    // that block opens and the mark comes along into its textarea. Unless it
+    // cannot be placed in the source, and then it is left alone too.
+    const sel = canEdit ? window.getSelection() : null;
+    if (sel && !sel.isCollapsed && root.contains(sel.anchorNode)) {
+      const marked = markedBox();
+      const inside = marked && nodeFor(marked);
+      const at = inside && sourceRange(inside, marked, sel.getRangeAt(0));
+      if (at) openEditor(inside, at);
+      return;
+    }
+
     // Anywhere on the row edits its block: to the right of a short line, or on
     // the empty line of a block with nothing in it yet.
     const row = e.target.closest(".ol-row");
@@ -631,20 +651,6 @@
     if (!box || !canEdit) return;
     // Things that are meant to be clicked stay clickable.
     if (e.target.closest("a, img, input")) return;
-    // Marking text ends in a click too. A mark ACROSS blocks is left exactly
-    // as it is — that is how you mark a passage to turn into tasks, and
-    // opening an editor would throw it away at the moment the reader reached
-    // for it. A mark inside ONE block is the opposite: it is an edit about to
-    // happen (delete the word, type over it), so that block opens and the
-    // mark comes along into its textarea.
-    const sel = window.getSelection();
-    if (sel && !sel.isCollapsed && root.contains(sel.anchorNode)) {
-      const marked = markedBox();
-      const inside = marked && nodeFor(marked);
-      if (!inside) return;
-      openEditor(inside, sourceRange(inside, marked, sel.getRangeAt(0)) || "end");
-      return;
-    }
     const n = nodeFor(box);
     if (n) openEditor(n, "end");
   });
@@ -802,29 +808,65 @@
   function markedBox() {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
-    const at = sel.getRangeAt(0).commonAncestorContainer;
+    const range = sel.getRangeAt(0);
+    const at = range.startContainer;
     const el = at.nodeType === 1 ? at : at.parentElement;
+    // Where it STARTS is what makes it one block's own text. A mark laid over
+    // the list itself (``selectAllBlocks``) starts on the list, not in a
+    // block, and belongs to the outline however few blocks there are.
     const box = el && el.closest(".ol-content");
-    return box && !box.closest("[data-embed]") ? box : null;
+    if (!box || box.closest("[data-embed]") || !root.contains(box)) return null;
+    // And it must reach no further: dragging past the end of a line stays
+    // inside the block, dragging into the next one does not.
+    const touched = Array.from(root.querySelectorAll(".ol-content"))
+      .filter((other) => range.intersectsNode(other));
+    return touched.length === 1 && touched[0] === box ? box : null;
   }
 
   /** Where a mark on a block's RENDERED text sits in its source.
    *
-   *  The two are not the same string — ``**bold**`` reads as "bold", a
-   *  checkbox as nothing at all — so the mark is looked up by its own text,
-   *  from where it sits in the rendered line. Markup only ever makes the
-   *  source longer, so the source offset is at or past that. A mark that
-   *  straddled markup is not found and has no range. */
+   *  The two are not the same string: markup lives in the source only, and
+   *  the renderer adds text of its own. ``**bold**`` reads as "bold",
+   *  ``[[Foo]]`` as "Foo" plus a marker, a checkbox as nothing at all — so
+   *  the mark cannot simply be looked up, and a mark that crosses any of that
+   *  would never be found. The two strings are walked together instead, one
+   *  rendered character at a time, and the source pointer skips whatever the
+   *  renderer swallowed. A rendered character that is nowhere in the source
+   *  is the renderer's own and moves nothing; whitespace matches a run of it,
+   *  because one newline in the source can render as a paragraph break.
+   *
+   *  A walk can still drift, so the answer is checked against the mark's own
+   *  letters and digits. No answer means the caller leaves the mark alone —
+   *  better a mark that cannot be typed over than one that vanishes. */
   function sourceRange(node, box, range) {
-    const text = range.toString();
-    if (!text) return null;
+    const src = node.content || "";
+    const rendered = box.textContent || "";
+    const mark = range.toString().trim();
+    if (!mark || !src) return null;
     const before = document.createRange();
     before.selectNodeContents(box);
     before.setEnd(range.startContainer, range.startOffset);
-    const src = node.content || "";
-    let at = src.indexOf(text, before.toString().length);
-    if (at < 0) at = src.indexOf(text);
-    return at < 0 ? null : [at, at + text.length];
+    const lead = range.toString().length - range.toString().replace(/^\s+/, "").length;
+    const upto = before.toString().length + lead;   // where the mark begins
+
+    let i = 0;
+    const step = (c) => {
+      if (/\s/.test(c)) {
+        while (i < src.length && /\s/.test(src[i])) i += 1;
+        return;
+      }
+      const k = src.indexOf(c, i);
+      if (k >= 0) i = k + 1;
+    };
+    for (let j = 0; j < upto && j < rendered.length; j += 1) step(rendered[j]);
+    // The mark starts at its first character, not where the text before it
+    // ended: whatever sits in between is markup.
+    const at = src.indexOf(mark[0], i);
+    if (at < 0) return null;
+    i = at;
+    for (let j = 0; j < mark.length; j += 1) step(mark[j]);
+    const squash = (t) => t.replace(/[^\p{L}\p{N}]+/gu, "");
+    return squash(src.slice(at, i)) === squash(mark) ? [at, i] : null;
   }
 
   document.addEventListener("copy", (e) => {
