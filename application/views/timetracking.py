@@ -304,6 +304,7 @@ def index():
         all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user),
         can_file=can_bill(user, team),
+        can_import=can_bill(user, team),
         customers=customers,
         show_archive=show_archive,
         archived_count=archived_count,
@@ -714,6 +715,7 @@ def _report_context(args=None):
     return dict(
         team=team, f=f, can_bill=can_bill(user, team),
         can_unlock=team.is_managed_by(user),
+        can_import=can_bill(user, team),
         # Field definitions for the inline edit forms — for the projects on
         # screen, not for every project the team has, and the export exactly as
         # it will be written: the preview is the export, not a description of it.
@@ -1060,6 +1062,7 @@ def people():
     return render_template(
         "timetracking/people.html", team=team, all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user), rows=rows + extra,
+        can_import=can_bill(user, team),
         members=sorted(team_members(team),
                        key=lambda m: (m.display_name or m.username or "").lower()))
 
@@ -1177,6 +1180,7 @@ def unassigned():
     return render_template(
         "timetracking/unassigned.html", team=team, all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user), rows=rows, targets=targets,
+        can_import=can_bill(user, team),
         cutoff=cutoff, stale=len(stale),
         stale_minutes=sum(r["minutes"] for r in stale),
         total_minutes=sum(r["minutes"] for r in rows))
@@ -1246,6 +1250,7 @@ def trash():
     return render_template(
         "timetracking/trash.html", team=team, all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user), rows=rows,
+        can_import=can_bill(user, team),
         total_minutes=sum(r["minutes"] for r in rows))
 
 
@@ -1492,13 +1497,19 @@ def _export_name(team, f) -> str:
 @team_required
 def import_page():
     """The mite import on its own page — it is a one-off migration, not part of
-    keeping customers and projects."""
+    keeping customers and projects.
+
+    Open to a biller, who sees only the CSV card: reading an exported sheet of
+    hours back in is keeping the book, which is their job already (see
+    :func:`_billing_manager`). Pulling a whole mite account — new customers,
+    new projects, an API key — and wiping the team's books are not, and the
+    template hides both from them."""
     team = _team()
     user = current_user._get_current_object()
-    if not team.is_managed_by(user):
-        abort(403)
+    _billing_manager(team)
     return render_template("timetracking/import_mite.html", team=team,
                            all_teams=_user_teams(user),
+                           can_manage=team.is_managed_by(user),
                            projects=_project_choices(team),
                            members=_member_choices(team))
 
@@ -1624,8 +1635,9 @@ def import_time_csv():
     does, and here it is the normal case — the file usually covers one project,
     and mite's per-person names ("Büro") rarely match Cairn's ("Büro Jasmin").
     Idempotent: a row is recognised by day, author, project, duration and note,
-    so re-uploading the same file imports nothing twice. Manager-only, like the
-    rest of this page — an import writes hours into other people's names.
+    so re-uploading the same file imports nothing twice. A biller may do this,
+    not only a manager: these are hours on projects that already exist, which
+    is the book they keep anyway (see :func:`_billing_manager`).
     """
     from application.services import time_csv
     from application.services.permissions import team_members
@@ -1633,8 +1645,7 @@ def import_time_csv():
 
     team = _team()
     user = current_user._get_current_object()
-    if not team.is_managed_by(user):
-        abort(403)
+    _billing_manager(team)
 
     project = None
     pid = (request.form.get("project") or "").strip()
@@ -1808,6 +1819,7 @@ def customer_detail(cid):
     return render_template(
         "timetracking/customer.html", team=team, all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user), can_file=can_bill(user, team),
+        can_import=can_bill(user, team),
         customer=c, projects=projects,
         minutes_by_project=minutes_by_project,
         merge_targets=merge_targets,
@@ -2015,6 +2027,7 @@ def project_detail(pid):
     return render_template(
         "timetracking/project.html", team=team, all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user), can_file=can_bill(user, team),
+        can_import=can_bill(user, team),
         p=p, share_cols=share_cols,
         budget=budget_status(p, consumption.get(str(p.id))),
         # Two different numbers, and the danger zone needs the other one: the
@@ -2023,7 +2036,7 @@ def project_detail(pid):
         logged_total=consumption.get(str(p.id), {}).get("minutes", 0),
         links=linked, link_info=describe_containers(linked, team=team),
         linkable=container_choices(user, selectable_kinds=("project", "folder")),
-        members=_member_choices(team) if team.is_managed_by(user) else [],
+        members=_member_choices(team) if can_bill(user, team) else [],
         move_targets=move_targets)
 
 

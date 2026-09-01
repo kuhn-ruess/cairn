@@ -7,6 +7,10 @@
 
 <h1 class="h4 mb-3"><i class="bi bi-box-arrow-in-down"></i> Import from mite</h1>
 
+  {# The account import creates customers and projects and wants an API key —
+     the manager's, where a biller's half of this page (the CSV below) only
+     books hours onto projects that already exist. #}
+  {% if can_manage %}
   <div class="card mb-4" style="max-width: 720px;">
     <div class="card-body">
       <h2 class="h6 mb-2"><i class="bi bi-box-arrow-in-down"></i> Import from mite</h2>
@@ -59,6 +63,7 @@
       </p>
     </div>
   </div>
+  {% endif %}
 
   {# The other half of the migration: not the account, one exported sheet.
      Same page, because "the hours that are still in mite" is one question. #}
@@ -79,7 +84,9 @@
   </div>
 
   {# Start over. An import that produced the wrong shape is not worth repairing
-     record by record — everything here came from somewhere and comes back. #}
+     record by record — everything here came from somewhere and comes back.
+     Manager-only: this deletes hours a biller may only re-file. #}
+  {% if can_manage %}
   <div class="card border-danger" style="max-width: 720px;">
     <div class="card-body">
       <h2 class="h6 mb-2 text-danger">
@@ -102,4 +109,5 @@
       </form>
     </div>
   </div>
+  {% endif %}
 {% endblock %}

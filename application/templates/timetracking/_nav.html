@@ -5,7 +5,7 @@
    you happened to be on. This is the same bar everywhere: what you can do
    (track / report / manage), which team you are in, and nothing else. #}
 
-{%- macro tt_nav(active, team=none, all_teams=none, can_manage=false) -%}
+{%- macro tt_nav(active, team=none, all_teams=none, can_import=false) -%}
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
   <ul class="nav nav-pills gap-1 me-auto">
     <li class="nav-item">
@@ -41,14 +41,17 @@
          title="Deleted time — restore it, or remove it for good">
         <i class="bi bi-trash"></i> Trash</a>
     </li>
-    {# Manager-only: a one-off migration has no place in everyone's navigation.
+    {# Managers and billers: a one-off migration has no place in everyone's
+       navigation, but reading an exported sheet of hours back in is keeping
+       the book. What is behind it is split again on the page itself — the
+       account import and the reset are the manager's.
        Passed in rather than derived — inside a macro ``current_user`` is
        already the resolved user, not the proxy. #}
-    {% if team and can_manage %}
+    {% if team and can_import %}
       <li class="nav-item">
         <a class="nav-link py-1 {{ 'active' if active == 'import' }}"
            href="{{ url_for('timetracking.import_page', team=team.pk) }}"
-           title="One-off migration from a mite account">
+           title="Migrate a mite account, or read a mite CSV export back in">
           <i class="bi bi-box-arrow-in-down"></i> Import</a>
       </li>
     {% endif %}

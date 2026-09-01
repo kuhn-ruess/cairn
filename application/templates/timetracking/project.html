@@ -3,7 +3,7 @@
 {% block content %}
 {% import "timetracking/_nav.html" as nav with context %}
 {% import "timetracking/_csv_import.html" as csv with context %}
-{{ nav.tt_nav('manage', team, all_teams, can_manage) }}
+{{ nav.tt_nav('manage', team, all_teams, can_import) }}
 
 {# One billing project, in the order someone actually works through it:
    what it is and what it costs → what it asks for when time is booked →
@@ -317,7 +317,7 @@
   </div>
 
   {# ---- Hours that were booked somewhere else -------------------------- #}
-  {% if can_manage %}
+  {% if can_import %}
     <div class="card mb-3">
       <div class="card-header py-2">
         <strong class="small"><i class="bi bi-filetype-csv"></i> Import time from a mite CSV</strong>

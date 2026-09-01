@@ -2,7 +2,7 @@
 {% block title %}Time tracking{% endblock %}
 {% block content %}
 {% import "timetracking/_nav.html" as nav with context %}
-{{ nav.tt_nav('manage', team, all_teams, can_manage) }}
+{{ nav.tt_nav('manage', team, all_teams, can_import) }}
 
 {# The management screen is a *list*: which customers exist, which projects they
    have, what each one costs and how much of its budget is gone. Everything you
