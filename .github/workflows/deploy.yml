@@ -1,10 +1,13 @@
 # Deploy to prod on every push to main.
 #
 # Runs on a SELF-HOSTED runner installed on the prod server (Settings →
-# Actions → Runners → New self-hosted runner, then `./svc.sh install &&
-# ./svc.sh start`). The runner user needs to be able to run `docker` and
-# `docker-compose` — prod is on the legacy v1 binary, so `docker compose`
-# (v2, with a space) is NOT what this calls.
+# Actions → Runners → New self-hosted runner, then
+# `./svc.sh install <user> && ./svc.sh start`). It runs as an ordinary user
+# in the `docker` group — the runner refuses to be configured under sudo, and
+# the deploy directory moved out of /root so that user can reach it. That user
+# also needs its own git credentials for the pull (see the Pull step).
+# `docker-compose` here is the legacy v1 binary, so `docker compose` (v2, with
+# a space) is NOT what this calls.
 #
 # It deliberately does NOT check the repo out: prod is deployed from the
 # working copy at DEPLOY_DIR, which is where `.env` lives and which owns the
@@ -24,7 +27,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEPLOY_DIR: /root/git/cairn
+  DEPLOY_DIR: /opt/cairn
   # The container directly, not the public name: this asks whether the build
   # that was just started is serving, without the reverse proxy or DNS in the
   # answer.
@@ -40,6 +43,9 @@ jobs:
         run: |
           set -euo pipefail
           cd "$DEPLOY_DIR"
+          # Reaches GitHub as the RUNNER's user, not as whoever set the
+          # directory up: its own SSH key (or a stored credential) has to be
+          # on the repo, or this is where a deploy stops.
           git pull --ff-only origin main
           # Fails loudly when the working copy carries local commits or edits
           # that made the pull land somewhere else — better than deploying a
