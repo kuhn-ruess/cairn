@@ -417,6 +417,10 @@ def build_openapi_spec() -> dict:
                             "type": "string", "nullable": True,
                             "description": "Auto-status mapping — when this tag is applied, task status snaps to this value.",
                         },
+                        "assigns_to": {
+                            "type": "string", "nullable": True,
+                            "description": "Auto-assign — user id this tag hands the task to when applied.",
+                        },
                     },
                 },
                 "TagCreate": {
@@ -430,6 +434,7 @@ def build_openapi_spec() -> dict:
                         "parent": {"type": "string"},
                         "exclusive_children": {"type": "boolean"},
                         "maps_to_status": {"type": "string"},
+                        "assigns_to": {"type": "string"},
                     },
                 },
                 "BulkRequest": {

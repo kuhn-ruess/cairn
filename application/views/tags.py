@@ -14,6 +14,16 @@ def _populate_tag_choices(form, user, current=None):
         (t.name, str(t)) for t in user.tags or []
         if not current or t.name != current.name
     ]
+    form.assigns_to.choices = [("", "— nobody —")] + [
+        (str(u.pk), str(u)) for u in _assignable(user)
+    ]
+
+
+def _assignable(user):
+    """The people this user may hand a task to — themselves plus every
+    teammate. One pass, reused for the picker and for the list page."""
+    from application.services.permissions import assignable_users
+    return assignable_users(user)
 
 def _tag_tree(tags):
     """Depth-first order under parent → list of (depth, tag)."""
@@ -34,7 +44,13 @@ def _tag_tree(tags):
 @login_required
 def index():
     user = current_user._get_current_object()
-    return render_template("tags/list.html", tags=_tag_tree(user.tags or []))
+    tags = _tag_tree(user.tags or [])
+    # One lookup for the whole page: the rows only need a name to show, and a
+    # per-row dereference would be a query inside the loop.
+    people = {}
+    if any(t.assigns_to for _, t in tags):
+        people = {str(u.pk): str(u) for u in _assignable(user)}
+    return render_template("tags/list.html", tags=tags, people=people)
 
 @tags_bp.route("/new", methods=["GET", "POST"])
 @login_required
@@ -60,6 +76,7 @@ def create():
                 parent=form.parent.data or None,
                 exclusive_children=form.exclusive_children.data,
                 maps_to_status=form.maps_to_status.data or None,
+                assigns_to=form.assigns_to.data or None,
             ))
             user.save()
             flash("Tag created.", "success")
@@ -92,6 +109,7 @@ def edit(tag_name):
     if request.method == "GET":
         form.parent.data = tag.parent or ""
         form.maps_to_status.data = tag.maps_to_status or ""
+        form.assigns_to.data = tag.assigns_to or ""
     if form.validate_on_submit():
         new_parent = form.parent.data or None
         # Cycle check via parent-chain walk
@@ -116,6 +134,7 @@ def edit(tag_name):
         tag.parent = new_parent
         tag.exclusive_children = form.exclusive_children.data
         tag.maps_to_status = form.maps_to_status.data or None
+        tag.assigns_to = form.assigns_to.data or None
         # Cascade rename: child tags' parent pointer + every task in the
         # user's set that mentions the old name.
         if old_name != new_name:

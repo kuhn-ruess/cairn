@@ -239,4 +239,7 @@ class TagForm(FlaskForm):
         default="",
         validators=[Optional()],
     )
+    # Choices are filled per request from the people the user may assign to
+    # (permissions.assignable_users) — see views.tags._populate_tag_choices.
+    assigns_to = SelectField("Auto-assign", choices=[], validators=[Optional()])
     submit = SubmitField("Save tag")

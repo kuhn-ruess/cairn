@@ -1053,6 +1053,7 @@ def create_tag():
         parent=data.get("parent") or None,
         exclusive_children=data.get("exclusive_children", False),
         maps_to_status=(data.get("maps_to_status") or None),
+        assigns_to=(data.get("assigns_to") or None),
     )
     user.tags.append(t)
     user.save()
@@ -1078,6 +1079,8 @@ def update_tag(tag_name):
         tag.exclusive_children = bool(data["exclusive_children"])
     if "maps_to_status" in data:
         tag.maps_to_status = data["maps_to_status"] or None
+    if "assigns_to" in data:
+        tag.assigns_to = data["assigns_to"] or None
     if "name" in data and data["name"] and data["name"] != tag.name:
         # Cascade rename
         old_name = tag.name

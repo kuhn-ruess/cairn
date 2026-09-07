@@ -61,6 +61,7 @@ def tag(tag) -> dict[str, Any]:
         "parent": tag.parent or None,
         "exclusive_children": tag.exclusive_children,
         "maps_to_status": tag.maps_to_status or None,
+        "assigns_to": tag.assigns_to or None,
     }
 
 

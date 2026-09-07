@@ -28,6 +28,7 @@ def _apply_smart_tokens(task: "Item", raw_title: str, user) -> None:
     task.title = parsed.title or raw_title.strip()
     if parsed.project is not None and parsed.project != task.project:
         task.project = parsed.project
+    added = set()
     if parsed.tags:
         merged = list(task.tags or [])
         existing = {n.lower() for n in merged}
@@ -35,6 +36,7 @@ def _apply_smart_tokens(task: "Item", raw_title: str, user) -> None:
             if tag.name.lower() not in existing:
                 merged.append(tag.name)
                 existing.add(tag.name.lower())
+                added.add(tag.name)
         task.tags = merged
     if parsed.priority and not task.priority:
         task.priority = parsed.priority
@@ -45,6 +47,12 @@ def _apply_smart_tokens(task: "Item", raw_title: str, user) -> None:
     # +assignee fills the gap when the form didn't set one explicitly.
     if parsed.assignee and not task.assigned_to:
         task.assign_to(parsed.assignee, by_user=user)
+    # A tag typed into the title (@Buchhaltung) carries its auto-assign rule
+    # like one picked in the inspector — filling the gap only, so an explicit
+    # +assignee or a picked assignee above still wins.
+    if added and not task.assigned_to:
+        from application.services.label_rules import apply_assignee_rule
+        apply_assignee_rule(task, user, only_tags=added)
 
 def _render_empty_task_inspector(user, *, parent_project=None, just_added_title=None):
     """Reset the inspector to a fresh empty new-task form.
@@ -318,14 +326,15 @@ def _populate_form_choices(form: TaskForm, user: User, task: Item | None = None)
     # so there's no blank option.
     form.owner.choices = people
 
-def _apply_tags(task: Item, user: User, raw_names) -> None:
-    """Normalise + apply a list of tag names to ``task``.
+def _apply_tags(task: Item, user: User, raw_names) -> bool:
+    """Normalise + apply a list of tag names to ``task``. True if a tag rule
+    reassigned it.
 
     Type-to-create any name the user doesn't have yet (gray default colour,
     mirroring OmniFocus), enforce exclusive-children groups (at most one child
-    from an exclusive parent), store the final names, and run label-driven
-    status rules. Shared by the full edit form and the subtask quick-edit
-    modal so both behave identically."""
+    from an exclusive parent), store the final names, and run the tag-driven
+    rules (auto-status, auto-assign). Shared by the full edit form and the
+    subtask quick-edit modal so both behave identically."""
     from application.models.tag import Tag
     from application.services.label_rules import apply_label_rules
     # Tags are stored as a list of names; the multi-select submits names.
@@ -359,9 +368,14 @@ def _apply_tags(task: Item, user: User, raw_names) -> None:
                 seen_excl.add(tag.parent)
         final.append(name)
     task.tags = final
-    # Label-driven status: a tag carrying ``maps_to_status`` snaps the task to
-    # that status (authoritative over any explicit status the form supplied).
+    # Label-driven rules for the tags added in this edit: ``maps_to_status``
+    # snaps the task to that status (authoritative over any explicit status
+    # the form supplied), ``assigns_to`` hands it to that person. Returns
+    # whether the assignee moved, which the caller needs to keep an
+    # untouched assignee picker from writing the old value back over it.
+    before = task.assigned_to
     apply_label_rules(task, user, only_tags=set(final) - previously)
+    return task.assigned_to != before
 
 
 def _apply_form(form: TaskForm, task: Item, user: User) -> None:
@@ -375,6 +389,11 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     # can't tell the two apart: a visible-but-unchecked box is absent too.
     # So skip by section instead. ``title`` is pinned and always rendered.
     hidden = hidden_sections(user)
+    # The assignee the picker was rendered with. A tag's auto-assign rule
+    # fires below, while the submitted select still carries the value from
+    # before — so an untouched picker must not write that stale value back.
+    shown_assignee = str(task.assigned_to.pk) if task.assigned_to else ""
+    tag_assigned = False
 
     task.title = form.title.data
     if "note" not in hidden:
@@ -439,7 +458,7 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
             except ValueError:
                 # Tampered POST picking a project the assignee doesn't own → Inbox.
                 task.set_home_for(user, None)
-        _apply_tags(task, user, form.tags.data)
+        tag_assigned = _apply_tags(task, user, form.tags.data)
 
     # Owner (Jira-style, separate from the assignee). Only an existing task has
     # an editable owner — the create form owns itself via the current user, and
@@ -463,7 +482,12 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
             if task.assigned_to is not None and task.assigned_to == new_owner:
                 task.assign_to(None, by_user=user)
 
-    if form.assigned_to.data:
+    if tag_assigned and (form.assigned_to.data or "") == shown_assignee:
+        # A tag just delegated the task and the picker was left alone — the
+        # tag is the newer instruction. Picking somebody else in the same
+        # save still wins: that branch is only skipped for an untouched select.
+        pass
+    elif form.assigned_to.data:
         from application.services.permissions import resolve_assignable_user
         # Selecting the task's OWNER hands it back to them. The owner already
         # owns it, so that's an unassign (Item.assign_to collapses assign-to-owner

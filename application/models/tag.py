@@ -43,6 +43,14 @@ class Tag(EmbeddedDocument):
     # by the inspector, by a Zammad sync, or by a CSV reimport.
     maps_to_status = StringField()
 
+    # Optional auto-assignment. When a task picks up this tag, it is handed
+    # to this person — the ``User`` pk of somebody the tag's owner may assign
+    # to (a member of one of their teams). "Buchhaltung → Anna" said once,
+    # so tagging is enough and nobody has to remember the second step.
+    # Resolved through ``permissions.resolve_assignable_user`` on every use,
+    # so a person who left the team simply stops the rule from firing.
+    assigns_to = StringField()
+
     created_at = DateTimeField(default=_utcnow)
     external_id = StringField()  # opaque id from the importing source
 

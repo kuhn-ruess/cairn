@@ -35,6 +35,15 @@
         → Waiting.
       </div>
     </div>
+    <div class="col-md-6">
+      {{ form.assigns_to.label(class="form-label") }}
+      {{ form.assigns_to(class="form-select form-select-sm") }}
+      <div class="form-text">
+        When this tag is set on a task, hand the task to this person — so
+        delegating is one step and nobody has to remember the second.
+        Picking somebody else on the task itself still wins.
+      </div>
+    </div>
     <div class="col-12">
       <div class="form-check">
         {{ form.is_context(class="form-check-input") }}

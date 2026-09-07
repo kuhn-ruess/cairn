@@ -917,11 +917,12 @@ def sync_notes_cmd(username, dry_run, force):
               help="Limit to a single user; omit to run for everyone.")
 @click.option("--dry-run", is_flag=True, help="Show changes without saving.")
 def apply_label_rules_cmd(username, dry_run):
-    """Re-evaluate Tag.maps_to_status on every existing task.
+    """Re-evaluate the tag rules (auto-status, auto-assign) on every task.
 
-    Useful after setting a new auto-status rule — without this you'd
-    have to wait for the next sync or manual save before tasks pick
-    up the rule.
+    Useful after setting a new rule — without this you'd have to wait for
+    the next sync or manual save before tasks pick it up. A task that is
+    already assigned keeps its assignee: a full scan fills an empty one,
+    it never re-delegates (see services.label_rules).
     """
     from application.models.item import Item
     from application.services.label_rules import apply_label_rules
@@ -935,7 +936,7 @@ def apply_label_rules_cmd(username, dry_run):
                     it.save()
                 n += 1
         total += n
-        click.echo(f"{user.username}: {n} task(s) re-statused")
+        click.echo(f"{user.username}: {n} task(s) updated")
     click.echo(f"{'(dry-run) would update' if dry_run else 'Updated'} {total} task(s) total.")
 
 
