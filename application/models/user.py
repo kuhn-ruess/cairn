@@ -141,6 +141,9 @@ class User(UserMixin, Document):
     notes_mirror_url = StringField()
     notes_mirror_user = StringField()
     notes_mirror_password = StringField()
+    # Write the tasks out too (Tasks/ on the share, one file per task with
+    # its comments — a copy, never read back; see services/tasks_mirror).
+    notes_mirror_tasks = BooleanField(default=False)
     # Minutes between background rounds; 0 = only when the button is pressed.
     notes_mirror_interval = IntField(default=15)
     last_notes_mirror_at = DateTimeField()

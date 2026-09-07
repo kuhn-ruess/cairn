@@ -196,6 +196,17 @@ class DavClient:
             expect=(200, 201, 204))
         return (headers.get("ETag") or headers.get("Etag") or "").strip('"')
 
+    def move(self, src: str, dst: str, *, overwrite: bool = False):
+        """MOVE a resource inside the share. The Destination header wants an
+        absolute URL, and the target's parents have to exist first."""
+        parent = dst.rsplit("/", 1)[0] if "/" in dst else ""
+        if parent:
+            self.makedirs(parent)
+        self._request("MOVE", src, headers={
+            "Destination": self._url(dst),
+            "Overwrite": "T" if overwrite else "F",
+        }, expect=(200, 201, 204))
+
     def delete(self, path: str):
         # 404 is success as far as the mirror is concerned: gone is gone.
         self._request("DELETE", path, expect=(200, 202, 204, 404))

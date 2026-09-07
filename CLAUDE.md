@@ -274,6 +274,15 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   narrow on purpose (a path this app built, for a folder now in the trash,
   with nothing under it but our own `_assets`, and only when the share
   answered a listing at all). The notes tree mirrored to a WebDAV folder as Markdown files (`_assets/<note-id>/` beside each note), **two-way**: each note stores `mirror_path` / `mirror_hash` / `mirror_tag`, the hash is the common ancestor, both sides changed → the file's version is parked as `… (conflict …).md` and comes back as its own note. A file gone trashes its note; a trashed note's file is deleted; an empty listing while notes claim files there deletes nothing. Config per user (`notes_mirror_*`), runs via Celery beat, `./cairn sync-notes`, or the button on Settings → Notes on a share
+- `tasks_mirror.py` — the tasks half of that same round (per-user switch
+  `notes_mirror_tasks`): one reserved `Tasks/` folder on the share, the project
+  tree repeated under it, one Markdown file per task with its comments. **A
+  copy, not a sync** — the notes pass steps over the whole subtree (`owns()`),
+  so a task file is never adopted as a note, and an edit made over there is
+  overwritten. Nothing under `Tasks/` is ever deleted: a file no live task
+  claims (trashed, or swept by the retention cleanup) is MOVED to
+  `Tasks/Archive` and the task's `mirror_path` cleared, so no later round
+  touches it again
 - `outline.py` — **a note body is an outline OR a plain Markdown document**,
   and `Item.note_format` says which (empty = nobody chose, and then
   `outline.format_of()` reads the answer off the text itself — that one

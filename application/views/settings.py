@@ -102,6 +102,7 @@ class NotesMirrorForm(FlaskForm):
     )
     username = StringField("Username", validators=[Optional(), Length(max=255)])
     password = PasswordField("Password", validators=[Optional()])
+    tasks = BooleanField("Write my tasks there too")
     interval = SelectField(
         "Run in the background", choices=[
             ("0", "Only when I press Sync now"),
@@ -928,6 +929,7 @@ def notes_mirror():
             user.notes_mirror_password = encrypt_for_user(user, form.password.data)
         user.notes_mirror_interval = int(form.interval.data or 0)
         user.notes_mirror_enabled = bool(form.enabled.data)
+        user.notes_mirror_tasks = bool(form.tasks.data)
         user.save()
         if form.test.data:
             try:
@@ -945,6 +947,7 @@ def notes_mirror():
         form.url.data = user.notes_mirror_url
         form.username.data = user.notes_mirror_user
         form.interval.data = str(user.notes_mirror_interval or 0)
+        form.tasks.data = user.notes_mirror_tasks
 
     return render_template(
         "settings/notes_mirror.html", form=form, user=user,

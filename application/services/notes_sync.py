@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from application.models.item import Item
+from application.services import tasks_mirror
 from application.services.webdav import DavClient, DavError
 
 ASSETS_DIR = "_assets"
@@ -379,6 +380,8 @@ class MirrorStats:
     folders_created: int = 0
     folders_deleted: int = 0
     assets_written: int = 0
+    tasks_written: int = 0
+    tasks_archived: int = 0
     conflicts: int = 0
     unchanged: int = 0
     errors: list = field(default_factory=list)
@@ -393,6 +396,8 @@ class MirrorStats:
             "folders_created": self.folders_created,
             "folders_deleted": self.folders_deleted,
             "assets_written": self.assets_written,
+            "tasks_written": self.tasks_written,
+            "tasks_archived": self.tasks_archived,
             "conflicts": self.conflicts,
             "unchanged": self.unchanged,
             "errors": self.errors[:10],
@@ -404,6 +409,9 @@ class MirrorStats:
                 f"{self.notes_trashed} trashed"
                 + (f"; {self.folders_deleted} empty folder(s) removed"
                    if self.folders_deleted else "")
+                + (f"; {self.tasks_written} task file(s) written, "
+                   f"{self.tasks_archived} archived"
+                   if (self.tasks_written or self.tasks_archived) else "")
                 + (f"; {self.conflicts} conflict(s)" if self.conflicts else ""))
 
 
@@ -469,7 +477,10 @@ class _Round:
     # ---------- the pass ----------
 
     def run(self) -> None:
-        remote = {e.path: e for e in self.client.walk("", skip=(ASSETS_DIR,))}
+        # The tasks subtree belongs to tasks_mirror and is a copy, not a sync:
+        # left in, every task file would be adopted here as a new note.
+        remote = {e.path: e for e in self.client.walk("", skip=(ASSETS_DIR,))
+                  if not tasks_mirror.owns(e.path)}
         self.files = {p: e for p, e in remote.items()
                       if not e.is_dir and p.lower().endswith(MD)}
         remote_dirs = {p for p, e in remote.items() if e.is_dir}
@@ -539,6 +550,11 @@ class _Round:
         # After the files, so a folder that just lost its last one is empty by
         # the time this looks.
         self.drop_dirs_of_trashed_folders()
+
+        # Tasks last: their folder is written, never read, so nothing above
+        # depends on it — and a failure there must not cost the notes round.
+        if self.user.notes_mirror_tasks:
+            self.mirror_tasks()
 
     # ---------- one note ----------
 
@@ -809,6 +825,22 @@ class _Round:
                 self.stats.files_deleted += 1
             except DavError as exc:
                 self.stats.errors.append(f"{note.mirror_path}: {exc}")
+
+    def mirror_tasks(self) -> None:
+        """The tasks half of the round (see :mod:`tasks_mirror`).
+
+        ``Tasks`` at the root is that module's; a notes folder of the same name
+        would have both halves writing into one directory, so the notes tree
+        keeps it and the tasks are left out with a word about why."""
+        if tasks_mirror.TASKS_DIR in {p.split("/", 1)[0] for p in self.paths.values()}:
+            self.stats.errors.append(
+                f"A notes folder called '{tasks_mirror.TASKS_DIR}' sits at the root "
+                "of the share — rename it to mirror tasks as well.")
+            return
+        try:
+            tasks_mirror.sync(self)
+        except DavError as exc:
+            self.stats.errors.append(f"{tasks_mirror.TASKS_DIR}: {exc}")
 
     # ---------- helpers ----------
 
