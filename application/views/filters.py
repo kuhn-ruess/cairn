@@ -37,6 +37,43 @@ def _is_handoff(url):
     return url.startswith(_HANDOFF_SCHEMES) or bool(_X_SCHEME_RE.match(url))
 
 
+# A rendered code block or code span, taken whole. Safe to read with a regex
+# *here* and nowhere else: this only ever runs on bleach.clean output, whose
+# tag set is a short allowlist and where an angle bracket inside the code is
+# already an entity — so the first ``</pre>`` really is the end of the block.
+_CODE_HTML_RE = re.compile(
+    r"<pre\b[^>]*>.*?</pre>|<code\b[^>]*>.*?</code>", re.S | re.I)
+
+
+def _linkify_outside_code(html, callbacks):
+    """``bleach.linkify``, leaving code alone — without wrecking it.
+
+    Its own ``skip_tags`` does not skip: it re-serializes the text it passed
+    over, and escapes it a second time on the way out, so ``&lt;`` becomes
+    ``&amp;lt;`` and a snippet of ``<<<placeholder>>>`` renders as entity soup.
+    Dropping ``skip_tags`` keeps the entities but then links every URL inside a
+    code sample, which is the thing it was there to prevent.
+
+    So the code comes out first, the rest is linked, and the code goes back in
+    exactly as it was. The marker carries a random tail: it has to be something
+    linkify leaves alone (letters and digits — no dot, or it reads as a domain)
+    that cannot collide with what somebody actually wrote."""
+    import bleach
+    from uuid import uuid4
+
+    kept = []
+    marker = "cairncodeslot" + uuid4().hex
+
+    def stash(match):
+        kept.append(match.group(0))
+        return f"{marker}{len(kept) - 1}x"
+
+    linked = bleach.linkify(_CODE_HTML_RE.sub(stash, html), callbacks=callbacks)
+    for i, block in enumerate(kept):
+        linked = linked.replace(f"{marker}{i}x", block, 1)
+    return linked
+
+
 def _img_attr_ok(tag, name, value):
     if name in ("alt", "title"):
         return True
@@ -490,11 +527,10 @@ def register_filters(app):
         )
         # Auto-link bare URLs / emails that weren't written with Markdown
         # link syntax (e.g. a pasted https://… or an app link). Existing
-        # <a> tags are left alone by linkify; code/pre are skipped so URLs
-        # in snippets stay literal. Open in a new tab, no referrer leak.
-        cleaned = bleach.linkify(
-            cleaned, callbacks=[_link_target], skip_tags=["pre", "code"],
-        )
+        # <a> tags are left alone by linkify; code and pre stay literal, which
+        # is what _linkify_outside_code is for (bleach's own skip_tags escapes
+        # the code a second time). Open in a new tab, no referrer leak.
+        cleaned = _linkify_outside_code(cleaned, [_link_target])
         return Markup(cleaned)
 
     @app.template_filter("note_md")
