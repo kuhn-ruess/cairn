@@ -2,7 +2,8 @@
 
 Recognises a single line of free text and extracts task metadata:
 
-* ``@name``      → tag (case-insensitive match on the user's existing tags)
+* ``@name``      → tag (case-insensitive match on the user's existing tags);
+  a tag whose name has spaces is written ``@"Review AI Work"``
 * ``#name``      → project (case-insensitive match on the user's projects)
 * ``p1``…``p4``  → priority (Todoist convention — 1 highest, 4 lowest)
 * ``!``          → flag the task
@@ -32,7 +33,9 @@ WEEKDAYS = {
 }
 
 PRIORITY_RE = re.compile(r"(?<!\S)p([1-4])(?!\S)", re.IGNORECASE)
-TAG_RE = re.compile(r"(?<!\S)@([A-Za-z0-9_\-äöüÄÖÜß]+)\b")
+# A tag is one word — or any name at all between quotes, which is the only
+# way to reach the many tags whose names have spaces ("Review AI Work").
+TAG_RE = re.compile(r'(?<!\S)@(?:"([^"\n]+)"|([A-Za-z0-9_\-äöüÄÖÜß]+)\b)')
 PROJECT_RE = re.compile(r"(?<!\S)#([A-Za-z0-9_\-äöüÄÖÜß]+)\b")
 ASSIGNEE_RE = re.compile(r"(?<!\S)\+([A-Za-z0-9._\-äöüÄÖÜß]+)\b")
 FLAG_RE = re.compile(r"(?<!\S)!(?!\S)")
@@ -52,7 +55,7 @@ WEEKDAY_RE = re.compile(
 class ParsedTask:
     title: str = ""
     project: Any = None
-    tags: list = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)   # names, as on ``Item.tags``
     priority: int | None = None
     due_date: datetime | None = None
     flagged: bool = False
@@ -65,7 +68,7 @@ class ParsedTask:
         return {
             "title": self.title,
             "project": str(self.project) if self.project else None,
-            "tags": [str(t) for t in self.tags],
+            "tags": list(self.tags),
             "priority": self.priority,
             "due_date": self.due_date.isoformat() if self.due_date else None,
             "flagged": self.flagged,
@@ -100,12 +103,15 @@ def parse_task_text(text: str, user, default_project=None) -> ParsedTask:
         parsed.flagged = True
         text = FLAG_RE.sub(" ", text)
 
-    # Tags — multiple allowed; resolved against the user's embedded tags.
+    # Tags — multiple allowed; resolved against the user's embedded tags, and
+    # handed back as NAMES, which is what ``Item.tags`` is a list of. Handing
+    # back the embedded tag document instead is how a caller ended up assigning
+    # objects to a list of strings and 500ing on save.
     for tm in TAG_RE.finditer(text):
-        name = tm.group(1)
+        name = tm.group(1) or tm.group(2)
         tag = user.tag_by_name(name)
         if tag:
-            parsed.tags.append(tag)
+            parsed.tags.append(tag.name)
         else:
             parsed.unresolved_tags.append(name)
     text = TAG_RE.sub(" ", text)

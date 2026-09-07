@@ -118,7 +118,7 @@ def _create_task(tnode: TaskNode, parent_item, user, stats: dict, order: int,
 
     parsed = parse_task_text(tnode.title, user)
     title = parsed.title or tnode.title
-    tag_names = [t.name for t in parsed.tags]
+    tag_names = list(parsed.tags)
     # ``#project`` on the line beats the picked target — but only for a
     # top-level line; a sub-task belongs to the task above it.
     target = parent_item

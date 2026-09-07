@@ -32,11 +32,11 @@ def _apply_smart_tokens(task: "Item", raw_title: str, user) -> None:
     if parsed.tags:
         merged = list(task.tags or [])
         existing = {n.lower() for n in merged}
-        for tag in parsed.tags:
-            if tag.name.lower() not in existing:
-                merged.append(tag.name)
-                existing.add(tag.name.lower())
-                added.add(tag.name)
+        for name in parsed.tags:
+            if name.lower() not in existing:
+                merged.append(name)
+                existing.add(name.lower())
+                added.add(name)
         task.tags = merged
     if parsed.priority and not task.priority:
         task.priority = parsed.priority
@@ -2058,6 +2058,36 @@ def delete(task_id):
         back = url_for("dashboard.home")
     return redirect(back)
 
+@tasks_bp.route("/tag-names")
+@login_required
+def tag_names():
+    """The user's tags for the ``@name`` quick-add autocomplete. Optional
+    ``?q=`` filters by substring.
+
+    Typing a tag name blind is how tags got assigned to nothing: the parser
+    only accepts a tag that exists, and half of them have spaces in the name.
+    The list answers both — it shows what there is, and it hands back the
+    token to write (quoted when the name has a space)."""
+    from flask import jsonify
+    user = current_user._get_current_object()
+    q = (request.args.get("q") or "").strip().lower()
+    out = []
+    seen = set()
+    for tag in user.tags or []:
+        name = tag.name or ""
+        if q and q not in name.lower():
+            continue
+        if name.lower() in seen:
+            continue                       # older data holds the odd duplicate
+        seen.add(name.lower())
+        out.append({
+            "name": name,
+            "color": tag.color or "",
+            "token": f'@"{name}"' if " " in name else f"@{name}",
+        })
+    out.sort(key=lambda t: t["name"].lower())
+    return jsonify({"tags": out[:20]})
+
 @tasks_bp.route("/assignees")
 @login_required
 def assignees():
@@ -3716,7 +3746,7 @@ def subtasks(task_id):
             sub = Item(
                 owner=user, kind="task", parent=task, status="next",
                 title=(parsed.title or raw)[:500],
-                tags=[t.name for t in parsed.tags],
+                tags=list(parsed.tags),
                 priority=parsed.priority,
                 due_date=parsed.due_date,
                 flagged=parsed.flagged,

@@ -52,6 +52,7 @@
   // ----- Light client-side preview parser (mirrors server tokens) -----
   const PREVIEW_PATTERNS = [
     { re: /(?<!\S)p([1-4])(?!\S)/i, label: m => `P${m[1]}`, cls: "qa-prio" },
+    { re: /(?<!\S)@"([^"\n]+)"/g, label: m => `@${m[1]}`, cls: "qa-tag" },
     { re: /(?<!\S)@([\w\-äöüÄÖÜß]+)\b/g, label: m => `@${m[1]}`, cls: "qa-tag" },
     { re: /(?<!\S)#([\w\-äöüÄÖÜß]+)\b/g, label: m => `#${m[1]}`, cls: "qa-project" },
     { re: /(?<!\S)\+([\w.\-äöüÄÖÜß]+)\b/g, label: m => `+${m[1]}`, cls: "qa-assignee" },
@@ -108,23 +109,59 @@
   }
   input.addEventListener("input", () => { preview(); updateProjectHint(); });
 
-  // ----- Assignee autocomplete for the +name token -----
-  // A small dropdown appears while typing a +token at the caret; picking an
-  // entry replaces the partial token with the full +username.
+  // ----- Autocomplete for the +assignee and @tag tokens -----
+  // A small dropdown appears while typing either token at the caret; picking
+  // an entry replaces the partial token with the whole one. Tags share the box
+  // because typing one blind is how they silently ended up unassigned: the
+  // parser only takes a tag that exists, and a name with spaces has to be
+  // written quoted (`@"Review AI Work"`) — the list writes that for you.
+  // (`qa-assignee-ac` is also the comment @-mention box's class.)
   const acBox = document.createElement("div");
   acBox.className = "qa-assignee-ac d-none";
   (previewEl.parentNode || modalEl).insertBefore(acBox, previewEl);
-  let acItems = [];
+  let acItems = [];     // [{ token, html }]
   let acIndex = -1;
-  let acToken = null;   // { start, end, query }
+  let acToken = null;   // { start, end, query, kind }
   let acSeq = 0;
+
+  const AC_SOURCES = {
+    user: {
+      re: /(?:^|\s)(\+[\w.\-äöüÄÖÜß]*)$/,
+      url: q => `/tasks/assignees?q=${encodeURIComponent(q)}`,
+      items: data => (data.users || []).map(u => ({
+        token: "+" + u.username,
+        html: '<i class="bi bi-person"></i> '
+          + (u.display_name && u.display_name !== u.username
+             ? `${escape(u.username)} <span class="text-muted">${escape(u.display_name)}</span>`
+             : escape(u.username))
+          + (u.is_me ? ' <span class="text-muted">(me)</span>' : ""),
+      })),
+    },
+    tag: {
+      // Either half of a quoted name (spaces allowed inside) or a bare word.
+      re: /(?:^|\s)(@"[^"\n]*|@[\w\-äöüÄÖÜß]*)$/,
+      url: q => `/tasks/tag-names?q=${encodeURIComponent(q)}`,
+      items: data => (data.tags || []).map(t => ({
+        token: t.token,
+        // The tag's own colour, but only if it really is one — this goes in
+        // through innerHTML, so anything else is dropped rather than trusted.
+        html: `<i class="bi bi-tag"${/^#[0-9a-f]{3,8}$/i.test(t.color || "")
+                 ? ` style="color: ${t.color}"` : ""}></i> ${escape(t.name)}`,
+      })),
+    },
+  };
 
   function tokenAtCaret() {
     const pos = input.selectionStart || 0;
     const before = input.value.slice(0, pos);
-    const m = before.match(/(?:^|\s)\+([\w.\-äöüÄÖÜß]*)$/);
-    if (!m) return null;
-    return { start: pos - m[1].length, end: pos, query: m[1] };
+    for (const [kind, src] of Object.entries(AC_SOURCES)) {
+      const m = before.match(src.re);
+      if (!m) continue;
+      const raw = m[1];
+      const query = raw.startsWith('@"') ? raw.slice(2) : raw.slice(1);
+      return { start: pos - raw.length, end: pos, query, kind };
+    }
+    return null;
   }
 
   function hideAc() {
@@ -135,13 +172,9 @@
 
   function renderAc() {
     if (!acItems.length) { hideAc(); return; }
-    acBox.innerHTML = acItems.map((u, i) => {
-      const label = u.display_name && u.display_name !== u.username
-        ? `${escape(u.username)} <span class="text-muted">${escape(u.display_name)}</span>`
-        : escape(u.username);
-      return `<button type="button" class="qa-ac-item${i === acIndex ? " active" : ""}" data-i="${i}">`
-        + `<i class="bi bi-person"></i> ${label}${u.is_me ? ' <span class="text-muted">(me)</span>' : ""}</button>`;
-    }).join("");
+    acBox.innerHTML = acItems.map((it, i) =>
+      `<button type="button" class="qa-ac-item${i === acIndex ? " active" : ""}" `
+      + `data-i="${i}">${it.html}</button>`).join("");
     acBox.classList.remove("d-none");
   }
 
@@ -149,23 +182,22 @@
     const tok = tokenAtCaret();
     if (!tok) { hideAc(); return; }
     acToken = tok;
+    const src = AC_SOURCES[tok.kind];
     const seq = ++acSeq;
     try {
-      const resp = await fetch(`/tasks/assignees?q=${encodeURIComponent(tok.query)}`,
-                               { credentials: "same-origin" });
+      const resp = await fetch(src.url(tok.query), { credentials: "same-origin" });
       if (!resp.ok || seq !== acSeq) return;
-      const data = await resp.json();
-      acItems = data.users || [];
+      acItems = src.items(await resp.json());
       acIndex = acItems.length ? 0 : -1;
       renderAc();
     } catch (e) { hideAc(); }
   }
 
   function applyAc(i) {
-    const u = acItems[i];
-    if (!u || !acToken) return;
+    const item = acItems[i];
+    if (!item || !acToken) return;
     const v = input.value;
-    const replacement = "+" + u.username + " ";
+    const replacement = item.token + " ";
     input.value = v.slice(0, acToken.start) + replacement + v.slice(acToken.end);
     const caret = acToken.start + replacement.length;
     input.setSelectionRange(caret, caret);
