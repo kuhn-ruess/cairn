@@ -62,7 +62,7 @@
   {% set tasks_here = tasks_by_project.get(p.pk|string, []) %}
   {% set is_empty_project = (p.kind == 'project') and (not children) and (not tasks_here) %}
   <li class="tree-project" data-project-id="{{ p.pk }}" data-sp-id="{{ p.pk }}"
-      data-kind="{{ p.kind }}"
+      data-kind="{{ p.kind }}" data-title="{{ p.name }}"
       data-filter-text="{{ p.name|lower }}">
     <div class="tree-project-header" style="padding-left: {{ depth * 18 }}px;">
       <i class="bi bi-grip-vertical text-muted project-handle"

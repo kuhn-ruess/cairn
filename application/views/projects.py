@@ -683,6 +683,12 @@ def detail(project_id):
     # to the right view so the URL never shows the same item twice.
     if project.kind == "task":
         return redirect(url_for("tasks.detail", task_id=project_id))
+    # Same for a folder from the *notes* tree: it renders here as a project
+    # folder whose children are notes, next to a sidebar that (correctly)
+    # leaves it out — which reads as a folder that lost its contents. The
+    # command bar links every folder here, so this is the arrival point.
+    if project.kind == "folder" and project.folder_domain == "notes":
+        return redirect(url_for("notes.detail", note_id=project_id))
 
     grouping = (request.args.get("group") or project.task_grouping or "project").strip()
     if grouping in ("section", "subproject"):

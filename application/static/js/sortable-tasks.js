@@ -264,7 +264,19 @@
       const tag = (row.tagName || "").toLowerCase();
       const attr = row.dataset.spId ? "data-sp-id" : "data-project-id";
       const selector = `${tag}[${attr}="${pid}"]`;
-      return { url: `/projects/${pid}/delete`, selector };
+      // A container goes to the trash with everything filed under it, and the
+      // rows it takes are not on screen to see leave. That is not a keystroke
+      // ("d" sits next to "m", which moves) or a stray click away — ask first.
+      // A task stays instant: it is the one row, and it is the row you see go.
+      const kind = row.dataset.kind || "folder";
+      const name = row.dataset.title || "";
+      return {
+        url: `/projects/${pid}/delete`,
+        selector,
+        confirm: name
+          ? `Move the ${kind} “${name}” and everything filed under it to the trash?`
+          : `Move this ${kind} and everything filed under it to the trash?`,
+      };
     }
     const tag = row.dataset.tagName;
     if (tag) {
@@ -301,6 +313,14 @@
       if (btn.dataset.projectId) return `.tree-project[data-project-id="${btn.dataset.projectId}"]`;
       return null;
     })();
+    // The trash button on a container asks the same question the ``d``
+    // shortcut does — see _deleteSpecFor.
+    if (btn.dataset.projectId && !btn.dataset.taskId) {
+      const spec = _deleteSpecFor(btn.closest("[data-project-id]")) || {};
+      const ask = spec.confirm
+        || "Move this container and everything filed under it to the trash?";
+      if (!window.confirm(ask)) return;
+    }
     deleteItem(url, selector);
   });
 

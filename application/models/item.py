@@ -1627,17 +1627,18 @@ class Item(Document):
         return self.can_be_viewed_by(user)
 
     def can_be_deleted_by(self, user: User) -> bool:
-        """Who may put this in the trash — deliberately narrower than editing.
+        """Who may put this in the trash: whoever may edit it.
 
-        Editing is viewing (above): every member of a shared folder may write
-        in it. Deleting it takes the whole subtree with it, other people's
-        items included, so it stays with the people answerable for that tree:
-        the owner, whoever owns a folder it sits in, and the admin of a team it
-        (or an ancestor) is shared with — the same two grants a descendant's
-        own share cannot narrow away, see :meth:`_ancestor_grant`."""
-        if self.owner == user:
-            return True
-        return self._ancestor_grant(user)
+        Deleting is a soft delete — the subtree goes to the trash and comes
+        back from it — so the question is not "may this be destroyed" but "is
+        this yours to tidy up", and for shared work the answer is everyone who
+        works in it. Reserving it for the owner is what left a folder shared
+        with a whole team removable by nobody present: the account that created
+        it may be a bot, or long gone from the team.
+
+        Named apart from :meth:`can_be_edited_by` on purpose — this is the one
+        place to narrow it again if a delete ever stops being reversible."""
+        return self.can_be_edited_by(user)
 
     def regenerate_share_token(self) -> str:
         import secrets
