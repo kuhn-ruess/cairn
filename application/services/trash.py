@@ -90,7 +90,15 @@ def restore_item(item) -> int:
     top level, where its owner can see it and file it again."""
     from application.models.item import Item
     pks = _subtree_pks(item.pk)
-    n = Item.all_objects(pk__in=pks, trashed_at__ne=None).update(
+    # Only what went in WITH it. ``trash_item`` stamps a whole cascade in one
+    # update, so one deletion is one exact ``trashed_at`` — and anything under
+    # here carrying a different stamp was thrown away separately, usually long
+    # before. Undoing one deletion must not undo those too: emptying a folder
+    # over months and then deleting it would bring the months back.
+    stamp = item.trashed_at
+    if stamp is None:
+        return 0
+    n = Item.all_objects(pk__in=pks, trashed_at=stamp).update(
         unset__trashed_at=True
     )
     if not _parent_is_reachable(item):
@@ -119,19 +127,27 @@ def purge_item(item) -> int:
 
 
 def trashed_roots(user):
-    """Trashed items the user owns that sit at the *top* of a trashed subtree
-    (their parent isn't itself trashed) — what the trash view lists, so a
-    trashed project shows once rather than once per descendant."""
+    """Trashed items the user owns that sit at the *top* of one deletion — what
+    the trash view lists, so a trashed project shows once rather than once per
+    descendant.
+
+    "Top of one deletion", not "top of the trash": an item whose parent is also
+    in the trash but from a *different* moment was thrown away on its own, and
+    :func:`restore_item` leaves it there when the parent comes back. It has to
+    be listed in its own right or it would be in the trash and on no page."""
     from application.models.item import Item
     items = list(
         Item.all_objects(owner=user, trashed_at__ne=None)
         .order_by("-trashed_at")
     )
-    trashed_pks = {i.pk for i in items}
+    stamps = {i.pk: i.trashed_at for i in items}
     roots = []
     for i in items:
-        parent_pk = i.parent.pk if i.parent else None
-        if parent_pk not in trashed_pks:
+        # Raw read: a parent whose document is gone must not raise here, of all
+        # places — the trash is where such an item gets dealt with.
+        raw = i._data.get("parent")
+        parent_pk = getattr(raw, "id", None) or getattr(raw, "pk", None)
+        if parent_pk not in stamps or stamps[parent_pk] != i.trashed_at:
             roots.append(i)
     return roots
 
