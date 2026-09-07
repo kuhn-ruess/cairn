@@ -27,7 +27,7 @@ the compose project name silently swaps the named volume (`bktodo_mongo-data`)
 and loses the user's data. Containers are intentionally named `bktodo-app-1` /
 `bktodo-mongo-1`.
 
-`./cairn` is the canonical CLI wrapper; `./bktodo` is a symlink to it.
+`./cairn` is the CLI wrapper (the old `./bktodo` symlink beside it is gone).
 
 ## Common commands
 
