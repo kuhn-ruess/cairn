@@ -1,0 +1,77 @@
+# Deploy to prod on every push to main.
+#
+# Runs on a SELF-HOSTED runner installed on the prod server (Settings →
+# Actions → Runners → New self-hosted runner, then `./svc.sh install &&
+# ./svc.sh start`). The runner user needs to be able to run `docker` and
+# `docker-compose` — prod is on the legacy v1 binary, so `docker compose`
+# (v2, with a space) is NOT what this calls.
+#
+# It deliberately does NOT check the repo out: prod is deployed from the
+# working copy at DEPLOY_DIR, which is where `.env` lives and which owns the
+# `bktodo_mongo-data` volume through the `-p bktodo` project name. Building
+# from a runner workspace instead would come up as a second, empty stack.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:          # …and a button, for a re-run after a failure
+
+# One deploy at a time, and never cancel one half-way through a rebuild:
+# a queued push waits for the running build instead of racing it.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  DEPLOY_DIR: /root/git/cairn
+  # The container directly, not the public name: this asks whether the build
+  # that was just started is serving, without the reverse proxy or DNS in the
+  # answer.
+  HEALTH_URL: http://127.0.0.1:8004/api/v1/openapi.json
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    steps:
+      - name: Pull
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_DIR"
+          git pull --ff-only origin main
+          # Fails loudly when the working copy carries local commits or edits
+          # that made the pull land somewhere else — better than deploying a
+          # tree nobody can identify.
+          git merge-base --is-ancestor "$GITHUB_SHA" HEAD
+          git --no-pager log --oneline -1
+
+      - name: Rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_DIR"
+          docker-compose -f docker-compose.v1.yml -p bktodo up --build --force-recreate -d
+
+      - name: Wait for the new build to serve
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_DIR"
+          # The pre-commit hook bumps APP_VERSION on every commit, so it is an
+          # exact build marker: the version the API reports is the only proof
+          # that the running image is this commit and not the previous one.
+          want=$(sed -n 's/^APP_VERSION = "\(.*\)"/\1/p' application/__init__.py)
+          echo "expecting $want"
+          for i in $(seq 1 30); do
+            got=$(curl -fsS --max-time 5 "$HEALTH_URL" \
+                  | python3 -c 'import json,sys; print(json.load(sys.stdin)["info"]["version"])' \
+                  2>/dev/null || true)
+            [ "$got" = "$want" ] && echo "live: $got" && exit 0
+            echo "  …$i: ${got:-no answer}"
+            sleep 5
+          done
+          echo "::error::still not serving $want after 150s"
+          docker-compose -f docker-compose.v1.yml -p bktodo logs --tail=50 app
+          exit 1
