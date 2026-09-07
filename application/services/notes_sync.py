@@ -68,6 +68,30 @@ def _hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _parse_dt(value: str):
+    """A timestamp from over there as an aware datetime, or None.
+
+    Two shapes reach this: the ISO stamp in front matter we wrote, and the
+    HTTP date the share answers with (``Last-Modified``).
+    """
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    for read in (datetime.fromisoformat, _http_date):
+        try:
+            dt = read(raw)
+        except (TypeError, ValueError):
+            continue
+        if dt is not None:
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return None
+
+
+def _http_date(raw: str):
+    from email.utils import parsedate_to_datetime
+    return parsedate_to_datetime(raw)
+
+
 def _stamp(dt) -> str:
     if not dt:
         return ""
@@ -118,6 +142,36 @@ def assets_dir(path: str, note_id) -> str:
 # A Markdown link whose target is a local .md file, with an optional fragment:
 # what this module writes, and what it reads back.
 FILE_LINK_RE = re.compile(r"\[([^\]\n]*)\]\(([^)\s]+?\.md)(?:#([^)\s]*))?\)", re.I)
+
+
+# A block property (``id:: …``, ``collapsed:: …``) as the outline writes it:
+# a line of its own, two spaces past the bullet. Markdown does not read it as a
+# line of its own, though — it is a lazy continuation, so every renderer prints
+# it INSIDE the bullet's text, which is where the machine noise showed up.
+PROP_LINE_RE = re.compile(
+    r"^(\t*  )([A-Za-z0-9_][A-Za-z0-9_-]*):: ?(.*)$", re.M)
+HIDDEN_PROP_RE = re.compile(
+    r"^(\t*  )<!-- ([A-Za-z0-9_][A-Za-z0-9_-]*):: ?(.*?) -->$", re.M)
+
+
+def hide_props(body: str) -> str:
+    """Block properties as HTML comments, for the mirrored file.
+
+    They cannot simply be dropped: ``id::`` is what a ``((block reference))``
+    from another note points at, and a file that came home without it would
+    quietly break every reference into that page. So they are written as
+    comments instead — invisible in anything that renders Markdown, still
+    there in the text, and read back by :func:`show_props`.
+    """
+    return PROP_LINE_RE.sub(
+        lambda m: f"{m.group(1)}<!-- {m.group(2)}:: {m.group(3)} -->", body)
+
+
+def show_props(body: str) -> str:
+    """The inverse. Unconditional on the way in: nobody writes that shape by
+    hand, and someone who did meant a property."""
+    return HIDDEN_PROP_RE.sub(
+        lambda m: f"{m.group(1)}{m.group(2)}:: {m.group(3)}", body)
 
 
 class LinkMap:
@@ -235,6 +289,7 @@ def body_from_file(note, body: str, path: str = "", links=None) -> str:
     """The reverse. Written loosely on purpose: an editor may have moved the
     file (and with it the number of ``../``), and the app only cares about the
     note id and file name."""
+    body = show_props(body)
     pattern = re.compile(
         r"(?:\.\./)*" + re.escape(ASSETS_DIR) + r"/" + re.escape(str(note.pk))
         + r"/([^\s)\"']+)")
@@ -266,6 +321,7 @@ def render(note, path: str, links=None) -> str:
     """The complete file for ``note``: front matter, then the body."""
     from application.services import outline
     tags = ", ".join(note.tags or [])
+    fmt = outline.format_of(note.note or "", note.note_format or "")
     head = [
         "---",
         f"cairn-id: {note.pk}",
@@ -275,13 +331,15 @@ def render(note, path: str, links=None) -> str:
         # from here: put ``format: markdown`` in a file and the note stops
         # being an outline on the next round. An outline stays an outline in
         # the file too — bullets and all — because that is what it is.
-        f"format: {outline.format_of(note.note or '', note.note_format or '')}",
+        f"format: {fmt}",
         f"created: {_stamp(note.created_at)}",
         f"updated: {_stamp(note.updated_at)}",
         "---",
         "",
     ]
     body = body_to_file(note, note.note or "", path, links)
+    if fmt == "outline":
+        body = hide_props(body)
     return "\n".join(head) + body
 
 
@@ -602,7 +660,7 @@ class _Round:
             # The file moved or was renamed over there. That is the file
             # winning — location, name and text — which is what dragging a
             # document into another folder means.
-            self.apply_remote(note, path, remote_text, moved=True)
+            self.apply_remote(note, path, remote_text, moved=True, entry=entry)
             return
 
         if not remote_changed and not local_changed:
@@ -622,7 +680,7 @@ class _Round:
             return
 
         if remote_changed:
-            self.apply_remote(note, path, remote_text, moved=moved)
+            self.apply_remote(note, path, remote_text, moved=moved, entry=entry)
             return
 
         if path != want_path:
@@ -711,7 +769,8 @@ class _Round:
                               "text/markdown; charset=utf-8")
         self.stats.conflicts += 1
 
-    def apply_remote(self, note, path: str, remote_text: str, *, moved=False) -> None:
+    def apply_remote(self, note, path: str, remote_text: str, *, moved=False,
+                     entry=None) -> None:
         """The file won: take its text (title, tags, body) into the note, then
         write the note back so the file carries current front matter again."""
         meta, body = parse(remote_text)
@@ -731,6 +790,11 @@ class _Round:
             note_links.rebuild(note, note_links.title_index(self.user))
         was_at = note.mirror_path or ""
         note.save()
+        # When the file was last touched, not when this round noticed. The edit
+        # happened over there, and stamping it "now" is how a note edited in
+        # DEVONthink last week came home at the top of the recently-changed
+        # list — and how an imported archive lost its dates altogether.
+        self.retime(note, updated=self.remote_time(entry, meta))
         self.stats.notes_updated += 1
         # Write back: the body came from there, but ``updated`` moved, and a
         # stale one would read as a change next round and push for nothing.
@@ -758,6 +822,11 @@ class _Round:
             return
         note.parent = self.folder_for(path)
         note.save()
+        updated = self.remote_time(self.files.get(path), meta)
+        # ``created:`` is the only place a file's real age survives; the share's
+        # modification time is not one (a copied file is modified today).
+        self.retime(note, created=_parse_dt(meta.get("created")) or updated,
+                    updated=updated)
         self.stats.notes_created += 1
         # Write it back so the file gains its cairn-id and is tracked from now
         # on — at the path it already has, so nothing moves under the user.
@@ -843,6 +912,33 @@ class _Round:
             self.stats.errors.append(f"{tasks_mirror.TASKS_DIR}: {exc}")
 
     # ---------- helpers ----------
+
+    @staticmethod
+    def remote_time(entry, meta: dict):
+        """When the file says it changed: the share's own Last-Modified first.
+
+        An editor that rewrites a document does not rewrite the ``updated:``
+        line we once put in its front matter, so that header is the older and
+        less honest of the two. It is the fallback for a share that answers no
+        modification time at all.
+        """
+        return (_parse_dt(getattr(entry, "mtime", "")) if entry is not None
+                else None) or _parse_dt(meta.get("updated"))
+
+    def retime(self, note, *, created=None, updated=None) -> None:
+        """Put the file's timestamps on the note — with an atomic update.
+
+        ``Item.save`` stamps ``updated_at`` itself, so this has to come after
+        the save and go around it, the same way ``remember`` does."""
+        fields = {}
+        if created:
+            note.created_at = created
+            fields["set__created_at"] = created
+        if updated:
+            note.updated_at = updated
+            fields["set__updated_at"] = updated
+        if fields and not self.dry_run:
+            Item.all_objects(pk=note.pk).update(**fields)
 
     def _title_from(self, note, meta: dict, path: str) -> None:
         """Whichever of the two names the user actually changed wins: the

@@ -267,7 +267,13 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   `{{embed …}}` become relative Markdown links, so DEVONthink/Obsidian/any
   editor can follow them. A reference keeps its id in the link's *fragment*
   (`#block-…`, `#embed-…`) — other apps ignore it, and it is the only way the
-  id survives the round trip back. `LinkMap.path_of()` is the single answer to
+  id survives the round trip back. A block PROPERTY (`id::`, `collapsed::`) is written as an
+  HTML comment over there (`hide_props`/`show_props`): Markdown reads that
+  line as a lazy continuation and prints it inside the bullet's text, and
+  dropping it instead would break every `((block reference))` into the page
+  on the way home. A file that comes home brings its own timestamps — the
+  share's `Last-Modified` first, front matter second — so an imported
+  archive keeps its dates. `LinkMap.path_of()` is the single answer to
   "where does this note's file go"; do not call `path_for` a second time
   alongside it. A trashed folder's now-empty directory is removed over there
   too — the only place the mirror deletes a *collection*, so the rule is
