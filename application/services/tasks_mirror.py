@@ -14,14 +14,29 @@ something nobody edits in a text editor. So the notes round steps over this
 whole subtree — a file here never becomes a note — and an edit made over there
 is overwritten on the next round.
 
-The one deletion rule
----------------------
-A file under ``Tasks/`` that no live task claims any more — the task was
-trashed, or swept by the retention cleanup — is **moved into**
-``Tasks/Archive`` and forgotten: the task's ``mirror_path`` is cleared, so no
-later round touches that file again. Nothing under ``Tasks/`` is deleted, ever.
-That is the point of the folder: a task that goes away in Cairn does not take
-its comment history off the NAS with it.
+What lands where
+----------------
+``Tasks/Archive`` repeats the same tree once more, and a file gets there two
+ways:
+
+* **A task that is done or dropped** is filed under the archive instead of the
+  live tree, in the same place it would have had — so the tree beside it stays
+  the list of what is open. The task keeps pointing at its file, which is what
+  brings the file back out when the task is reopened.
+* **A file no live task claims any more** — the task was trashed, or swept by
+  the retention cleanup — is moved in and *forgotten*: the task's
+  ``mirror_path`` is cleared, so no later round touches that file again. This
+  is the one-way door, and it is why nothing under ``Tasks/`` is ever deleted:
+  a task that goes away in Cairn does not take its comment history off the NAS
+  with it.
+
+That second pass looks at the live tree only — a file already in the archive
+would otherwise be moved one level deeper on every round.
+
+**A recurring task is not written at all** (Spanish practice, the weekly
+review): what matters about it is the next occurrence, not the record, and one
+archived file per repetition would bury the tasks that are worth reading over
+there.
 
 Archiving is a MOVE, so the guard the notes half needs (an empty listing must
 not read as a mass deletion) has nothing to protect here: only a file that is
@@ -30,7 +45,6 @@ nothing.
 """
 from __future__ import annotations
 
-import posixpath
 from datetime import datetime, timezone
 
 from application.models.item import Item
@@ -40,6 +54,8 @@ TASKS_DIR = "Tasks"
 ARCHIVE_DIR = f"{TASKS_DIR}/Archive"
 INBOX_DIR = "Inbox"
 MD = ".md"
+# A task in one of these is history: its file belongs in the archive tree.
+DONE_STATUS = ("done", "dropped")
 
 _EPOCH = datetime.min.replace(tzinfo=timezone.utc)
 
@@ -48,6 +64,19 @@ def owns(path: str) -> bool:
     """Is ``path`` inside the tasks subtree? The notes round asks this to keep
     its hands off — otherwise every task file would be adopted as a note."""
     return path == TASKS_DIR or path.startswith(f"{TASKS_DIR}/")
+
+
+def repeats(task) -> bool:
+    """Is this a recurring task? The mirror skips them. Same test the model
+    makes when it decides whether completing one spawns the next occurrence."""
+    return bool(task.repeat_every_days or task.repeat_weekdays
+                or task.repeat_monthday)
+
+
+def archived(path: str) -> str:
+    """The same path one level in, under ``Tasks/Archive``."""
+    rest = path[len(TASKS_DIR) + 1:]
+    return f"{ARCHIVE_DIR}/{rest}" if rest else ARCHIVE_DIR
 
 
 def _ref_id(item, field: str) -> str:
@@ -174,13 +203,14 @@ def sync(round_) -> None:
     rather than opening a second connection: it is one share and one pass
     over it.
     """
-    from application.services.notes_sync import safe_name
-
     user, stats = round_.user, round_.stats
     present = _listing(round_)
     paths = container_paths(user)
-    tasks = list(Item.objects(owner=user, kind="task"))
-    task_parents = {str(t.pk): _ref_id(t, "parent") for t in tasks}
+    everything = list(Item.objects(owner=user, kind="task"))
+    # The parent chain has to know about the skipped ones too: a sub-task of a
+    # recurring task still has to find its way up to a project.
+    task_parents = {str(t.pk): _ref_id(t, "parent") for t in everything}
+    tasks = [t for t in everything if not repeats(t)]
     people = _people_for(tasks)
 
     claimed: set[str] = set()
@@ -188,11 +218,7 @@ def sync(round_) -> None:
     # By id, which for an ObjectId is creation order: a task that already owns
     # a name keeps it instead of two same-named tasks swapping files each round.
     for task in sorted(tasks, key=lambda t: str(t.pk)):
-        directory = dir_for(task, paths, task_parents)
-        stem = safe_name(task.title or "Untitled task")
-        want = f"{directory}/{stem}{MD}"
-        if want.lower() in taken:
-            want = f"{directory}/{stem} ({str(task.pk)[-6:]}){MD}"
+        want = want_path(task, paths, task_parents, taken, present)
         taken.add(want.lower())
         claimed.add(want)
         try:
@@ -200,11 +226,40 @@ def sync(round_) -> None:
         except DavError as exc:
             stats.errors.append(f"{task.title}: {exc}")
 
-    _archive(round_, sorted(present - claimed))
+    # The live tree only — an archived file has already arrived where it goes.
+    _archive(round_, present, sorted(
+        p for p in present - claimed if not p.startswith(f"{ARCHIVE_DIR}/")))
+
+
+def want_path(task, paths: dict, task_parents: dict,
+              taken: set, present: set) -> str:
+    """Where this task's file belongs.
+
+    Under the project tree while the task is open, under the same place in
+    ``Tasks/Archive`` once it is done or dropped — and back out again when it
+    is reopened, because the task keeps pointing at the file either way.
+
+    A name already spoken for gets the task's id hung on it: ``taken`` is what
+    this round handed out, ``present`` what is over there already. The second
+    one matters most in the archive, where a forgotten history sits under a
+    name nobody claims any more and must not be overwritten.
+    """
+    from application.services.notes_sync import safe_name
+
+    directory = dir_for(task, paths, task_parents)
+    if task.status in DONE_STATUS:
+        directory = archived(directory)
+    stem = safe_name(task.title or "Untitled task")
+    want = f"{directory}/{stem}{MD}"
+    if want.lower() in taken or (want in present and want != (task.mirror_path or "")):
+        want = f"{directory}/{stem} ({str(task.pk)[-6:]}){MD}"
+    return want
 
 
 def _listing(round_) -> set:
-    """The task files that are on the share right now, ``Archive`` aside."""
+    """The task files that are on the share right now, the archive included: a
+    done task's file lives there, and a forgotten one holds a name that must
+    not be handed out twice."""
     try:
         entries = round_.client.walk(TASKS_DIR)
     except DavError as exc:
@@ -213,8 +268,7 @@ def _listing(round_) -> set:
         round_.stats.errors.append(f"{TASKS_DIR}: {exc}")
         return set()
     return {e.path for e in entries
-            if not e.is_dir and e.path.lower().endswith(MD)
-            and not e.path.startswith(f"{ARCHIVE_DIR}/")}
+            if not e.is_dir and e.path.lower().endswith(MD)}
 
 
 def _people_for(tasks) -> dict:
@@ -237,7 +291,13 @@ def _people_for(tasks) -> dict:
 
 def _one(round_, task, want: str, text: str, present: set) -> None:
     """One task's file — written only when it would say something new, or when
-    it isn't there any more (someone tidied the share)."""
+    it isn't there any more (someone tidied the share).
+
+    A file whose task moved travels with it: renamed, refiled under another
+    project, completed into the archive or reopened back out of it. One file
+    per task, and it is moved rather than copied — a copy left behind would
+    read as a second history.
+    """
     from application.services.notes_sync import _hash
 
     digest = _hash(text)
@@ -246,23 +306,36 @@ def _one(round_, task, want: str, text: str, present: set) -> None:
         round_.stats.unchanged += 1
         return
     if round_.dry_run:
-        round_.stats.tasks_written += 1
+        _count(round_.stats, want)
         return
-    round_.client.write(want, text.encode("utf-8"), "text/markdown; charset=utf-8")
-    round_.stats.tasks_written += 1
     if was and was != want and owns(was) and was in present:
-        # Renamed, or moved to another project: one file per task, so the old
-        # one goes. It is a copy of this same task, not history.
         try:
-            round_.client.delete(was)
+            round_.client.move(was, want, overwrite=True)
             present.discard(was)
+            present.add(want)
         except DavError as exc:
+            # The move is a shortcut, not the point. Write the file where it
+            # belongs anyway; what stayed behind is archived next round.
             round_.stats.errors.append(f"{was}: {exc}")
+    if task.mirror_hash != digest or want not in present:
+        round_.client.write(want, text.encode("utf-8"),
+                            "text/markdown; charset=utf-8")
+        present.add(want)
+    _count(round_.stats, want)
     Item.all_objects(pk=task.pk).update(set__mirror_path=want, set__mirror_hash=digest)
     task.mirror_path, task.mirror_hash = want, digest
 
 
-def _archive(round_, stray: list) -> None:
+def _count(stats, path: str) -> None:
+    """A file that lands in the archive counts as archived, whichever way it
+    got there."""
+    if path.startswith(f"{ARCHIVE_DIR}/"):
+        stats.tasks_archived += 1
+    else:
+        stats.tasks_written += 1
+
+
+def _archive(round_, present: set, stray: list) -> None:
     """Move what no live task claims into ``Tasks/Archive`` — and forget it."""
     stats = round_.stats
     if not stray:
@@ -274,27 +347,26 @@ def _archive(round_, stray: list) -> None:
         owner=round_.user, kind="task", mirror_path__in=stray).only("pk", "mirror_path")}
 
     for path in stray:
-        target = f"{ARCHIVE_DIR}/{path[len(TASKS_DIR) + 1:]}"
+        target = _free_name(present, archived(path))
         try:
             if not round_.dry_run:
-                round_.client.move(path, _free_name(round_.client, target))
+                round_.client.move(path, target)
         except DavError as exc:
             stats.errors.append(f"{path}: {exc}")
             continue
+        present.discard(path)
+        present.add(target)
         stats.tasks_archived += 1
         task = owners.get(path)
         if task is not None and not round_.dry_run:
             Item.all_objects(pk=task.pk).update(set__mirror_path="", set__mirror_hash="")
 
 
-def _free_name(client, target: str) -> str:
+def _free_name(present: set, target: str) -> str:
     """``target``, or the next free ``… (2).md`` beside it. The archive keeps
     what it is given: a second task of the same name never overwrites the first
     one's history."""
-    try:
-        have = {e.path.lower() for e in client.list(posixpath.dirname(target))}
-    except DavError:
-        return target
+    have = {p.lower() for p in present}
     if target.lower() not in have:
         return target
     stem = target[: -len(MD)]

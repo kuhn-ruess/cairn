@@ -4,10 +4,11 @@ Run with ``python -m unittest discover tests``. No database: the module reads
 reference fields through ``_data`` (so a list never dereferences), which is
 exactly what lets a plain stub stand in for an ``Item`` here.
 
-What is worth pinning down: a task that disappears must MOVE to the archive
-rather than be deleted (its comment history is the whole point of the folder),
-the notes round must keep its hands off this subtree, and a file must only be
-rewritten when it would say something new.
+What is worth pinning down: a file under ``Tasks/`` must never be deleted —
+a task that disappears MOVES to the archive, and a task that is done lives
+there too until it is reopened — the notes round must keep its hands off this
+subtree, recurring tasks must stay out of it, and a file must only be rewritten
+when it would say something new.
 """
 import unittest
 from datetime import datetime, timezone
@@ -38,6 +39,9 @@ class FakeTask:
         self.updated_at = kw.pop("updated_at", dt(2))
         self.mirror_path = kw.pop("mirror_path", "")
         self.mirror_hash = kw.pop("mirror_hash", "")
+        self.repeat_every_days = kw.pop("repeat_every_days", None)
+        self.repeat_weekdays = kw.pop("repeat_weekdays", [])
+        self.repeat_monthday = kw.pop("repeat_monthday", None)
 
 
 class FakeComment:
@@ -199,11 +203,56 @@ class WriteOneTest(unittest.TestCase):
         tm._one(round_, task, "Tasks/Inbox/x.md", "body", set())
         self.assertIn("Tasks/Inbox/x.md", round_.client.written)
 
-    def test_a_renamed_task_leaves_no_second_copy(self):
+    def test_a_renamed_task_travels_and_leaves_no_second_copy(self):
         round_ = StubRound(FakeClient())
         task = FakeTask("a", "y", mirror_path="Tasks/Inbox/x.md")
         tm._one(round_, task, "Tasks/Inbox/y.md", "body", {"Tasks/Inbox/x.md"})
-        self.assertEqual(round_.client.deleted, ["Tasks/Inbox/x.md"])
+        self.assertEqual(round_.client.moved,
+                         [("Tasks/Inbox/x.md", "Tasks/Inbox/y.md")])
+        self.assertEqual(round_.client.deleted, [])
+        self.assertIn("Tasks/Inbox/y.md", round_.client.written)
+
+    def test_a_refiled_task_is_moved_and_not_rewritten(self):
+        from application.services.notes_sync import _hash
+        round_ = StubRound(FakeClient())
+        task = FakeTask("a", "x", mirror_path="Tasks/Inbox/x.md",
+                        mirror_hash=_hash("body"))
+        tm._one(round_, task, "Tasks/Work/x.md", "body", {"Tasks/Inbox/x.md"})
+        self.assertEqual(round_.client.moved,
+                         [("Tasks/Inbox/x.md", "Tasks/Work/x.md")])
+        self.assertEqual(round_.client.written, {})
+        self.assertEqual(task.mirror_path, "Tasks/Work/x.md")
+
+    def test_completing_moves_the_file_into_the_archive(self):
+        round_ = StubRound(FakeClient())
+        task = FakeTask("a", "x", status="done", mirror_path="Tasks/Inbox/x.md")
+        tm._one(round_, task, "Tasks/Archive/Inbox/x.md", "done body",
+                {"Tasks/Inbox/x.md"})
+        self.assertEqual(round_.client.moved,
+                         [("Tasks/Inbox/x.md", "Tasks/Archive/Inbox/x.md")])
+        self.assertEqual(round_.stats.tasks_archived, 1)
+        self.assertEqual(round_.stats.tasks_written, 0)
+
+    def test_reopening_brings_the_file_back_out(self):
+        round_ = StubRound(FakeClient())
+        task = FakeTask("a", "x", mirror_path="Tasks/Archive/Inbox/x.md")
+        tm._one(round_, task, "Tasks/Inbox/x.md", "open again",
+                {"Tasks/Archive/Inbox/x.md"})
+        self.assertEqual(round_.client.moved,
+                         [("Tasks/Archive/Inbox/x.md", "Tasks/Inbox/x.md")])
+        self.assertEqual(round_.client.deleted, [])
+        self.assertEqual(round_.stats.tasks_written, 1)
+
+    def test_a_move_that_fails_still_writes_the_file(self):
+        class Stubborn(FakeClient):
+            def move(self, src, dst, overwrite=False):
+                raise DavError("locked", 423)
+
+        round_ = StubRound(Stubborn())
+        task = FakeTask("a", "y", mirror_path="Tasks/Inbox/x.md")
+        tm._one(round_, task, "Tasks/Inbox/y.md", "body", {"Tasks/Inbox/x.md"})
+        self.assertIn("Tasks/Inbox/y.md", round_.client.written)
+        self.assertEqual(len(round_.stats.errors), 1)
 
     def test_a_dry_run_writes_nothing(self):
         round_ = StubRound(FakeClient(), dry_run=True)
@@ -247,7 +296,7 @@ class ArchiveTest(unittest.TestCase):
 
     def test_an_unclaimed_file_moves_to_the_archive_and_is_forgotten(self):
         round_ = StubRound(FakeClient())
-        tm._archive(round_, ["Tasks/Inbox/Old.md"])
+        tm._archive(round_, {"Tasks/Inbox/Old.md"}, ["Tasks/Inbox/Old.md"])
         self.assertEqual(round_.client.moved,
                          [("Tasks/Inbox/Old.md", "Tasks/Archive/Inbox/Old.md")])
         self.assertEqual(round_.client.deleted, [])
@@ -255,30 +304,100 @@ class ArchiveTest(unittest.TestCase):
         self.assertEqual(self.updates, [{"set__mirror_path": "", "set__mirror_hash": ""}])
 
     def test_the_archive_never_overwrites_what_it_already_holds(self):
-        client = FakeClient([("Tasks/Archive/Inbox/Old.md", False)])
-        round_ = StubRound(client)
-        tm._archive(round_, ["Tasks/Inbox/Old.md"])
+        round_ = StubRound(FakeClient())
+        tm._archive(round_, {"Tasks/Inbox/Old.md", "Tasks/Archive/Inbox/Old.md"},
+                    ["Tasks/Inbox/Old.md"])
+        client = round_.client
         self.assertEqual(client.moved,
                          [("Tasks/Inbox/Old.md", "Tasks/Archive/Inbox/Old (2).md")])
 
     def test_a_dry_run_moves_nothing(self):
         round_ = StubRound(FakeClient(), dry_run=True)
-        tm._archive(round_, ["Tasks/Inbox/Old.md"])
+        tm._archive(round_, {"Tasks/Inbox/Old.md"}, ["Tasks/Inbox/Old.md"])
         self.assertEqual(round_.client.moved, [])
         self.assertEqual(self.updates, [])
 
 
 class ListingTest(unittest.TestCase):
-    def test_the_archive_is_not_part_of_what_is_claimed(self):
+    def test_the_archive_is_part_of_the_listing(self):
         client = FakeClient([("Tasks/Inbox/A.md", False),
                              ("Tasks/Archive/Inbox/B.md", False),
                              ("Tasks/Inbox", True)])
-        self.assertEqual(tm._listing(StubRound(client)), {"Tasks/Inbox/A.md"})
+        self.assertEqual(tm._listing(StubRound(client)),
+                         {"Tasks/Inbox/A.md", "Tasks/Archive/Inbox/B.md"})
 
     def test_a_share_without_the_folder_yet_is_simply_empty(self):
         round_ = StubRound(FakeClient(fail=("Tasks",)))
         self.assertEqual(tm._listing(round_), set())
         self.assertEqual(round_.stats.errors, [])
+
+
+class WantPathTest(unittest.TestCase):
+    """Where a file goes: the project tree, or the same place in the archive."""
+
+    PATHS = {"p1": "Work/Acme"}
+
+    def want(self, task, taken=(), present=()):
+        return tm.want_path(task, self.PATHS, {}, set(taken), set(present))
+
+    def test_an_open_task_files_under_its_project(self):
+        self.assertEqual(self.want(FakeTask("t1", "Fix", parent="p1")),
+                         "Tasks/Work/Acme/Fix.md")
+
+    def test_a_done_task_files_in_the_archive_at_the_same_place(self):
+        task = FakeTask("t1", "Fix", parent="p1", status="done")
+        self.assertEqual(self.want(task), "Tasks/Archive/Work/Acme/Fix.md")
+
+    def test_a_dropped_task_goes_there_too(self):
+        task = FakeTask("t1", "Fix", status="dropped")
+        self.assertEqual(self.want(task), "Tasks/Archive/Inbox/Fix.md")
+
+    def test_reopening_puts_it_back_in_the_live_tree(self):
+        task = FakeTask("t1", "Fix", parent="p1", status="open",
+                        mirror_path="Tasks/Archive/Work/Acme/Fix.md")
+        self.assertEqual(self.want(task), "Tasks/Work/Acme/Fix.md")
+
+    def test_two_tasks_of_the_same_name_do_not_share_a_file(self):
+        task = FakeTask("aabbccddeeff", "Fix", parent="p1")
+        self.assertEqual(self.want(task, taken={"tasks/work/acme/fix.md"}),
+                         "Tasks/Work/Acme/Fix (ddeeff).md")
+
+    def test_a_file_already_there_is_never_overwritten(self):
+        """A forgotten history in the archive is claimed by nobody — a new
+        task of that name must not land on top of it."""
+        task = FakeTask("aabbccddeeff", "Fix", status="done")
+        self.assertEqual(self.want(task, present={"Tasks/Archive/Inbox/Fix.md"}),
+                         "Tasks/Archive/Inbox/Fix (ddeeff).md")
+
+    def test_the_task_s_own_file_is_not_a_clash(self):
+        task = FakeTask("t1", "Fix", mirror_path="Tasks/Inbox/Fix.md")
+        self.assertEqual(self.want(task, present={"Tasks/Inbox/Fix.md"}),
+                         "Tasks/Inbox/Fix.md")
+
+
+class RepeatsTest(unittest.TestCase):
+    """A recurring task is not mirrored: the next occurrence is the point."""
+
+    def test_a_plain_task_is_written(self):
+        self.assertFalse(tm.repeats(FakeTask("t1", "Fix")))
+
+    def test_every_n_days(self):
+        self.assertTrue(tm.repeats(FakeTask("t1", "Spanish", repeat_every_days=1)))
+
+    def test_on_weekdays(self):
+        self.assertTrue(tm.repeats(FakeTask("t1", "Review", repeat_weekdays=[4])))
+
+    def test_on_a_monthday(self):
+        self.assertTrue(tm.repeats(FakeTask("t1", "Rent", repeat_monthday=1)))
+
+
+class ArchivedPathTest(unittest.TestCase):
+    def test_the_tree_repeats_itself_under_archive(self):
+        self.assertEqual(tm.archived("Tasks/Work/Acme"), "Tasks/Archive/Work/Acme")
+        self.assertEqual(tm.archived("Tasks/Inbox/x.md"), "Tasks/Archive/Inbox/x.md")
+
+    def test_the_root_itself(self):
+        self.assertEqual(tm.archived("Tasks"), "Tasks/Archive")
 
 
 if __name__ == "__main__":

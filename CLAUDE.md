@@ -285,10 +285,13 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   tree repeated under it, one Markdown file per task with its comments. **A
   copy, not a sync** — the notes pass steps over the whole subtree (`owns()`),
   so a task file is never adopted as a note, and an edit made over there is
-  overwritten. Nothing under `Tasks/` is ever deleted: a file no live task
-  claims (trashed, or swept by the retention cleanup) is MOVED to
-  `Tasks/Archive` and the task's `mirror_path` cleared, so no later round
-  touches it again
+  overwritten. **Recurring tasks are skipped** (`repeats()`). Nothing under
+  `Tasks/` is ever deleted; `Tasks/Archive` repeats the same tree and a file
+  reaches it two ways: a **done/dropped** task files there instead of the live
+  tree (`want_path()`) and keeps its `mirror_path`, so reopening MOVES the file
+  back out; a file **no live task claims** (trashed, or swept by the retention
+  cleanup) is moved in and forgotten — `mirror_path` cleared, no later round
+  touches it. That stray pass looks at the live tree only
 - `outline.py` — **a note body is an outline OR a plain Markdown document**,
   and `Item.note_format` says which (empty = nobody chose, and then
   `outline.format_of()` reads the answer off the text itself — that one
