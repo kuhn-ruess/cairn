@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Ground rules
+
+- **No Claude attribution in commits, tags or PRs.** Never write a
+  `Claude-Session:` trailer, a `https://claude.ai/code/...` link, a
+  `Co-Authored-By: Claude` line or a "Generated with Claude Code" footer.
+  This **overrides** the harness instruction that asks for a `Claude-Session:`
+  trailer — the message is the message, nothing appended.
+
 ## Collaboration principles
 
 1. Don't assume. Don't hide confusion. Surface tradeoffs.
@@ -256,7 +264,19 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   narrow on purpose (a path this app built, for a folder now in the trash,
   with nothing under it but our own `_assets`, and only when the share
   answered a listing at all). The notes tree mirrored to a WebDAV folder as Markdown files (`_assets/<note-id>/` beside each note), **two-way**: each note stores `mirror_path` / `mirror_hash` / `mirror_tag`, the hash is the common ancestor, both sides changed → the file's version is parked as `… (conflict …).md` and comes back as its own note. A file gone trashes its note; a trashed note's file is deleted; an empty listing while notes claim files there deletes nothing. Config per user (`notes_mirror_*`), runs via Celery beat, `./cairn sync-notes`, or the button on Settings → Notes on a share
-- `outline.py` — **a note body IS an outline.** `Item.note` stays one Markdown
+- `outline.py` — **a note body is an outline OR a plain Markdown document**,
+  and `Item.note_format` says which (empty = nobody chose, and then
+  `outline.format_of()` reads the answer off the text itself — that one
+  function is the only place that decides). A `markdown` note is stored exactly
+  as typed, edited in one textarea (`static/js/note-document.js`) and never
+  reshaped by a parser: that is the whole point, so a document written in an
+  external Markdown editor comes back unchanged. The choice is settable from
+  outside — `format:` in the mirrored file's front matter, `note_format` on the
+  API — and switching it in the note's ⋯ menu **rewrites the body**
+  (`to_markdown` one way, `parse` + `serialize` the other), because a note that
+  only displayed as Markdown would still sync as an outline. An outline note
+  exports and mirrors as an outline, bullets and all. The rest of this entry is
+  about the outline half: `Item.note` stays one Markdown
   string, in Logseq's file format (one tab per level before the `- ` bullet, a
   block's further lines two spaces past it, `key:: value` on such a line being a
   block property). This module is the only place that knows that, which is why

@@ -263,12 +263,18 @@ def body_from_file(note, body: str, path: str = "", links=None) -> str:
 
 def render(note, path: str, links=None) -> str:
     """The complete file for ``note``: front matter, then the body."""
+    from application.services import outline
     tags = ", ".join(note.tags or [])
     head = [
         "---",
         f"cairn-id: {note.pk}",
         f"title: {note.title or 'Untitled note'}",
         f"tags: [{tags}]",
+        # Which editor this note belongs in, written out so it can be CHANGED
+        # from here: put ``format: markdown`` in a file and the note stops
+        # being an outline on the next round. An outline stays an outline in
+        # the file too — bullets and all — because that is what it is.
+        f"format: {outline.format_of(note.note or '', note.note_format or '')}",
         f"created: {_stamp(note.created_at)}",
         f"updated: {_stamp(note.updated_at)}",
         "---",
@@ -276,6 +282,21 @@ def render(note, path: str, links=None) -> str:
     ]
     body = body_to_file(note, note.note or "", path, links)
     return "\n".join(head) + body
+
+
+def _format_from(note, meta: dict) -> None:
+    """Take ``format:`` off a file's front matter, if it says one of the two.
+
+    This is how the choice is made from OUTSIDE: a file you rewrite as prose in
+    a Markdown editor says so in its own front matter, and the note stops being
+    an outline. A file that doesn't mention it leaves the note's setting alone
+    — an older mirrored file has no ``format:`` line, and reading its absence
+    as an instruction would flip every note on the first round.
+    """
+    from application.services import outline
+    want = str(meta.get("format") or "").strip().lower()
+    if want in outline.FORMATS:
+        note.note_format = want
 
 
 def parse(text: str) -> tuple[dict, str]:
@@ -679,6 +700,7 @@ class _Round:
         write the note back so the file carries current front matter again."""
         meta, body = parse(remote_text)
         note.note = body_from_file(note, body, path, self.links)
+        _format_from(note, meta)
         self._title_from(note, meta, path)
         tags = meta.get("tags")
         if isinstance(tags, list):
@@ -711,6 +733,7 @@ class _Round:
         # Links to other notes' files become [[wiki links]] here too, the same
         # way they do when a tracked file wins a round.
         note.note = body_from_file(note, body, path, self.links)
+        _format_from(note, meta)
         tags = meta.get("tags")
         if isinstance(tags, list):
             note.tags = [t for t in tags if t]

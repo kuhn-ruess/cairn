@@ -410,6 +410,10 @@ def _outline_context(item, user) -> dict:
     from application.services import block_refs, note_links, outline
 
     blocks = outline.parse(item.note or "")
+    # Outline or plain Markdown document — the one question the page asks
+    # before it decides which editor to put on the body. Everything else here
+    # (backlinks, references, word count) is the same either way.
+    note_format = outline.format_of(item.note or "", item.note_format or "")
     # The blocks pointing here are rendered on this page too, so whatever THEY
     # reference has to resolve as well — collected first so it all goes into
     # the one query below rather than one per referencing block.
@@ -427,6 +431,7 @@ def _outline_context(item, user) -> dict:
     trail = outline.path_to(blocks, zoom) if zoom else []
     shown = [trail[-1]] if trail else blocks
     return dict(
+        note_format=note_format,
         blocks=shown,
         # The client's model comes from the SERVER's parser, as JSON — it only
         # has to serialize back. Two parsers that could disagree about where a
@@ -638,15 +643,53 @@ def _render_blocks(item, spec, user, wiki_index) -> dict:
     The editor sends the whole body but only names the block it just finished
     writing, and only that one comes back rendered. Swapping the entire outline
     on every keystroke-pause would take the caret with it."""
-    want = {int(p) for p in (spec or "").split(",") if p.strip().isdigit()}
-    if not want:
+    if not spec:
         return {}
     from application.services import block_refs, outline
-    blocks = outline.parse(item.note or "")
     index = block_refs.resolve(user, block_refs.refs(item.note or ""))
     render = current_app.jinja_env.filters["note_md"]
+    # "doc": the Markdown editor has no blocks to name — its body is one
+    # document and comes back as one piece.
+    if spec == "doc":
+        return {"doc": str(render(item.note or "", wiki_index, index))}
+    want = {int(p) for p in spec.split(",") if p.strip().isdigit()}
+    if not want:
+        return {}
+    blocks = outline.parse(item.note or "")
     return {str(b.idx): str(render(b.body, wiki_index, index))
             for b in outline.walk(blocks) if b.idx in want}
+
+
+@notes_bp.route("/<note_id>/format", methods=["POST"])
+@login_required
+def set_format(note_id):
+    """Cross the bridge between the outline and a plain Markdown document.
+
+    The BODY is rewritten, not merely read differently: an outline is written
+    out as prose (``outline.to_markdown``), a document is written out as
+    bullets (parse + serialize). Doing it to the text is the whole point —
+    the mirrored ``.md`` file has to become the thing that was asked for, and a
+    note that only *displayed* as Markdown would still sync as an outline.
+
+    The same choice can be made from the outside, by putting ``format:`` in the
+    mirrored file's front matter (services/notes_sync).
+    """
+    from application.services import outline
+    from application.services.notes_write import apply_body
+
+    item = _editable_note_or_404(note_id, kinds=("note", "folder"))
+    user = current_user._get_current_object()
+    want = (request.form.get("format") or "").strip()
+    if want not in outline.FORMATS:
+        abort(400)
+    blocks = outline.parse(item.note or "")
+    apply_body(item, outline.to_markdown(blocks) if want == "markdown"
+               else outline.serialize(blocks), user)
+    item.note_format = want
+    item.save()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True, "format": want})
+    return redirect(url_for("notes.detail", note_id=str(item.pk)))
 
 
 @notes_bp.route("/parse", methods=["POST"])

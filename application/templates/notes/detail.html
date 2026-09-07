@@ -15,7 +15,12 @@
     <div class="note-doc-tools d-flex align-items-center gap-2 mb-2">
       {{ fav.star("item:" ~ note.pk, "fs-5") }}
       <span id="note-save-status" class="small text-muted ms-auto"></span>
-      {% if can_edit %}
+      {% if can_edit and note_format == "markdown" %}
+        {# Source/preview for the Markdown editor. A document has no blocks to
+           click into, so the way back out of the textarea has to be visible. #}
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="note-doc-source"
+                title="Edit the Markdown source"><i class="bi bi-pencil"></i></button>
+      {% elif can_edit %}
         {# The outliner's keys, on ask. They were a paragraph under the note,
            which is the one place they are of no use: you need them while your
            hands are on the keyboard, and after the second note they are just
@@ -59,6 +64,20 @@
             <i class="bi bi-people"></i> Share…
             {% if selected_members %}<span class="badge text-bg-secondary ms-1">{{ selected_members|length }}</span>{% endif %}
           </button></li>
+          {% endif %}
+          {% if can_edit %}
+          {# The bridge between the two editors. It REWRITES the body — an
+             outline becomes prose, a document becomes bullets — so the
+             mirrored .md file becomes the thing you asked for too. #}
+          <li><button type="button" class="dropdown-item" id="note-format-switch"
+                      data-format="{{ 'outline' if note_format == 'markdown' else 'markdown' }}">
+            {% if note_format == "markdown" %}
+              <i class="bi bi-list-nested"></i> Edit as outline
+            {% else %}
+              <i class="bi bi-file-text"></i> Edit as Markdown document
+            {% endif %}
+          </button></li>
+          <li><hr class="dropdown-divider"></li>
           {% endif %}
           <li><a class="dropdown-item" href="{{ url_for('notes.export_markdown', note_id=note.pk) }}">
             <i class="bi bi-markdown"></i> Export Markdown
@@ -122,6 +141,21 @@
         {% endfor %}
       </nav>
     {% endif %}
+    {% if note_format == "markdown" %}
+      {# A note written as a Markdown document. It is stored EXACTLY as typed —
+         no parser reshapes it — which is the only thing that lets a file
+         written in an external editor come back unchanged. See
+         static/js/note-document.js. #}
+      <div id="note-document" class="note-body mb-2"
+           data-note-id="{{ note.pk }}" data-stamp="{{ base_stamp }}"
+           data-can-edit="{{ '1' if can_edit else '0' }}">
+        <div class="nd-view md-body">{{ note.note|note_md(wiki_index, block_index) }}</div>
+        {#- [name=note] inside [data-note-id] is all note-paste.js needs for
+            image paste and file drop. -#}
+        <textarea class="nd-src form-control" name="note" spellcheck="true"
+                  hidden {% if not can_edit %}readonly{% endif %}>{{ note.note }}</textarea>
+      </div>
+    {% else %}
     <div id="note-outline" class="note-body mb-2"
          data-note-id="{{ note.pk }}" data-stamp="{{ base_stamp }}"
          data-zoom="{{ zoom }}"
@@ -132,6 +166,7 @@
     {# The editor's model, straight from the server's parser — it only has to
        serialize back. See static/js/outliner.js. #}
     <script type="application/json" id="note-blocks">{{ blocks_json|safe }}</script>
+    {% endif %}
     <ul class="list-group shadow-sm" id="wiki-complete"></ul>
     {% include "notes/_references.html" %}
     {% with item=note %}{% include "layout/_storage_meter.html" %}{% endwith %}
@@ -330,7 +365,7 @@
   // Link/unlink actions save the note on the server too, which moves the
   // version stamp — so flush our own edits FIRST, then act, then reload.
   async function saveThen(action) {
-    if (window.CairnOutliner && !(await window.CairnOutliner.save())) {
+    if (window.CairnNoteBody && !(await window.CairnNoteBody.save())) {
       alert("Couldn't save your changes — nothing else was done, so your text is safe.");
       return;
     }
@@ -338,11 +373,21 @@
     window.location.reload();
   }
 
+  // ---- outline <-> Markdown document ----
+  // The body is rewritten on the server, so the page comes back rather than
+  // being patched: it is a different editor afterwards.
+  const formatBtn = document.getElementById("note-format-switch");
+  if (formatBtn) {
+    formatBtn.addEventListener("click", () => saveThen(
+      () => post(`/notes/${noteId}/format`, { format: formatBtn.dataset.format })));
+  }
+
   // ---- mark text in the rendered note → tasks ----
   // The dialog (target project, preview) and the POST live in capture.js —
   // the scratchpad drives the very same one.
   (function () {
-    const view = document.getElementById("note-outline");
+    const view = document.getElementById("note-outline")
+      || document.getElementById("note-document");
     if (!view) return;
     const btn = document.createElement("button");
     btn.type = "button";
@@ -408,7 +453,7 @@
     // Tagging saves the item, which moves the version stamp the body autosave
     // checks against — take the new one along or the next keystroke conflicts.
     const data = resp ? await resp.json().catch(() => null) : null;
-    if (data && data.stamp && window.CairnOutliner) window.CairnOutliner.setStamp(data.stamp);
+    if (data && data.stamp && window.CairnNoteBody) window.CairnNoteBody.setStamp(data.stamp);
   }
   if (tagOptionsBox) {
     tagOptionsBox.addEventListener("click", (e) => {
@@ -543,7 +588,11 @@
   });
 })();
 </script>
+{% if note_format == "markdown" %}
+<script src="{{ asset('js/note-document.js') }}"></script>
+{% else %}
 {# Before outliner.js: it attaches the vim host while it initialises. #}
 <script src="{{ asset('js/outliner-vim.js') }}"></script>
 <script src="{{ asset('js/outliner.js') }}"></script>
+{% endif %}
 {% endblock %}

@@ -270,6 +270,11 @@ def task(t) -> dict[str, Any]:
     }
 
 
+def outline_format(n) -> str:
+    from application.services import outline
+    return outline.format_of(n.note or "", n.note_format or "")
+
+
 def note(n, *, body: bool = True) -> dict[str, Any]:
     """A note or a notes FOLDER — one serializer, because a folder is a page
     with a body too (it is both a container and something you write on).
@@ -285,6 +290,10 @@ def note(n, *, body: bool = True) -> dict[str, Any]:
         # False once the title has been typed in: the name is the user's then,
         # and no longer follows the note's first line.
         "title_auto": bool(n.title_auto),
+        # "outline" or "markdown" — which of the two editors this body belongs
+        # in. Always resolved, never blank: a note that has never been asked is
+        # answered by its own text (services/outline.format_of).
+        "note_format": outline_format(n),
         "parent_id": str(n.parent.pk) if n.parent else None,
         "tags": list(n.tags or []),
         "created_at": iso(n.created_at),

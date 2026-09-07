@@ -257,6 +257,14 @@ class Item(Document):
     # common content
     title = StringField(required=True, max_length=500)
     note = StringField(default="")
+    # Which of the two editors this body belongs in: an OUTLINE (bullets, the
+    # outliner) or a plain MARKDOWN document (prose, written here or in any
+    # Markdown editor and stored exactly as typed). Empty means nobody has
+    # said, and then the text answers for itself — see
+    # ``services.outline.format_of``, which is the only place that decides.
+    # It is also a front-matter field in the mirrored file (``format:``), so
+    # the choice can be made from the outside.
+    note_format = StringField(choices=("", "outline", "markdown"), default="")
     color = StringField(default="", max_length=16)
     tags = ListField(StringField())
     # Tags that came from an external system (Zammad, CSV, …). Kept

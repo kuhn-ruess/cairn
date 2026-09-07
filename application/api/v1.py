@@ -941,6 +941,15 @@ def update_note(note_id):
         item.tags = [str(t) for t in (data.get("tags") or []) if t]
     if "note" in data:
         apply_body(item, data["note"], user)
+    if "note_format" in data:
+        # The same choice the note's ⋯ menu and the mirrored file's front
+        # matter make. Only the setting: the body arrives as the caller wrote
+        # it, and rewriting it under them is not this endpoint's business.
+        from application.services import outline
+        want = str(data.get("note_format") or "").strip()
+        if want not in outline.FORMATS:
+            return _bad_request(f"invalid note_format: {want}")
+        item.note_format = want
     item.save()
     return jsonify(ser_note(item))
 

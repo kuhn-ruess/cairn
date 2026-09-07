@@ -138,6 +138,105 @@ def serialize(blocks) -> str:
     return "\n".join(out) + ("\n" if out else "")
 
 
+def to_markdown(blocks) -> str:
+    """The tree as an ORDINARY Markdown document — the bridge out of the outline.
+
+    ``serialize`` writes the outline's own file format, where every block is a
+    bullet. That is the right file for a note you keep in the outliner, and the
+    wrong one for a note you want to go on writing in a Markdown editor. So the
+    shape is read rather than transcribed:
+
+    * a **heading** stays a heading, and what hangs under it is written out
+      beneath it as document content — the inverse of :func:`_loose`;
+    * a block **with children** becomes a Markdown list, because nesting is
+      only a list once the bullets are gone;
+    * a **leaf** becomes a paragraph.
+
+    Block properties are dropped: ``id:: …`` is machine noise in a document,
+    and a document has no blocks left to point at.
+    """
+    out = []
+
+    def gap():
+        if out and out[-1] != "":
+            out.append("")
+
+    def para(text):
+        gap()
+        out.extend((text or "").split("\n"))
+        out.append("")
+
+    def item(block, depth):
+        pad = "  " * depth
+        lines = (block.content or "").split("\n")
+        out.append(f"{pad}- {lines[0]}" if lines[0] else f"{pad}-")
+        for line in lines[1:]:
+            out.append(f"{pad}  {line}")
+        for child in block.children:
+            item(child, depth + 1)
+
+    def listish(block, after_list: bool) -> bool:
+        """Is this block a bullet rather than a paragraph?
+
+        Nesting is the strong tell — a block with children can only be written
+        as a list. Two weaker ones carry the cases where that fails: a checkbox
+        or a task keyword IS a list item wherever it stands, and a ONE-LINE
+        block sitting right after a bullet is the flat tail of that same list.
+        The line count is what keeps a paragraph or a fenced code block from
+        being swallowed by the list it happens to follow.
+        """
+        if block.children or block.keyword or block.checked is not None:
+            return True
+        return after_list and "\n" not in (block.content or "")
+
+    def document(nodes):
+        after_list = False
+        for block in nodes or []:
+            if HEADING_RE.match((block.content or "").lstrip()):
+                para(block.content)
+                document(block.children)
+                after_list = False
+            elif listish(block, after_list):
+                if not after_list:
+                    gap()          # one blank line before the list, not inside it
+                item(block, 0)
+                after_list = True
+            else:
+                para(block.content)
+                after_list = False
+        gap()
+
+    document(blocks)
+    while out and not out[-1]:
+        out.pop()
+    return "\n".join(out) + ("\n" if out else "")
+
+
+# ---------------------------------------------------------------------------
+# Which of the two a body is
+# ---------------------------------------------------------------------------
+
+#: A note is edited as one of these. See :func:`format_of`.
+FORMATS = ("outline", "markdown")
+
+
+def format_of(text: str, stored: str = "") -> str:
+    """``"outline"`` or ``"markdown"`` for a body.
+
+    ``stored`` is the note's own answer (``Item.note_format``) and always wins
+    — once someone has said which of the two this note is, nothing may flip it
+    back under them. Without one the TEXT answers for itself, which is how
+    every note written before there was a choice lands in the right editor: a
+    body we wrote carries bullets, a document written in a Markdown editor does
+    not. An empty note is an outline, because that is what typing into it makes.
+    """
+    if stored in FORMATS:
+        return stored
+    if not (text or "").strip():
+        return "outline"
+    return "outline" if is_outline(text) else "markdown"
+
+
 # ---------------------------------------------------------------------------
 # Parse
 # ---------------------------------------------------------------------------
@@ -325,15 +424,21 @@ def _indent_of(s: str) -> int:
 
 
 def _loose(text: str) -> list:
-    """Pass for notes written before the outline existed.
+    """Pass for notes written before the outline existed — and for every note
+    written elsewhere, in an ordinary Markdown editor.
 
-    Paragraphs, headings and fenced code become top-level blocks; an existing
-    Markdown list becomes nested blocks, with a list item's own continuation
-    lines staying part of that item.
+    Paragraphs and fenced code become blocks, an existing Markdown list becomes
+    nested blocks, and **a heading owns what is written under it**: everything
+    down to the next heading of the same or a higher level becomes its
+    children. That last rule is what makes a hand-written document survive the
+    trip — a section and its paragraphs are one thing on the page, and reading
+    them as eleven siblings is how the shape gets lost.
     """
     records = []
     lines = (text or "").split("\n")
     stack = []                 # [(indent, depth)] of the enclosing list items
+    heads = []                 # [(heading level, depth)] of the open sections
+    base = 0                   # depth of the section currently being written in
     buf, buf_depth = [], 0
 
     def flush():
@@ -352,19 +457,25 @@ def _loose(text: str) -> list:
         fm = FENCE_RE.match(raw)
         if fm:
             mark = fm.group(1)[0] * 3
-            base = len(raw) - len(raw.lstrip())
+            pad = len(raw) - len(raw.lstrip())
             block = [raw.strip()]
             i += 1
             while i < len(lines):
                 line = lines[i]
-                block.append(line[base:] if line[:base].strip() == "" else line.strip())
+                block.append(line[pad:] if line[:pad].strip() == "" else line.strip())
                 i += 1
                 if FENCE_RE.match(line) and line.strip().startswith(mark):
                     break
             if buf:
                 buf.extend(block)          # code inside the current paragraph
             else:
-                records.append((stack[-1][1] if stack else 0, block))
+                # A blank line does not end a Markdown list, so the open items
+                # are still on the stack — but a fence at column 0 is plainly
+                # not inside them. Its own indent says which it is, the same
+                # way a list item's does.
+                while stack and stack[-1][0] >= pad:
+                    stack.pop()
+                records.append((stack[-1][1] if stack else base, block))
             continue
 
         if not raw.strip():
@@ -372,10 +483,17 @@ def _loose(text: str) -> list:
             i += 1
             continue
 
-        if HEADING_RE.match(raw.strip()):
+        head = HEADING_RE.match(raw.strip())
+        if head:
             flush()
             stack = []
-            records.append((0, [raw.strip()]))
+            level = len(head.group(0)) - 1          # "### " -> 3
+            while heads and heads[-1][0] >= level:
+                heads.pop()
+            depth = (heads[-1][1] + 1) if heads else 0
+            heads.append((level, depth))
+            records.append((depth, [raw.strip()]))
+            base = depth + 1
             i += 1
             continue
 
@@ -385,7 +503,7 @@ def _loose(text: str) -> list:
             indent = _indent_of(item.group(1))
             while stack and stack[-1][0] >= indent:
                 stack.pop()
-            depth = (stack[-1][1] + 1) if stack else 0
+            depth = (stack[-1][1] + 1) if stack else base
             stack.append((indent, depth))
             buf, buf_depth = [item.group(2)], depth
             i += 1
@@ -397,7 +515,7 @@ def _loose(text: str) -> list:
             buf.append(raw.strip())
         else:
             stack = []
-            buf, buf_depth = [raw.strip()], 0
+            buf, buf_depth = [raw.strip()], base
         i += 1
 
     flush()

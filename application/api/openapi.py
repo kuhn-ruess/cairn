@@ -59,10 +59,21 @@ def build_openapi_spec() -> dict:
                         },
                         "note": {
                             "type": "string",
-                            "description": ("Markdown, in the outline format: "
-                                            "one tab per level before the "
-                                            "'- ' bullet. Left out of a "
+                            "description": ("Markdown. In an `outline` note, in "
+                                            "the outline format: one tab per "
+                                            "level before the '- ' bullet. In a "
+                                            "`markdown` note, an ordinary "
+                                            "document, stored exactly as "
+                                            "written. Left out of a "
                                             "``compact=true`` list."),
+                        },
+                        "note_format": {
+                            "type": "string",
+                            "enum": ["outline", "markdown"],
+                            "description": ("Which of the two editors this body "
+                                            "belongs in. Always answered: a "
+                                            "note nobody has decided for is "
+                                            "read off its own text."),
                         },
                         "parent_id": {"type": "string", "nullable": True},
                         "tags": {"type": "array", "items": {"type": "string"}},
@@ -77,6 +88,13 @@ def build_openapi_spec() -> dict:
                                   "default": "note"},
                         "title": {"type": "string"},
                         "note": {"type": "string"},
+                        "note_format": {
+                            "type": "string", "enum": ["outline", "markdown"],
+                            "description": ("Sets which editor the note belongs "
+                                            "in. The body is left exactly as "
+                                            "you send it — this only records "
+                                            "the choice. PATCH only."),
+                        },
                         "parent_id": {"type": "string", "nullable": True,
                                        "description": "A notes folder you own."},
                         "tags": {"type": "array", "items": {"type": "string"}},

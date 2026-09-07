@@ -187,9 +187,17 @@ class LooseParseTest(unittest.TestCase):
         [block] = outline.parse("one\ntwo\n")
         self.assertEqual(block.content, "one\ntwo")
 
-    def test_headings_are_blocks_of_their_own(self):
+    def test_a_heading_owns_what_is_written_under_it(self):
         blocks = outline.parse("# Title\nprose\n")
-        self.assertEqual([b.content for b in blocks], ["# Title", "prose"])
+        self.assertEqual(shape(blocks), [("# Title", {}, [("prose", {}, [])])])
+
+    def test_a_heading_closes_at_one_of_its_own_rank(self):
+        blocks = outline.parse(
+            "# One\n\na\n\n## Sub\n\nb\n\n# Two\n\nc\n")
+        self.assertEqual(shape(blocks), [
+            ("# One", {}, [("a", {}, []), ("## Sub", {}, [("b", {}, [])])]),
+            ("# Two", {}, [("c", {}, [])]),
+        ])
 
     def test_markdown_lists_become_nested_blocks(self):
         # A body starting with "- " already reads as an outline, so the loose
@@ -222,7 +230,8 @@ class LooseParseTest(unittest.TestCase):
         """The real migration path: read loose, write strict, read again."""
         legacy = "# Notes\n\nSome prose.\n\n- one\n- two\n"
         once = outline.serialize(outline.parse(legacy))
-        self.assertEqual(once, "- # Notes\n- Some prose.\n- one\n- two\n")
+        self.assertEqual(
+            once, "- # Notes\n\t- Some prose.\n\t- one\n\t- two\n")
         self.assertEqual(outline.serialize(outline.parse(once)), once)
 
     def test_an_empty_body_is_an_empty_outline(self):
@@ -314,6 +323,65 @@ class LookupTest(unittest.TestCase):
 
     def test_plain_drops_bullets_and_properties(self):
         self.assertEqual(outline.plain(self.TEXT), "a\nb\nc\nd")
+
+
+class FormatOfTest(unittest.TestCase):
+    """Which of the two editors a body belongs in. Getting this wrong turns a
+    document somebody wrote in a Markdown editor into a page of bullets."""
+
+    def test_the_notes_own_answer_wins(self):
+        self.assertEqual(outline.format_of("- a\n\t- b\n", "markdown"), "markdown")
+        self.assertEqual(outline.format_of("# Title\n\nprose\n", "outline"),
+                         "outline")
+
+    def test_without_one_the_text_answers(self):
+        self.assertEqual(outline.format_of("- a\n\t- b\n"), "outline")
+        self.assertEqual(outline.format_of("# Title\n\nprose\n"), "markdown")
+
+    def test_an_empty_note_is_an_outline(self):
+        # It is about to be typed into, and typing into it writes bullets.
+        self.assertEqual(outline.format_of(""), "outline")
+        self.assertEqual(outline.format_of("  \n\n"), "outline")
+
+    def test_nonsense_is_ignored(self):
+        self.assertEqual(outline.format_of("- a\n", "wat"), "outline")
+
+
+class ToMarkdownTest(unittest.TestCase):
+    """The bridge out: the tree as an ordinary document, not as bullets."""
+
+    def test_a_heading_keeps_its_paragraphs_under_it(self):
+        md = "# Title\n\nFirst para.\n\nSecond para.\n"
+        self.assertEqual(outline.to_markdown(outline.parse(md)), md)
+
+    def test_a_document_survives_the_round_trip(self):
+        md = ("# One\n\nProse here,\nover two lines.\n\n"
+              "## Two\n\nMore prose.\n\n- a\n  - b\n\n"
+              "```python\nx = 1\n```\n")
+        self.assertEqual(outline.to_markdown(outline.parse(md)), md)
+
+    def test_nesting_becomes_a_list(self):
+        tree = [outline.Block(content="parent", children=[
+            outline.Block(content="child")])]
+        self.assertEqual(outline.to_markdown(tree), "- parent\n  - child\n")
+
+    def test_a_checklist_stays_a_checklist(self):
+        tree = [outline.Block(content="[ ] milk"), outline.Block(content="[x] eggs")]
+        self.assertEqual(outline.to_markdown(tree), "- [ ] milk\n- [x] eggs\n")
+
+    def test_a_lone_leaf_is_a_paragraph(self):
+        tree = [outline.Block(content="one"), outline.Block(content="two")]
+        self.assertEqual(outline.to_markdown(tree), "one\n\ntwo\n")
+
+    def test_block_properties_do_not_reach_the_document(self):
+        tree = [outline.Block(content="a", props={"id": "u1"})]
+        self.assertEqual(outline.to_markdown(tree), "a\n")
+
+    def test_it_is_stable(self):
+        """Converting twice must not keep reshaping the text."""
+        md = "# T\n\nprose\n\n- a\n  - b\n"
+        once = outline.to_markdown(outline.parse(md))
+        self.assertEqual(outline.to_markdown(outline.parse(once)), once)
 
 
 if __name__ == "__main__":

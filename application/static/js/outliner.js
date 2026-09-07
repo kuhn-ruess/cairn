@@ -1503,6 +1503,10 @@
     focusFirst() { focusBlock(scope[0] || model[0], "end"); },
   };
 
+  // The page around the body talks to whichever of the two editors is on it
+  // through this one name (see static/js/note-document.js).
+  window.CairnNoteBody = window.CairnOutliner;
+
   // An empty note is almost always about to be written in. Last, because
   // opening an editor reaches for ``vim`` — doing it while that const is
   // still in its dead zone throws, and the rest of this file never runs.
