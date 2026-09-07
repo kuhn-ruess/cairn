@@ -929,6 +929,26 @@ def build_openapi_spec() -> dict:
                     },
                 },
             },
+            "/today": {
+                "get": {
+                    "summary": "What Today shows, and why",
+                    "description": ("The same scope and due/flag/plan/defer filter as the web "
+                                    "Today perspective, each task carrying the match_reason(s) "
+                                    "that put it there. Tasks only."),
+                    "tags": ["tasks"],
+                    "parameters": [
+                        {"name": "tag", "in": "query", "schema": {"type": "string"},
+                         "description": "Tag name; repeat for several — all of them must be on the task."},
+                        {"name": "exclude_tag", "in": "query", "schema": {"type": "string"},
+                         "description": "Tag name to leave out; repeatable."},
+                        {"name": "ignore_focus", "in": "query", "schema": {"type": "boolean"},
+                         "description": "true → ignore the active focus, which otherwise hides everything outside it."},
+                    ],
+                    "responses": {
+                        "200": {"description": "Today"},
+                    },
+                },
+            },
             "/tasks": {
                 "get": {
                     "summary": "List tasks",
@@ -940,6 +960,14 @@ def build_openapi_spec() -> dict:
                         {"name": "project_id", "in": "query", "schema": {"type": "string"}},
                         {"name": "tag_id", "in": "query", "schema": {"type": "string"},
                          "description": "Tag NAME (the field is a list of strings)."},
+                        {"name": "tag", "in": "query", "schema": {"type": "string"},
+                         "description": "Tag name; repeat for several — all of them must be on the task."},
+                        {"name": "exclude_tag", "in": "query", "schema": {"type": "string"},
+                         "description": "Tag name to leave out; repeatable. Pairs with 'tag' to read a queue: tagged X, not yet tagged Y."},
+                        {"name": "due_before", "in": "query", "schema": {"type": "string"},
+                         "description": "Only tasks with a due date on or before this. A bare date (YYYY-MM-DD) means the end of that day in your timezone."},
+                        {"name": "sort", "in": "query", "schema": {"type": "string", "default": "-updated_at"},
+                         "description": "One of updated_at, created_at, due_date, defer_date, plan_date, priority, sort_order, title; prefix with '-' to reverse."},
                         {"name": "flagged", "in": "query", "schema": {"type": "boolean"}},
                         {"name": "assigned_to_me", "in": "query", "schema": {"type": "boolean"}},
                         {"name": "limit", "in": "query", "schema": {"type": "integer", "maximum": 500, "default": 100}},
@@ -1090,6 +1118,36 @@ def build_openapi_spec() -> dict:
                     },
                     "responses": {
                         "201": {"description": "Created"},
+                    },
+                },
+            },
+            "/tasks/{task_id}/tags": {
+                "parameters": [
+                    {"name": "task_id", "in": "path", "required": True, "schema": {"type": "string"}},
+                ],
+                "post": {
+                    "summary": "Add and/or remove tags",
+                    "description": ("Flip individual tags without sending the whole list back "
+                                    "(PATCH /tasks/{task_id} replaces it wholesale). Both lists "
+                                    "are idempotent."),
+                    "tags": ["tasks"],
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "add": {"type": "array", "items": {"type": "string"}},
+                                    "remove": {"type": "array", "items": {"type": "string"}},
+                                },
+                            },
+                        }},
+                    },
+                    "responses": {
+                        "200": {"description": "Task",
+                                "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}},
+                        "400": {"description": "Neither add nor remove was given"},
+                        "404": {"description": "Not found"},
                     },
                 },
             },

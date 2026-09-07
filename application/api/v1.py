@@ -1,5 +1,5 @@
 """REST API v1 — token-authenticated JSON endpoints."""
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from flask import Blueprint, g, jsonify, request
 from mongoengine import Q
@@ -57,6 +57,49 @@ def _parse_dt(value):
 def _bad_request(msg: str, status: int = 400):
     return jsonify({"error": msg}), status
 
+
+# What ``?sort=`` may order by — a whitelist, because the value goes straight
+# into the query. A leading "-" reverses.
+TASK_SORT_FIELDS = {"updated_at", "created_at", "due_date", "defer_date",
+                    "plan_date", "priority", "sort_order", "title"}
+
+
+def _tag_filtered(qs):
+    """``?tag=`` / ``?exclude_tag=`` (both repeatable) applied to a task query.
+
+    ``Item.tags`` is a list of tag NAMES, so both are plain name matches: every
+    ``tag`` must be on the task, no ``exclude_tag`` may be. That pair is what a
+    working queue is made of — "the ones tagged Cairn that are not already
+    waiting for review" is one query, not a fetch and a client-side sieve."""
+    tags = [t for t in request.args.getlist("tag") if t]
+    if tags:
+        qs = qs.filter(tags__all=tags)
+    without = [t for t in request.args.getlist("exclude_tag") if t]
+    if without:
+        qs = qs.filter(tags__nin=without)
+    return qs
+
+
+def _day_end(raw, user):
+    """A filter bound from ``YYYY-MM-DD`` or a full timestamp.
+
+    A bare date means the END of that day in the user's own timezone — asking
+    for what is due "before tomorrow" is asking about a day, not about
+    midnight. Returns ``None`` when the value can't be read."""
+    from application.services.tzutil import resolve_tz
+
+    s = (raw or "").strip()
+    if not s:
+        return None
+    try:
+        if len(s) == 10:
+            day = date.fromisoformat(s)
+            end = datetime.combine(day, datetime.max.time())
+            return end.replace(tzinfo=resolve_tz(user)).astimezone(timezone.utc)
+        return _parse_dt(s)
+    except ValueError:
+        return None
+
 # ---------------- tasks ----------------
 
 @api_v1_bp.get("/tasks")
@@ -87,6 +130,13 @@ def list_tasks():
     tag_id = request.args.get("tag_id")
     if tag_id:
         qs = qs.filter(tags=tag_id)
+    qs = _tag_filtered(qs)
+    due_before = request.args.get("due_before")
+    if due_before:
+        bound = _day_end(due_before, user)
+        if bound is None:
+            return _bad_request("invalid due_before")
+        qs = qs.filter(due_date__ne=None, due_date__lte=bound)
     if request.args.get("flagged") == "true":
         qs = qs.filter(flagged=True)
     if request.args.get("assigned_to_me") == "true":
@@ -107,7 +157,12 @@ def list_tasks():
 
     limit = max(1, min(int(request.args.get("limit", 100) or 100), 500))
     offset = max(0, min(int(request.args.get("offset", 0) or 0), 1_000_000))
-    qs = qs.order_by("-updated_at").skip(offset).limit(limit)
+    # Newest-first stays the default (it is what an incremental sync pages
+    # through); a queue is read by due date instead.
+    sort = request.args.get("sort") or "-updated_at"
+    if sort.lstrip("+-") not in TASK_SORT_FIELDS:
+        return _bad_request(f"invalid sort: {sort}")
+    qs = qs.order_by(sort).skip(offset).limit(limit)
 
     # Batch-dereference the page's references (owner/assigned_to/assigned_by/
     # project/comment authors) in a handful of $in queries instead of one
@@ -141,10 +196,15 @@ def today_debug():
     start_dt = _dt.combine(today_date, _dt.min.time()).replace(tzinfo=tz)
     end_dt = start_dt + timedelta(days=days)
 
-    scoped = focus_service.restrict(Q(owner=user) | Q(assigned_to=user), user)
+    scoped = Q(owner=user) | Q(assigned_to=user)
+    # A focus hides everything outside it — right for the UI, wrong for a
+    # client asking "what is due", which would silently come back short.
+    if request.args.get("ignore_focus") != "true":
+        scoped = focus_service.restrict(scoped, user)
     qs = (Item.objects(scoped, kind="task",
                        status__nin=["done", "dropped", "someday"])
           .order_by("+due_date"))
+    qs = _tag_filtered(qs)
 
     def match_reason(t):
         reasons = []
@@ -401,6 +461,35 @@ def add_comment(task_id):
         return _bad_request("body is required")
     task.add_comment(user, body)
     return jsonify(ser_task(task)), 201
+
+@api_v1_bp.post("/tasks/<task_id>/tags")
+@token_required
+def edit_tags(task_id):
+    """Add and/or remove tags without sending the whole list back.
+
+    ``PATCH /tasks/<id>`` replaces ``tags`` wholesale, so flipping one tag
+    means read-modify-write — and two clients doing that at once lose one of
+    the edits. Both lists are idempotent: adding a tag that is already there,
+    or removing one that isn't, is a no-op."""
+    user = g.current_user
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_edited_by(user):
+        return _bad_request("not found", 404)
+    data = request.get_json(silent=True) or {}
+    add = [str(t).strip() for t in (data.get("add") or []) if str(t).strip()]
+    remove = {str(t).strip() for t in (data.get("remove") or []) if str(t).strip()}
+    if not add and not remove:
+        return _bad_request("add or remove is required")
+    tags = [t for t in (task.tags or []) if t not in remove]
+    for t in add:
+        if t not in tags:
+            tags.append(t)
+    task.tags = tags
+    from application.services.label_rules import apply_label_rules
+    apply_label_rules(task, user)
+    task.save()
+    return jsonify(ser_task(task))
+
 
 @api_v1_bp.get("/tasks/<task_id>/attachments/<token>")
 @token_required
