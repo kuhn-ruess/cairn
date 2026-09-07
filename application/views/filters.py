@@ -210,8 +210,15 @@ def register_filters(app):
             # Drop the default text-* colour class — Bootstrap's utilities set
             # `color: ... !important`, which would otherwise beat the inline
             # tint and the custom colour would never show.
-            return _Markup(f'<i class="bi {icon} {cls}" style="color: {color};"></i>')
-        return _Markup(f'<i class="bi {icon} {klass} {cls}"></i>')
+            glyph = f'<i class="bi {icon} {cls}" style="color: {color};"></i>'
+        else:
+            glyph = f'<i class="bi {icon} {klass} {cls}"></i>'
+        # A shared folder/project says so on its icon: which of the rows in a
+        # list somebody else can see is worth knowing before you click one.
+        if getattr(item, "is_shared", False):
+            glyph += ('<i class="bi bi-people-fill item-icon-share"'
+                      ' title="Shared with others"></i>')
+        return _Markup(glyph)
 
     @app.context_processor
     def inject_helpers():

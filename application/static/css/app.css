@@ -1352,6 +1352,14 @@ body.inspector-docked #bulk-bar {
 .qa-chip.qa-flag     { background: var(--gv-yellow-br); color: #1d2021; font-weight: 600; }
 .qa-chip.qa-assignee { background: var(--gv-purple-br, #d3869b); color: #1d2021; }
 
+/* The share marker item_icon() hangs off a shared folder / project icon. */
+.item-icon-share {
+  font-size: .68em;
+  vertical-align: super;
+  margin-left: .1rem;
+  color: var(--gv-blue-br);
+}
+
 /* Favorite star toggle — low-key until hovered or active (gold when favorited). */
 .fav-star {
   border: 0;

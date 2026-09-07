@@ -919,6 +919,17 @@ class Item(Document):
     def is_note(self) -> bool:
         return self.kind == "note"
 
+    @property
+    def is_shared(self) -> bool:
+        """Does this item carry a share of its OWN — members or teams?
+
+        Read off the raw values: ``members``/``shared_teams`` are reference
+        lists, and touching them dereferences every user on the way past. A
+        list that only wants to know *whether* something is shared must not
+        pay a query per row for it.
+        """
+        return bool(self._data.get("members") or self._data.get("shared_teams"))
+
     # ----- task behaviour helpers (no-op for non-tasks) -----
 
     def is_available(self, now: datetime | None = None) -> bool:
