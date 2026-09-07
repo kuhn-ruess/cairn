@@ -327,6 +327,7 @@ def detail(note_id):
             tag_filter_choices=_tag_filter_choices(user, tree),
             can_edit=item.can_be_edited_by(user),
             is_owner=(item.owner == user),
+            can_delete=item.can_be_deleted_by(user),
             member_choices=_member_choices(user),
             selected_members=[str(m.pk) for m in (item.members or [])],
             team_choices=_team_choices(user),
@@ -358,6 +359,7 @@ def detail(note_id):
         tag_filter_choices=_tag_filter_choices(user, tree),
         can_edit=item.can_be_edited_by(user),
         is_owner=(item.owner == user),
+        can_delete=item.can_be_deleted_by(user),
         folder_choices=_folder_choices(user, exclude_pk=item.pk),
         member_choices=_member_choices(user),
         selected_members=[str(m.pk) for m in (item.members or [])],
@@ -753,8 +755,8 @@ def move(note_id):
 def delete(note_id):
     """Soft-delete (trash) a note or notes-folder + its subtree."""
     user = current_user._get_current_object()
-    item = Item.objects(pk=note_id, owner=user, kind__in=["note", "folder"]).first()
-    if not item:
+    item = Item.objects(pk=note_id, kind__in=["note", "folder"]).first()
+    if not item or not item.can_be_deleted_by(user):
         abort(404)
     from application.services.trash import trash_item
     trash_item(item)

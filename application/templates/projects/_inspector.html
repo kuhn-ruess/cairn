@@ -277,14 +277,19 @@
       </button>
     </form>
     {% endif %}
+    {# Only offered to whoever may actually do it (owner / owner of a folder
+       above it / admin of a team it is shared with) — the route refuses the
+       rest, and a button that answers 404 reads as the app being broken. #}
+    {% if can_delete %}
     <form method="post" action="{{ url_for('projects.delete', project_id=project.pk) }}"
           class="m-0" data-inspector-side
-          data-confirm="Delete this project? Tasks will become unassigned.">
+          data-confirm="Move this {{ project.kind }} and everything filed under it to the trash?">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn btn-sm btn-outline-danger">
         <i class="bi bi-trash"></i> Delete
       </button>
     </form>
+    {% endif %}
   {% endif %}
   <div class="ms-auto d-flex gap-2">
     <button type="button" class="btn btn-sm btn-outline-secondary"

@@ -1626,6 +1626,19 @@ class Item(Document):
     def can_be_edited_by(self, user: User) -> bool:
         return self.can_be_viewed_by(user)
 
+    def can_be_deleted_by(self, user: User) -> bool:
+        """Who may put this in the trash — deliberately narrower than editing.
+
+        Editing is viewing (above): every member of a shared folder may write
+        in it. Deleting it takes the whole subtree with it, other people's
+        items included, so it stays with the people answerable for that tree:
+        the owner, whoever owns a folder it sits in, and the admin of a team it
+        (or an ancestor) is shared with — the same two grants a descendant's
+        own share cannot narrow away, see :meth:`_ancestor_grant`."""
+        if self.owner == user:
+            return True
+        return self._ancestor_grant(user)
+
     def regenerate_share_token(self) -> str:
         import secrets
         self.share_token = secrets.token_urlsafe(24)

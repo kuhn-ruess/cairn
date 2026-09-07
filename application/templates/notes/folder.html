@@ -87,7 +87,7 @@
             action="{{ url_for('notes.new', kind='note', parent=folder.pk) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       </form>
-      {% if is_owner %}
+      {% if can_delete %}
         <div class="dropdown ms-2">
           <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"
                   title="More"><i class="bi bi-three-dots"></i></button>

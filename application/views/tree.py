@@ -19,8 +19,16 @@ def index():
         )
     )
     by_parent: dict = {}
+    shown = {str(p.pk) for p in projects}
     for p in projects:
         key = str(p.parent.pk) if p.parent else None
+        # The template walks down from ``None``, so a container filed under a
+        # parent that is not itself on the page — deleted, in the trash, shared
+        # away, or simply not active — would be reachable from nowhere: it and
+        # its whole subtree would disappear from the tree without a trace.
+        # Show it at the top instead, where it can be opened, moved or deleted.
+        if key not in shown:
+            key = None
         by_parent.setdefault(key, []).append(p)
     # Sort: sections first within a parent, then sort_order, then name.
     for arr in by_parent.values():
@@ -40,6 +48,10 @@ def index():
         # owner's (invisible) project.
         home = t.home_for(user)
         key = str(home.pk) if home else None
+        # Same for a task whose home is not drawn (see above) — the alternative
+        # is an open task that exists and is shown nowhere.
+        if key not in shown:
+            key = None
         tasks_by_project.setdefault(key, []).append(t)
 
     return render_template(

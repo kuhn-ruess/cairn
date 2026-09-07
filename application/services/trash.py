@@ -49,21 +49,73 @@ def trash_item(item) -> int:
     )
 
 
+def _reroot_children_of(pks) -> int:
+    """Detach anything still live that is filed under one of ``pks``, right
+    before those documents are deleted for good.
+
+    A subtree is trashed and purged as a whole, so this normally finds nothing.
+    It finds something when part of it came back on its own — a co-owner
+    restored their share of a trashed folder (see :func:`restore_item`) — and
+    without it that item would keep pointing at a document that no longer
+    exists: present in the database, listed by no tree, deletable by nobody."""
+    from application.models.item import Item
+    return Item.all_objects(parent__in=list(pks), trashed_at=None).update(
+        unset__parent=True
+    )
+
+
+def _parent_is_reachable(item) -> bool:
+    """True when this item's parent still exists and is not itself trashed.
+
+    Reads the raw reference rather than ``item.parent``: dereferencing a parent
+    whose document is gone is exactly the case this has to answer for, and that
+    is the one that raises."""
+    from application.models.item import Item
+    raw = item._data.get("parent")
+    pid = getattr(raw, "id", None) or getattr(raw, "pk", None)
+    if pid is None:
+        return True          # top level — reachable by definition
+    par = Item.all_objects(pk=pid).only("id", "trashed_at").first()
+    return par is not None and par.trashed_at is None
+
+
 def restore_item(item) -> int:
-    """Restore ``item`` and any descendants currently in the trash."""
+    """Restore ``item`` and any descendants currently in the trash.
+
+    A subtree does not always come back in one piece: ``trashed_roots`` is
+    per-owner, so in a team the parts of one trashed folder sit in several
+    people's trash and each restores their own. Restoring into a parent that is
+    still trashed (or gone) would put the item somewhere nothing can reach —
+    indistinguishable from never having restored it — so it is re-filed at the
+    top level, where its owner can see it and file it again."""
     from application.models.item import Item
     pks = _subtree_pks(item.pk)
-    return Item.all_objects(pk__in=pks, trashed_at__ne=None).update(
+    n = Item.all_objects(pk__in=pks, trashed_at__ne=None).update(
         unset__trashed_at=True
     )
+    if not _parent_is_reachable(item):
+        Item.all_objects(pk=item.pk).update(unset__parent=True)
+        item.parent = None
+    return n
 
 
 def purge_item(item) -> int:
     """Permanently delete a trashed item and its subtree. Returns the count."""
     from application.models.item import Item
     pks = _subtree_pks(item.pk)
-    _clear_calendar_events(pks, item.owner)
-    return Item.all_objects(pk__in=pks).delete()
+    # Only what is actually IN the trash goes. Anything under here that was
+    # restored on its own (see restore_item) is live work — somebody else's,
+    # usually — and a purge that takes it along deletes it with no trash to get
+    # it back from. Re-root the survivors instead of leaving them pointing at a
+    # document that no longer exists, which is how an item ends up in the
+    # database and in no tree.
+    dead = {item.pk} | {
+        i.pk for i in Item.all_objects(pk__in=pks, trashed_at__ne=None).only("id")
+    }
+    dead = list(dead)
+    _clear_calendar_events(dead, item.owner)
+    _reroot_children_of(dead)
+    return Item.all_objects(pk__in=dead).delete()
 
 
 def trashed_roots(user):
@@ -93,6 +145,7 @@ def empty_trash(user) -> int:
     if not pks:
         return 0
     _clear_calendar_events(pks, user)
+    _reroot_children_of(pks)
     return Item.all_objects(pk__in=pks).delete()
 
 
@@ -109,6 +162,7 @@ def purge_trash(user, *, dry_run: bool = False) -> int:
         return qs.count()
     pks = [i.pk for i in qs.only("id")]
     _clear_calendar_events(pks, user)
+    _reroot_children_of(pks)
     return Item.all_objects(pk__in=pks).delete()
 
 

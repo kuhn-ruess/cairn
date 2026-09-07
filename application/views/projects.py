@@ -23,6 +23,7 @@ def _render_project_inspector(project, user, *, just_saved=False):
         project=project,
         form_action=url_for("projects.edit", project_id=str(project.pk)),
         just_saved=just_saved,
+        can_delete=project.can_be_deleted_by(user),
     )
 from flask_login import current_user, login_required
 from mongoengine import Q
@@ -1426,6 +1427,7 @@ def edit(project_id):
         "form": form,
         "project": project,
         "form_action": url_for("projects.edit", project_id=str(project.pk)),
+        "can_delete": project.can_be_deleted_by(user),
     }
     if _is_inspector():
         return render_template("projects/_inspector.html", **ctx)
@@ -2523,7 +2525,7 @@ def delete(project_id):
     from application.services.trash import trash_item
     user = current_user._get_current_object()
     project = Item.objects(pk=project_id).first()
-    if not project or project.owner != user:
+    if not project or not project.can_be_deleted_by(user):
         abort(404)
     # Soft-delete the whole subtree (sub-projects, sections, tasks) into the
     # trash; restorable until purged.
