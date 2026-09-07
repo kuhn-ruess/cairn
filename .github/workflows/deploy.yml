@@ -38,6 +38,24 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 30
     steps:
+      - name: Trust GitHub's host key
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A fresh runner user has no known_hosts, and git's failure for that
+          # ("Host key verification failed") looks nothing like its cause. The
+          # keys are read from GitHub's own API over TLS rather than with
+          # ssh-keyscan: same keys, but a channel that is actually verified,
+          # instead of trusting whatever answers on port 22 the first time.
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          touch ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+          if ! ssh-keygen -F github.com -f ~/.ssh/known_hosts >/dev/null; then
+            curl -fsS https://api.github.com/meta \
+              | python3 -c 'import json,sys; [print(f"github.com {k}") for k in json.load(sys.stdin)["ssh_keys"]]' \
+              >> ~/.ssh/known_hosts
+            echo "added GitHub's host keys"
+          fi
+
       - name: Pull
         shell: bash
         run: |
