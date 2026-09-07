@@ -219,7 +219,7 @@ def sync_team(team, *, full: bool = False, dry_run: bool = False,
             if owner is None:
                 owner = fallback
                 stats.tickets_unowned += 1
-            target = _cached_target(targets, owner)
+            target = _cached_target(targets, owner, stats)
 
         try:
             item = zi._upsert_ticket(owner, raw, base, token, target, stats,
@@ -259,10 +259,19 @@ def sync_team(team, *, full: bool = False, dry_run: bool = False,
     return stats
 
 
-def _cached_target(targets: dict, user):
+def _cached_target(targets: dict, user, stats=None):
     key = str(user.pk)
     if key not in targets:
         targets[key] = _target_project(user)
+        # They picked a project and it is not there any more — trashed,
+        # deleted, handed over. Every ticket of theirs lands in the inbox from
+        # here on, which is the one outcome a sync must not reach quietly.
+        # Once per run, into the log the team page shows.
+        if (stats is not None and targets[key] is None
+                and (getattr(user, "zammad_sync_project", "") or "")):
+            stats.errors.append(
+                f"{user.display_name or user.username}: the project picked for "
+                "Zammad tickets is gone — filing into their inbox instead")
     return targets[key]
 
 

@@ -484,10 +484,19 @@ def zammad():
               if a.user and (a.source or "zammad") == "zammad"}
     rows = []
     for m in members:
-        target = Item.objects(pk=m.zammad_sync_project, owner=m).first() \
-            if getattr(m, "zammad_sync_project", "") else None
+        picked = getattr(m, "zammad_sync_project", "") or ""
+        # Resolved exactly the way the sync resolves it (zammad_team.
+        # _target_project) — an owned, untrashed *project*. Anything else and
+        # the sync files into the inbox, so this column has to say so too.
+        target = Item.objects(pk=picked, owner=m, kind="project").first() \
+            if picked else None
         rows.append({"user": m, "matched": str(m.pk) in mapped,
-                     "target": target.title if target else ""})
+                     "target": target.title if target else "",
+                     # Picked something, and it is not there any more (trashed,
+                     # deleted, converted, handed over). Without this the row
+                     # reads "their inbox" — the same as never having chosen —
+                     # and the tickets quietly pile up somewhere else.
+                     "target_gone": bool(picked) and target is None})
     from application.services import sync_log, sync_progress
     progress = sync_progress.read(str(team.pk))
     if stats is None and progress and progress.get("stats"):

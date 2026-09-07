@@ -231,6 +231,11 @@
             </td>
             <td>
               {% if r.target %}{{ r.target }}
+              {% elif r.target_gone %}
+                <span class="text-danger" title="Trashed, deleted, or no longer a project they own">
+                  <i class="bi bi-exclamation-triangle"></i>
+                  picked project is gone — tickets land in their inbox
+                </span>
               {% else %}<span class="text-muted">their inbox</span>{% endif %}
             </td>
           </tr>
