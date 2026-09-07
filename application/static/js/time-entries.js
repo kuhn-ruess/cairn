@@ -71,7 +71,13 @@
       if (v !== undefined && v !== null && v !== "") fd.append(k, v);
     });
     if (ctx.kind === "day" && ctx.day) fd.append("d", ctx.day);
-    if (ctx.kind === "report") fd.append("report_args", ctx.args || "");
+    if (ctx.kind === "report") {
+      fd.append("report_args", ctx.args || "");
+      // Which team the report is showing rides in the filters; the endpoint
+      // reads it from the body, so a swap can't fall back to the default team.
+      const team = new URLSearchParams(ctx.args || "").get("team");
+      if (team) fd.append("team", team);
+    }
     const resp = await fetch(action, {
       method: "POST",
       headers: { "X-Partial": ctx.kind || "chip" },
@@ -104,12 +110,23 @@
     });
   }
 
+  // querySelectorAll only ever looks *below* the node it is called on, so a
+  // scope that IS a capture box has to be added by hand — the clock toggle
+  // hands us its own .time-add, and re-rendering nothing is how the toggle
+  // came to do nothing at all.
+  function addBoxes(scope) {
+    const root = scope || document;
+    const out = Array.prototype.slice.call(root.querySelectorAll(".time-add"));
+    if (root.nodeType === 1 && root.matches(".time-add")) out.unshift(root);
+    return out;
+  }
+
   // ---- custom fields -------------------------------------------------------
   // Each <option> carries its project's field definitions, so switching the
   // project re-asks for the right things without a round trip. Values are
   // submitted as cf_<key>, which is what the server reads them back as.
   function renderCustomFields(scope) {
-    (scope || document).querySelectorAll(".time-add").forEach((add) => {
+    addBoxes(scope).forEach((add) => {
       const box = add.querySelector(".tt-custom-fields");
       const sel = add.querySelector(".time-add-project");
       if (!box) return;
@@ -178,7 +195,7 @@
   }
 
   function applyClockMode(scope) {
-    (scope || document).querySelectorAll(".time-add").forEach((add) => {
+    addBoxes(scope).forEach((add) => {
       const dur = add.querySelector(".time-dur") || add.querySelector(".time-add-duration");
       const clock = add.querySelector(".time-add-clock");
       if (!dur || !clock) return;
@@ -469,6 +486,28 @@
     }), 0);
   }
 
+  // ---- re-filing an entry --------------------------------------------------
+  // The report's editor can move an entry onto another billing project. The
+  // options live in one <template> on the page, so they are cloned in on first
+  // open rather than repeated in every row. An entry sitting on an archived or
+  // deleted project is not in that list — its own project is prepended, so
+  // saving can never move it somewhere nobody picked.
+  function fillProjectSelect(form) {
+    const sel = form.querySelector(".tt-edit-project");
+    const tpl = document.getElementById("tt-edit-projects");
+    if (!sel || !tpl || sel.options.length) return;
+    sel.appendChild(tpl.content.cloneNode(true));
+    const pid = sel.dataset.project || "";
+    sel.value = pid;
+    if (sel.value !== pid) {
+      const own = document.createElement("option");
+      own.value = pid;
+      own.textContent = sel.dataset.label || "(current project)";
+      sel.insertBefore(own, sel.firstChild);
+      sel.value = pid;
+    }
+  }
+
   // ---- clicks --------------------------------------------------------------
   document.addEventListener("click", (ev) => {
     const t = ev.target;
@@ -575,6 +614,7 @@
                                ? row.nextElementSibling : null));
       if (form) {
         form.classList.toggle("d-none");
+        if (!form.classList.contains("d-none")) fillProjectSelect(form);
         const dur = form.querySelector(".tt-edit-duration");
         if (!form.classList.contains("d-none") && dur) dur.focus();
       }
@@ -588,7 +628,9 @@
       const billable = form.querySelector(".tt-edit-billable");
       const startEl = form.querySelector(".tt-edit-start");
       const endEl = form.querySelector(".tt-edit-end");
+      const projEl = form.querySelector(".tt-edit-project");
       const payload = {
+        project_id: projEl ? projEl.value : "",
         duration: form.querySelector(".tt-edit-duration").value.trim(),
         start_time: startEl ? startEl.value : "",
         end_time: endEl ? endEl.value : "",

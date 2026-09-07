@@ -58,10 +58,11 @@ def _team_ids(user) -> set:
     return user_team_ids(user)
 
 
-def _team():
+def _team(args=None):
     """The team the module currently operates on.
 
-    Honours ``team=<id>`` (query string OR form body, so it survives POSTs)
+    Honours ``team=<id>`` (query string OR form body, so it survives POSTs;
+    ``args`` for the report's own filters, which travel as one packed string)
     when the user belongs to it; otherwise the team they pinned as their
     default. 404s if they ask for a team they're not in, 403 if they have none."""
     from application.services.timetracking import default_team
@@ -69,7 +70,7 @@ def _team():
     teams = _user_teams(user)
     if not teams:
         abort(403)
-    raw = request.values.get("team")
+    raw = (args or request.values).get("team")
     if raw:
         for t in teams:
             if str(t.pk) == raw:
@@ -621,6 +622,24 @@ def entry_edit(bucket_id, entry_id):
     entry = next((e for e in bucket.entries if e.entry_id == entry_id), None)
     if not may_edit_entry(user, team, entry):
         abort(403)
+    # Re-filing the entry onto another billing project — the per-row version of
+    # "Move selected" on the report, and a biller's call for the same reason.
+    # It happens *first*: a move to another customer moves the entry to that
+    # customer's bucket, which is the bucket the correction below has to write.
+    target_id = (request.form.get("project_id") or "").strip()
+    if target_id and target_id != entry.project_id:
+        from application.services.timetracking import move_entries
+        _billing_manager(team)
+        target = _project_or_404(target_id, team)
+        move_entries(team=team, pairs=[(str(bucket.id), entry_id)],
+                     target=target, actor=user)
+        moved_to = TimeBucket.objects(team=team, customer=target.customer,
+                                      period=bucket.period,
+                                      entries__entry_id=entry_id).first()
+        if moved_to is not None:
+            bucket = moved_to
+            entry = next((e for e in bucket.entries
+                          if e.entry_id == entry_id), entry)
     project = project_for_user(user, entry.project_id)
     if project is not None:
         minutes, start, end, custom = _booking(request.form, project)
@@ -707,7 +726,7 @@ def _report_filters(args=None):
 def _report_context(args=None):
     """Everything the report body renders from, for a page load or a swap."""
     from application.services.timetracking import project_fields
-    team = _team()
+    team = _team(args)
     user = current_user._get_current_object()
     f = _report_filters(args)
     data = _grouped_report(team, f)

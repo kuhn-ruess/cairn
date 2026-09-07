@@ -27,5 +27,7 @@
   </span>
 </div>
 
-{% include "timetracking/_day_body.html" %}
+<div id="tt-day" data-day="{{ d.day.isoformat() }}">
+  {% include "timetracking/_day_body.html" %}
+</div>
 {% endblock %}

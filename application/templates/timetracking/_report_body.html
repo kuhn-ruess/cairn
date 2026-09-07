@@ -1,3 +1,4 @@
+{% import "timetracking/_capture_macros.html" as cap %}
 {# The report's results: totals, then every entry in one flat table.
 
    The entries used to sit inside a <details> per user, which is why "Mark
@@ -6,10 +7,10 @@
    lists, and the table's columns are exactly what the export writes, so it
    doubles as the preview.
 
-   Swapped in place after an edit (see time-entries.js), which is why the whole
-   thing lives in one container carrying the current filters. #}
-<div id="tt-report" data-args="{{ request.query_string.decode('utf-8') }}">
-
+   Swapped in place after an edit (see time-entries.js): this is the *inside*
+   of #tt-report, whose wrapper (and the filters it carries) stays on the page
+   — a partial that rendered its own container would nest one swap in the
+   next, and the inner one has no query string to carry the filters. #}
 {% if not groups %}
   <p class="text-muted">No time entries match these filters.</p>
 {% else %}
@@ -238,18 +239,30 @@
             {# Correcting an entry where you found it, mite-style. Same controls
                and endpoint as the day sheet; none of these inputs carry a name,
                so the bulk-billing form above never submits them. #}
-            <tr class="tt-edit d-none">
+            <tr class="tt-edit d-none"
+                data-action="{{ url_for('timetracking.entry_edit', bucket_id=e.bucket_id, entry_id=e.entry_id) }}">
               <td colspan="{{ (9 if can_bill else 8) + field_columns|length }}">
-                <div class="d-flex gap-2 flex-wrap align-items-center"
-                     data-action="{{ url_for('timetracking.entry_edit', bucket_id=e.bucket_id, entry_id=e.entry_id) }}">
+                <div class="d-flex gap-2 flex-wrap align-items-center">
                   <input type="text" class="form-control form-control-sm tt-edit-duration"
                          style="max-width: 7rem;" value="{{ e.minutes }}" title="Duration">
                   <input type="time" class="form-control form-control-sm tt-edit-start"
                          style="max-width: 7rem;" value="{{ e.start_time }}" title="Start (optional)">
+                  {{ cap.time_buttons("start") }}
                   <input type="time" class="form-control form-control-sm tt-edit-end"
                          style="max-width: 7rem;" value="{{ e.end_time }}" title="End (optional)">
+                  {{ cap.time_buttons("end") }}
                   <input type="date" class="form-control form-control-sm tt-edit-date"
                          style="max-width: 9.5rem;" value="{{ e.spent_on.isoformat() }}">
+                  {% if can_bill %}
+                    {# Where the time is filed — the per-row version of "Move
+                       selected". Filled from the template below when the row
+                       is opened, so the option list is on the page once and
+                       not once per entry. #}
+                    <select class="form-select form-select-sm tt-edit-project"
+                            style="max-width: 16rem;" title="Billing project"
+                            data-project="{{ e.project_id }}"
+                            data-label="{{ e.customer }} › {{ e.project }}"></select>
+                  {% endif %}
                   <input type="text" class="form-control form-control-sm tt-edit-note"
                          style="min-width: 12rem; flex: 1 1 12rem;" value="{{ e.note }}"
                          maxlength="200" placeholder="Description">
@@ -297,6 +310,15 @@
   </div>
 </form>
 
+{% if can_bill %}
+  {# Every project the time could be re-filed onto, once. Cloned into a row's
+     editor on first open (time-entries.js) — inlining it per row is the same
+     list a few hundred times. #}
+  <template id="tt-edit-projects">
+    {% for op in move_targets %}<option value="{{ op.id }}">{{ op.label }}</option>{% endfor %}
+  </template>
+{% endif %}
+
 {# Restore forms sit outside the billing form — forms can't nest — and are
    wired to their button by the button's form= attribute. #}
 {% for e in rows if e.status == 'cancelled' and not e.locked %}
@@ -341,4 +363,3 @@
 </details>
 
 {% endif %}
-</div>

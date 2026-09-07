@@ -3,8 +3,6 @@
    log / start / stop / edit / cancel, so corrections never pile up browser
    history. Everything here comes from services.timetracking.day_sheet (one
    bucket query); the template never dereferences anything. #}
-<div id="tt-day" data-day="{{ d.day.isoformat() }}">
-
 {# ---- Week at a glance ---- #}
 <div class="btn-group btn-group-sm w-100 mb-3 tt-week" role="group">
   {% for w in d.week %}
@@ -217,4 +215,3 @@
     <span>Week <strong class="text-body">{{ d.week_minutes|duration }}</strong></span>
   </div>
 {% endif %}
-</div>
