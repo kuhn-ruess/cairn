@@ -205,6 +205,16 @@ API; `outliner.js` hands them a handle of that shape over whichever block is
 open. Saving is the whole body, throttled, against `base_stamp` — unchanged
 from the document editor it replaced.
 
+A block holds as much prose as you like: a blank line INSIDE a block is a
+paragraph break (written as the block's own continuation indent, see
+`outline.serialize`), typed with ⇧Enter twice. **⌥⇧J** joins blocks that are
+already apart into one, a paragraph break between — text written elsewhere
+arrives split at its blank lines, and four paragraphs under a heading are often
+one thought rather than four bullets. It takes the blocks the mark actually runs
+through (not `selection()`, which answers with the topmost block of a chain
+because a subtree comes along with its root), refuses to absorb a block that has
+something under it, and leaves a snapshot for Ctrl-Z.
+
 **Vim keys** (`static/js/outliner-vim.js`, per-user via `User.editor_vim_mode`,
 `data-vim` on `#note-outline`) are opt-in and modal: a BLOCK is a line, so
 `dd`/`yy`/`p`/`>>` act on the block and its subtree while the character-wise

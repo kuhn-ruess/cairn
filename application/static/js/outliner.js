@@ -974,7 +974,7 @@
   // Backspace and Delete take the marked text out, exactly as far as the mark
   // went. There is no history behind a note, so the step before this one is
   // kept for Ctrl-Z (below) — the one thing that makes a delete safe to press.
-  let undoDelete = null;
+  let undoStep = null;
 
   document.addEventListener("keydown", (e) => {
     if (!canEdit || editing) return;
@@ -987,18 +987,88 @@
     const snap = snapshot();
     if (!deleteMarked(sel.getRangeAt(0))) return;
     e.preventDefault();
-    undoDelete = snap;
+    undoStep = snap;
     sel.removeAllRanges();
     setStatus("Deleted — Ctrl-Z puts it back");
   });
 
   document.addEventListener("keydown", (e) => {
-    if (!canEdit || editing || !undoDelete) return;
+    if (!canEdit || editing || !undoStep) return;
     if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
     e.preventDefault();
-    restoreSnapshot(undoDelete);
-    undoDelete = null;
+    restoreSnapshot(undoStep);
+    undoStep = null;
     setStatus("Back");
+  });
+
+  /** Join the marked blocks into the first one, a blank line between them.
+   *
+   *  A blank line INSIDE a block is a paragraph break — the format has carried
+   *  that from the start (services/outline.serialize writes it as the block's
+   *  own continuation indent), and ⇧Enter twice is how you type one. This is
+   *  the same thing for prose that is already APART: text written elsewhere
+   *  arrives split at its blank lines, and four paragraphs under a heading are
+   *  often one thought rather than four bullets. Doing it with a code fence
+   *  works but lies about what the text is.
+   *
+   *  A block with something under it is never absorbed — the rule Backspace
+   *  already follows, because the alternative is an orphaned subtree.
+   *
+   *  Returns "" (nothing to do), "children" (refused), or "ok".
+   */
+  /** The blocks whose OWN text the mark runs through, in document order.
+   *
+   *  Not ``selection()``: that answers with the topmost block of any chain,
+   *  because a subtree comes along with its root when it is deleted or copied.
+   *  Marking four paragraphs under a heading would then answer "the heading",
+   *  and joining is about the four. ``contentOf`` is the block's own row, so an
+   *  ancestor that merely CONTAINS the mark is not in the list.
+   */
+  function markedBlocks() {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return [];
+    const range = sel.getRangeAt(0);
+    return allNodes().filter((n) => {
+      const box = n.el && contentOf(n);
+      return box && !box.closest("[data-embed]") && range.intersectsNode(box);
+    });
+  }
+
+  function mergeMarked(nodes) {
+    const order = nodes || [];                             // document order
+    if (order.length < 2) return "";
+    const eaten = order.slice(1);
+    if (eaten.some((n) => (n.children || []).length)) return "children";
+    order[0].content = order
+      .map((n) => (n.content || "").trim())
+      .filter(Boolean)
+      .join("\n\n");
+    eaten.forEach(removeNode);
+    return "ok";
+  }
+
+  // ⌥⇧J over a mark that spans blocks. ``code`` rather than ``key``: with Alt
+  // held, a letter key reports the character it would have typed.
+  document.addEventListener("keydown", (e) => {
+    if (!canEdit || editing) return;
+    if (!e.altKey || !e.shiftKey || e.code !== "KeyJ") return;
+    if (markedBox()) return;                  // inside one block: not ours
+    const picked = markedBlocks();
+    if (picked.length < 2) return;
+    const snap = snapshot();
+    const how = mergeMarked(picked);
+    if (!how) return;
+    e.preventDefault();
+    if (how === "children") {
+      setStatus("Not merged — one of them has blocks under it", "text-danger");
+      return;
+    }
+    undoStep = snap;
+    const sel = window.getSelection();
+    if (sel) sel.removeAllRanges();
+    repaintAll();
+    save({ render: picked[0] });
+    setStatus("Merged — Ctrl-Z puts it back");
   });
 
   document.addEventListener("cut", (e) => {
