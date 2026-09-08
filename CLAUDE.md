@@ -81,6 +81,7 @@ commands beyond the user-facing ones in the README:
 - `./cairn split-note-times [--user <name>] [--dry-run]` — lift `(10:00 bis 12:00)` out of imported mite notes into `TimeEntry.start_time`/`end_time` (the importer does this now; this fixes what came in before)
 - `./cairn split-time-buckets [--dry-run]` — one-shot: re-file legacy monthly time buckets into the per-day buckets the model now uses
 - `./cairn sync-notes [--user <name>] [--dry-run] [--force]` — one round of the notes ⇄ WebDAV mirror. Cron-friendly / no-broker equivalent of the background round (shares `services/notes_sync.py`)
+- `./cairn fetch-mirror-assets [--user <name>] [--dry-run]` — one-shot: pull in images that were added to the share by hand (DEVONthink drops them straight into `_assets`) and whose link a pull left as a dead relative path. The round does this by itself now; this fixes the notes that came in before
 - `./cairn cleanup-completed-tasks [--dry-run] [--user <name>]` — cron-friendly sweep of done/dropped tasks past each user's retention window
 - `./cairn cleanup-trash [--dry-run] [--user <name>]` — cron-friendly purge of trashed items past each user's `trash_retention_days` (default 30; `0` = keep until emptied)
 - `./cairn sync-zammad-team [--team <id>] [--full] [--force] [--dry-run]` — the **team** sync (`services/zammad_team.py`): one connection (`Team.zammad_url` + service token) reads the instance once, files each ticket under the Cairn user its Zammad owner maps to (roster → that user's `zammad_sync_project`) and books all agents' time into the team. Replaces per-member syncs; configured under Team → Zammad (`views/teams.py`), because the connection belongs to the team, not to the billing module
@@ -289,7 +290,10 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   note — so a link into an assets folder that the note does not already own
   is fetched, stored inline like a paste, and written back out under its own
   token. Without that step `write_assets` deletes the file on the next round
-  as one no note claims, and the picture is gone in both places. `LinkMap.path_of()` is the single answer to
+  as one no note claims, and the picture is gone in both places. What
+  came in before that is fixed by `./cairn fetch-mirror-assets [--user <name>]
+  [--dry-run]` — once the round had taken the text, the hashes matched and no
+  later round would look again. `LinkMap.path_of()` is the single answer to
   "where does this note's file go"; do not call `path_for` a second time
   alongside it. A trashed folder's now-empty directory is removed over there
   too — the only place the mirror deletes a *collection*, so the rule is

@@ -1100,6 +1100,42 @@ class _Round:
         return None
 
 
+def fetch_missing_assets(user, client: DavClient | None = None, *,
+                         dry_run: bool = False) -> MirrorStats:
+    """One-shot repair: notes whose body still points at a file on the share.
+
+    A pull used to leave a link into ``_assets`` exactly as the file had it
+    (see :meth:`_Round.absorb_assets`), so an image added over there arrived
+    as a relative path that means nothing in the app — and once the round had
+    taken that text, the hashes matched and no later round would look again.
+    This walks the notes that carry such a link and fetches what it points at.
+
+    The files those links named are left where they are: they are the user's,
+    not ours, and nothing here deletes what this app did not write.
+    """
+    stats = MirrorStats()
+    client = client or client_for(user)
+    round_ = _Round(user, client, stats, dry_run)
+    for note in Item.objects(owner=user, kind="note",
+                             note__contains=f"{ASSETS_DIR}/"):
+        path = note.mirror_path or round_.links.path_of(note)
+        if not path:
+            continue                    # never mirrored: nothing to fetch from
+        try:
+            body = round_.absorb_assets(note, note.note or "", path)
+            if body == (note.note or ""):
+                continue                # only links it already owns
+            stats.notes_updated += 1
+            if dry_run:
+                continue
+            note.note = body
+            note.save()
+            round_.write(note, path, render(note, path, round_.links))
+        except DavError as exc:
+            stats.errors.append(f"{note.title}: {exc}")
+    return stats
+
+
 def due_user_ids(now=None) -> list:
     """Users whose mirror is due — the broker-agnostic half, same shape as
     ``zammad_auto.due_user_ids`` so the Celery task and the CLI agree."""
