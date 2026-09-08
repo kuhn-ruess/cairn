@@ -85,11 +85,17 @@
       Never run.
     {% endif %}
   </p>
-  <form method="post" action="{{ url_for('settings.notes_mirror_sync') }}" class="mb-4">
+  {# The round runs in a worker, so this waits for it rather than answering
+     with the previous round's line (see notes-mirror-sync.js). Without
+     JavaScript it stays a plain POST that says "started". #}
+  <form method="post" action="{{ url_for('settings.notes_mirror_sync') }}"
+        class="mb-4 d-flex align-items-center gap-2" data-mirror-sync
+        data-state-url="{{ url_for('settings.notes_mirror_state') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-sm btn-outline-primary">
       <i class="bi bi-arrow-repeat"></i> Sync now
     </button>
+    <span class="small text-muted" data-role="mirror-note"></span>
   </form>
 
   {% if runs %}

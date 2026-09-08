@@ -188,7 +188,8 @@
        the answer AND the way to act on it belong here, not two pages away in
        the settings. #}
     <div class="nn-mirror mt-3 pt-2 border-top d-flex align-items-center gap-1"
-         data-sync-url="{{ url_for('settings.notes_mirror_sync') }}">
+         data-sync-url="{{ url_for('settings.notes_mirror_sync') }}"
+         data-state-url="{{ url_for('settings.notes_mirror_state') }}">
       <a class="small text-muted text-decoration-none text-truncate me-auto"
          href="{{ url_for('settings.notes_mirror') }}"
          title="{{ current_user.notes_mirror_status or 'Notes mirror' }}">

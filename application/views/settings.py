@@ -956,6 +956,26 @@ def notes_mirror():
     )
 
 
+def _mirror_state(user) -> dict:
+    """What the last round left behind. Two buttons start a round and then
+    wait for this: a round ends by stamping ``last_notes_mirror_at``, or by
+    writing a failure into the status, so either one moving is the answer
+    "it has landed" — and there is no second store to keep in step with it."""
+    at = user.last_notes_mirror_at
+    return {
+        "at": at.isoformat() if at else "",
+        "when": current_app.jinja_env.filters["timeago"](at) if at else "",
+        "status": user.notes_mirror_status or "",
+    }
+
+
+@settings_bp.route("/notes-mirror/state")
+@login_required
+def notes_mirror_state():
+    """Polled while a round runs in the worker (see :func:`_mirror_state`)."""
+    return jsonify(_mirror_state(current_user._get_current_object()))
+
+
 @settings_bp.route("/notes-mirror/sync", methods=["POST"])
 @login_required
 def notes_mirror_sync():
@@ -972,24 +992,26 @@ def notes_mirror_sync():
     # position and their browser history.
     inline = request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
-    def done(message: str, level: str = "info", ok: bool = True):
+    def done(message: str, level: str = "info", ok: bool = True,
+             queued: bool = False):
+        """Answer the caller. ``queued`` says the round has been handed to a
+        worker and has NOT run yet — everything this can report about it is
+        still the previous round's, which is why the page then waits for
+        ``notes_mirror_state`` rather than showing what it has."""
         if not inline:
             flash(message, level)
             return redirect(url_for("settings.notes_mirror"))
         user.reload()
-        when = current_app.jinja_env.filters["timeago"](user.last_notes_mirror_at)
-        return jsonify({
-            "ok": ok, "message": message, "level": level,
-            "when": when if user.last_notes_mirror_at else "",
-            "status": user.notes_mirror_status or "",
-        })
+        return jsonify({"ok": ok, "message": message, "level": level,
+                        "queued": queued, **_mirror_state(user)})
 
     if not (user.notes_mirror_url or "").strip():
         return done("Set the WebDAV folder first.", "warning", ok=False)
     try:
         from application.services.sync_tasks import enqueue_notes_mirror
         enqueue_notes_mirror(str(user.pk), trigger="manual")
-        return done("Sync started — it runs in the background.", "info")
+        return done("Sync started — it runs in the background.", "info",
+                    queued=True)
     except Exception:                          # no broker, or it's down
         try:
             stats = notes_sync.sync_user(user, trigger="manual")

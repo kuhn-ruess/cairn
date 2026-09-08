@@ -141,6 +141,7 @@
       syncBtn.addEventListener("click", async () => {
         if (running) return;
         running = true;
+        let following = false;          // the worker has it; keep the spinner
         syncBtn.classList.add("is-running");
         const was = when.textContent;
         when.textContent = "Syncing…";
@@ -154,25 +155,50 @@
           });
           const data = await resp.json().catch(() => null);
           if (!resp.ok || !data) throw new Error("sync failed");
+          const land = (state) => {
+            // Back to saying WHEN, which is what this line is for the rest of
+            // the time.
+            when.textContent = state.when ? `Mirrored ${state.when}` : was;
+            mirror.querySelector("a").title = state.status || "Notes mirror";
+          };
           when.textContent = data.message;
           // The line is narrow, so a summary or an error gets cut off — the
           // whole of it has to be readable on hover.
           mirror.querySelector("a").title = data.message;
-          if (data.ok) {
-            // Back to saying WHEN, which is what this line is for the rest of
-            // the time. A failure stays put: one that clears itself after a
-            // few seconds is one you can miss entirely.
-            setTimeout(() => {
-              when.textContent = data.when ? `Mirrored ${data.when}` : was;
-              mirror.querySelector("a").title = data.status || "Notes mirror";
-            }, 6000);
+          if (data.ok && data.queued) {
+            following = true;
+            // Handed to a worker: what this response carries is the PREVIOUS
+            // round. Keep saying "syncing" and wait for the real one, or the
+            // line would snap back to the old time and only a reload would
+            // ever correct it.
+            when.textContent = "Syncing…";
+            const stop = () => {
+              running = false;
+              syncBtn.classList.remove("is-running");
+            };
+            window.cairnMirrorFollow(mirror.dataset.stateUrl, data,
+              (state) => { land(state); stop(); },
+              () => {
+                when.textContent = was;
+                mirror.querySelector("a").title =
+                  "Still syncing — see Settings → Notes on a share";
+                stop();
+              });
+          } else if (data.ok) {
+            // It ran in the request: this IS the answer. A failure stays put —
+            // one that clears itself after a few seconds is one you can miss.
+            setTimeout(() => land(data), 6000);
           }
         } catch (err) {
           when.textContent = "Sync failed";
           mirror.querySelector("a").title = "Sync failed — see Settings → Notes mirror";
         } finally {
-          running = false;
-          syncBtn.classList.remove("is-running");
+          // Not when a worker took it: the button stays busy until the round
+          // lands, so a second click cannot queue the same run again.
+          if (!following) {
+            running = false;
+            syncBtn.classList.remove("is-running");
+          }
         }
       });
     }
