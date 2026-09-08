@@ -150,10 +150,11 @@ def assets_dir(path: str, note_id) -> str:
 FILE_LINK_RE = re.compile(r"\[([^\]\n]*)\]\(([^)\s]+?\.md)(?:#([^)\s]*))?\)", re.I)
 
 
-# A link into an assets folder, at whatever depth of ``../`` an editor left in
-# front of it: what an image looks like in the mirrored file, ours or not.
-ASSET_LINK_RE = re.compile(
-    r"(?<![\w/.-])((?:\./|\.\./)*" + re.escape(ASSETS_DIR) + r"/[^\s)\"'<>]+)")
+# The target of a Markdown link or image — ``](href)``, with the angle
+# brackets and the title an editor may put around it. Every attachment in a
+# mirrored file looks like this, whichever folder the app that wrote it keeps
+# its files in.
+LINK_TARGET_RE = re.compile(r"\]\(\s*<?([^)>\s]+)>?(?:\s+\"[^\"]*\")?\s*\)")
 
 
 # A block property (``id:: …``, ``collapsed:: …``) as the outline writes it:
@@ -255,6 +256,18 @@ class LinkMap:
         target = posixpath.normpath(
             posixpath.join(posixpath.dirname(from_path or ""), unquote(href)))
         return self.by_path.get(target.lstrip("./").lower())
+
+
+def _is_relative_file(href: str) -> bool:
+    """Is this link target a file lying beside the note, rather than an
+    address? An absolute URL, an in-app path, a mail link or a bare fragment
+    is none of our business, and another note's ``.md`` belongs to the wiki
+    links (see :func:`body_from_file`)."""
+    if not href or "://" in href or href.startswith(("/", "#", "?")):
+        return False
+    if href.split(":", 1)[0].lower() in ("mailto", "tel", "data", "file"):
+        return False
+    return not href.split("#", 1)[0].lower().endswith(MD)
 
 
 def body_to_file(note, body: str, path: str, links=None) -> str:
@@ -766,50 +779,73 @@ class _Round:
     def absorb_assets(self, note, body: str, path: str) -> str:
         """Files the note does not own yet, taken into it.
 
-        An image dropped into a mirrored document by DEVONthink (or any other
-        editor) is two things over there: a file in ``_assets`` and a relative
-        link in the text. Neither means anything here — the link resolves to
-        nothing in the app, and :meth:`write_assets` would delete the file on
-        the next round as one this note does not claim. So a link that points
-        into an assets folder and is not already ours is fetched and stored on
-        the note, exactly like a paste in the browser, and rewritten to the
-        in-app URL. From then on it is a normal attachment and goes back out
-        under its own name.
+        An image dropped into a mirrored document is two things over there: a
+        file somewhere beside it and a relative link in the text. Neither
+        means anything here — the link resolves to nothing in the app, and
+        :meth:`write_assets` would delete the file on the next round if it sat
+        in this note's own folder. So the bytes are fetched and stored on the
+        note, exactly like a paste in the browser, and the link is rewritten
+        to the in-app URL. From then on it is a normal attachment.
+
+        Which folder the file sits in is deliberately not part of the rule.
+        DEVONthink writes ``_resources/``, Obsidian an attachments folder of
+        the vault's choosing, Logseq ``assets/``, and this app
+        ``_assets/<note id>/`` — a subfolder beside the document is the
+        convention, and the link is what all of them agree on. So any
+        RELATIVE target that is not another note's ``.md`` is treated as an
+        attachment: it is looked up on the share first, and one that isn't
+        there is left exactly as it was.
         """
         known = {name for _url, name, _data in _asset_names(note)}
+        here = posixpath.dirname(path or "")
         seen: dict[str, str] = {}
 
         def repl(m):
             href = m.group(1)
-            rel = unquote(href)
-            name = posixpath.basename(rel)
-            if name in known:
-                return href            # ours: body_from_file maps it back
             if href in seen:
-                return seen[href]
-            remote = posixpath.normpath(
-                posixpath.join(posixpath.dirname(path), rel))
-            try:
-                data = self.client.read(remote)
-            except DavError as exc:
-                self.stats.errors.append(f"{remote}: {exc}")
-                return href
-            url = self.store_asset(note, name, data)
+                return m.group(0).replace(href, seen[href])
+            if not _is_relative_file(href):
+                return m.group(0)
+            rel = unquote(href)
+            if posixpath.basename(rel) in known:
+                return m.group(0)      # ours: body_from_file maps it back
+            remote = posixpath.normpath(posixpath.join(here, rel))
+            if remote.startswith(".."):
+                return m.group(0)      # above the share: not ours to read
+            entry = self._probe(remote)
+            if entry is None:
+                # Nothing of that name over there. A link into another app, or
+                # one that was already broken — either way not ours to repair,
+                # and not worth a line in the log every round.
+                return m.group(0)
+            url = self.store_asset(note, posixpath.basename(rel), entry, remote)
             if not url:
-                return href
+                return m.group(0)
             seen[href] = url
             self.stats.assets_read += 1
-            return url
+            return m.group(0).replace(href, url)
 
-        return ASSET_LINK_RE.sub(repl, body)
+        return LINK_TARGET_RE.sub(repl, body)
 
-    def store_asset(self, note, name: str, data: bytes) -> str:
-        """One downloaded file as an inline attachment. Returns its in-app URL,
-        or "" when the note has no room left for it — the same 16 MB document
-        cap the upload endpoints guard, answered here by leaving the link
-        pointing at the file on the share."""
+    def store_asset(self, note, name: str, entry, remote: str) -> str:
+        """One file from the share as an inline attachment. Returns its in-app
+        URL, or "" when it does not fit — the same 16 MB document cap the
+        upload endpoints guard, answered here by leaving the link pointing at
+        the file on the share. The size is checked BEFORE the download, so a
+        note is never asked to swallow a video."""
         import secrets
         from application.models.item import ITEM_MAX_BYTES, NoteFile, NoteImage
+
+        if entry.size and entry.size > ITEM_MAX_BYTES:
+            self.stats.errors.append(
+                f"{note.title}: '{name}' is too large for a note ("
+                f"{entry.size // 1024 // 1024} MB).")
+            return ""
+        try:
+            data = self.client.read(remote)
+        except DavError as exc:
+            self.stats.errors.append(f"{remote}: {exc}")
+            return ""
         # The paste endpoint's own sniffing: an image is rendered inline,
         # anything else becomes a download link (and SVG is not an image here).
         from application.views.tasks import _safe_attachment_name, _sniff_image_type
@@ -1091,6 +1127,18 @@ class _Round:
         except DavError:
             return []
 
+    def _probe(self, path: str):
+        """The share's entry for one file, from a listing kept for the round.
+
+        Absorbing asks this before it downloads: it answers whether the target
+        exists at all and how big it is, and a folder full of images costs one
+        PROPFIND rather than one per picture."""
+        cache = self.__dict__.setdefault("_listings", {})
+        parent = path.rsplit("/", 1)[0] if "/" in path else ""
+        if parent not in cache:
+            cache[parent] = {e.path: e for e in self._list(parent) if not e.is_dir}
+        return cache[parent].get(path)
+
     def _stat(self, path):
         """The entry for ``path``, read from its parent listing."""
         parent, _, name = path.rpartition("/")
@@ -1104,7 +1152,7 @@ def fetch_missing_assets(user, client: DavClient | None = None, *,
                          dry_run: bool = False) -> MirrorStats:
     """One-shot repair: notes whose body still points at a file on the share.
 
-    A pull used to leave a link into ``_assets`` exactly as the file had it
+    A pull used to leave a link to a file beside the note exactly as it was
     (see :meth:`_Round.absorb_assets`), so an image added over there arrived
     as a relative path that means nothing in the app — and once the round had
     taken that text, the hashes matched and no later round would look again.
@@ -1112,15 +1160,23 @@ def fetch_missing_assets(user, client: DavClient | None = None, *,
 
     The files those links named are left where they are: they are the user's,
     not ours, and nothing here deletes what this app did not write.
+
+    Only notes whose file is still exactly the one we last wrote are touched.
+    This writes the note's side over the file without asking who changed what
+    — safe for a file nobody has edited since, and a clobber for one somebody
+    has. That case needs no repair anyway: a changed file is a pull, and a
+    pull now absorbs.
     """
     stats = MirrorStats()
     client = client or client_for(user)
     round_ = _Round(user, client, stats, dry_run)
-    for note in Item.objects(owner=user, kind="note",
-                             note__contains=f"{ASSETS_DIR}/"):
-        path = note.mirror_path or round_.links.path_of(note)
+    for note in Item.objects(owner=user, kind="note", mirror_path__ne=""):
+        path = note.mirror_path or ""
         if not path:
             continue                    # never mirrored: nothing to fetch from
+        entry = round_._probe(path)
+        if entry is not None and note.mirror_tag and entry.tag != note.mirror_tag:
+            continue                    # edited over there: the round has it
         try:
             body = round_.absorb_assets(note, note.note or "", path)
             if body == (note.note or ""):
