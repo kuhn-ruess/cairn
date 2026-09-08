@@ -912,48 +912,6 @@ def sync_notes_cmd(username, dry_run, force):
             click.echo(f"    ! {err}")
 
 
-@cairn_cli.command("fetch-mirror-assets")
-@click.option("--user", "username", default=None,
-              help="Limit to one user; omit to run for every mirror.")
-@click.option("--dry-run", is_flag=True,
-              help="Say what would be fetched without writing anything.")
-def fetch_mirror_assets_cmd(username, dry_run):
-    """One-shot: pull in images added to the WebDAV share by hand.
-
-    A pull used to leave a link into ``_assets`` as the file had it, so an
-    image dropped into the document in DEVONthink arrived as a dead relative
-    path — and once the round had taken that text, nothing looked again. The
-    mirror does this by itself now (notes_sync.absorb_assets); this fixes the
-    notes that came in before.
-    """
-    from application.models.user import User
-    from application.services import notes_sync
-    from application.services.webdav import DavError
-
-    if username:
-        user = User.objects(username=username).first()
-        if not user:
-            raise click.ClickException(f"No such user: {username}")
-        users = [user]
-    else:
-        users = list(User.objects(notes_mirror_enabled=True,
-                                  notes_mirror_url__ne=""))
-    for user in users:
-        if not (user.notes_mirror_url or "").strip():
-            click.echo(f"{user.username}: no WebDAV URL configured — skipped")
-            continue
-        try:
-            stats = notes_sync.fetch_missing_assets(user, dry_run=dry_run)
-        except DavError as exc:
-            click.echo(f"{user.username}: ERROR {exc}")
-            continue
-        click.echo(f"{'(dry-run) ' if dry_run else ''}{user.username}: "
-                   f"{stats.assets_read} attachment(s) taken into "
-                   f"{stats.notes_updated} note(s)")
-        for err in stats.errors:
-            click.echo(f"    ! {err}")
-
-
 @cairn_cli.command("apply-label-rules")
 @click.option("--user", "username", default=None,
               help="Limit to a single user; omit to run for everyone.")

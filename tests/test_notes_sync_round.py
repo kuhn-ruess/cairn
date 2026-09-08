@@ -31,6 +31,7 @@ class FakeDav:
         self.dirs = {""}
         self.writes = []
         self.deletes = []
+        self.reads = []
 
     # -- what the round calls --
     def list(self, path=""):
@@ -61,6 +62,7 @@ class FakeDav:
 
     def read(self, path):
         from application.services.webdav import DavError
+        self.reads.append(path)
         if path not in self.files:
             raise DavError(f"GET {path}: HTTP 404", 404)
         return self.files[path]
@@ -211,6 +213,55 @@ class RoundTests(unittest.TestCase):
         note = self.reload(note)
         self.assertEqual(len(note.note_images), 1)
         self.assertEqual(self.Item.objects(owner=self.user, kind="note").count(), 1)
+
+    def test_a_note_that_came_in_broken_is_repaired_on_the_next_pass(self):
+        """The case that needed a command and should not have: the file was
+        read once with a dead link in it, so both sides now agree and nothing
+        would ever look at it again. The round asks anyway."""
+        fmg = self.folder("FMG")
+        note = self.note("SNOW Integration", "- Vergleich:\n", parent=fmg)
+        self.sync()
+
+        # What the note looked like before absorbing existed: the file's link,
+        # taken verbatim, on both sides.
+        broken = "- Vergleich:\n\t- ![Bild](_assets/Bild%202026.png)\n"
+        self.dav.write("FMG/_assets/Bild 2026.png", PNG)
+        path = "FMG/SNOW Integration.md"
+        self.dav.files[path] = self.dav.files[path].replace(
+            b"- Vergleich:\n", broken.encode())
+        self.Item.objects(pk=note.pk).update(
+            set__note=broken,
+            set__mirror_hash=__import__("hashlib").sha256(
+                self.dav.files[path]).hexdigest(),
+            set__mirror_tag=self.dav._tag(path))
+
+        stats = self.sync()
+        self.assertEqual(stats.assets_read, 1)
+        note = self.reload(note)
+        self.assertEqual(len(note.note_images), 1)
+        self.assertNotIn("_assets/Bild", note.note)
+        self.assertIn(f"/notes/{note.pk}/note-image/", note.note)
+        self.assertIn(f"FMG/_assets/{note.pk}/", str(self.dav.files.keys()))
+
+        # And it stays repaired.
+        before = len(self.dav.writes)
+        stats = self.sync()
+        self.assertEqual(stats.assets_read, 0)
+        self.assertEqual(stats.unchanged, 1)
+        self.assertEqual(self.dav.writes[before:], [])
+
+    def test_a_note_nobody_touched_costs_no_requests(self):
+        """The question is asked every pass, so it has to be free for the notes
+        it does not concern: an in-app link is not a file on the share."""
+        note = self.note("Bora", "- ![x](/notes/abc/note-image/tok)\n"
+                                 "- [[Andere Notiz]]\n")
+        self.sync()
+        self.dav.reads, before = [], len(self.dav.writes)
+        stats = self.sync()
+        self.assertEqual(stats.unchanged, 1)
+        self.assertEqual(stats.assets_read, 0)
+        self.assertEqual(self.dav.writes[before:], [])
+        self.assertEqual(self.dav.reads, [])       # not even the file itself
 
 
 if __name__ == "__main__":

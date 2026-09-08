@@ -685,6 +685,24 @@ class _Round:
                           and _hash(remote_text) != note.mirror_hash)
         local_changed = local_hash != note.mirror_hash
 
+        # A link the note still carries to a file lying over there. Normally
+        # that is a pull's business — but a note whose file has been read once
+        # already matches its hash, and nothing would ever look again. So it is
+        # asked here too, on the way past, and answering it is simply a change
+        # on THIS side: the branches below write it out like any other edit.
+        # Not when the file is winning anyway (``moved``, ``remote_changed``):
+        # that path absorbs on its own, and doing it twice would fetch the same
+        # picture twice.
+        if not moved and not remote_changed:
+            absorbed = self.absorb_assets(note, note.note or "", path)
+            if absorbed != (note.note or ""):
+                note.note = absorbed
+                if not self.dry_run:
+                    note.save()
+                local_text = render(note, want_path, self.links)
+                local_hash = _hash(local_text)
+                local_changed = True
+
         if moved and not (remote_changed and local_changed):
             # The file moved or was renamed over there. That is the file
             # winning — location, name and text — which is what dragging a
@@ -1146,50 +1164,6 @@ class _Round:
             if entry.path == path or entry.path.rsplit("/", 1)[-1] == name:
                 return entry
         return None
-
-
-def fetch_missing_assets(user, client: DavClient | None = None, *,
-                         dry_run: bool = False) -> MirrorStats:
-    """One-shot repair: notes whose body still points at a file on the share.
-
-    A pull used to leave a link to a file beside the note exactly as it was
-    (see :meth:`_Round.absorb_assets`), so an image added over there arrived
-    as a relative path that means nothing in the app — and once the round had
-    taken that text, the hashes matched and no later round would look again.
-    This walks the notes that carry such a link and fetches what it points at.
-
-    The files those links named are left where they are: they are the user's,
-    not ours, and nothing here deletes what this app did not write.
-
-    Only notes whose file is still exactly the one we last wrote are touched.
-    This writes the note's side over the file without asking who changed what
-    — safe for a file nobody has edited since, and a clobber for one somebody
-    has. That case needs no repair anyway: a changed file is a pull, and a
-    pull now absorbs.
-    """
-    stats = MirrorStats()
-    client = client or client_for(user)
-    round_ = _Round(user, client, stats, dry_run)
-    for note in Item.objects(owner=user, kind="note", mirror_path__ne=""):
-        path = note.mirror_path or ""
-        if not path:
-            continue                    # never mirrored: nothing to fetch from
-        entry = round_._probe(path)
-        if entry is not None and note.mirror_tag and entry.tag != note.mirror_tag:
-            continue                    # edited over there: the round has it
-        try:
-            body = round_.absorb_assets(note, note.note or "", path)
-            if body == (note.note or ""):
-                continue                # only links it already owns
-            stats.notes_updated += 1
-            if dry_run:
-                continue
-            note.note = body
-            note.save()
-            round_.write(note, path, render(note, path, round_.links))
-        except DavError as exc:
-            stats.errors.append(f"{note.title}: {exc}")
-    return stats
 
 
 def due_user_ids(now=None) -> list:
