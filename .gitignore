@@ -20,3 +20,6 @@ node_modules/
 # Anything that still lands here (legacy uploads, dev artifacts) is local-only.
 application/static/uploads/*
 !application/static/uploads/.gitkeep
+
+# Claude Code: memory + local agent config live in the repo, not in git.
+.claude/
