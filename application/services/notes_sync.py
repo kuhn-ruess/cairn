@@ -23,6 +23,11 @@ common ancestor, which is what makes this a sync rather than a copy:
   (never a hard delete)
 * note trashed                            → its file and assets are removed
 
+A pull brings the file's **attachments** with it: an image dropped into the
+document over there is a real file in ``_assets`` and a relative link in the
+text, and both are meaningless in the app until the bytes are stored on the
+note (see :meth:`_Round.absorb_assets`).
+
 A file that isn't tracked is read once: its ``cairn-id`` front-matter says
 whether it is a known note that moved (rename/move in DEVONthink → the note
 moves too) or something new to import.
@@ -37,6 +42,7 @@ round before it writes, and the run is recorded in the sync log either way.
 from __future__ import annotations
 
 import hashlib
+import mimetypes
 import posixpath
 import re
 from urllib.parse import quote, unquote
@@ -142,6 +148,12 @@ def assets_dir(path: str, note_id) -> str:
 # A Markdown link whose target is a local .md file, with an optional fragment:
 # what this module writes, and what it reads back.
 FILE_LINK_RE = re.compile(r"\[([^\]\n]*)\]\(([^)\s]+?\.md)(?:#([^)\s]*))?\)", re.I)
+
+
+# A link into an assets folder, at whatever depth of ``../`` an editor left in
+# front of it: what an image looks like in the mirrored file, ours or not.
+ASSET_LINK_RE = re.compile(
+    r"(?<![\w/.-])((?:\./|\.\./)*" + re.escape(ASSETS_DIR) + r"/[^\s)\"'<>]+)")
 
 
 # A block property (``id:: …``, ``collapsed:: …``) as the outline writes it:
@@ -438,6 +450,7 @@ class MirrorStats:
     folders_created: int = 0
     folders_deleted: int = 0
     assets_written: int = 0
+    assets_read: int = 0
     tasks_written: int = 0
     tasks_archived: int = 0
     conflicts: int = 0
@@ -454,6 +467,7 @@ class MirrorStats:
             "folders_created": self.folders_created,
             "folders_deleted": self.folders_deleted,
             "assets_written": self.assets_written,
+            "assets_read": self.assets_read,
             "tasks_written": self.tasks_written,
             "tasks_archived": self.tasks_archived,
             "conflicts": self.conflicts,
@@ -467,6 +481,8 @@ class MirrorStats:
                 f"{self.notes_trashed} trashed"
                 + (f"; {self.folders_deleted} empty folder(s) removed"
                    if self.folders_deleted else "")
+                + (f"; {self.assets_read} attachment(s) taken from the share"
+                   if self.assets_read else "")
                 + (f"; {self.tasks_written} task file(s) written, "
                    f"{self.tasks_archived} archived"
                    if (self.tasks_written or self.tasks_archived) else "")
@@ -738,6 +754,85 @@ class _Round:
         for name in have:                       # no longer part of the note
             self.client.delete(f"{target}/{name}")
 
+    # ---------- attachments coming home ----------
+
+    def body_in(self, note, body: str, path: str) -> str:
+        """A file's body as the note stores it: the attachments added over
+        there pulled in first, then the links translated."""
+        if not self.dry_run and note.pk:
+            body = self.absorb_assets(note, body, path)
+        return body_from_file(note, body, path, self.links)
+
+    def absorb_assets(self, note, body: str, path: str) -> str:
+        """Files the note does not own yet, taken into it.
+
+        An image dropped into a mirrored document by DEVONthink (or any other
+        editor) is two things over there: a file in ``_assets`` and a relative
+        link in the text. Neither means anything here — the link resolves to
+        nothing in the app, and :meth:`write_assets` would delete the file on
+        the next round as one this note does not claim. So a link that points
+        into an assets folder and is not already ours is fetched and stored on
+        the note, exactly like a paste in the browser, and rewritten to the
+        in-app URL. From then on it is a normal attachment and goes back out
+        under its own name.
+        """
+        known = {name for _url, name, _data in _asset_names(note)}
+        seen: dict[str, str] = {}
+
+        def repl(m):
+            href = m.group(1)
+            rel = unquote(href)
+            name = posixpath.basename(rel)
+            if name in known:
+                return href            # ours: body_from_file maps it back
+            if href in seen:
+                return seen[href]
+            remote = posixpath.normpath(
+                posixpath.join(posixpath.dirname(path), rel))
+            try:
+                data = self.client.read(remote)
+            except DavError as exc:
+                self.stats.errors.append(f"{remote}: {exc}")
+                return href
+            url = self.store_asset(note, name, data)
+            if not url:
+                return href
+            seen[href] = url
+            self.stats.assets_read += 1
+            return url
+
+        return ASSET_LINK_RE.sub(repl, body)
+
+    def store_asset(self, note, name: str, data: bytes) -> str:
+        """One downloaded file as an inline attachment. Returns its in-app URL,
+        or "" when the note has no room left for it — the same 16 MB document
+        cap the upload endpoints guard, answered here by leaving the link
+        pointing at the file on the share."""
+        import secrets
+        from application.models.item import ITEM_MAX_BYTES, NoteFile, NoteImage
+        # The paste endpoint's own sniffing: an image is rendered inline,
+        # anything else becomes a download link (and SVG is not an image here).
+        from application.views.tasks import _safe_attachment_name, _sniff_image_type
+
+        token = secrets.token_urlsafe(12)
+        ctype = _sniff_image_type(data[:12])
+        if ctype:
+            note.note_images.append(
+                NoteImage(token=token, content_type=ctype, data=data))
+            url = f"/notes/{note.pk}/note-image/{token}"
+        else:
+            guessed, _enc = mimetypes.guess_type(name)
+            note.note_files.append(NoteFile(
+                token=token, filename=_safe_attachment_name(name),
+                content_type=guessed or "application/octet-stream", data=data))
+            url = f"/notes/{note.pk}/note-file/{token}"
+        if note.storage_bytes() > ITEM_MAX_BYTES:
+            (note.note_images if ctype else note.note_files).pop()
+            self.stats.errors.append(
+                f"{note.title}: no room for '{name}' — the note is full.")
+            return ""
+        return url
+
     def move(self, note, old_path: str, new_path: str, text: str) -> None:
         self.write(note, new_path, text)
         if not self.dry_run and old_path and old_path != new_path:
@@ -774,7 +869,7 @@ class _Round:
         """The file won: take its text (title, tags, body) into the note, then
         write the note back so the file carries current front matter again."""
         meta, body = parse(remote_text)
-        note.note = body_from_file(note, body, path, self.links)
+        note.note = self.body_in(note, body, path)
         _format_from(note, meta)
         self._title_from(note, meta, path)
         tags = meta.get("tags")
@@ -810,9 +905,6 @@ class _Round:
         stem = path.rsplit("/", 1)[-1][: -len(MD)]
         title = (meta.get("title") or "").strip() or stem
         note = Item(owner=self.user, kind="note", title=title)
-        # Links to other notes' files become [[wiki links]] here too, the same
-        # way they do when a tracked file wins a round.
-        note.note = body_from_file(note, body, path, self.links)
         _format_from(note, meta)
         tags = meta.get("tags")
         if isinstance(tags, list):
@@ -821,6 +913,12 @@ class _Round:
             self.stats.notes_created += 1
             return
         note.parent = self.folder_for(path)
+        note.save()
+        # The body last, and after the first save: an attachment is addressed
+        # by the note's id, so there has to be one before its links can be
+        # written. Links to other notes' files become [[wiki links]] here too,
+        # the same way they do when a tracked file wins a round.
+        note.note = self.body_in(note, body, path)
         note.save()
         updated = self.remote_time(self.files.get(path), meta)
         # ``created:`` is the only place a file's real age survives; the share's

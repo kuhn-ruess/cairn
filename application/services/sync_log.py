@@ -29,7 +29,8 @@ _KEEP = (
     "entries_skipped", "entries_empty", "entries_undated", "entries_frozen",
     # notes mirror
     "files_written", "files_deleted", "notes_created", "notes_updated",
-    "notes_trashed", "folders_created", "assets_written", "conflicts",
+    "notes_trashed", "folders_created", "assets_written", "assets_read",
+    "conflicts",
     "unchanged",
 )
 

@@ -283,7 +283,13 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   dropping it instead would break every `((block reference))` into the page
   on the way home. A file that comes home brings its own timestamps — the
   share's `Last-Modified` first, front matter second — so an imported
-  archive keeps its dates. `LinkMap.path_of()` is the single answer to
+  archive keeps its dates. It brings its ATTACHMENTS too (`absorb_assets`):
+  an image dropped into the document over there is a file in `_assets` and a
+  relative link, and both are meaningless here until the bytes sit on the
+  note — so a link into an assets folder that the note does not already own
+  is fetched, stored inline like a paste, and written back out under its own
+  token. Without that step `write_assets` deletes the file on the next round
+  as one no note claims, and the picture is gone in both places. `LinkMap.path_of()` is the single answer to
   "where does this note's file go"; do not call `path_for` a second time
   alongside it. A trashed folder's now-empty directory is removed over there
   too — the only place the mirror deletes a *collection*, so the rule is
