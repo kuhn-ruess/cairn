@@ -17,8 +17,11 @@ NOW = datetime(2026, 9, 9, 12, 0, tzinfo=timezone.utc)
 
 
 class _Item:
-    """Enough of an Item for the walk: a pk, a defer date, a status, a
-    parent."""
+    """Enough of an Item for the walk: a pk, a defer date, a status, a parent.
+
+    The parent lives in ``_data`` and is only handed out through ``.parent``,
+    the way mongoengine holds a reference — reading that attribute is the
+    query the walk must not make once it has the node map."""
 
     _next = 0
 
@@ -27,7 +30,13 @@ class _Item:
         self.pk = _Item._next
         self.defer_date = defer_date
         self.status = status
-        self.parent = parent
+        self._data = {"parent": parent}
+        self.dereferenced = 0
+
+    @property
+    def parent(self):
+        self.dereferenced += 1
+        return self._data["parent"]
 
 
 def _nodes(*items):
@@ -63,10 +72,27 @@ class HeldBackTest(unittest.TestCase):
         t = _Item(parent=proj)
         self.assertFalse(_held_back(t, _nodes(proj, t), NOW))
 
-    def test_parent_missing_from_the_map_is_read_directly(self):
+    def test_the_walk_never_dereferences_when_it_has_the_map(self):
+        # One query per task on every poll is what this map exists to avoid.
+        proj = _Item(defer_date=NOW + timedelta(days=2))
+        t = _Item(parent=proj)
+        self.assertTrue(_held_back(t, _nodes(proj, t), NOW))
+        self.assertEqual((t.dereferenced, proj.dereferenced), (0, 0))
+
+    def test_without_a_map_the_chain_is_dereferenced(self):
+        # The single-item path (DELETE) has no map and may pay per level.
         proj = _Item(defer_date=NOW + timedelta(days=1))
         t = _Item(parent=proj)
-        self.assertTrue(_held_back(t, _nodes(t), NOW))
+        self.assertTrue(_held_back(t, None, NOW))
+        self.assertEqual(t.dereferenced, 1)
+
+    def test_a_parent_absent_from_the_map_ends_the_walk(self):
+        # _resolve_ancestors closes the chain before the walk runs, so a miss
+        # here means the ancestor really is gone — not a reason to go asking.
+        proj = _Item(defer_date=NOW + timedelta(days=1))
+        t = _Item(parent=proj)
+        self.assertFalse(_held_back(t, _nodes(t), NOW))
+        self.assertEqual(proj.dereferenced, 0)
 
     def test_waiting_is_held_back(self):
         for status in ("waiting", "waiting_reply", "someday"):
@@ -87,7 +113,7 @@ class HeldBackTest(unittest.TestCase):
     def test_parent_cycle_terminates(self):
         a = _Item()
         b = _Item(parent=a)
-        a.parent = b
+        a._data["parent"] = b
         self.assertFalse(_held_back(b, _nodes(a, b), NOW))
 
 

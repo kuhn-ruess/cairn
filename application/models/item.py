@@ -7,10 +7,18 @@ sections, and folders.
 * ``project`` — a container for tasks; behaves like a task that has
                 children + project metadata (status, review, members).
 * ``section`` — inline grouping inside a project. Holds child tasks.
-* ``folder``  — organisational container; holds projects/folders only,
-                no tasks. ``folder_domain`` splits these into two parallel
-                trees: ``tasks`` (the project navigator) and ``notes`` (the
-                notes navigator) so the two don't bleed into each other.
+* ``folder``  — organisational container; holds projects and folders, and
+                MAY hold tasks directly. The app has always offered that —
+                the project picker, the move palette, drag-and-drop onto a
+                folder row, "+ Task" on a folder page and a folder's CalDAV
+                list all file a task there — so the rule is written the way
+                the product behaves rather than the other way round. What a
+                folder does not have is a project's execution semantics
+                (``project_type``, completion); its tasks are parallel and
+                are reviewed with the folder (see ``views.review``).
+                ``folder_domain`` splits folders into two parallel trees:
+                ``tasks`` (the project navigator) and ``notes`` (the notes
+                navigator) so the two don't bleed into each other.
 * ``note``    — a standalone Markdown note. Lives under a ``notes`` folder
                 (or at the top level) and links to tasks (via ``related``)
                 and calendar events (via ``linked_events``).
@@ -18,7 +26,8 @@ sections, and folders.
 Hierarchy is expressed via ``parent`` (self-reference). Any item can
 have a parent of any kind, though only certain combos are meaningful:
 
-* task   → parent ∈ {task, project, section}   (sub-task or list item)
+* task   → parent ∈ {task, project, section, folder}  (sub-task or list
+                                                item; ``None`` = Inbox)
 * project → parent ∈ {project, folder}         (sub-project)
 * section → parent ∈ {project}                 (always inside a project)
 * folder → parent ∈ {folder, project}          (nested folders; also allowed

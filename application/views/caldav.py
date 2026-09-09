@@ -158,6 +158,41 @@ def _user_tasks(user):
     return list(Item.objects(owner=user, kind="task").order_by("-updated_at"))
 
 
+def _parent_id(item):
+    """The parent's id WITHOUT dereferencing it. ``item.parent`` fetches the
+    document — once per task, on every poll — and the walks below only ever
+    need the id, because the containers are already loaded."""
+    raw = item._data.get("parent")
+    if raw is None:
+        return None
+    return str(getattr(raw, "id", None) or getattr(raw, "pk", None) or raw)
+
+
+def _resolve_ancestors(nodes):
+    """Pull in ancestors that aren't loaded yet, one ``$in`` query per level.
+
+    ``nodes`` holds the user's own containers and tasks, which covers the whole
+    chain in the normal case; a task filed under someone else's shared project
+    is the exception, and it is fetched in bulk rather than one dereference at
+    a time. ``all_objects`` so a trashed parent still resolves — reference
+    dereferencing bypasses the queryset manager, and this replaces it."""
+    absent = set()
+    for _ in range(10):
+        missing = {pid for it in nodes.values()
+                   if (pid := _parent_id(it)) and pid not in nodes
+                   and pid not in absent}
+        if not missing:
+            return
+        found = set()
+        for c in (Item.all_objects(pk__in=list(missing))
+                  .only("pk", "kind", "parent", "defer_date", "status")):
+            nodes[str(c.pk)] = c
+            found.add(str(c.pk))
+        # Ids that resolve to nothing (a deleted parent) must not be asked for
+        # again on the next round.
+        absent |= missing - found
+
+
 def _container_paths(user):
     """``({container_pk: "Folder / Sub / Project"}, {pk: Item})`` for every
     project/folder/section the user owns. Ancestor paths resolve in-memory
@@ -172,8 +207,7 @@ def _container_paths(user):
         while cur is not None and str(cur.pk) not in seen:
             seen.add(str(cur.pk))
             parts.append(cur.name)
-            par = cur.parent
-            cur = by_id.get(str(par.pk)) if par else None
+            cur = by_id.get(_parent_id(cur))
         return " / ".join(reversed(parts))
 
     return {pk: label(c) for pk, c in by_id.items()}, by_id
@@ -222,17 +256,24 @@ def _held_back(item, nodes=None, now=None):
         deferred = _aware(getattr(node, "defer_date", None))
         if deferred and deferred > now:
             return True
-        par = node.parent
-        if par is None:
+        pid = _parent_id(node)
+        if pid is None:
             break
-        node = nodes.get(str(par.pk), par) if nodes is not None else par
+        # With a node map the whole chain is already in memory (see
+        # _resolve_ancestors); without one — a single item, e.g. on DELETE —
+        # dereference, which costs one query per level and is fine for one task.
+        node = nodes.get(pid) if nodes is not None else node.parent
     return False
 
 
 def _colid_map(user):
     """Return ``({task_pk: colid}, [tasks])`` — colid is the nearest ancestor
-    project's pk, or "inbox". Walks parent chains in-memory. Parked tasks are
-    dropped here, which is the one place every listing goes through."""
+    project's pk, or "inbox". Parked tasks are dropped here, which is the one
+    place every listing goes through.
+
+    Every parent chain is walked in memory over ids: a client polls constantly,
+    and dereferencing ``task.parent`` cost one query per task on every single
+    poll."""
     nodes = {}
     for c in (Item.objects(owner=user, kind__in=["project", "section", "folder"])
               .only("pk", "kind", "parent", "defer_date", "status")):
@@ -240,24 +281,24 @@ def _colid_map(user):
     tasks = _user_tasks(user)
     for t in tasks:
         nodes.setdefault(str(t.pk), t)
+    _resolve_ancestors(nodes)
     now = _utcnow()
     tasks = [t for t in tasks if not _held_back(t, nodes, now)]
     out = {}
     for t in tasks:
-        cur, colid, seen, guard = t.parent, _INBOX, set(), 0
-        while cur is not None and guard < 50:
+        pid, colid, seen, guard = _parent_id(t), _INBOX, set(), 0
+        while pid is not None and guard < 50:
             guard += 1
-            pk = str(cur.pk)
-            if pk in seen:
+            if pid in seen:
                 break
-            seen.add(pk)
-            node = nodes.get(pk)
+            seen.add(pid)
+            node = nodes.get(pid)
             if node is None:
                 break
             if node.kind in ("project", "folder"):
-                colid = pk
+                colid = pid
                 break
-            cur = node.parent
+            pid = _parent_id(node)
         out[str(t.pk)] = colid
     return out, tasks
 
