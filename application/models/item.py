@@ -72,6 +72,10 @@ BLOCKED_STATUS = ("waiting", "waiting_reply", "someday")
 PROJECT_TYPES = ("parallel", "sequential", "single_actions")
 PROJECT_STATUS = ("active", "on_hold", "completed", "dropped")
 PRIORITIES = (1, 2, 3, 4)
+# Review cadence for a container nobody configured one for. A project created
+# through the inspector says 0 when the user means "never"; ``None`` is not
+# that answer, it is nobody having been asked.
+DEFAULT_REVIEW_INTERVAL_DAYS = 7
 REPEAT_UNITS = ("day", "weekday", "weekend", "week", "month", "year")
 
 
@@ -430,6 +434,8 @@ class Item(Document):
     # inherit the nearest ancestor's interval (see effective_review_interval);
     # an explicit value overrides; ``0`` = never review. Projects normally set
     # their own; tasks usually leave it blank to follow their project.
+    # A FOLDER's value is not a user decision — the inspector has no field for
+    # it and the save path writes 0 — so it is skipped when reading a cadence.
     review_interval_days = IntField(min_value=0)
     last_reviewed_at = DateTimeField()
     next_review_at = DateTimeField()
@@ -1666,18 +1672,26 @@ class Item(Document):
 
     # ----- review cadence (tasks + projects) -----
 
-    def effective_review_interval(self) -> int | None:
+    def effective_review_interval(self) -> int:
         """Review cadence in days, honouring inheritance. Own value wins;
-        otherwise inherit the nearest ancestor that sets one. ``0`` = never,
-        ``None`` = no review configured anywhere up the chain."""
+        otherwise inherit the nearest ancestor that sets one. ``0`` = never.
+        Nobody having set one anywhere is not "never" — it is a container that
+        was created without being asked, so it falls back to
+        ``DEFAULT_REVIEW_INTERVAL_DAYS`` and comes up for review like the rest.
+
+        A **folder** is skipped on the way up: its stored value is written by
+        the code (the inspector has no review field for folders), so inheriting
+        it silenced every project underneath — the review would never mention
+        them again, and nothing on screen said why.
+        """
         node = self
         seen = set()
         while node is not None and node.pk not in seen:
-            if node.review_interval_days is not None:
+            if node.kind != "folder" and node.review_interval_days is not None:
                 return node.review_interval_days
             seen.add(node.pk)
             node = node.parent
-        return None
+        return DEFAULT_REVIEW_INTERVAL_DAYS
 
     def is_review_due(self, now: datetime | None = None) -> bool:
         """True when this item is due for review per its effective interval.

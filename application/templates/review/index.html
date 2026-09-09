@@ -5,7 +5,7 @@
 {% block content %}
 <div class="review-banner">
   <span class="review-mode-label"><i class="bi bi-arrow-clockwise"></i> Review</span>
-  <span class="review-progress">{{ queue|length }} project{{ '' if queue|length == 1 else 's' }} due</span>
+  <span class="review-progress">{{ queue|length }} item{{ '' if queue|length == 1 else 's' }} due</span>
   {% if queue %}
     <a class="ms-auto btn btn-sm btn-primary" href="{{ url_for('review.project_review', project_id=queue[0].pk) }}">
       <i class="bi bi-play-fill"></i> Start review
@@ -30,6 +30,8 @@
        href="{{ url_for('review.project_review', project_id=p.pk) }}">
       <span class="me-2 text-muted small" style="width: 1.5rem;">{{ loop.index }}.</span>
       <span class="me-auto">
+        {% if p.kind == "folder" %}<i class="bi bi-folder text-muted me-1"
+             title="Folder — reviewed because tasks are filed directly in it"></i>{% endif %}
         <span class="fw-semibold">{{ p.name }}</span>
         <span class="d-block small text-muted">
           {% if p.last_reviewed_at %}last reviewed {{ p.last_reviewed_at|relativedate }}{% else %}never reviewed{% endif %}

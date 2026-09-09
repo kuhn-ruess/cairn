@@ -6,7 +6,7 @@
 <div class="review-banner">
   <span class="review-mode-label"><i class="bi bi-arrow-clockwise"></i> Review</span>
   {% if position and total %}
-    <span class="review-progress">Project {{ position }} of {{ total }}</span>
+    <span class="review-progress">{{ 'Folder' if project.kind == 'folder' else 'Project' }} {{ position }} of {{ total }}</span>
   {% else %}
     <span class="review-progress">Not currently due</span>
   {% endif %}
@@ -34,13 +34,14 @@
     <div class="me-auto">
       <h1 class="h4 mb-1">
         {{ project.name }}
-        <a class="btn btn-link btn-sm p-0 align-baseline" title="Open project"
+        <a class="btn btn-link btn-sm p-0 align-baseline"
+           title="{{ 'Open folder' if project.kind == 'folder' else 'Open project' }}"
            href="{{ url_for('projects.detail', project_id=project.pk) }}">
           <i class="bi bi-box-arrow-up-right"></i>
         </a>
       </h1>
       <div class="small text-muted">
-        {{ project.project_type }}
+        {% if project.kind == "folder" %}folder{% else %}{{ project.project_type }}{% endif %}
         · last reviewed {{ project.last_reviewed_at|localdt if project.last_reviewed_at else 'never' }}
         · every {{ project.effective_review_interval() or '—' }}d
         · {{ tasks|length }} open action(s)

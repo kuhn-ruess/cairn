@@ -1,9 +1,17 @@
 """GTD weekly review — OmniFocus-style.
 
-The review is a focused, one-project-at-a-time walk. The index shows the
-ordered queue of projects that need review; opening one shows the full
-project (all its open actions) so you can act on them, then "Mark reviewed"
-stamps the project (and its tasks) and jumps to the next one in the queue.
+The review is a focused, one-unit-at-a-time walk. The index shows the ordered
+queue of projects that need review; opening one shows the full project (all its
+open actions) so you can act on them, then "Mark reviewed" stamps the project
+(and its tasks) and jumps to the next one in the queue.
+
+A **folder that directly holds open tasks** is a review unit too. The model says
+a folder holds projects, not tasks (see the ``Item`` docstring), but tasks land
+in one anyway — dragged there, filed by an import, PUT into the folder's CalDAV
+list — and such a task has no enclosing project. It was invisible to the entire
+review: not in the queue, not pulled in by its own interval, and not in the
+Inbox either (that is ``parent=None``). So the review asks the folders as well;
+a folder without direct tasks stays out, it is a pure organiser.
 """
 from datetime import datetime, timezone
 
@@ -34,22 +42,44 @@ def _skipped() -> set:
     return set(session.get(_SKIP_KEY, []))
 
 
-def _enclosing_project(item):
-    """Climb to the nearest ancestor project (skipping sections / parent
-    tasks). Returns None if the item isn't inside a project."""
+def _task_folders(user, fq):
+    """``{pk: Item}`` for the folders that directly hold at least one open
+    task — the folders that are review units. Two indexed queries; a folder
+    with no direct tasks is left out so the queue isn't padded with organisers.
+    Notes folders are excluded, same as in the project navigator."""
+    folders = {f.pk: f for f in Item.objects(fq, owner=user, kind="folder",
+                                             status="active",
+                                             folder_domain__ne="notes")}
+    if not folders:
+        return {}
+    held = set()
+    for t in (Item.objects(owner=user, kind="task",
+                           status__nin=["done", "dropped"],
+                           parent__in=list(folders)).only("parent")):
+        # Read the id out of the reference instead of dereferencing it — the
+        # parent document is already in ``folders``.
+        raw = t._data.get("parent")
+        held.add(getattr(raw, "id", None) or getattr(raw, "pk", None))
+    return {pk: f for pk, f in folders.items() if pk in held}
+
+
+def _review_unit(item, folder_pks=frozenset()):
+    """Climb to the container this item is reviewed under: the nearest ancestor
+    project, or a task-holding folder if that one comes first (skipping
+    sections and parent tasks). None if there is nothing above it."""
     node = item.parent
     seen = set()
     while node is not None and node.pk not in seen:
-        if node.kind == "project":
+        if node.kind == "project" or node.pk in folder_pks:
             return node
         seen.add(node.pk)
         node = node.parent
     return None
 
 
-def _due_task_pks(user, now):
+def _due_task_pks(user, now, folder_pks=frozenset()):
     """Pks of tasks whose own (overridden) review interval has fallen due,
-    plus a map project_pk -> True for the projects they pull into review."""
+    plus the set of review units they pull into the queue."""
     from application.services import focus
     due_pks, pulled = set(), set()
     for t in Item.objects(
@@ -60,9 +90,9 @@ def _due_task_pks(user, now):
         if not t.is_review_due(now):
             continue
         due_pks.add(t.pk)
-        proj = _enclosing_project(t)
-        if proj is not None and proj.status == "active":
-            pulled.add(proj.pk)
+        unit = _review_unit(t, folder_pks)
+        if unit is not None and unit.status == "active":
+            pulled.add(unit.pk)
     return due_pks, pulled
 
 
@@ -88,7 +118,12 @@ def _review_queue(user, now):
                           next_review_at=None, last_reviewed_at=None):
         if p.effective_review_interval():
             candidates.setdefault(p.pk, p)
-    _, pulled = _due_task_pks(user, now)
+    # Folders that hold tasks directly — the only home those tasks have.
+    folders = _task_folders(user, fq)
+    for pk, f in folders.items():
+        if pk not in candidates and f.is_review_due(now):
+            candidates[pk] = f
+    _, pulled = _due_task_pks(user, now, set(folders))
     missing = [pk for pk in pulled if pk not in candidates]
     if missing:
         for p in Item.objects(pk__in=missing, status="active"):
@@ -111,6 +146,9 @@ def review_due_count(user, now):
     for p in Item.objects(fq, owner=user, kind="project", status="active",
                           next_review_at=None, last_reviewed_at=None):
         if p.effective_review_interval():
+            n += 1
+    for f in _task_folders(user, fq).values():
+        if f.is_review_due(now):
             n += 1
     return n
 
@@ -184,7 +222,7 @@ def index():
     # Visiting the index starts a fresh review pass — forget earlier skips.
     session.pop(_SKIP_KEY, None)
     queue = _review_queue(user, now)
-    due_task_pks, _ = _due_task_pks(user, now)
+    due_task_pks, _ = _due_task_pks(user, now, set(_task_folders(user, _focus_q(user))))
     # Open-action + due-task counts per project for the list rows.
     open_counts: dict = {}
     due_counts: dict = {}
@@ -213,7 +251,8 @@ def index():
 def project_review(project_id):
     user = current_user._get_current_object()
     project = Item.objects(pk=project_id).first()
-    if not project or project.owner != user or project.kind != "project":
+    if not project or project.owner != user or project.kind not in ("project",
+                                                                     "folder"):
         abort(404)
     now = datetime.now(timezone.utc)
     queue = _review_queue(user, now)
