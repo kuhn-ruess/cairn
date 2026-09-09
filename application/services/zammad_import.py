@@ -654,21 +654,29 @@ def _upsert_ticket(
     )
     from application.services.label_rules import apply_label_rules
 
-    # A tag is Zammad-owned (so a sync may drop/replace it) if it's under the
-    # "Zammad" group OR it was in this task's previous external_tags — i.e. a
-    # value Zammad itself set last sync. The group alone wasn't enough: an old
-    # workflow label that was never parented under "Zammad" (older imports,
-    # manual creates, the ungrouped _ensure_user_has_tags path) wasn't
-    # recognised as owned, so the live value got *appended* and the stale one
-    # lingered — looking like "the Zammad tag never overwrote the old one".
-    # external_tags is the authoritative per-task record of Zammad's own tags,
-    # so fold it in. User-added tags (never grouped, never in external_tags)
-    # still survive untouched. A failed tag fetch (``tags_fetched`` False)
-    # leaves tags as they are rather than wiping the group on a transient error.
+    # A tag is Zammad-owned — so a sync may drop it — if Zammad SET it: that is
+    # this task's previous ``external_tags``, the authoritative per-task record.
+    #
+    # Group membership is NOT enough on its own, and used to be: a tag the user
+    # added by hand in Cairn was deleted on the very next sync purely because it
+    # lives under the "Zammad" group ("I tagged it myself because it hadn't come
+    # over from Zammad yet"). And the tag took the status with it — the rule that
+    # derives waiting_reply from it runs after the tags are written, finds
+    # nothing, and the task sits there open. Tagging by hand is the normal way to
+    # get ahead of the sync; it must survive it.
+    #
+    # The group still stands in where there is no record to go by — a task
+    # imported before external_tags existed — so a stale label from those days
+    # is still replaced. Such a task heals on its first sync: whatever Zammad
+    # says then becomes the record.
+    #
+    # A failed tag fetch (``tags_fetched`` False) leaves tags as they are rather
+    # than wiping them on a transient error.
     zammad_owned = {t.name for t in (user.tags or [])
                     if t.parent == "Zammad" or t.name == "Zammad"}
     old_tags = list(existing.tags or []) if existing else []
-    owned = zammad_owned | (set(existing.external_tags or []) if existing else set())
+    recorded = set(existing.external_tags or []) if existing else set()
+    owned = recorded or (zammad_owned if existing else set())
     if existing and tags_fetched:
         would_tags = overwrite_group_tags(old_tags, owned, new_external)
     elif existing:
