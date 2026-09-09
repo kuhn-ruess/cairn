@@ -185,7 +185,7 @@ def _resolve_ancestors(nodes):
             return
         found = set()
         for c in (Item.all_objects(pk__in=list(missing))
-                  .only("pk", "kind", "parent", "defer_date", "status")):
+                  .only("pk", "kind", "parent", "defer_date", "status", "trashed_at")):
             nodes[str(c.pk)] = c
             found.add(str(c.pk))
         # Ids that resolve to nothing (a deleted parent) must not be asked for
@@ -195,10 +195,16 @@ def _resolve_ancestors(nodes):
 
 def _container_paths(user):
     """``({container_pk: "Folder / Sub / Project"}, {pk: Item})`` for every
-    project/folder/section the user owns. Ancestor paths resolve in-memory
-    from one query so list names carry the full breadcrumb (gleichnamige
-    Projekte in verschiedenen Ordnern bleiben unterscheidbar)."""
-    containers = list(Item.objects(owner=user, kind__in=["project", "folder", "section"])
+    ACTIVE project/folder/section the user owns. Ancestor paths resolve
+    in-memory from one query so list names carry the full breadcrumb
+    (gleichnamige Projekte in verschiedenen Ordnern bleiben unterscheidbar).
+
+    ``status="active"`` is the same filter the project navigator uses. Without
+    it a completed or dropped project stayed a list in Reminders forever — the
+    user had closed it years ago and still saw it on the phone. (Trashed items
+    never got here: ``Item.objects`` hides them.)"""
+    containers = list(Item.objects(owner=user, status="active",
+                                   kind__in=["project", "folder", "section"])
                       .only("pk", "title", "kind", "parent", "color"))
     by_id = {str(c.pk): c for c in containers}
 
@@ -276,7 +282,7 @@ def _colid_map(user):
     poll."""
     nodes = {}
     for c in (Item.objects(owner=user, kind__in=["project", "section", "folder"])
-              .only("pk", "kind", "parent", "defer_date", "status")):
+              .only("pk", "kind", "parent", "defer_date", "status", "trashed_at")):
         nodes[str(c.pk)] = c
     tasks = _user_tasks(user)
     for t in tasks:
@@ -284,37 +290,62 @@ def _colid_map(user):
     _resolve_ancestors(nodes)
     now = _utcnow()
     tasks = [t for t in tasks if not _held_back(t, nodes, now)]
-    out = {}
+    out, exported = {}, []
     for t in tasks:
-        pid, colid, seen, guard = _parent_id(t), _INBOX, set(), 0
-        while pid is not None and guard < 50:
-            guard += 1
-            if pid in seen:
-                break
-            seen.add(pid)
-            node = nodes.get(pid)
-            if node is None:
-                break
-            if node.kind in ("project", "folder"):
-                colid = pid
-                break
-            pid = _parent_id(node)
+        colid = _colid_of(t, nodes)
+        if colid is None:
+            # Its project is closed or gone, so there is no list to put it in.
+            # Dropping it is the honest answer: inventing an Inbox entry would
+            # tip every task of every finished project into Reminders.
+            continue
         out[str(t.pk)] = colid
-    return out, tasks
+        exported.append(t)
+    return out, exported
+
+
+def _is_list(node):
+    """Is this container a Reminders list? Active and not in the trash. The
+    node map is closed with ``all_objects`` so a defer date on a trashed parent
+    still counts — which means the trashed parent is in there, and the
+    collection decision has to say no to it explicitly."""
+    return (node.kind in ("project", "folder")
+            and node.status == "active"
+            and getattr(node, "trashed_at", None) is None)
+
+
+def _colid_of(item, nodes):
+    """The collection ``item`` belongs to, walked over the pre-loaded ``nodes``:
+    the nearest ancestor project/folder, ``_INBOX`` when there is no container
+    above it at all, or ``None`` when the container it does have is not
+    exported (closed project, or one this map can't see)."""
+    pid, seen, guard = _parent_id(item), set(), 0
+    while pid is not None and guard < 50:
+        guard += 1
+        if pid in seen:
+            return None
+        seen.add(pid)
+        node = nodes.get(pid)
+        if node is None:
+            return None
+        if node.kind in ("project", "folder"):
+            return pid if _is_list(node) else None
+        pid = _parent_id(node)
+    return _INBOX if _parent_id(item) is None else None
 
 
 def _nearest_colid(item):
-    """The collection a single Item currently lives in (project pk / inbox)."""
+    """The collection a single Item currently lives in — same answer as
+    ``_colid_of``, for the one-item paths (PUT / DELETE) that have no map."""
     cur, seen, guard = item.parent, set(), 0
     while cur is not None and guard < 50:
         guard += 1
         if str(cur.pk) in seen:
-            break
+            return None
         seen.add(str(cur.pk))
         if getattr(cur, "kind", None) in ("project", "folder"):
-            return str(cur.pk)
+            return str(cur.pk) if _is_list(cur) else None
         cur = cur.parent
-    return _INBOX
+    return _INBOX if item.parent is None else None
 
 
 def _resolve_collection(user, colid):
@@ -322,7 +353,7 @@ def _resolve_collection(user, colid):
     if colid == _INBOX:
         return None
     try:
-        proj = Item.objects(pk=colid, owner=user,
+        proj = Item.objects(pk=colid, owner=user, status="active",
                             kind__in=["project", "folder"]).first()
     except (ValidationError, Exception):
         proj = None
