@@ -22,6 +22,14 @@ Mapping (``Item`` ⇄ ``VTODO``):
   tags↔CATEGORIES,
   status: done→COMPLETED, dropped→CANCELLED, else NEEDS-ACTION.
 
+A task that is **parked is not delivered at all**: deferred into the future, or
+sitting in one of the model's ``BLOCKED_STATUS`` states (waiting, waiting for a
+reply, someday). Its own value counts and so does an ancestor's — deferring or
+parking a project holds its whole subtree back, the same rule as
+``Item.is_blocked``. Such a task isn't visible in Cairn yet, so it has no
+business sitting in a Reminders list; a deferred one comes back by itself once
+the date passes, because the collection's ctag counts the tasks it serves.
+
 Standards-pragmatic and small; expect to iterate against a real device.
 """
 import base64
@@ -37,7 +45,7 @@ from mongoengine.errors import ValidationError
 from icalendar import Calendar, Event, Todo
 
 from application import limiter
-from application.models.item import Item
+from application.models.item import BLOCKED_STATUS, Item
 from application.models.user import User
 
 caldav_bp = Blueprint("caldav", __name__)
@@ -185,16 +193,51 @@ def _collections(user, with_tasks=None):
     return cols
 
 
+def _held_back(item, nodes=None, now=None):
+    """True if ``item`` is parked — a defer date still in the future, or a
+    ``BLOCKED_STATUS`` (waiting / waiting_reply / someday) — on itself or on any
+    ancestor. Same rule as ``Item.is_blocked``, minus the parts that cost a
+    query per task (dependencies, sequential order); ``BLOCKED_STATUS`` is
+    imported rather than restated so the two can't drift apart.
+
+    ``nodes`` is the pre-loaded ``{pk: Item}`` map of the walk in
+    ``_colid_map``, so a whole list costs no extra query; without it (single
+    item, e.g. DELETE) the parent chain is dereferenced, which is one query
+    per level and fine for one task.
+    """
+    now = now or _utcnow()
+    node, seen, depth = item, set(), 0
+    while node is not None and depth < 50:
+        depth += 1
+        pk = str(node.pk)
+        if pk in seen:
+            break
+        seen.add(pk)
+        if getattr(node, "status", None) in BLOCKED_STATUS:
+            return True
+        deferred = _aware(getattr(node, "defer_date", None))
+        if deferred and deferred > now:
+            return True
+        par = node.parent
+        if par is None:
+            break
+        node = nodes.get(str(par.pk), par) if nodes is not None else par
+    return False
+
+
 def _colid_map(user):
     """Return ``({task_pk: colid}, [tasks])`` — colid is the nearest ancestor
-    project's pk, or "inbox". Walks parent chains in-memory."""
+    project's pk, or "inbox". Walks parent chains in-memory. Parked tasks are
+    dropped here, which is the one place every listing goes through."""
     nodes = {}
     for c in (Item.objects(owner=user, kind__in=["project", "section", "folder"])
-              .only("pk", "kind", "parent")):
+              .only("pk", "kind", "parent", "defer_date", "status")):
         nodes[str(c.pk)] = c
     tasks = _user_tasks(user)
     for t in tasks:
         nodes.setdefault(str(t.pk), t)
+    now = _utcnow()
+    tasks = [t for t in tasks if not _held_back(t, nodes, now)]
     out = {}
     for t in tasks:
         cur, colid, seen, guard = t.parent, _INBOX, set(), 0
@@ -710,11 +753,15 @@ def _report(user, colid, tasks):
     except ET.ParseError:
         root_el = None
     if root_el is not None and root_el.tag.endswith("calendar-multiget"):
+        # Answer only for what this collection currently serves: a client may
+        # still ask for a task it cached before the task was parked (or moved
+        # away), and handing the data back would resurrect the reminder.
+        visible = {str(t.pk) for t in tasks}
         responses = []
         for href_el in root_el.iter("{DAV:}href"):
             href = (href_el.text or "").strip()
             item = _find(user, href.rstrip("/").split("/")[-1])
-            if item is not None:
+            if item is not None and str(item.pk) in visible:
                 responses.append(_data_response(href, item))
         return _multistatus(responses)
     # calendar-query (or anything else) → the whole collection
@@ -830,7 +877,9 @@ def resource(username, colid, name):
             abort(404)
         # If it already moved to another list, the resource is "gone" from
         # here — don't trash it (handles client move = PUT-new + DELETE-old).
-        if _nearest_colid(item) != colid:
+        # Same answer for a task we stopped serving because it is parked: the
+        # client is catching up with a disappearance, not deleting a task.
+        if _nearest_colid(item) != colid or _held_back(item):
             return Response(status=204)
         item.trashed_at = _utcnow()
         item.save()
