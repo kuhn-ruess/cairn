@@ -17,7 +17,8 @@ client's PUT-new / DELETE-old dance).
   ``calendar-query`` / ``calendar-multiget`` REPORTs (no ``sync-token`` yet).
 
 Mapping (``Item`` ⇄ ``VTODO``):
-  title↔SUMMARY, note↔DESCRIPTION, due_date↔DUE, defer_date↔DTSTART,
+  title↔SUMMARY, note↔DESCRIPTION (with a link back to the task on its first
+  line, stripped again on the way in), due_date↔DUE, defer_date↔DTSTART,
   priority↔PRIORITY (Apple buckets: P1=High/1, P2=Medium/5, P3+P4=Low/9),
   tags↔CATEGORIES,
   status: done→COMPLETED, dropped→CANCELLED, else NEEDS-ACTION.
@@ -33,12 +34,15 @@ the date passes, because the collection's ctag counts the tasks it serves.
 Standards-pragmatic and small; expect to iterate against a real device.
 """
 import base64
+import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import unquote, urlparse
 from xml.sax.saxutils import escape
 import xml.etree.ElementTree as ET
 
-from flask import Blueprint, Response, abort, current_app, redirect, request
+from flask import (
+    Blueprint, Response, abort, current_app, redirect, request, url_for,
+)
 from mongoengine import Q
 from mongoengine.errors import ValidationError
 
@@ -329,6 +333,38 @@ def _to_dt(prop, user=None):
     return attach_user_tz(datetime(val.year, val.month, val.day), user)
 
 
+def _task_url(item):
+    """Absolute link back to the task in Cairn. CalDAV always runs inside a
+    request and ProxyFix is on, so ``_external`` builds the public https URL;
+    the fallback keeps the export working if url_for ever can't."""
+    try:
+        return url_for("tasks.detail", task_id=item.pk, _external=True)
+    except Exception:
+        return f"{request.host_url.rstrip('/')}/tasks/{item.pk}"
+
+
+def _description(item):
+    """DESCRIPTION for the export: the link back to Cairn on the first line,
+    then the note. A reminder carries no other handle on the task — without the
+    link the way back is searching Cairn for the title, which is what a link is
+    for. Stripped again on the way in (see ``_strip_backlink``)."""
+    url = _task_url(item)
+    return f"{url}\n\n{item.note}" if item.note else url
+
+
+def _strip_backlink(text, item):
+    """Drop the backlink from an inbound DESCRIPTION. A client sends the whole
+    description back on every edit, so without this the link would be saved
+    into the note and a second one prepended on the next export, and so on. Only
+    a link to THIS task counts, so a Cairn link the user typed themselves
+    survives."""
+    if not text or not item.pk:
+        return text
+    m = re.match(r"\s*https?://\S*/tasks/" + re.escape(str(item.pk))
+                 + r"/?[ \t]*(?:\r?\n)*", text, re.IGNORECASE)
+    return text[m.end():] if m else text
+
+
 def _todo_ics(item):
     cal = Calendar()
     cal.add("prodid", "-//Cairn//CalDAV//EN")
@@ -336,8 +372,10 @@ def _todo_ics(item):
     todo = Todo()
     todo.add("uid", _uid(item))
     todo.add("summary", item.title or "")
-    if item.note:
-        todo.add("description", item.note)
+    todo.add("description", _description(item))
+    # Clients that show a URL field (Reminders on recent OS versions) get the
+    # link as a tappable one rather than as text in the notes.
+    todo.add("url", _task_url(item))
     # CalDAV/Reminders has a single date (DUE). Per the user's rule: the PLAN
     # date is the Reminders date whenever it's set (that's their "do it" date,
     # so planned tasks always land in Reminders' Today); the due date is only
@@ -392,7 +430,7 @@ def _apply_ics(item, raw, user=None):
 
     item.title = (str(g("summary") or "") or item.title or "Untitled")[:500]
     desc = g("description")
-    item.note = str(desc) if desc is not None else ""
+    item.note = _strip_backlink(str(desc), item) if desc is not None else ""
     loc = g("location")
     location = str(loc) if loc is not None else ""
     if not location:
@@ -530,8 +568,8 @@ def _event_ics(item, source):
     ev = Event()
     ev.add("uid", _event_uid(item))
     ev.add("summary", item.title or "")
-    if item.note:
-        ev.add("description", item.note)
+    ev.add("description", _description(item))
+    ev.add("url", _task_url(item))
     start = _aware(_event_date(item, source))
     ev.add("dtstart", start)
     ev.add("dtend", start + timedelta(minutes=30))
