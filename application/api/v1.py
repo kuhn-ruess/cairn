@@ -810,6 +810,16 @@ def _apply_project_payload(p: Item, data: dict) -> None:
                 raise ValueError(f"member {mid} not shareable")
             members.append(m)
         p.members = members
+    if p.kind == "folder":
+        # The same normalisation the web inspector does (views.projects
+        # ._apply_form): a folder has no execution semantics, and the API is
+        # the only way these fields could get onto one. Accepting them wrote a
+        # state no screen shows and no screen can clear.
+        p.project_type = "parallel"
+        p.defer_date = None
+        p.due_date = None
+        p.plan_date = None
+        p.auto_complete_when_done = False
 
 # ---------------- notes ----------------
 #

@@ -124,5 +124,20 @@ class EffectiveIntervalTest(unittest.TestCase):
         self.assertTrue(folder.is_review_due(NOW))
 
 
+class FolderBlocksNothingTest(unittest.TestCase):
+    """``Item._own_block`` answers for a folder before it reads anything else —
+    a folder carries no defer date, no status and no sequential order that a
+    user could see or clear."""
+
+    class _Folder:
+        kind = "folder"
+        status = "waiting"          # nonsense on a folder; must be ignored
+        defer_date = NOW + timedelta(days=5)
+        followup_at = NOW + timedelta(days=5)
+
+    def test_folder_blocks_nothing(self):
+        self.assertFalse(Item._own_block(self._Folder(), NOW))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -63,9 +63,12 @@ def home():
         _scope(user), status__nin=["done", "dropped"], flagged=True
     ).count()
     waiting_count = Item.objects(_scope(user), status="waiting").count()
-    due_review = Item.objects(
-        owner=user, status="active", next_review_at__lte=now
-    ).count()
+    # The review's own count, so the card agrees with the sidebar badge and
+    # with the queue itself. Counting next_review_at here missed every
+    # task-holding folder (a folder has no next_review_at until it has been
+    # reviewed once) and every never-reviewed project.
+    from application.views.review import review_due_count
+    due_review = review_due_count(user, now)
 
     # Two separate previews so the home page matches the GTD flow: deal
     # with the inbox (untriaged) first, then look at what's actually next.

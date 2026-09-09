@@ -957,7 +957,18 @@ class Item(Document):
           * ``followup_at`` in the future
           * has an unfinished task dependency (``depends_on``)
           * sits in a sequential parent behind an earlier incomplete sibling
+
+        A FOLDER blocks nothing, and neither does being inside one. A folder
+        carries no execution semantics (see the module docstring), and the
+        fields that would say otherwise are not the user's: the inspector shows
+        no defer date and no type for a folder and writes both back empty, so a
+        value there can only have come from the API or an import. Honouring it
+        held every task in the folder back — invisible in the available-only
+        views and dropped from the CalDAV export — with nothing on screen that
+        could explain why, let alone undo it.
         """
+        if self.kind == "folder":
+            return False
         if self.status in BLOCKED_STATUS:
             return True
         if self.defer_date and self.defer_date > now:
@@ -966,7 +977,9 @@ class Item(Document):
             return True
         if self.blocking_dependencies():
             return True
-        if self.parent and self.parent.project_type == "sequential":
+        if (self.parent
+                and self.parent.kind in ("project", "section")
+                and self.parent.project_type == "sequential"):
             earlier = (
                 Item.objects(parent=self.parent,
                               kind="task",

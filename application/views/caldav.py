@@ -257,11 +257,13 @@ def _held_back(item, nodes=None, now=None):
         if pk in seen:
             break
         seen.add(pk)
-        if getattr(node, "status", None) in BLOCKED_STATUS:
-            return True
-        deferred = _aware(getattr(node, "defer_date", None))
-        if deferred and deferred > now:
-            return True
+        # A folder holds nothing back — same rule as ``Item._own_block``.
+        if node.kind != "folder":
+            if getattr(node, "status", None) in BLOCKED_STATUS:
+                return True
+            deferred = _aware(getattr(node, "defer_date", None))
+            if deferred and deferred > now:
+                return True
         pid = _parent_id(node)
         if pid is None:
             break

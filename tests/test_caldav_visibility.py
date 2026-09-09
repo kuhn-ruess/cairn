@@ -25,11 +25,12 @@ class _Item:
 
     _next = 0
 
-    def __init__(self, defer_date=None, parent=None, status="open"):
+    def __init__(self, defer_date=None, parent=None, status="open", kind="task"):
         _Item._next += 1
         self.pk = _Item._next
         self.defer_date = defer_date
         self.status = status
+        self.kind = kind
         self._data = {"parent": parent}
         self.dereferenced = 0
 
@@ -109,6 +110,13 @@ class HeldBackTest(unittest.TestCase):
         proj = _Item()
         t = _Item(parent=proj)
         self.assertFalse(_held_back(t, _nodes(proj, t), NOW))
+
+    def test_a_folder_holds_nothing_back(self):
+        # A folder has no execution semantics; a defer date can only have come
+        # from the API or an import, and honouring it hid the whole folder.
+        folder = _Item(kind="folder", defer_date=NOW + timedelta(days=5))
+        t = _Item(parent=folder)
+        self.assertFalse(_held_back(t, _nodes(folder, t), NOW))
 
     def test_parent_cycle_terminates(self):
         a = _Item()
