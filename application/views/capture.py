@@ -34,7 +34,8 @@ def to_tasks():
     raw_project = (data.get("project_id") or "").strip()
     project = None
     if raw_project:
-        project = Item.objects(pk=raw_project, kind__in=["project", "section"]).first()
+        project = Item.objects(
+            pk=raw_project, kind__in=["project", "section", "folder"]).first()
         if not project or not project.can_be_edited_by(user):
             return jsonify({"error": "Unknown project."}), 400
 

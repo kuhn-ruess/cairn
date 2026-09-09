@@ -59,7 +59,7 @@ def _pad_context(user) -> dict:
         block_index={},
         embed_of=lambda _content: "",
         capture_projects=container_choices(
-            user, selectable_kinds=("project", "section"),
+            user, selectable_kinds=("project", "section", "folder"),
             include_shared=True, active_projects_only=True,
         ),
         capture_folders=_folder_choices(user),

@@ -5,13 +5,12 @@ queue of projects that need review; opening one shows the full project (all its
 open actions) so you can act on them, then "Mark reviewed" stamps the project
 (and its tasks) and jumps to the next one in the queue.
 
-A **folder that directly holds open tasks** is a review unit too. The model says
-a folder holds projects, not tasks (see the ``Item`` docstring), but tasks land
-in one anyway — dragged there, filed by an import, PUT into the folder's CalDAV
-list — and such a task has no enclosing project. It was invisible to the entire
-review: not in the queue, not pulled in by its own interval, and not in the
-Inbox either (that is ``parent=None``). So the review asks the folders as well;
-a folder without direct tasks stays out, it is a pure organiser.
+A **folder that directly holds open tasks** is a review unit too. A folder may
+hold tasks (see the ``Item`` docstring) and such a task has no enclosing
+project, so it used to be invisible to the entire review: not in the queue, not
+pulled in by its own interval, and not in the Inbox either (that is
+``parent=None``). So the review asks the folders as well; a folder without
+direct tasks stays out, it is a pure organiser.
 """
 from datetime import datetime, timezone
 

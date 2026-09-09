@@ -1890,10 +1890,15 @@ def edit(task_id):
     if request.method == "GET":
         from application.services.tz import localise_form_dates
         localise_form_dates(form, user)
-        # Surface a project pk in the select. If the task's actual
+        # Surface a container pk in the select. If the task's actual
         # parent is a section, hop up to the section's owning project
         # so there's a matching option to highlight (and so a POST
         # without changes round-trips cleanly).
+        #
+        # A FOLDER counts, and must: the select offers folders
+        # (_populate_form_choices), so leaving it empty for a folder-held task
+        # showed "—" and the very next save filed the task into the Inbox —
+        # it left its folder without anyone asking.
         proj_pk = ""
         if task.project is not None:
             p = task.project
@@ -1901,7 +1906,7 @@ def edit(task_id):
             while p is not None and p.kind == "section" and depth < 6:
                 p = p.parent
                 depth += 1
-            if p is not None and p.kind == "project":
+            if p is not None and p.kind in ("project", "folder"):
                 proj_pk = str(p.pk)
         form.project.data = proj_pk
         form.tags.data = list(task.tags or [])

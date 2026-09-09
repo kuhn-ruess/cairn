@@ -169,7 +169,7 @@ class ProjectForm(FlaskForm):
         "Type",
         choices=[
             ("project", "📁  Project — has actions and structure"),
-            ("folder",  "🗂️  Folder — only groups other projects"),
+            ("folder",  "🗂️  Folder — groups projects, can hold tasks"),
             ("section", "🔖  Section — inline group within a parent project"),
         ],
         default="project",

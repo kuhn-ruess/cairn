@@ -1440,7 +1440,7 @@ def convert_scratchpad():
     project = None
     raw = (data.get("project_id") or "").strip()
     if raw:
-        project = Item.objects(pk=raw, kind__in=["project", "section"]).first()
+        project = Item.objects(pk=raw, kind__in=["project", "section", "folder"]).first()
         if not project or not project.can_be_edited_by(g.current_user):
             return _bad_request("Unknown project.")
     stats = capture.create_tasks(text, g.current_user, parent=project)

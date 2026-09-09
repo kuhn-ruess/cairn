@@ -125,7 +125,7 @@
           <li class="ps-drop-target" data-target-project="{{ p.pk }}"
               data-project-id="{{ p.pk }}">
             <a class="nav-link py-1 ps-row {% if (current_pk and current_pk == (p.pk|string)) or (_filter_mode and request.args.get('project') == (p.pk|string)) %}active{% endif %}"
-               href="{% if _review_mode and not p.is_folder %}{{ url_for('review.project_review', project_id=p.pk) }}{% elif _filter_mode %}{{ request.path }}?project={{ p.pk }}{% else %}{{ url_for('projects.detail', project_id=p.pk) }}{% endif %}"
+               href="{% if _review_mode and (not p.is_folder or (p.pk|string) in (affected_pks or [])) %}{{ url_for('review.project_review', project_id=p.pk) }}{% elif _filter_mode %}{{ request.path }}?project={{ p.pk }}{% else %}{{ url_for('projects.detail', project_id=p.pk) }}{% endif %}"
                style="padding-left: {{ depth * 14 + 8 }}px;"
                data-project-name="{{ p.name|lower }}"
                title="{{ p.name }}">

@@ -353,7 +353,7 @@ def detail(note_id):
         tag_choices=_tag_choices_tree(user.tags or []),
         # Targets for "mark text in the note → tasks" (layout/_capture_modals).
         capture_projects=container_choices(
-            user, selectable_kinds=("project", "section"),
+            user, selectable_kinds=("project", "section", "folder"),
             include_shared=True, active_projects_only=True,
         ),
         tag_filter_choices=_tag_filter_choices(user, tree),

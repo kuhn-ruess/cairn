@@ -180,17 +180,21 @@ def _apply(form: ProjectForm, project: Item) -> None:
         project.project_type = "parallel"
         if project.status not in ("completed", "dropped"):
             project.status = "active"
-        project.review_interval_days = 0
-        project.next_review_at = None
-        project.last_reviewed_at = None
+        # The review stamps are NOT reset here. A folder that holds tasks is a
+        # review unit (views.review), and wiping last_reviewed_at on every
+        # inspector save put a folder you had just reviewed straight back into
+        # the queue. The interval stays untouched too — a folder has no field
+        # for it and effective_review_interval skips a folder's stored value.
         project.auto_complete_when_done = False
 
 def convert_container_kind(project: Item, to_kind: str) -> Item | None:
     """Turn a project into a folder, or a folder/section into a project.
 
-    A folder holds projects and folders only (see the ``Item`` docstring), so
-    the direct tasks and sections of a project that becomes one need somewhere
-    to live: they move into a NEW project of the same name inside the folder,
+    A folder may hold tasks, but a SECTION's parent is always a project (see the
+    ``Item`` docstring), so the sections of a project that becomes one need
+    somewhere to live — and splitting a project's contents, sections into a new
+    project and tasks left behind in the folder, is worse than moving them
+    together. So both go into a NEW project of the same name inside the folder,
     which is where they already were as far as the user reads the tree. That
     project is returned so the caller can say it was created; ``None`` means
     there was nothing to rehome.
@@ -804,8 +808,8 @@ def detail(project_id):
     # sections are inline parts of the project). Sub-projects live on
     # their own pages and are listed as a tree at the top of this view.
     # ``?descendants=1`` opts into the rolled-up view.
-    # A team FOLDER holds projects, not tasks — "mine" there has to reach the
-    # whole subtree or it would answer with an empty page.
+    # A team FOLDER usually holds projects rather than tasks — "mine" there has
+    # to reach the whole subtree or it would answer with an almost empty page.
     include_descendants = request.args.get("descendants") == "1" or mine_only
     if flatten or include_descendants:
         project_ids = _descendant_ids(project)
