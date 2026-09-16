@@ -1375,6 +1375,7 @@ body.inspector-docked #bulk-bar {
 .fav-star-hover { opacity: 0; transition: opacity .12s; }
 .task-row:hover .fav-star-hover,
 .nav-fav-row:hover .fav-star-hover,
+tr:hover .fav-star-hover,
 .fav-star-hover.is-fav { opacity: 1; }
 /* Sidebar: keep the hover star OUT of normal flow so an invisible star never
    reserves width / forces the nav label to wrap. It floats over the row's right

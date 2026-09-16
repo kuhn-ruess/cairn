@@ -1,5 +1,6 @@
 {% extends "layout/base.html" %}
 {% set page_project_sidebar = true %}
+{% import "favorites_macros.html" as fav with context %}
 {% block title %}Projects · Cairn{% endblock %}
 {% macro project_row(p, depth=0) %}
   <tr data-project-id="{{ p.pk }}">
@@ -94,6 +95,7 @@
           </a>
         {% endif %}
       {% endif %}
+      {{ fav.star("item:" ~ p.pk, "fav-star-hover") }}
       <button type="button" class="btn btn-sm btn-outline-secondary hover-action"
               data-inspector-url="{{ url_for('projects.edit', project_id=p.pk) }}"
               data-inspector-title="{{ p.name }}"

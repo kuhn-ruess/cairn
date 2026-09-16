@@ -1,5 +1,6 @@
 {% extends "layout/base.html" %}
 {% set page_project_sidebar = true %}
+{% import "favorites_macros.html" as fav with context %}
 {% block title %}{{ project.name }} · Cairn{% endblock %}
 
 {# Render sub-project rows that belong under ``container_pk``. They live
@@ -216,6 +217,7 @@
               title="Edit {{ project.kind }} — open inspector">
         <i class="bi bi-info-circle"></i>
       </button>
+      {{ fav.star("item:" ~ project.pk, "fs-6 align-middle") }}
       <span class="project-mode">{{ project.project_type }}</span>
       {% if project.status != 'active' %}
         <span class="project-mode project-mode-{{ project.status }}">{{ project.status }}</span>

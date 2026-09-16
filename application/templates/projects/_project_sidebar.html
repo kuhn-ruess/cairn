@@ -9,6 +9,7 @@
      []          — explicit filter that matched zero items (sidebar
                    collapses to just the Inbox shortcut)
      [pks…]      — show only listed pks + their ancestor folders #}
+{% import "favorites_macros.html" as fav with context %}
 {% set _has_filter = (affected_pks is defined) and (affected_pks is not none) %}
 {% if _has_filter %}
   {% set parent_of = {} %}
@@ -58,6 +59,15 @@
   }
   .ps-list .ps-drop-target:hover .ps-add-btn { opacity: 1; }
   .ps-list .ps-add-btn:hover { color: var(--bs-success); }
+  /* Favourite star — leftmost of the row buttons. A star that is SET stays
+     visible: which projects are pinned is the one thing this row says without
+     being hovered. */
+  .ps-list .ps-fav-btn {
+    position: absolute; right: 70px; top: 50%; transform: translateY(-50%);
+    opacity: 0; padding: 2px 4px;
+  }
+  .ps-list .ps-drop-target:hover .ps-fav-btn,
+  .ps-list .ps-fav-btn.is-fav { opacity: 1; }
 </style>
 <aside class="app-project-sidebar" id="project-sidebar">
   <div class="ps-header">
@@ -132,6 +142,7 @@
               {{ item_icon(p) }}
               <span class="ps-name">{{ p.name }}</span>
             </a>
+            {{ fav.star("item:" ~ p.pk, "ps-fav-btn") }}
             <button type="button" class="ps-add-btn"
                     data-add-sub="{{ p.pk }}"
                     title="New sub-project in {{ p.name }}">

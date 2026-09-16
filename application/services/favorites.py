@@ -2,7 +2,8 @@
 renderable nav entries.
 
 Tokens (see User.favorites):
-    item:<pk>     a task or note (resolved live so deleted/renamed ones behave)
+    item:<pk>     a task, project, folder or note (resolved live, so a
+                  deleted or renamed one behaves)
     persp:<key>   a built-in perspective
     cp:<pid>      a custom perspective
     org:<slug>    an "Organize" nav entry
@@ -35,8 +36,12 @@ def _item_entry(item):
         return {"url": url_for("notes.detail", note_id=item.pk),
                 "icon": "bi-journal-text", "color": None}
     if item.kind in ("project", "folder", "section"):
+        # Same glyphs as `item_icon` — a favourited folder that renders as a
+        # project is the one row in the sidebar you can't place at a glance.
+        icon = {"folder": "bi-folder2-open",
+                "section": "bi-bookmark"}.get(item.kind, "bi-collection")
         return {"url": url_for("projects.detail", project_id=item.pk),
-                "icon": "bi-collection", "color": item.color or None}
+                "icon": icon, "color": item.color or None}
     return {"url": url_for("tasks.detail", task_id=item.pk),
             "icon": "bi-check2-square", "color": None}
 
