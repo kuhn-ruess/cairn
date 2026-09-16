@@ -180,7 +180,7 @@ def today_debug():
     per-task ``match_reason`` — so you can see exactly what Today shows and
     why a task is in or out. Tasks only (the UI also folds in dated projects)."""
     from application.services import focus as focus_service
-    from application.services.tzutil import resolve_tz
+    from application.services.tzutil import local_date, resolve_tz
 
     from datetime import datetime as _dt, timedelta
 
@@ -213,7 +213,7 @@ def today_debug():
                 reasons.append("overdue" if t.due_date < now else "due_today")
             if t.flagged:
                 reasons.append("flagged")
-            if t.plan_date and t.plan_date.date() <= today_date:
+            if t.plan_date and local_date(t.plan_date, tz) <= today_date:
                 reasons.append("planned")
             if t.defer_date and t.defer_date <= now and t.status == "next":
                 reasons.append("next_available")

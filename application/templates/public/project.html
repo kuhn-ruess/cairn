@@ -71,7 +71,7 @@
           </div>
           <div class="public-task-meta">
             {% if task.due_date %}
-              <span class="{% if task.due_date.date() < now_utc().date() and task.status != 'done' %}overdue{% endif %}">
+              <span class="{% if task.due_date|localdate < now_utc()|localdate and task.status != 'done' %}overdue{% endif %}">
                 <i class="bi bi-calendar-event"></i> {{ task.due_date|date }}
               </span>
             {% endif %}

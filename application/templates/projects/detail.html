@@ -74,7 +74,7 @@
                 </span>
               {% endif %}
               {% if sp.plan_date %}
-                {% set is_today_plan = sp.plan_date.date() == now_utc().date() %}
+                {% set is_today_plan = sp.plan_date|localdate == now_utc()|localdate %}
                 <span class="plan-chip {{ 'plan-today' if is_today_plan else '' }}"
                       title="Plan to work on {{ sp.plan_date|localdt }}">
                   <i class="bi bi-bookmark-star"></i>

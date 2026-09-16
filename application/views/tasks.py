@@ -6,7 +6,7 @@ from flask import (
     Blueprint, Response, abort, current_app, flash, jsonify, redirect, render_template, request, url_for,
 )
 
-from application.services.tzutil import resolve_tz
+from application.services.tzutil import local_date, resolve_tz
 
 def _is_inspector():
     return request.args.get("inspector") == "1" or request.headers.get("X-Inspector-Request") == "1"
@@ -210,7 +210,7 @@ def sidebar_counts(user, now=None, keys=None) -> dict:
             if st != "someday":
                 if ((t.due_date and t.due_date <= today_end)
                         or t.flagged
-                        or (t.plan_date and t.plan_date.date() <= today_date)
+                        or (t.plan_date and local_date(t.plan_date, tz) <= today_date)
                         or (t.defer_date and t.defer_date <= now and st == "next")
                         or (t.followup_at and t.followup_at <= today_end)):
                     c["today"] += 1
@@ -920,7 +920,7 @@ def today():
             and (
                 (t.due_date and t.due_date <= today_end)
                 or t.flagged
-                or (t.plan_date and t.plan_date.date() <= today_date)
+                or (t.plan_date and local_date(t.plan_date, _today_tz) <= today_date)
                 or (t.defer_date and t.defer_date <= now and t.status == "next")
                 or (t.followup_at and t.followup_at <= today_end)
             )
@@ -931,7 +931,7 @@ def today():
             other = bool(
                 (t.due_date and t.due_date <= today_end)
                 or t.flagged
-                or (t.plan_date and t.plan_date.date() <= today_date)
+                or (t.plan_date and local_date(t.plan_date, _today_tz) <= today_date)
                 or (t.defer_date and t.defer_date <= now and t.status == "next")
             )
             t._followup_only = bool(
@@ -940,7 +940,7 @@ def today():
         projects_with_dates = [
             p for p in proj_qs
             if (p.due_date and p.due_date <= today_end)
-            or (p.plan_date and p.plan_date.date() <= today_date)
+            or (p.plan_date and local_date(p.plan_date, _today_tz) <= today_date)
         ]
     else:
         # Multi-day window [start_dt, end_dt). When the window starts TODAY,

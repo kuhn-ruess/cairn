@@ -397,6 +397,22 @@ def register_filters(app):
             pass
         return value.strftime("%Y-%m-%d %H:%M")
 
+    @app.template_filter("localdate")
+    def localdate(value):
+        """Calendar day of a stored datetime in the user's wall-clock — the
+        template half of ``tzutil.local_date``. Use it on BOTH sides of a
+        day comparison (``task.plan_date|localdate == now_utc()|localdate``):
+        an all-day date is stored as midnight in the user's zone, so a bare
+        ``.date()`` reads it as the previous day and the chip lights up a day
+        early."""
+        from application.services.tzutil import local_date, resolve_tz
+        try:
+            from flask_login import current_user
+            user = current_user if getattr(current_user, "is_authenticated", False) else None
+        except Exception:
+            user = None
+        return local_date(value, resolve_tz(user))
+
     @app.template_filter("dtlocalinput")
     def dtlocalinput(value):
         """Format an aware datetime as a user-tz ``datetime-local`` value
@@ -587,9 +603,10 @@ def register_filters(app):
     def relativedate(value):
         if not value:
             return ""
-        now = datetime.now(timezone.utc)
-        v = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-        delta = (v.date() - now.date()).days
+        # Both days in the user's wall-clock: an all-day date sits at local
+        # midnight, which is the day before in UTC — comparing raw UTC dates
+        # would call tomorrow "today".
+        delta = (localdate(value) - localdate(datetime.now(timezone.utc))).days
         if delta == 0:
             return "today"
         if delta == 1:

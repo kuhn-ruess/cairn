@@ -59,3 +59,20 @@ def resolve_tz(user=None):
         return ZoneInfo(resolve_tzname(user))
     except Exception:
         return timezone.utc
+
+
+def local_date(value, tz=None):
+    """Calendar day of a stored datetime in the user's wall-clock.
+
+    An all-day plan/due date is stored as midnight in the user's zone — in
+    Berlin that is 22:00 UTC the day *before*, so ``value.date()`` answers with
+    the previous day and everything keyed off it (Today membership, the
+    "today's plan" chip, "tomorrow") fires a day early. Every "which day is
+    this?" comparison goes through here. Pass ``tz`` when the caller already
+    resolved it — a loop over tasks shouldn't re-resolve per row.
+    """
+    if not value:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(tz or resolve_tz()).date()
