@@ -81,4 +81,46 @@
   }
 
   document.addEventListener("click", handle);
+
+  /* An empty datetime-local field is the slowest way there is to say "next
+   * Tuesday": every segment has to be typed before the arrow keys or the
+   * picker become useful. So focusing an empty one fills in a default — today
+   * at 09:00, tomorrow's if that hour has passed, never a moment already gone.
+   *
+   * The value is TENTATIVE: leave the field without touching it and it is
+   * empty again, so tabbing through the inspector never invents a due date or
+   * defers a task by way of a follow-up nobody asked for. Blur settles it, and
+   * so does a submit (Enter inside the field never blurs it) — that listener
+   * captures, because the inspector's own submit handler reads the FormData.
+   */
+  const MARK = "quickDateTentative";
+
+  function defaultValue() {
+    const d = new Date();
+    d.setHours(9, 0, 0, 0);
+    if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
+    return toLocalISO(d);
+  }
+
+  function fill(ev) {
+    const el = ev.target;
+    if (!el.matches || !el.matches('input[type="datetime-local"]')) return;
+    if (el.value || el.disabled || el.readOnly) return;
+    el.value = defaultValue();
+    el.dataset[MARK] = el.value;
+  }
+
+  function settle(el) {
+    if (!el.dataset || !(MARK in el.dataset)) return;
+    if (el.value === el.dataset[MARK]) el.value = "";
+    delete el.dataset[MARK];
+  }
+
+  document.addEventListener("focusin", fill);
+  document.addEventListener("focusout", (ev) => settle(ev.target));
+  document.addEventListener("submit", (ev) => {
+    const form = ev.target;
+    if (!form.querySelectorAll) return;
+    form.querySelectorAll('input[type="datetime-local"]').forEach(settle);
+  }, true);
 })();
