@@ -51,8 +51,24 @@ def _parse_dt(value):
         return None
     if isinstance(value, datetime):
         return value
-    s = str(value).rstrip("Z")
+    s = str(value).strip()
+    # A trailing Z says UTC. Stripping it left a naive value that
+    # ``astimezone`` then read as the server's own wall-clock, which moved
+    # every imported timestamp by the offset. A value with no zone at all is
+    # still read that way — that is what a bare ``YYYY-MM-DD`` filter means.
+    if s.endswith(("Z", "z")):
+        s = s[:-1] + "+00:00"
     return datetime.fromisoformat(s).astimezone(timezone.utc)
+
+
+def _read_dt(data, key):
+    """An optional timestamp from a request body: ``(value, error)``."""
+    if key not in data or data.get(key) in (None, ""):
+        return None, None
+    try:
+        return _parse_dt(data.get(key)), None
+    except (TypeError, ValueError):
+        return None, _bad_request(f"invalid {key}")
 
 def _bad_request(msg: str, status: int = 400):
     return jsonify({"error": msg}), status
@@ -890,6 +906,19 @@ def list_notes():
 @api_v1_bp.post("/notes")
 @token_required
 def create_note():
+    """Create a note or a notes folder — and the endpoint an IMPORTER uses.
+
+    Three things here are for a caller that is filing something which already
+    exists somewhere else, and that the editor never needs:
+
+    * ``folder_path`` — say where it goes the way a person would
+      (``Archiv/Agenda/2026/Kunden``); the levels that are missing are made.
+    * ``created`` / ``updated`` — the note's real age. Without them an archive
+      arrives dated today, which is most of what an archive is worth.
+    * ``external_id`` — the id it has over there. Sending it again UPDATES
+      that note instead of leaving a second copy behind, so an import can be
+      re-run, widened or resumed without a bookkeeping file of its own.
+    """
     user = g.current_user
     data = request.get_json(silent=True) or {}
     kind = (data.get("kind") or "note").strip()
@@ -897,25 +926,74 @@ def create_note():
         return _bad_request(f"invalid kind: {kind}")
     parent = None
     raw_parent = (data.get("parent_id") or "").strip()
+    folder_path = (data.get("folder_path") or "").strip().strip("/")
+    if raw_parent and folder_path:
+        return _bad_request("give parent_id or folder_path, not both")
     if raw_parent:
         parent = _note_by_id(raw_parent, own=True)
         if not parent or parent.kind != "folder":
             return _bad_request("parent_id is not one of your notes folders")
+    elif folder_path:
+        from application.services.note_folders import ensure_path
+        parent = ensure_path(user, folder_path)
     title = (data.get("title") or "").strip()
     if kind == "folder" and not title:
         return _bad_request("a folder needs a title")
-    item = Item(owner=user, kind=kind, parent=parent,
-                title=title or "Untitled note",
-                # No name given, so the note's first line becomes it.
-                title_auto=(kind == "note" and not title),
-                tags=[str(t) for t in (data.get("tags") or []) if t])
+    fmt = str(data.get("note_format") or "").strip()
+    if fmt:
+        from application.services import outline
+        if fmt not in outline.FORMATS:
+            return _bad_request(f"invalid note_format: {fmt}")
+    created, err = _read_dt(data, "created")
+    if err:
+        return err
+    updated, err = _read_dt(data, "updated")
+    if err:
+        return err
+
+    external_id = (data.get("external_id") or "").strip()
+    # The second run of an import lands here, not in a duplicate. Scoped to
+    # the caller's own items and to this ``kind`` — a task imported under the
+    # same id from the same system is not this note.
+    item = (Item.objects(owner=user, kind=kind, external_id=external_id).first()
+            if external_id else None)
+    fresh = item is None
+    if fresh:
+        item = Item(owner=user, kind=kind, external_id=external_id or None,
+                    source=(data.get("source") or "").strip() or None,
+                    title="Untitled note")
+    if fresh or raw_parent or folder_path:
+        item.parent = parent
+    if title:
+        item.title = title
+        item.title_auto = False
+    elif fresh:
+        # No name given, so the note's first line becomes it.
+        item.title_auto = (kind == "note")
+    if "tags" in data:
+        item.tags = [str(t) for t in (data.get("tags") or []) if t]
+    if fmt:
+        item.note_format = fmt
     if kind == "folder":
         item.folder_domain = "notes"
         item.status = "active"
     from application.services.notes_write import apply_body
-    apply_body(item, data.get("note") or "", user)
+    if fresh or "note" in data:
+        apply_body(item, data.get("note") or "", user)
     item.save()
-    return jsonify(ser_note(item)), 201
+    # After the save: ``Item.save`` stamps ``updated_at`` itself, so the
+    # timestamps go on with an atomic update — the same move
+    # ``notes_sync.retime`` makes for a file that brought its own dates.
+    fields = {}
+    if created:
+        item.created_at = created
+        fields["set__created_at"] = created
+    if updated:
+        item.updated_at = updated
+        fields["set__updated_at"] = updated
+    if fields:
+        Item.all_objects(pk=item.pk).update(**fields)
+    return jsonify(ser_note(item)), 201 if fresh else 200
 
 
 @api_v1_bp.get("/notes/<note_id>")

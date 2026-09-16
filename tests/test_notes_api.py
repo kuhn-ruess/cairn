@@ -208,6 +208,78 @@ class NotesApiTests(unittest.TestCase):
                                    {"member_ids": []},
                                    self.ro_token).status_code, 403)
 
+    # -- importing -------------------------------------------------------
+    #
+    # What an importer needs beyond the editor's own create: file it by name,
+    # keep its real age, and be safe to run twice. See create_note's docstring.
+
+    def test_folder_path_files_a_note_by_name(self):
+        r = self._post("/api/v1/notes",
+                       {"folder_path": "Archiv/Agenda/2026",
+                        "title": "Kickoff", "note": "- Kickoff\n"})
+        self.assertEqual(r.status_code, 201)
+        note = self.Item.objects(pk=r.json["id"]).first()
+        chain = []
+        node = note.parent
+        while node:
+            chain.append(node.title)
+            node = node.parent
+        self.assertEqual(chain, ["2026", "Agenda", "Archiv"])
+        self.assertTrue(all(f.folder_domain == "notes" for f in
+                            self.Item.objects(kind="folder")))
+
+    def test_folder_path_reuses_the_tree_it_finds(self):
+        self._post("/api/v1/notes", {"folder_path": "Archiv/Agenda", "note": "- a\n"})
+        self._post("/api/v1/notes", {"folder_path": "Archiv/Agenda", "note": "- b\n"})
+        self.assertEqual(self.Item.objects(kind="folder", title="Agenda").count(), 1)
+        self.assertEqual(self.Item.objects(kind="folder", title="Archiv").count(), 1)
+
+    def test_folder_path_and_parent_id_together_are_refused(self):
+        folder = self._folder()
+        r = self._post("/api/v1/notes",
+                       {"parent_id": folder["id"], "folder_path": "Archiv"})
+        self.assertEqual(r.status_code, 400)
+
+    def test_an_import_brings_its_own_dates(self):
+        r = self._post("/api/v1/notes",
+                       {"note": "- alt\n", "created": "2026-04-07T07:39:12Z",
+                        "updated": "2026-04-07T09:00:00Z"})
+        self.assertEqual(r.status_code, 201)
+        note = self.Item.objects(pk=r.json["id"]).first()
+        self.assertEqual(note.created_at.year, 2026)
+        self.assertEqual(note.created_at.month, 4)
+        self.assertEqual(note.created_at.hour, 7)      # Z is UTC, not local
+        self.assertEqual(note.updated_at.hour, 9)
+
+    def test_a_bad_timestamp_is_a_bad_request(self):
+        r = self._post("/api/v1/notes", {"note": "- x\n", "created": "gestern"})
+        self.assertEqual(r.status_code, 400)
+
+    def test_external_id_makes_the_import_repeatable(self):
+        first = self._post("/api/v1/notes",
+                           {"external_id": "agenda:ABC", "source": "agenda",
+                            "title": "Walk", "note": "- eins\n",
+                            "folder_path": "Archiv/Agenda"})
+        self.assertEqual(first.status_code, 201)
+        again = self._post("/api/v1/notes",
+                           {"external_id": "agenda:ABC", "source": "agenda",
+                            "title": "Walk", "note": "- eins\n- zwei\n",
+                            "folder_path": "Archiv/Agenda"})
+        self.assertEqual(again.status_code, 200)
+        self.assertEqual(again.json["id"], first.json["id"])
+        self.assertEqual(self.Item.objects(kind="note").count(), 1)
+        self.assertIn("zwei", self.Item.objects(pk=first.json["id"]).first().note)
+
+    def test_an_import_may_choose_the_editor(self):
+        r = self._post("/api/v1/notes",
+                       {"note": "Prosa, keine Bullets.\n", "note_format": "markdown"})
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(self.Item.objects(pk=r.json["id"]).first().note_format,
+                         "markdown")
+        self.assertEqual(self._post("/api/v1/notes",
+                                    {"note": "x", "note_format": "gedicht"}).status_code,
+                         400)
+
     # -- docs ------------------------------------------------------------
 
     def test_every_notes_route_is_in_the_published_spec(self):

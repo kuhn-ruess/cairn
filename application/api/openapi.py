@@ -93,11 +93,43 @@ def build_openapi_spec() -> dict:
                             "description": ("Sets which editor the note belongs "
                                             "in. The body is left exactly as "
                                             "you send it — this only records "
-                                            "the choice. PATCH only."),
+                                            "the choice."),
                         },
                         "parent_id": {"type": "string", "nullable": True,
                                        "description": "A notes folder you own."},
+                        "folder_path": {
+                            "type": "string",
+                            "description": ("Where to file it, by name: "
+                                            "``Archiv/Agenda/2026/Kunden``. The "
+                                            "levels that are missing are "
+                                            "created. POST only, and not "
+                                            "together with parent_id."),
+                        },
                         "tags": {"type": "array", "items": {"type": "string"}},
+                        "external_id": {
+                            "type": "string",
+                            "description": ("The id this note has in the system "
+                                            "it came from. Sending it again "
+                                            "updates that note (200) instead of "
+                                            "creating a second one (201), so an "
+                                            "import can be re-run. POST only."),
+                        },
+                        "source": {
+                            "type": "string",
+                            "description": ("Where it came from, for the origin "
+                                            "chip — e.g. ``agenda``. POST only."),
+                        },
+                        "created": {
+                            "type": "string", "format": "date-time",
+                            "description": ("The note's original creation time. "
+                                            "Without it an imported note is "
+                                            "dated today. POST only."),
+                        },
+                        "updated": {
+                            "type": "string", "format": "date-time",
+                            "description": ("When it last changed over there. "
+                                            "POST only."),
+                        },
                     },
                 },
                 "NoteShare": {
@@ -1397,6 +1429,10 @@ def build_openapi_spec() -> dict:
                 },
                 "post": {
                     "summary": "Create a note or a notes folder",
+                    "description": ("Also the import endpoint: ``folder_path`` "
+                                    "files it by name, ``created``/``updated`` "
+                                    "keep its real age, and ``external_id`` "
+                                    "makes the call idempotent."),
                     "tags": ["notes"],
                     "requestBody": {
                         "required": True,
@@ -1404,6 +1440,10 @@ def build_openapi_spec() -> dict:
                             "$ref": "#/components/schemas/NoteWrite"}}},
                     },
                     "responses": {
+                        "200": {"description": "Updated — an ``external_id`` "
+                                               "that was already here",
+                                "content": {"application/json": {"schema": {
+                                    "$ref": "#/components/schemas/Note"}}}},
                         "201": {"description": "Created",
                                 "content": {"application/json": {"schema": {
                                     "$ref": "#/components/schemas/Note"}}}},

@@ -259,6 +259,17 @@ There are **two** visibility axes, and a new endpoint belongs to one of them:
   `Team.is_managed_by()`. Reuse those rather than restating them: a second
   definition of "may see" is how the API and the UI drift apart.
 
+`POST /notes` is also the **import** endpoint, and the three fields that make
+it one belong together: `folder_path` files a note by name
+(`Archiv/Agenda/2026/Kunden`, missing levels created —
+`services/note_folders.ensure_path`), `created`/`updated` keep its real age
+(without them an archive arrives dated today), and `external_id` makes the call
+idempotent — the same source note sent twice UPDATES its note (200) instead of
+leaving a second copy (201), so an import needs no bookkeeping of its own.
+`client/agenda_archive.py` is the first caller: Agenda's local MCP server
+(`http://127.0.0.1:16106/mcp`, plain JSON-RPC over HTTP, so cron can drive it)
+→ every note tagged `#cairn` → Cairn, then Agenda's own trash.
+
 `application/api/openapi.py` is the hand-written spec served at
 `/api/v1/openapi.json` and rendered at `/api/v1/docs`. Add a path there for
 every route you add — `tests/test_time_api.py` asserts the two agree.
