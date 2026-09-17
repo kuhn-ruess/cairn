@@ -229,11 +229,13 @@ def main(argv=None) -> int:
         print(f"Nothing tagged #{args.tag} in Agenda.")
         return 0
 
-    cairn = None
-    if not args.dry_run:
-        cairn = Cairn(args.cairn_url, token)
-        print(f"{len(notes)} note(s) tagged #{args.tag} → {args.cairn_url} "
-              f"as {cairn.whoami()}")
+    # Where this is going, said before anything moves — and in a dry run too,
+    # which is the moment you actually want to read it. Asking the server who
+    # the token belongs to is a GET, so the rehearsal stays a rehearsal.
+    cairn = Cairn(args.cairn_url, token) if (args.cairn_url and token) else None
+    target = (f"{args.cairn_url} as {cairn.whoami()}" if cairn
+              else "nowhere — no CAIRN_URL / CAIRN_TOKEN in the environment")
+    print(f"{len(notes)} note(s) tagged #{args.tag} → {target}")
     done = failed = 0
     for summary in notes:
         note_id = summary.get("id")
