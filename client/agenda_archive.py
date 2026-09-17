@@ -21,12 +21,23 @@ over there.
 
 What Agenda does not hand over
 ------------------------------
-A table in an Agenda note reaches the MCP server's Markdown as ``%%table:0%%``
-and nothing more — the rows are not in the text, and no other call hands them
-out. Such a note is archived (the placeholder shows where the table was) but
-is NOT trashed in Agenda, and the run ends non-zero: Agenda is then the only
-place those rows still exist, and it has to stay that way until you have moved
-them across by hand.
+Two kinds of content never reach this script, and both are the MCP server's
+Markdown, not Cairn:
+
+* **Tables** arrive as ``%%table:0%%`` and nothing more. That at least leaves
+  a mark, so such a note is archived (the placeholder shows where the table
+  was), is NOT trashed in Agenda, keeps its tag, and the run ends non-zero.
+  Agenda is then the only place those rows still exist and has to stay that
+  way until you have moved them across.
+* **Attachments** — a photo, a PDF, any dropped file — are dropped SILENTLY:
+  the Markdown simply doesn't mention them, so nothing here can see that they
+  were ever there. A note with a picture therefore looks complete and is
+  trashed like any other. It is only in Agenda's trash, never deleted, but
+  check such notes before you empty it.
+
+The app itself has all of this — its PDF export renders tables and pictures
+fine — so the fix belongs in the MCP server. Until then, treat a note with
+attachments as one to move across by hand.
 
 Run twice, and nothing is duplicated: every note goes up with
 ``external_id: agenda:<uuid>``, which the API treats as "update that one".
@@ -271,7 +282,9 @@ def main(argv=None) -> int:
     ap.add_argument("--dry-run", action="store_true",
                     help="say what would happen, write nothing")
     ap.add_argument("--keep", action="store_true",
-                    help="leave the notes in Agenda instead of trashing them")
+                    help="leave the notes in Agenda instead of trashing them "
+                         "— the safe choice for notes with attachments, which "
+                         "Agenda's Markdown drops without saying so")
     ap.add_argument("--agenda-url", default=AGENDA_URL)
     ap.add_argument("--cairn-url", default="",
                     help=f"the Cairn server (default: the one `cairn login` "
