@@ -19,6 +19,15 @@ the prefix ``Kunden`` stays one level. The API creates what is missing
 (``folder_path`` on ``POST /notes``), so there is nothing to set up here or
 over there.
 
+What Agenda does not hand over
+------------------------------
+A table in an Agenda note reaches the MCP server's Markdown as ``%%table:0%%``
+and nothing more — the rows are not in the text, and no other call hands them
+out. Such a note is archived (the placeholder shows where the table was) but
+is NOT trashed in Agenda, and the run ends non-zero: Agenda is then the only
+place those rows still exist, and it has to stay that way until you have moved
+them across by hand.
+
 Run twice, and nothing is duplicated: every note goes up with
 ``external_id: agenda:<uuid>``, which the API treats as "update that one".
 A note whose upload failed is NOT trashed in Agenda, so a failed run can
@@ -219,6 +228,23 @@ def note_path(prefix: str, parts: list) -> str:
     return "/".join(levels + rest)
 
 
+PLACEHOLDER = re.compile(r"%%([a-z]+):\d+%%")
+
+
+def holes_in(markdown: str) -> dict:
+    """What Agenda left OUT of its own Markdown, counted by kind.
+
+    A table comes across as ``%%table:0%%`` and nothing else — the content is
+    not in the text the MCP server hands out. So a note with one of these is
+    not a copy of the note, and the original must stay where it is: Agenda's
+    trash is the only other place those rows exist.
+    """
+    found = {}
+    for kind in PLACEHOLDER.findall(markdown or ""):
+        found[kind] = found.get(kind, 0) + 1
+    return found
+
+
 def paths_of(projects: list) -> dict:
     """``project id -> [Kategorie, Projekt]``, each part already a safe name."""
     out = {}
@@ -277,8 +303,8 @@ def main(argv=None) -> int:
     # so the rehearsal stays a rehearsal.
     cairn = Cairn(host, token) if token else None
     who = f" as {cairn.whoami()}" if cairn else " (no token yet — `cairn login`)"
-    print(f"{len(notes)} note(s) tagged #{args.tag} → {host}{who}")
-    done = failed = 0
+    print(f"{len(notes)} note(s) tagged #{args.tag} → {host}{who}", flush=True)
+    done = failed = incomplete = 0
     for summary in notes:
         note_id = summary.get("id")
         try:
@@ -286,6 +312,13 @@ def main(argv=None) -> int:
             path = note_path(args.prefix,
                              projects.get(note.get("projectId"), []))
             title = (note.get("title") or "").strip()
+            holes = holes_in(note.get("markdown") or "")
+            if holes:
+                incomplete += 1
+                what = ", ".join(f"{n}× {kind}" for kind, n in sorted(holes.items()))
+                print(f"  INCOMPLETE {title or note_id}: Agenda's Markdown "
+                      f"leaves out {what} — staying in Agenda",
+                      file=sys.stderr, flush=True)
             payload = {
                 "note": strip_marker(note.get("markdown") or "", args.tag),
                 # Agenda writes prose, not an outline, and it comes back
@@ -301,24 +334,29 @@ def main(argv=None) -> int:
             if title:
                 payload["title"] = title
             if args.dry_run:
-                print(f"  would archive: {title or '(untitled)'} → {path}")
+                print(f"  would archive: {title or '(untitled)'} → {path}",
+                      flush=True)
                 done += 1
                 continue
             saved = cairn.create_note(payload)
             verb = "archived" if saved.get("_created") else "updated"
-            print(f"  {verb}: {saved.get('title')} → {path}")
-            if not args.keep:
+            print(f"  {verb}: {saved.get('title')} → {path}", flush=True)
+            # Never trash a note we could not copy whole. It is imported
+            # anyway — the placeholders show in Cairn where the table was —
+            # and stays tagged, so a later run completes it.
+            if not args.keep and not holes:
                 agenda.call("agenda_trash_note", noteId=note_id)
             done += 1
         except Failed as exc:
             failed += 1
             print(f"  FAILED {summary.get('title') or note_id}: {exc}",
-                  file=sys.stderr)
+                  file=sys.stderr, flush=True)
 
     where = "would go to Cairn" if args.dry_run else "in Cairn"
     kept = " (left in Agenda)" if args.keep or args.dry_run else ""
-    print(f"{done} note(s) {where}{kept}, {failed} failed.")
-    return 1 if failed else 0
+    short = f", {incomplete} incomplete (left in Agenda)" if incomplete else ""
+    print(f"{done} note(s) {where}{kept}, {failed} failed{short}.")
+    return 1 if (failed or incomplete) else 0
 
 
 if __name__ == "__main__":

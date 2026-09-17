@@ -77,6 +77,14 @@ def build_openapi_spec() -> dict:
                         },
                         "parent_id": {"type": "string", "nullable": True},
                         "tags": {"type": "array", "items": {"type": "string"}},
+                        "external_id": {
+                            "type": "string", "nullable": True,
+                            "description": ("The id it carries in the system it "
+                                            "was imported from, if any — the "
+                                            "way back to the original."),
+                        },
+                        "source": {"type": "string", "nullable": True,
+                                    "description": "Where it was imported from."},
                         "created_at": {"type": "string", "format": "date-time"},
                         "updated_at": {"type": "string", "format": "date-time"},
                     },

@@ -296,6 +296,11 @@ def note(n, *, body: bool = True) -> dict[str, Any]:
         "note_format": outline_format(n),
         "parent_id": str(n.parent.pk) if n.parent else None,
         "tags": list(n.tags or []),
+        # Readable back, not just writable: without them a client cannot tell
+        # what it has already filed, and the id of the original is gone the
+        # moment the source app deletes its copy.
+        "external_id": n.external_id or None,
+        "source": n.source or None,
         "created_at": iso(n.created_at),
         "updated_at": iso(n.updated_at),
     }

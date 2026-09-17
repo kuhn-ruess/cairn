@@ -270,6 +270,17 @@ class NotesApiTests(unittest.TestCase):
         self.assertEqual(self.Item.objects(kind="note").count(), 1)
         self.assertIn("zwei", self.Item.objects(pk=first.json["id"]).first().note)
 
+    def test_an_imported_note_says_where_it_came_from(self):
+        """The way back to the original — and the only copy of its id once the
+        source app has deleted its own."""
+        r = self._post("/api/v1/notes",
+                       {"external_id": "agenda:XYZ", "source": "agenda",
+                        "note": "- her damit\n"})
+        self.assertEqual(r.json["external_id"], "agenda:XYZ")
+        self.assertEqual(r.json["source"], "agenda")
+        listed = self._get("/api/v1/notes?compact=true").json["items"][0]
+        self.assertEqual(listed["external_id"], "agenda:XYZ")
+
     def test_an_import_may_choose_the_editor(self):
         r = self._post("/api/v1/notes",
                        {"note": "Prosa, keine Bullets.\n", "note_format": "markdown"})
