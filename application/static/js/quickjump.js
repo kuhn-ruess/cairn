@@ -20,11 +20,32 @@
       .replace(/>/g, "&gt;");
   }
 
-  function iconFor(kind) {
-    if (kind === "project") return "bi-folder";
-    if (kind === "folder") return "bi-folder2-open";
-    if (kind === "note") return "bi-journal-text";
-    return "bi-check2-circle";
+  /* The icon carries the status, because the command bar mixes every status
+   * across every project: a done task that looks like an open one is a hit you
+   * have to open before you know what it is. Same shapes the task list uses,
+   * so the two read alike. */
+  const TASK_ICON = {
+    done: "bi-check-circle-fill text-success",
+    dropped: "bi-x-circle text-secondary",
+    waiting: "bi-hourglass-split text-warning",
+    waiting_reply: "bi-hourglass-split text-warning",
+    someday: "bi-moon-stars text-secondary",
+  };
+  const PROJECT_ICON = {
+    // A finished project says "completed", but older ones carry the task word
+    // "done" — the task list reads both as finished, and so does this.
+    completed: "bi-folder-check text-success",
+    done: "bi-folder-check text-success",
+    dropped: "bi-folder-x text-secondary",
+    on_hold: "bi-folder text-secondary",
+  };
+  const CLOSED = ["done", "dropped", "completed"];
+
+  function iconFor(it) {
+    if (it.kind === "project") return PROJECT_ICON[it.status] || "bi-folder";
+    if (it.kind === "folder") return "bi-folder2-open";
+    if (it.kind === "note") return "bi-journal-text";
+    return TASK_ICON[it.status] || "bi-circle";
   }
 
   function render() {
@@ -35,9 +56,10 @@
     list.innerHTML = items
       .map(
         (it, i) =>
-          `<li class="quickjump-item ${i === selectedIdx ? "active" : ""}"
+          `<li class="quickjump-item ${i === selectedIdx ? "active" : ""} ${
+                CLOSED.indexOf(it.status) >= 0 ? "closed" : ""}"
                 data-idx="${i}" data-url="${escapeHtml(it.url)}">
-             <i class="bi ${iconFor(it.kind)}"></i>
+             <i class="bi ${iconFor(it)}" title="${escapeHtml(it.status_label || "")}"></i>
              <span class="quickjump-title">${escapeHtml(it.title)}</span>
              ${it.subtitle ? `<span class="quickjump-sub">${escapeHtml(it.subtitle)}</span>` : ""}
            </li>`

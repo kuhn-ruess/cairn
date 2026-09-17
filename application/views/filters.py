@@ -147,6 +147,21 @@ def _a_attr_ok(tag, name, value):
     return value.startswith(("http://", "https://")) or _is_handoff(value)
 
 
+# The human name of an Item.status, tasks and containers together (Item.status
+# is one field). Module level because the ``status_label`` filter is not the
+# only reader any more — the command bar's JSON says what a hit's icon means,
+# and a second table would be a second answer. Not to be confused with
+# ``public_share.PROJECT_STATUS_LABEL``, which is deliberately customer-facing
+# wording for a shared link ("In progress", "Cancelled").
+STATUS_LABELS = {
+    "open": "Open", "next": "Next", "waiting": "Waiting",
+    "waiting_reply": "Waiting on reply", "review": "Review",
+    "scheduled": "Scheduled", "someday": "Someday", "done": "Done",
+    "dropped": "Dropped",
+    "active": "Active", "on_hold": "On hold", "completed": "Completed",
+}
+
+
 def register_filters(app):
     # Bust browser caches whenever the process boots (prod / new deploys).
     import os as _os
@@ -436,16 +451,9 @@ def register_filters(app):
             return ""
         return value.strftime("%Y-%m-%d")
 
-    _STATUS_LABELS = {
-        "open": "Open", "next": "Next", "waiting": "Waiting",
-        "waiting_reply": "Waiting on reply", "review": "Review",
-        "scheduled": "Scheduled", "someday": "Someday", "done": "Done",
-        "dropped": "Dropped",
-    }
-
     @app.template_filter("status_label")
     def status_label(value):
-        return _STATUS_LABELS.get(value, (value or "").replace("_", " "))
+        return STATUS_LABELS.get(value, (value or "").replace("_", " "))
 
     @app.template_filter("duration")
     def duration(value):

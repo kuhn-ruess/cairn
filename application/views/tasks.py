@@ -1752,8 +1752,13 @@ def quickjump():
     ``?kinds=`` picks what may come back. It defaults to projects + tasks
     because most callers (the Related and Dependency pickers) can only accept
     those — the server drops anything else, so offering a note there would be
-    a result that silently does nothing. The command bar opts notes in."""
+    a result that silently does nothing. The command bar opts notes in.
+
+    Every hit carries its ``status`` and the label for it: the search mixes
+    every status across every project, so a finished task that looks exactly
+    like an open one is a hit you have to open to understand."""
     from flask import jsonify
+    from application.views.filters import STATUS_LABELS
     user = current_user._get_current_object()
     q = (request.args.get("q") or "").strip()
     kinds = {k for k in (request.args.get("kinds") or "").split(",") if k}
@@ -1775,6 +1780,10 @@ def quickjump():
         Item.objects(base, kind="note").order_by("-updated_at").limit(6)
     ) if "note" in kinds else []
     out = []
+    def _status(item):
+        return {"status": item.status,
+                "status_label": STATUS_LABELS.get(item.status, item.status)}
+
     for p in projects:
         out.append({
             "id": str(p.pk),
@@ -1782,6 +1791,7 @@ def quickjump():
             "title": p.title,
             "url": url_for("projects.detail", project_id=str(p.pk)),
             "subtitle": (p.parent.title if p.parent else ""),
+            **_status(p),
         })
     for n in notes:
         out.append({
@@ -1798,6 +1808,7 @@ def quickjump():
             "title": t.title,
             "url": url_for("tasks.detail", task_id=str(t.pk)),
             "subtitle": (t.parent.title if t.parent else "Inbox"),
+            **_status(t),
         })
     return jsonify({"results": out[:20]})
 

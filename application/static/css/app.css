@@ -2322,6 +2322,11 @@ body.ps-resizing * {
   color: var(--gv-yellow-br);
 }
 .quickjump-results .quickjump-title { font-weight: 500; }
+/* A closed hit reads closed, the way a done row does in a task list. */
+.quickjump-results .quickjump-item.closed .quickjump-title {
+  text-decoration: line-through;
+  color: var(--gv-gray);
+}
 .quickjump-results .quickjump-sub {
   color: var(--gv-fg4);
   font-size: .8em;
