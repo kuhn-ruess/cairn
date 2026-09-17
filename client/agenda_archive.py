@@ -11,11 +11,13 @@ Where a note lands
 ------------------
 From Agenda's own structure, under a prefix you choose::
 
-    Archiv/Agenda/<Kategorie>/<Projekt>/
+    Kunden/<Kategorie>/<Projekt>/
 
-A project with no category simply has no category level. The API creates the
-levels that are missing (``folder_path`` on ``POST /notes``), so there is
-nothing to set up here or over there.
+A project with no category simply has no category level, and a category that
+repeats the prefix is not written twice — an Agenda category "Kunden" under
+the prefix ``Kunden`` stays one level. The API creates what is missing
+(``folder_path`` on ``POST /notes``), so there is nothing to set up here or
+over there.
 
 Run twice, and nothing is duplicated: every note goes up with
 ``external_id: agenda:<uuid>``, which the API treats as "update that one".
@@ -184,6 +186,20 @@ def strip_marker(text: str, tag: str) -> str:
     return re.sub(r"[ \t]+(\n|$)", r"\1", out)
 
 
+def note_path(prefix: str, parts: list) -> str:
+    """The folder path for a note: the prefix, then Agenda's own levels.
+
+    A first Agenda level that repeats the prefix is dropped — filing the
+    category "Kunden" under the folder "Kunden" says the same thing twice, and
+    nobody means that by "Kunden/<Agenda-Pfad>".
+    """
+    levels = [p for p in prefix.strip("/").split("/") if p]
+    rest = list(parts)
+    if levels and rest and rest[0].casefold() == levels[-1].casefold():
+        rest = rest[1:]
+    return "/".join(levels + rest)
+
+
 def paths_of(projects: list) -> dict:
     """``project id -> [Kategorie, Projekt]``, each part already a safe name."""
     out = {}
@@ -201,9 +217,9 @@ def main(argv=None) -> int:
     ap.add_argument("--tag", default="cairn",
                     help="the Agenda tag that marks a note for archiving, "
                          "without the # (default: cairn)")
-    ap.add_argument("--prefix", default="Archiv/Agenda",
+    ap.add_argument("--prefix", default="Kunden",
                     help="where the Agenda tree hangs in Cairn's notes tree "
-                         "(default: Archiv/Agenda)")
+                         "(default: Kunden)")
     ap.add_argument("--limit", type=int, default=100,
                     help="most notes per run (default: 100)")
     ap.add_argument("--dry-run", action="store_true",
@@ -241,9 +257,8 @@ def main(argv=None) -> int:
         note_id = summary.get("id")
         try:
             note = agenda.call("agenda_get_note", noteId=note_id)
-            path = "/".join([p for p in
-                             [args.prefix.strip("/")] + projects.get(
-                                 note.get("projectId"), []) if p])
+            path = note_path(args.prefix,
+                             projects.get(note.get("projectId"), []))
             title = (note.get("title") or "").strip()
             payload = {
                 "note": strip_marker(note.get("markdown") or "", args.tag),
