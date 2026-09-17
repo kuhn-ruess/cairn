@@ -29,8 +29,9 @@ Both ends are local-ish and need no libraries:
 * Agenda's MCP server answers on ``http://127.0.0.1:16106/mcp`` while the app
   is running (plain JSON-RPC over HTTP — no Claude in the loop, so this works
   from cron).
-* Cairn is the REST API: ``CAIRN_URL`` + ``CAIRN_TOKEN`` in the environment,
-  the token minted under Settings → Profile → API tokens.
+* Cairn is the REST API. The token is whatever ``cairn login`` (the CLI next
+  door) saved in ``~/.config/cairn/config.json`` — nothing to export.
+  ``CAIRN_URL`` / ``CAIRN_TOKEN`` in the environment override it.
 
 Usage::
 
@@ -50,6 +51,24 @@ import urllib.request
 
 AGENDA_URL = os.environ.get("AGENDA_MCP_URL", "http://127.0.0.1:16106/mcp")
 PROTOCOL = "2024-11-05"
+DEFAULT_HOST = "https://app.cairn-app.de"
+
+
+def cli_config() -> dict:
+    """What ``cairn login`` saved: host and token.
+
+    Reading the same file the CLI writes (rather than importing it) keeps this
+    a single stdlib script while making the setup one command you already
+    have. The environment still wins, for a run against somewhere else.
+    """
+    base = (os.environ.get("XDG_CONFIG_HOME")
+            or os.path.join(os.path.expanduser("~"), ".config"))
+    try:
+        with open(os.path.join(base, "cairn", "config.json"), encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
 
 class Failed(Exception):
@@ -213,7 +232,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="Archive tagged Agenda notes into Cairn.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="CAIRN_URL and CAIRN_TOKEN come from the environment.")
+        epilog="Credentials: whatever `cairn login` saved, or CAIRN_URL + "
+               "CAIRN_TOKEN in the environment.")
     ap.add_argument("--tag", default="cairn",
                     help="the Agenda tag that marks a note for archiving, "
                          "without the # (default: cairn)")
@@ -227,13 +247,19 @@ def main(argv=None) -> int:
     ap.add_argument("--keep", action="store_true",
                     help="leave the notes in Agenda instead of trashing them")
     ap.add_argument("--agenda-url", default=AGENDA_URL)
-    ap.add_argument("--cairn-url", default=os.environ.get("CAIRN_URL", ""))
+    ap.add_argument("--cairn-url", default="",
+                    help=f"the Cairn server (default: the one `cairn login` "
+                         f"saved, else {DEFAULT_HOST})")
     args = ap.parse_args(argv)
 
-    token = os.environ.get("CAIRN_TOKEN", "")
-    if not args.dry_run and not (args.cairn_url and token):
-        raise Failed("CAIRN_URL and CAIRN_TOKEN have to be in the environment "
-                     "(Settings → Profile → API tokens).")
+    cfg = cli_config()
+    host = (args.cairn_url or os.environ.get("CAIRN_URL")
+            or os.environ.get("CAIRN_HOST") or cfg.get("host") or DEFAULT_HOST)
+    host = host.rstrip("/")
+    token = os.environ.get("CAIRN_TOKEN") or cfg.get("token") or ""
+    if not args.dry_run and not token:
+        raise Failed("No API token. Run `cairn login` (client/), or put one "
+                     "from Settings → Profile → API tokens in CAIRN_TOKEN.")
 
     agenda = Agenda(args.agenda_url)
     projects = paths_of(agenda.call("agenda_list_projects",
@@ -246,12 +272,12 @@ def main(argv=None) -> int:
         return 0
 
     # Where this is going, said before anything moves — and in a dry run too,
-    # which is the moment you actually want to read it. Asking the server who
-    # the token belongs to is a GET, so the rehearsal stays a rehearsal.
-    cairn = Cairn(args.cairn_url, token) if (args.cairn_url and token) else None
-    target = (f"{args.cairn_url} as {cairn.whoami()}" if cairn
-              else "nowhere — no CAIRN_URL / CAIRN_TOKEN in the environment")
-    print(f"{len(notes)} note(s) tagged #{args.tag} → {target}")
+    # which is the moment you actually want to read it. The server is always
+    # named; the ACCOUNT can only be asked with a token, and asking is a GET,
+    # so the rehearsal stays a rehearsal.
+    cairn = Cairn(host, token) if token else None
+    who = f" as {cairn.whoami()}" if cairn else " (no token yet — `cairn login`)"
+    print(f"{len(notes)} note(s) tagged #{args.tag} → {host}{who}")
     done = failed = 0
     for summary in notes:
         note_id = summary.get("id")
