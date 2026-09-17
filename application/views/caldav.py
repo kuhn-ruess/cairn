@@ -383,6 +383,24 @@ def _aware(dt):
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+def _local(dt, user):
+    """``dt`` in the user's timezone, for the properties a client shows as a
+    wall-clock time (DUE, DTSTART) — everything else stays UTC.
+
+    Correct by the RFC and wrong in practice: Apple Reminders reads a VTODO's
+    UTC due (``20260917T140500Z``) as if the digits were local time, shows
+    14:05 for a 16:05 Berlin reminder, and writes that 14:05 back on the next
+    sync — so the reminder walked two hours earlier on every round trip. With
+    TZID the client is told the offset; a client that ignores TZID reads the
+    value as floating, which ``_to_dt`` interprets as the user's local time
+    again — so the round trip holds either way. DTSTAMP/CREATED/LAST-MODIFIED/
+    COMPLETED are defined as UTC and nobody displays them; they keep ``_aware``.
+    """
+    from application.services.tz import user_zone
+    dt = _aware(dt)
+    return None if dt is None else dt.astimezone(user_zone(user))
+
+
 def _same_user_day(a, b, user):
     """True if aware datetimes ``a`` and ``b`` fall on the same calendar day
     in the user's timezone."""
@@ -439,7 +457,7 @@ def _strip_backlink(text, item):
     return text[m.end():] if m else text
 
 
-def _todo_ics(item):
+def _todo_ics(item, user):
     cal = Calendar()
     cal.add("prodid", "-//Cairn//CalDAV//EN")
     cal.add("version", "2.0")
@@ -457,9 +475,9 @@ def _todo_ics(item):
     # round-trips by the _apply_ics guard below.
     due_for_ics = item.plan_date or item.due_date
     if due_for_ics:
-        todo.add("due", _aware(due_for_ics))
+        todo.add("due", _local(due_for_ics, user))
     if item.defer_date:
-        todo.add("dtstart", _aware(item.defer_date))
+        todo.add("dtstart", _local(item.defer_date, user))
     if item.location:
         todo.add("location", item.location)
     todo.add("dtstamp", _aware(item.updated_at or _utcnow()))
@@ -853,9 +871,9 @@ def collection(username, colid):
     return _multistatus(responses)
 
 
-def _data_response(href, item):
+def _data_response(href, item, user):
     props = (f'<D:getetag>{escape(_etag(item))}</D:getetag>'
-             f'<C:calendar-data>{escape(_todo_ics(item))}</C:calendar-data>')
+             f'<C:calendar-data>{escape(_todo_ics(item, user))}</C:calendar-data>')
     return _ok(href, props)
 
 
@@ -874,10 +892,10 @@ def _report(user, colid, tasks):
             href = (href_el.text or "").strip()
             item = _find(user, href.rstrip("/").split("/")[-1])
             if item is not None and str(item.pk) in visible:
-                responses.append(_data_response(href, item))
+                responses.append(_data_response(href, item, user))
         return _multistatus(responses)
     # calendar-query (or anything else) → the whole collection
-    return _multistatus([_data_response(_resource_href(user, colid, _uid(t)), t)
+    return _multistatus([_data_response(_resource_href(user, colid, _uid(t)), t, user)
                          for t in tasks])
 
 
@@ -939,7 +957,7 @@ def resource(username, colid, name):
         item = _find(user, name)
         if item is None:
             abort(404)
-        resp = Response(_todo_ics(item), mimetype="text/calendar; charset=utf-8")
+        resp = Response(_todo_ics(item, user), mimetype="text/calendar; charset=utf-8")
         resp.headers["ETag"] = _etag(item)
         return resp
 
