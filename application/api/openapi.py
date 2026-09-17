@@ -1012,6 +1012,34 @@ def build_openapi_spec() -> dict:
                     },
                 },
             },
+            "/due": {
+                "get": {
+                    "summary": "Everything that is due",
+                    "description": ("Open tasks whose due date has been reached — what is late "
+                                    "plus what falls due today — owned by or assigned to you, "
+                                    "oldest debt first. No perspective and no focus: a client "
+                                    "asking what is due must not come back short. Someday tasks "
+                                    "are left out, and a plan date or a flag is not a due date "
+                                    "(that is /today). Each task carries 'overdue'."),
+                    "tags": ["tasks"],
+                    "parameters": [
+                        {"name": "days", "in": "query", "schema": {"type": "integer", "default": 0, "maximum": 366},
+                         "description": "Widen the window to the end of the N-th day from today (0 = today)."},
+                        {"name": "until", "in": "query", "schema": {"type": "string"},
+                         "description": "Name the last day outright (YYYY-MM-DD, end of that day in your timezone). Wins over 'days'."},
+                        {"name": "overdue", "in": "query", "schema": {"type": "boolean"},
+                         "description": "true → only what is already late."},
+                        {"name": "tag", "in": "query", "schema": {"type": "string"},
+                         "description": "Tag name; repeat for several — all of them must be on the task."},
+                        {"name": "exclude_tag", "in": "query", "schema": {"type": "string"},
+                         "description": "Tag name to leave out; repeatable."},
+                        {"name": "limit", "in": "query", "schema": {"type": "integer", "maximum": 500, "default": 200}},
+                    ],
+                    "responses": {
+                        "200": {"description": "Due tasks"},
+                    },
+                },
+            },
             "/tasks": {
                 "get": {
                     "summary": "List tasks",
@@ -1033,6 +1061,8 @@ def build_openapi_spec() -> dict:
                          "description": "One of updated_at, created_at, due_date, defer_date, plan_date, priority, sort_order, title; prefix with '-' to reverse."},
                         {"name": "flagged", "in": "query", "schema": {"type": "boolean"}},
                         {"name": "assigned_to_me", "in": "query", "schema": {"type": "boolean"}},
+                        {"name": "mine", "in": "query", "schema": {"type": "boolean"},
+                         "description": "true → only what you own or were assigned. Without it the list also carries items that are merely visible to you, e.g. every task in a project shared with you."},
                         {"name": "limit", "in": "query", "schema": {"type": "integer", "maximum": 500, "default": 100}},
                         {"name": "offset", "in": "query", "schema": {"type": "integer", "default": 0}},
                     ],

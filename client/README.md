@@ -67,8 +67,26 @@ cairn list -p "Work"             # only the Work project
 cairn list -s next               # by status
 cairn list -f                    # only flagged
 cairn list --assigned-to-me
+cairn list --shared              # also tasks that only reach you via a shared project
 cairn list --limit 100
 ```
+
+`list` shows your tasks: the ones you own plus the ones handed to you. Tasks
+that merely reach you because somebody shared a project stay out until you ask
+for them with `--shared`.
+
+## What's due
+
+```sh
+cairn due                        # everything late, plus what falls due today
+cairn due --overdue              # only what is already late
+cairn due --days 7               # the week ahead as well
+cairn due --until 2026-12-24     # up to and including that day
+```
+
+Open tasks with a due date that has been reached, oldest debt first; `!` marks
+the late ones. A plan date or a flag is not a due date, and a parked (someday)
+task is not due whatever date it carries.
 
 ## Other commands
 

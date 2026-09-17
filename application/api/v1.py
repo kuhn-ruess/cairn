@@ -1,5 +1,5 @@
 """REST API v1 — token-authenticated JSON endpoints."""
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from flask import Blueprint, g, jsonify, request
 from mongoengine import Q
@@ -123,6 +123,13 @@ def _day_end(raw, user):
 def list_tasks():
     user = g.current_user
     qs = Item.objects(_scope())
+    if request.args.get("mine") == "true":
+        # _scope() also hands back what is merely VISIBLE — every task in a
+        # project someone shared with you. A client asking for "my list" wants
+        # the plate, not the window, which is what own_or_assigned_q draws:
+        # owned by me or handed to me, team shares and stale member entries out.
+        from application.services.permissions import own_or_assigned_q
+        qs = qs.filter(own_or_assigned_q(user))
     status = request.args.get("status")
     if status:
         if status not in TASK_STATUS:
@@ -262,6 +269,67 @@ def today_debug():
         },
         "count": len(matched),
         "tasks": [{**ser_task_compact(t), "match_reason": r} for t, r in matched],
+    })
+
+
+@api_v1_bp.get("/due")
+@token_required
+def list_due():
+    """Everything that is due: what is late, plus what falls due today.
+
+    The one URL a queue reader needs — no perspective, no focus, no parameter
+    archaeology. What is in it: TASKS (a dated project is not something you
+    tick off), still open (done and dropped are gone, and so is someday — a
+    parked task is not due, whatever date it carries), and carrying a due date
+    that has been reached. Nothing else is folded in: a plan date is when you
+    meant to work on it and a flag is not a deadline, which is what separates
+    this from /today.
+
+    ``days=N`` widens the window to the end of the N-th day from today,
+    ``until=YYYY-MM-DD`` names that day outright, ``overdue=true`` cuts it back
+    to what is already late. Sorted by due date, the oldest debt first.
+
+    The focus is deliberately ignored: a client asking what is due must not
+    come back short because the web session happens to sit inside a project.
+    """
+    user = g.current_user
+    from application.services.permissions import own_or_assigned_q
+    from application.services.tzutil import resolve_tz
+    now = datetime.now(timezone.utc)
+    tz = resolve_tz(user)
+
+    until = request.args.get("until")
+    if not until:
+        try:
+            days = max(0, min(int(request.args.get("days") or 0), 366))
+        except ValueError:
+            return _bad_request("invalid days")
+        until = (now.astimezone(tz).date() + timedelta(days=days)).isoformat()
+    bound = _day_end(until, user)
+    if bound is None:
+        return _bad_request("invalid until")
+
+    qs = (Item.objects(own_or_assigned_q(user), kind="task",
+                       status__nin=["done", "dropped", "someday"],
+                       due_date__ne=None, due_date__lte=bound)
+          .order_by("+due_date"))
+    qs = _tag_filtered(qs)
+    if request.args.get("overdue") == "true":
+        qs = qs.filter(due_date__lt=now)
+    try:
+        limit = max(1, min(int(request.args.get("limit") or 200), 500))
+    except ValueError:
+        return _bad_request("invalid limit")
+
+    tasks = [{**ser_task_compact(t), "overdue": t.due_date < now}
+             for t in qs.limit(limit).select_related(max_depth=1)]
+    return jsonify({
+        "now": now.isoformat(),
+        "until": bound.isoformat(),
+        "timezone": str(tz),
+        "count": len(tasks),
+        "overdue_count": sum(1 for t in tasks if t["overdue"]),
+        "tasks": tasks,
     })
 
 

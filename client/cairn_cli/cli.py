@@ -4,7 +4,8 @@ Commands:
     cairn login [--host URL]      Browser login; stores an API token locally.
     cairn logout                  Forget the saved token.
     cairn add "Title" [opts]      Create a task (inbox by default).
-    cairn list [filters]          List tasks, with filters.
+    cairn list [filters]          List your tasks, with filters.
+    cairn due [--days N]          Everything that is due (late + today).
     cairn projects                List your projects (names + ids).
     cairn config ...              Show / set host & default project.
     cairn whoami                  Show the authenticated account.
@@ -19,6 +20,7 @@ import sys
 import threading
 import urllib.parse
 import webbrowser
+from datetime import datetime
 
 from . import config as cfg_mod
 from .api import ApiError, Client
@@ -204,11 +206,52 @@ def cmd_add(args):
 _STATUS_GLYPH = {"done": "✓", "dropped": "✗"}
 
 
+def _project_names(client: Client, items: list) -> dict:
+    """id → name for the projects the rows refer to.
+
+    One extra call for the whole page: the task serializer carries ids only,
+    and dereferencing per task on the server would be an N+1.
+    """
+    if not any(t.get("project_id") for t in items):
+        return {}
+    data = client.list_projects() or {}
+    return {p["id"]: p["name"] for p in data.get("items", [])}
+
+
+def _local(iso):
+    """Parse an API timestamp into this machine's local time.
+
+    The API answers in UTC; a due date is read on the clock on the wall, so
+    every date this file prints goes through here first.
+    """
+    if not iso:
+        return None
+    try:
+        return datetime.fromisoformat(iso).astimezone()
+    except ValueError:
+        return None
+
+
+def _due_str(iso) -> str:
+    """``17.09. 16:05`` — the time only when there is one, since a date-only
+    due date arrives as midnight."""
+    dt = _local(iso)
+    if dt is None:
+        return ""
+    day = dt.strftime("%d.%m.")
+    return day if (dt.hour, dt.minute) == (0, 0) else f"{day} {dt:%H:%M}"
+
+
 def cmd_list(args):
     cfg = cfg_mod.load()
     client = _client(cfg)
 
-    params = {"limit": args.limit}
+    # Tasks only (projects have their own command) and, unless asked
+    # otherwise, only the ones on your plate: the endpoint also serves what is
+    # merely visible to you — every task in a project someone shared.
+    params = {"limit": args.limit, "kind": "task"}
+    if not args.shared:
+        params["mine"] = "true"
     if args.status:
         params["status"] = args.status
     if args.flagged:
@@ -236,24 +279,55 @@ def cmd_list(args):
         print("No tasks.")
         return
 
-    # Resolve project ids → names with a single extra call (the task
-    # serializer only carries ids, and dereferencing per-task on the
-    # server would be an N+1).
-    proj_names = {}
-    if any(t.get("project_id") for t in items):
-        pdata = client.list_projects() or {}
-        proj_names = {p["id"]: p["name"] for p in pdata.get("items", [])}
+    proj_names = _project_names(client, items)
 
     for t in items:
         glyph = _STATUS_GLYPH.get(t.get("status"), "○")
         flag = " ⚑" if t.get("flagged") else ""
         proj = proj_names.get(t.get("project_id"))
         proj_str = f"  [{proj}]" if proj else ""
-        due = t.get("due_date")
-        due_str = f"  (due {due[:10]})" if due else ""
+        due = _local(t.get("due_date"))
+        due_str = f"  (due {due:%Y-%m-%d})" if due else ""
         print(f"{glyph} {t['title']}{flag}{proj_str}{due_str}")
     if len(items) >= args.limit:
         print(f"\n…showing first {args.limit}; raise with --limit.")
+
+
+def cmd_due(args):
+    cfg = cfg_mod.load()
+    client = _client(cfg)
+
+    params = {"limit": args.limit}
+    if args.days:
+        params["days"] = args.days
+    if args.until:
+        params["until"] = args.until
+    if args.overdue:
+        params["overdue"] = "true"
+
+    try:
+        data = client.list_due(**params)
+    except ApiError as exc:
+        _eprint(f"Failed to list due tasks: {exc}")
+        sys.exit(1)
+
+    tasks = data.get("tasks", []) if data else []
+    if not tasks:
+        print("Nothing overdue." if args.overdue else "Nothing due.")
+        return
+
+    proj_names = _project_names(client, tasks)
+    for t in tasks:
+        mark = "!" if t.get("overdue") else "○"
+        flag = " ⚑" if t.get("flagged") else ""
+        proj = proj_names.get(t.get("project_id"))
+        proj_str = f"  [{proj}]" if proj else ""
+        print(f"{mark} {_due_str(t.get('due_date')):>12}  {t['title']}{flag}{proj_str}")
+
+    overdue = data.get("overdue_count", 0)
+    total = data.get("count", len(tasks))
+    print(f"\n{total} overdue." if args.overdue
+          else f"\n{total} due, {overdue} of them late.")
 
 
 def cmd_projects(args):
@@ -342,14 +416,23 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("-t", "--tag", action="append", help="Tag name (repeatable).")
     sp.set_defaults(func=cmd_add)
 
-    sp = sub.add_parser("list", help="List tasks, with filters.")
+    sp = sub.add_parser("list", help="List your tasks, with filters.")
     sp.add_argument("-p", "--project", help="Only this project (by name).")
     sp.add_argument("--inbox", action="store_true", help="Only inbox tasks (no project).")
     sp.add_argument("-s", "--status", help="Filter by status (e.g. inbox, next, done, waiting…).")
     sp.add_argument("-f", "--flagged", action="store_true", help="Only flagged tasks.")
     sp.add_argument("--assigned-to-me", action="store_true", help="Only tasks assigned to me.")
+    sp.add_argument("--shared", action="store_true",
+                    help="Also list tasks that merely reach you through a shared project.")
     sp.add_argument("--limit", type=int, default=50, help="Max rows (default 50).")
     sp.set_defaults(func=cmd_list)
+
+    sp = sub.add_parser("due", help="Everything that is due: late, plus today.")
+    sp.add_argument("--days", type=int, help="Look N days ahead (0 = today, the default).")
+    sp.add_argument("--until", help="Last day to include (YYYY-MM-DD); wins over --days.")
+    sp.add_argument("--overdue", action="store_true", help="Only what is already late.")
+    sp.add_argument("--limit", type=int, default=200, help="Max rows (default 200).")
+    sp.set_defaults(func=cmd_due)
 
     sp = sub.add_parser("projects", help="List your projects.")
     sp.set_defaults(func=cmd_projects)

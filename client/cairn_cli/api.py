@@ -58,6 +58,9 @@ class Client:
     def list_tasks(self, **params):
         return self._request("GET", "/tasks", params=params)
 
+    def list_due(self, **params):
+        return self._request("GET", "/due", params=params)
+
     def create_task(self, payload: dict):
         return self._request("POST", "/tasks", body=payload)
 

@@ -96,6 +96,7 @@ Tokens are issued with `flask --app wsgi:app cairn issue-token <user>`.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/v1/me` | current user |
+| GET | `/api/v1/due` | everything that is due (late + today) |
 | GET/POST | `/api/v1/tasks` | list / create tasks |
 | GET/PATCH/DELETE | `/api/v1/tasks/<id>` | single task |
 | POST | `/api/v1/tasks/<id>/complete` | complete + spawn next recurrence |
@@ -108,7 +109,13 @@ Tokens are issued with `flask --app wsgi:app cairn issue-token <user>`.
 | PATCH/DELETE | `/api/v1/tags/<id>` | single tag |
 
 Task list query params: `status`, `project_id`, `tag_id`, `flagged=true`,
-`assigned_to_me=true`, `limit`, `offset`.
+`assigned_to_me=true`, `mine=true`, `limit`, `offset`. Without `mine=true` the
+list also carries what is merely visible to you — every task in a project
+someone shared.
+
+`/api/v1/due` is the queue reader: open tasks whose due date has been reached,
+oldest first, widened with `days=N` / `until=YYYY-MM-DD` or narrowed with
+`overdue=true`. No focus and no perspective, so it never comes back short.
 
 Example:
 
