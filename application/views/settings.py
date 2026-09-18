@@ -1168,9 +1168,13 @@ def calendar_caldav_refresh():
     stored credentials do the same job, so a calendar created on the server
     since arrives without anyone typing a URL again. Names and colours of the
     rows already here are refreshed, new calendars arrive hidden (appearing in
-    Today unasked is the one thing a refresh must not do), and nothing is
-    deleted — a calendar gone from the server keeps its row until the user
-    drops it.
+    Today unasked is the one thing a refresh must not do), and a calendar that
+    is gone from the server loses its row — the list is the server's list.
+
+    Removal is deliberately narrow, because "not in the answer" is also what a
+    half-broken connection looks like: only calendars under a home that just
+    answered with a listing are dropped, only from that connection, and a
+    connection whose refresh failed leaves every one of its rows alone.
 
     One connection is one ``(username, home)`` pair: several accounts, or
     several servers, are refreshed each on their own."""
@@ -1184,24 +1188,29 @@ def calendar_caldav_refresh():
         flash("Connect a CalDAV calendar first.", "warning")
         return redirect(url_for("settings.calendars"))
 
-    seeds: dict = {}
+    groups: dict = {}
     for cal in cals:
         # Calendars connected before the home was recorded: the collection's
         # parent is the home on every server that lays them out that way, and
         # the discovery walk corrects it from there if it isn't.
         home = cal.caldav_home or urllib.parse.urljoin(cal.caldav_url or "", "..")
-        seeds.setdefault((cal.caldav_username or "", home), cal)
+        groups.setdefault((cal.caldav_username or "", home), []).append(cal)
 
     by_url = {(c.caldav_url or "").rstrip("/"): c for c in cals}
     created = updated = 0
+    dropped: list = []
     errors = []
-    for (username, home), seed in seeds.items():
+    for (username, home), members in groups.items():
+        seed = members[0]
         try:
             root, found = discover_caldav_calendars(
                 home, username, decrypt_for_user(user, seed.caldav_password) or "")
         except CalendarError as exc:
             errors.append(f"{home}: {exc}")
             continue
+        alive = {e["url"].rstrip("/") for e in found}
+        dropped.extend(c for c in members
+                       if (c.caldav_url or "").rstrip("/") not in alive)
         for entry in found:
             existing = by_url.get(entry["url"].rstrip("/"))
             if existing:
@@ -1222,11 +1231,20 @@ def calendar_caldav_refresh():
                 caldav_password=seed.caldav_password,
             ))
             created += 1
+    if dropped:
+        gone = {str(c.pk_ref) for c in dropped}
+        user.calendars = [c for c in user.calendars if str(c.pk_ref) not in gone]
+        # The write target may have been one of them — a target that no longer
+        # exists silently stops writing, so it is cleared rather than kept.
+        if user.calendar_write_target and not user.find_calendar(
+                user.calendar_write_target):
+            user.calendar_write_target = ""
     user.save()
     for err in errors:
         flash(f"Refresh failed: {err}", "danger")
-    if created or updated:
-        flash(f"Refreshed: {created} added, {updated} updated.", "success")
+    if created or updated or dropped:
+        flash(f"Refreshed: {created} added, {updated} updated, "
+              f"{len(dropped)} removed.", "success")
     return redirect(url_for("settings.calendars"))
 
 

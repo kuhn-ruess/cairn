@@ -5,8 +5,9 @@ points at ``bktodo_test``); skipped when there isn't one. The network is not
 touched: ``discover_caldav_calendars`` is replaced, because what's under test
 is the bookkeeping around it — every calendar becomes its own row, only the
 default one starts visible in Today, the address is remembered so a later
-refresh needs no password, and connecting the same account twice doesn't
-duplicate anything.
+refresh needs no password, connecting the same account twice doesn't duplicate
+anything, and a refresh mirrors the server's list — including a calendar that
+is gone from it, which only ever goes for the connection that just answered.
 """
 import unittest
 
@@ -74,8 +75,8 @@ class CalDavConnectTests(unittest.TestCase):
     def tearDown(self):
         self.cs.discover_caldav_calendars = self._real
 
-    def connect(self, url="https://cloud.example.com", **extra):
-        data = {"caldav_url": url, "username": "alice", "password": "app-pw",
+    def connect(self, url="https://cloud.example.com", username="alice", **extra):
+        data = {"caldav_url": url, "username": username, "password": "app-pw",
                 "color": "#458588", "show_in_today": "y"}
         data.update(extra)
         return self.client.post("/settings/calendars/caldav/new", data=data,
@@ -155,13 +156,53 @@ class CalDavConnectTests(unittest.TestCase):
         self.client.post("/settings/calendars/caldav/refresh")
         self.assertEqual([c.name for c in self.reload()], ["Arbeit 2026", "Privat"])
 
-    def test_a_calendar_gone_from_the_server_keeps_its_row(self):
+    def test_a_calendar_gone_from_the_server_loses_its_row(self):
         self.connect()
         self.answer = (HOME, [FOUND[1]])
+        resp = self.client.post("/settings/calendars/caldav/refresh",
+                                follow_redirects=True)
+        self.assertEqual([c.name for c in self.reload()], ["Privat"])
+        self.assertIn(b"0 added, 1 updated, 1 removed", resp.data)
+
+    def test_a_removed_calendar_that_was_the_write_target_stops_being_it(self):
+        self.connect()
+        arbeit = [c for c in self.reload() if c.name == "Arbeit"][0]
+        self.client.post("/settings/calendars/write-settings",
+                         data={"write_target": str(arbeit.pk), "write_due": "y"})
+        with self.app.app_context():
+            self.assertEqual(
+                self.User.objects.get(username="caldav-test").calendar_write_target,
+                str(arbeit.pk))
+        self.answer = (HOME, [FOUND[1]])
         self.client.post("/settings/calendars/caldav/refresh")
-        self.assertEqual([c.name for c in self.reload()], ["Arbeit", "Privat"])
+        with self.app.app_context():
+            self.assertEqual(
+                self.User.objects.get(username="caldav-test").calendar_write_target,
+                "")
+
+    def test_one_account_going_quiet_leaves_the_other_accounts_rows(self):
+        """Two connections, one answering: the other's rows are not "gone"."""
+        self.connect()
+        other = "https://dav.example.net/calendars/bob/"
+        self.answer = (other, [{"url": other + "team/", "name": "Team",
+                                "color": "", "default": True}])
+        self.connect(url=other, username="bob")
+        self.assertEqual([c.name for c in self.reload()],
+                         ["Arbeit", "Privat", "Team"])
+
+        def only_bob(url, username, password):
+            if username == "bob":
+                return self.answer
+            raise self.cs.CalendarError("401 Unauthorized")
+
+        self.cs.discover_caldav_calendars = only_bob
+        self.client.post("/settings/calendars/caldav/refresh")
+        self.assertEqual([c.name for c in self.reload()],
+                         ["Arbeit", "Privat", "Team"])
 
     def test_a_refresh_that_fails_says_so_and_changes_nothing(self):
+        """Including: it removes nothing. A connection that didn't answer has
+        said nothing about which of its calendars still exist."""
         self.connect()
 
         def broken(url, username, password):
