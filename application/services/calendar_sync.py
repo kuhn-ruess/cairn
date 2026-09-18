@@ -641,12 +641,29 @@ _CALDAV_QUERY_BODY = (
     '</c:calendar-query>'
 )
 
-_CALDAV_PROPFIND_BODY = (
+_CALDAV_DISCOVER_BODY = (
     '<?xml version="1.0" encoding="utf-8"?>'
-    '<d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">'
-    '<d:prop><d:displayname/><d:resourcetype/><cs:getctag/></d:prop>'
+    '<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
+    '<d:prop><d:resourcetype/><d:displayname/>'
+    '<d:current-user-principal/><c:calendar-home-set/></d:prop>'
     '</d:propfind>'
 )
+
+_CALDAV_LIST_BODY = (
+    '<?xml version="1.0" encoding="utf-8"?>'
+    '<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" '
+    'xmlns:a="http://apple.com/ns/ical/">'
+    '<d:prop><d:resourcetype/><d:displayname/>'
+    '<c:supported-calendar-component-set/><a:calendar-color/></d:prop>'
+    '</d:propfind>'
+)
+
+APPLE_NS = "http://apple.com/ns/ical/"
+
+# urllib won't follow a redirect for a method it doesn't know (rightly — that
+# would replay PROPFIND against somewhere else), so the hops are walked here.
+# Each one still goes through ``safe_urlopen``'s validation.
+_REDIRECT_CODES = (301, 302, 307, 308)
 
 
 def _basic_auth(username: str, password: str) -> str:
@@ -666,7 +683,9 @@ def _caldav_request(method: str, url: str, *, calendar=None, user=None, auth=Non
                     allow_codes: tuple = (), timeout: int = 15):
     """Low-level CalDAV/WebDAV request. Basic auth + SSRF guard. Returns
     ``(status, text)``. HTTP codes in ``allow_codes`` are returned instead of
-    raising (used so a DELETE of an already-gone resource is a success)."""
+    raising (used so a DELETE of an already-gone resource is a success); for an
+    allowed 3xx ``text`` is the ``Location`` header, a redirect having no body
+    worth reading."""
     from application.services.http_safety import UnsafeURLError, safe_urlopen
     data = body.encode("utf-8") if isinstance(body, str) else body
     req = urllib.request.Request(url, data=data, method=method)
@@ -683,11 +702,39 @@ def _caldav_request(method: str, url: str, *, calendar=None, user=None, auth=Non
         raise CalendarError(f"refusing to reach: {exc}") from exc
     except urllib.error.HTTPError as exc:
         if exc.code in allow_codes:
+            if exc.code in _REDIRECT_CODES:
+                return exc.code, (exc.headers.get("Location") or "")
             return exc.code, ""
         text = exc.read().decode("utf-8", "replace")[:300]
         raise CalendarError(f"CalDAV {method} {exc.code}: {text}") from exc
     except urllib.error.URLError as exc:
         raise CalendarError(f"network error: {exc}") from exc
+
+
+def _with_slash(url: str) -> str:
+    url = (url or "").strip()
+    return url if url.endswith("/") else url + "/"
+
+
+def _caldav_propfind(url: str, auth: str, body: str, depth: str) -> "tuple[str, str]":
+    """PROPFIND, following redirects ourselves. Returns ``(url that answered,
+    body)`` — which URL answered matters, because every ``href`` in a
+    multistatus is relative to that one, not to the one we asked."""
+    seen = set()
+    for _hop in range(4):
+        status, text = _caldav_request(
+            "PROPFIND", url, auth=auth, body=body,
+            headers={"Depth": depth, "Content-Type": "application/xml; charset=utf-8"},
+            allow_codes=_REDIRECT_CODES,
+        )
+        if status not in _REDIRECT_CODES:
+            return url, text
+        target = urllib.parse.urljoin(url, text.strip()) if text.strip() else ""
+        seen.add(url)
+        if not target or target in seen:
+            raise CalendarError("CalDAV redirect went in a circle")
+        url = target
+    raise CalendarError("too many CalDAV redirects")
 
 
 def _caldav_stamp(dt: datetime) -> str:
@@ -701,25 +748,162 @@ def _caldav_href(calendar, uid: str) -> str:
     return urllib.parse.urljoin(base, urllib.parse.quote(uid) + ".ics")
 
 
-def probe_caldav(url: str, username: str, password: str) -> dict:
-    """Verify a CalDAV collection URL + credentials before saving, and pick up
-    its display name. A ``207 Multi-Status`` (or any 2xx) means the collection
-    is reachable and the credentials are accepted."""
-    status, text = _caldav_request(
-        "PROPFIND", url, auth=_basic_auth(username, password),
-        body=_CALDAV_PROPFIND_BODY,
-        headers={"Depth": "0", "Content-Type": "application/xml; charset=utf-8"},
-    )
-    name = ""
+def _dav_responses(text: str, base: str) -> "list[tuple[str, list]]":
+    """``[(absolute href, [property elements])]`` out of a multistatus body.
+    Only properties their ``propstat`` reported as 200 are kept."""
+    import xml.etree.ElementTree as ET
     try:
-        import xml.etree.ElementTree as ET
         root = ET.fromstring(text)
-        dn = root.find(".//{DAV:}displayname")
-        if dn is not None and dn.text:
-            name = dn.text.strip()
-    except Exception:  # noqa: BLE001 — a missing displayname is non-fatal
-        pass
-    return {"name": name}
+    except ET.ParseError as exc:
+        raise CalendarError(f"bad CalDAV response: {exc}") from exc
+    out = []
+    for resp in root.iter("{DAV:}response"):
+        href_el = resp.find("{DAV:}href")
+        href = (href_el.text or "").strip() if href_el is not None else ""
+        props: list = []
+        for pstat in resp.findall("{DAV:}propstat"):
+            status = pstat.findtext("{DAV:}status") or ""
+            if status and " 200 " not in f" {status} ":
+                continue
+            prop = pstat.find("{DAV:}prop")
+            if prop is not None:
+                props.extend(list(prop))
+        out.append((urllib.parse.urljoin(base, href), props))
+    return out
+
+
+def _prop(props, tag):
+    for el in props:
+        if el.tag == tag:
+            return el
+    return None
+
+
+def _prop_text(props, tag: str) -> str:
+    el = _prop(props, tag)
+    return (el.text or "").strip() if el is not None else ""
+
+
+def _prop_href(props, tag: str, base: str) -> str:
+    el = _prop(props, tag)
+    href = el.find("{DAV:}href") if el is not None else None
+    if href is None or not (href.text or "").strip():
+        return ""
+    return urllib.parse.urljoin(base, href.text.strip())
+
+
+def _is_calendar(props) -> bool:
+    rt = _prop(props, "{DAV:}resourcetype")
+    return rt is not None and rt.find(f"{{{CALDAV_NS}}}calendar") is not None
+
+
+def _holds_events(props) -> bool:
+    """A task list is a calendar collection too — it just holds VTODOs. Only a
+    collection that says VEVENT, or says nothing at all, is one to read."""
+    comps = _prop(props, f"{{{CALDAV_NS}}}supported-calendar-component-set")
+    if comps is None:
+        return True
+    names = {c.get("name", "").upper() for c in comps}
+    return not names or "VEVENT" in names
+
+
+def _calendar_entry(url: str, props) -> dict:
+    name = _prop_text(props, "{DAV:}displayname")
+    if not name:
+        name = urllib.parse.unquote(url.rstrip("/").rsplit("/", 1)[-1])
+    color = _prop_text(props, f"{{{APPLE_NS}}}calendar-color")
+    if len(color) == 9:  # Apple writes #RRGGBBAA; the alpha means nothing here
+        color = color[:7]
+    if not (len(color) == 7 and color.startswith("#")):
+        color = ""
+    return {"url": _with_slash(url), "name": name or "Calendar", "color": color}
+
+
+def caldav_calendars_from_listing(text: str, base: str) -> list[dict]:
+    """The event calendars in a ``Depth: 1`` listing of a calendar home.
+
+    Split out from the request so it can be tested against a recorded body:
+    the home itself, the scheduling inbox/outbox, subscriptions and task lists
+    all arrive in the same multistatus, and none of them is a calendar to read."""
+    found = []
+    for href, props in _dav_responses(text, base):
+        if _with_slash(href) == _with_slash(base):
+            continue
+        if not _is_calendar(props) or not _holds_events(props):
+            continue
+        found.append(_calendar_entry(href, props))
+    found.sort(key=lambda c: c["name"].lower())
+    return found
+
+
+def _caldav_props(url: str, auth: str) -> "tuple[str, list, str]":
+    """PROPFIND ``Depth: 0`` → ``(url that answered, its properties, its href)``."""
+    at, text = _caldav_propfind(url, auth, _CALDAV_DISCOVER_BODY, "0")
+    responses = _dav_responses(text, at)
+    if not responses:
+        return at, [], at
+    return at, responses[0][1], responses[0][0] or at
+
+
+def _caldav_home(at: str, props, auth: str) -> str:
+    """The calendar home for a resource: its own ``calendar-home-set``, or the
+    one its principal names."""
+    home = _prop_href(props, f"{{{CALDAV_NS}}}calendar-home-set", at)
+    if home:
+        return home
+    principal = _prop_href(props, "{DAV:}current-user-principal", at)
+    if not principal:
+        return ""
+    p_at, p_props, _href = _caldav_props(principal, auth)
+    return _prop_href(p_props, f"{{{CALDAV_NS}}}calendar-home-set", p_at)
+
+
+def _well_known_caldav(url: str) -> str:
+    parts = urllib.parse.urlsplit(url)
+    return urllib.parse.urlunsplit(
+        (parts.scheme, parts.netloc, "/.well-known/caldav", "", ""))
+
+
+def discover_caldav_calendars(url: str, username: str, password: str) -> list[dict]:
+    """Every readable calendar behind ``url`` — ``[{url, name, color}, …]``.
+
+    ``url`` may be one calendar's collection URL, and then that one calendar
+    comes back. Anything above it — a principal, a calendar home, or the bare
+    server address, which is what people actually have at hand — is walked
+    down CalDAV's own discovery chain instead: ``current-user-principal`` →
+    ``calendar-home-set`` → the collections under it (RFC 4791), starting at
+    ``/.well-known/caldav`` when the address itself isn't a DAV resource
+    (RFC 6764). That is how any other client finds them all from one address.
+
+    Getting an answer at all is the credential check too, so the caller needs
+    no separate probe."""
+    auth = _basic_auth(username, password)
+    start = _with_slash(url)
+    try:
+        at, props, href = _caldav_props(start, auth)
+    except CalendarError as exc:
+        # A bare server address usually isn't a DAV resource at all. If the
+        # well-known path doesn't help either, the first failure is the one
+        # worth reporting — it names the URL that was actually typed.
+        try:
+            at, props, href = _caldav_props(_well_known_caldav(start), auth)
+        except CalendarError:
+            raise exc from None
+
+    if _is_calendar(props):
+        return [_calendar_entry(href, props)]
+
+    home = _caldav_home(at, props, auth)
+    if not home and _well_known_caldav(start) != at:
+        at, props, href = _caldav_props(_well_known_caldav(start), auth)
+        if _is_calendar(props):
+            return [_calendar_entry(href, props)]
+        home = _caldav_home(at, props, auth)
+    if not home:
+        raise CalendarError("no CalDAV calendars found at that address")
+
+    at, text = _caldav_propfind(_with_slash(home), auth, _CALDAV_LIST_BODY, "1")
+    return caldav_calendars_from_listing(text, at)
 
 
 def _fetch_caldav(calendar, user, since: datetime, until: datetime) -> list[CalendarEvent]:

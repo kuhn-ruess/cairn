@@ -237,10 +237,12 @@
       <div class="mb-2">
         {{ caldav_form.caldav_url.label(class="form-label small") }}
         {{ caldav_form.caldav_url(class="form-control",
-             placeholder="https://cloud.example.com/remote.php/dav/calendars/you/personal/") }}
+             placeholder="https://cloud.example.com") }}
         <div class="form-text small">
-          The calendar's CalDAV collection URL (usually ends with a slash).
-          Name + colour are auto-detected if left empty.
+          Your server's address is enough — <strong>every calendar</strong> on
+          the account is found and connected. A single calendar's collection
+          URL works too, if that's all you want. Name + colour are
+          auto-detected if left empty.
         </div>
       </div>
       <div class="row g-2 mb-2">
@@ -276,11 +278,14 @@
     </form>
 
     <details class="mt-3 small text-muted">
-      <summary>Where do I find the CalDAV URL? (Nextcloud)</summary>
+      <summary>Which URL do I paste? (Nextcloud)</summary>
       <ul class="mt-2 ps-3">
-        <li>Nextcloud → <strong>Calendar</strong> app → hover a calendar →
-          <em>⋯</em> → <em>Copy private link</em>. That link is the collection
-          URL to paste above.</li>
+        <li>You don't need one: paste <code>https://cloud.example.com</code>
+          and all your calendars are connected at once. Submitting the same
+          address again later picks up any you've added since.</li>
+        <li>For a single calendar: Nextcloud → <strong>Calendar</strong> app →
+          hover a calendar → <em>⋯</em> → <em>Copy private link</em>. That link
+          is the collection URL to paste above.</li>
         <li>Create an <strong>app password</strong> under Nextcloud →
           Settings → Security → <em>Devices &amp; sessions</em>, and use it
           instead of your login password.</li>

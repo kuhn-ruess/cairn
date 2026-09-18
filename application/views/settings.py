@@ -37,8 +37,9 @@ class ICalForm(FlaskForm):
 
 class CalDavForm(FlaskForm):
     caldav_url = StringField(
-        "Calendar URL", validators=[DataRequired(), URL()],
-        description="The calendar's CalDAV collection URL, e.g. "
+        "Server or calendar URL", validators=[DataRequired(), URL()],
+        description="Your server's address (every calendar on it is connected) "
+        "or one calendar's collection URL, e.g. "
         "https://cloud.example.com/remote.php/dav/calendars/you/personal/",
     )
     username = StringField("Username", validators=[DataRequired(), Length(max=255)])
@@ -1079,12 +1080,20 @@ def calendar_ical_new():
 @settings_bp.route("/calendars/caldav/new", methods=["POST"])
 @login_required
 def calendar_caldav_new():
-    """Verify a CalDAV collection URL + credentials, then save it (read/write).
+    """Connect the calendars behind a CalDAV address (read/write).
+
+    The address may be one calendar's collection URL or just the server's —
+    ``discover_caldav_calendars`` walks CalDAV's discovery chain down from
+    whatever was pasted, so the common case (a server address and an app
+    password) connects every calendar on the account in one go. Submitting the
+    same address again is how a calendar added later gets picked up: the ones
+    already here are skipped by URL.
 
     The password is encrypted per-user before storage, exactly like the Google
     OAuth tokens. CalDAV calendars are ``can_write=True`` so they can be picked
     as the write-back target."""
-    from application.services.calendar_sync import probe_caldav
+    from application.models.calendar import ExternalCalendar
+    from application.services.calendar_sync import discover_caldav_calendars
     from application.services.crypto import encrypt_for_user
 
     user = current_user._get_current_object()
@@ -1097,24 +1106,49 @@ def calendar_caldav_new():
     username = form.username.data.strip()
     password = form.password.data
     try:
-        probe = probe_caldav(url, username, password)
+        found = discover_caldav_calendars(url, username, password)
     except CalendarError as exc:
         flash(f"Couldn't reach that calendar: {exc}", "danger")
         return redirect(url_for("settings.calendars"))
+    if not found:
+        flash("No calendars found at that address.", "warning")
+        return redirect(url_for("settings.calendars"))
 
-    name = (form.name.data or "").strip() or probe.get("name") or "CalDAV calendar"
-    color = form.color.data or "#458588"
-    user.add_calendar(
-        provider="caldav",
-        name=name,
-        color=color,
-        show_in_today=form.show_in_today.data,
-        can_write=True,
-        caldav_url=url,
-        caldav_username=username,
-        caldav_password=encrypt_for_user(user, password),
-    )
-    flash(f"Connected to “{name}”.", "success")
+    known = {(c.caldav_url or "").rstrip("/")
+             for c in (user.calendars or []) if c.provider == "caldav"}
+    secret = encrypt_for_user(user, password)
+    # The colour picker always holds a value, so "the user chose one" can only
+    # mean "it isn't the default any more" — otherwise the server's own colour
+    # wins, which is what keeps a dozen discovered calendars apart.
+    picked = (form.color.data or "").strip()
+    if picked.lower() == "#458588":
+        picked = ""
+    added = []
+    for entry in found:
+        if entry["url"].rstrip("/") in known:
+            continue
+        # A typed name can only mean the one calendar the user was looking at.
+        name = ((form.name.data or "").strip() if len(found) == 1 else "") \
+            or entry["name"]
+        user.calendars.append(ExternalCalendar(
+            provider="caldav",
+            name=name,
+            color=picked or entry["color"] or "#458588",
+            show_in_today=form.show_in_today.data,
+            can_write=True,
+            caldav_url=entry["url"],
+            caldav_username=username,
+            caldav_password=secret,
+        ))
+        added.append(name)
+    if not added:
+        flash("Those calendars are already connected.", "info")
+        return redirect(url_for("settings.calendars"))
+    user.save()
+    if len(added) == 1:
+        flash(f"Connected to \u201c{added[0]}\u201d.", "success")
+    else:
+        flash(f"Connected {len(added)} calendars: " + ", ".join(added), "success")
     return redirect(url_for("settings.calendars"))
 
 
