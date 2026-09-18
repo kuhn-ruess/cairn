@@ -1262,8 +1262,11 @@ def _read_booking_form(user, page, form) -> list:
     write_id = (form.get("write_calendar_id") or "").strip()
     if write_id and not user.find_calendar(write_id):
         errors.append("The calendar for new appointments no longer exists.")
-    if enabled and not write_id:
-        errors.append("Choose a calendar for new appointments to be written to.")
+    # Deliberately NOT required for a live page. Insisting on one meant that
+    # anybody without a writable calendar connected could not switch their
+    # page on at all — the link just kept answering 404. Without a target the
+    # appointment is still taken and still shown under "Upcoming bookings";
+    # the page says so instead of blocking.
     busy_ids = [cid for cid in form.getlist("busy_calendar_ids")
                 if user.find_calendar(cid)]
 

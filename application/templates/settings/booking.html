@@ -1,12 +1,28 @@
 {% extends "layout/base.html" %}
 {% block title %}Booking page · Cairn{% endblock %}
 {% block content %}
-<h1 class="h4 mb-1">Booking page</h1>
+<h1 class="h4 mb-1">
+  Booking page
+  {% if page.enabled and page.slug %}
+    <span class="badge text-bg-success align-middle">live</span>
+  {% else %}
+    <span class="badge text-bg-secondary align-middle">off</span>
+  {% endif %}
+</h1>
 <p class="text-muted small mb-3">
   A public page where other people pick a free slot in your calendar. You say
   which calendars count as busy, where the appointment is written, how long
   the slots are and when you're available — Cairn does the rest.
 </p>
+
+{% if page.enabled and not page.write_calendar_id %}
+  <div class="alert alert-warning py-2 small">
+    <i class="bi bi-exclamation-triangle"></i>
+    No calendar is set for new appointments, so bookings are recorded in
+    Cairn only — they won't appear in any calendar. Pick one below if you
+    want them written out.
+  </div>
+{% endif %}
 
 <form method="post" enctype="multipart/form-data">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -157,9 +173,10 @@
               {% endfor %}
             </select>
             <div class="form-text small">
-              Only writable calendars (Google, CalDAV). A booking is blocked
-              for the next visitor even if this calendar isn't ticked on the
-              left — Cairn remembers its own appointments.
+              Only writable calendars (Google, CalDAV). Optional: without one
+              the appointment is still taken and listed below, it just isn't
+              written anywhere. A booking blocks the slot for the next
+              visitor either way — Cairn remembers its own appointments.
             </div>
           </div>
         </div>

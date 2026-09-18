@@ -149,10 +149,22 @@ class BookingPageTests(unittest.TestCase):
         self.assertEqual(len(page.hours), 5)
         self.assertEqual(page.write_calendar_id, self.cal_id)
 
-    def test_a_live_page_without_a_write_calendar_is_refused(self):
+    def test_a_live_page_without_a_write_calendar_is_allowed_and_warns(self):
+        """Requiring one meant a user with no writable calendar could not
+        switch the page on at all, and their link just kept saying 404."""
         resp = self.save_page(write_calendar_id="")
-        self.assertIn(b"calendar for new appointments", resp.data)
-        self.assertFalse(self.reload().booking.enabled)
+        self.assertTrue(self.reload().booking.enabled)
+        self.assertIn(b"recorded in\n    Cairn only", resp.data.replace(b"\r", b""))
+        self.assertEqual(self.client.get("/book/alice").status_code, 200)
+
+    def test_booking_works_without_a_calendar_to_write_to(self):
+        self.save_page(write_calendar_id="")
+        self.svc._write_event = self._write        # the real one
+        start = self.first_slot()
+        self.assertEqual(self.book(start).status_code, 200)
+        with self.app.app_context():
+            booking = self.Booking.objects.get(owner=self.user)
+            self.assertIn("No calendar", booking.event_error)
 
     def test_an_end_before_its_start_is_refused_and_saves_nothing(self):
         self.save_page()
