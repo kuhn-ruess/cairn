@@ -311,6 +311,11 @@
     const menu = document.createElement("div");
     menu.className = "dropdown-menu show shadow tt-time-menu";
     menu.style.cssText = "position:absolute; z-index:1080; max-height:16rem; overflow:auto;";
+    // The menu hangs off <body> so the panel's scroll box can't clip it, which
+    // makes a click in it an *outside* click for whatever it was opened from.
+    // This says otherwise — without it the inspector closes underneath the
+    // menu and takes the half-filled form with it.
+    menu.dataset.keepsInspectorOpen = "";
     // Open where the answer probably is: on what the field already says,
     // otherwise on the clock.
     const now = new Date();
@@ -465,6 +470,7 @@
     const menu = document.createElement("div");
     menu.className = "dropdown-menu show shadow tt-project-menu";
     menu.style.cssText = "position:absolute; z-index:1080; max-height:16rem; overflow:auto;";
+    menu.dataset.keepsInspectorOpen = "";
     data.projects.forEach((p) => {
       const a = document.createElement("button");
       a.type = "button";

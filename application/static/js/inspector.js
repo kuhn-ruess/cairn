@@ -116,6 +116,9 @@
     // (a trigger reloads the body — handled elsewhere), must not close it.
     if (panel.contains(ev.target)) return;
     if (ev.target.closest("[data-inspector-url]")) return;
+    // A menu opened from inside the panel but rendered on <body> (so the
+    // panel's scroll box can't clip it) is still part of the inspector.
+    if (ev.target.closest("[data-keeps-inspector-open]")) return;
     // Don't let an accidental outside-click discard an unsaved new task — keep
     // the panel open so the work survives. Escape / the × still close it.
     if (unsavedNewTask) return;
