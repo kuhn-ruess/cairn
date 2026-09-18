@@ -1,0 +1,20 @@
+{# A link to an item, dropped into the scratchpad at its caret.
+
+   What it is for: work written into a task's COMMENTS has no place of its own
+   — this puts a pointer to the task in the pad, in the line you were writing,
+   so the pad keeps the overview. The pad is the window floating over whatever
+   page you are on (static/js/scratchpad-panel.js reads ``data-pad-insert``);
+   it is plain Markdown, so the same line survives being converted into a task
+   or a note later.
+
+   ``[`` and ``]`` in a title would end the link early — a backslash is how
+   Markdown carries them. #}
+{% macro pad_ref_btn(item, cls="btn btn-sm btn-link p-0 task-row-hover-action", icon_cls="text-muted") -%}
+{% set _label = item.title|replace('[', '\\[')|replace(']', '\\]') %}
+<button type="button" class="{{ cls }}" draggable="false"
+        data-pad-insert="[{{ _label }}]({{ url_for('tasks.detail', task_id=item.pk) }})"
+        title="Put a link to this task into the scratchpad, where the cursor is"
+        aria-label="Send to scratchpad">
+  <i class="bi bi-stars {{ icon_cls }}"></i>
+</button>
+{%- endmacro %}

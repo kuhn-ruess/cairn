@@ -46,6 +46,10 @@
   let savedNote = "";
   let savedTitle = titleInput ? titleInput.value : "";
   let editing = null;          // the node whose textarea is open
+  // Where editing last STOPPED. The pad lives in an iframe, so the click that
+  // sends a task reference over here has already blurred the block it is
+  // meant for — without this, "at the caret" would have nowhere to aim.
+  let lastCaret = null;        // {node, at}
   let saveTimer = null, queue = Promise.resolve(), conflicted = false;
   let busy = 0;                // saves of ours currently on the wire
 
@@ -288,7 +292,11 @@
       scheduleSave();
       if (window.CairnNoteEditing) window.CairnNoteEditing.changed();
     });
-    ta.addEventListener("blur", () => { if (editing === node) commit(node); });
+    ta.addEventListener("blur", () => {
+      if (editing !== node) return;
+      lastCaret = { node: node, at: ta.selectionStart };
+      commit(node);
+    });
     ta.addEventListener("keydown", (e) => onKey(e, node, ta));
     ta.addEventListener("paste", (e) => onPaste(e, node, ta));
     // Moving the caret can open or close the popups too ("[[" is now behind
@@ -1558,6 +1566,29 @@
       node.content = text;
       const ta = editing === node ? contentOf(node).querySelector("textarea") : null;
       if (ta) { ta.value = text; grow(ta); }
+    },
+    /** Drop text in at the caret: where it is, where it last was, or — if
+     *  nothing was ever open — in a fresh block at the end. Used from outside
+     *  the pad's own document (static/js/scratchpad-panel.js). */
+    insert(text) {
+      if (!canEdit || !text) return null;
+      let node = editing, caret;
+      if (!node && lastCaret && allNodes().indexOf(lastCaret.node) >= 0) {
+        node = lastCaret.node;
+        caret = lastCaret.at;
+      }
+      if (!node) {
+        const tail = model[model.length - 1];
+        if (!tail) return null;
+        node = (tail.content || "").trim() ? insertAfter(tail, link([blank()])[0]) : tail;
+        caret = node.content ? node.content.length : 0;
+      }
+      openEditor(node, caret);
+      const ta = contentOf(node).querySelector("textarea");
+      if (!ta) return null;
+      // The "input" event this fires is what writes the block and saves.
+      adapter(ta).replaceSelection(text);
+      return node;
     },
     /** Save, and have these blocks rendered back — for a caller that edited
      *  their content directly (the pad's checklist button). */

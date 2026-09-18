@@ -4,6 +4,7 @@
    overrides apply. #}
 {% set _vk = view_key|default(none) %}
 {% import "favorites_macros.html" as fav with context %}
+{% import "scratchpad/_ref_macro.html" as pad with context %}
 {# Linked-note counts for the per-task note button. Reuse what the view already
    computed (Today), else batch once for this list (one indexed query — never
    per row). #}
@@ -300,6 +301,9 @@
           {% if task.kind == 'task' %}
             {% from "tasks/_event_note_macros.html" import task_note_btn %}
             {{ task_note_btn(task, _tnc.get(task.pk|string, 0)) }}
+          {% endif %}
+          {% if task.kind == 'task' %}
+            {{ pad.pad_ref_btn(task) }}
           {% endif %}
           {# One-click stopwatch, mite-style: start on this task (the billing
              project is inherited from its folder/project, or the one you last

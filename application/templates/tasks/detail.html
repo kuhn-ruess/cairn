@@ -1,5 +1,6 @@
 {% extends "layout/base.html" %}
 {% import "favorites_macros.html" as fav with context %}
+{% import "scratchpad/_ref_macro.html" as pad with context %}
 {% block title %}{{ task.title }} · Cairn{% endblock %}
 {% block content %}
 <header class="task-detail-header mb-3">
@@ -118,6 +119,7 @@
               title="Show / hide the inspector">
         <i class="bi bi-sliders"></i> Inspector
       </button>
+      {{ pad.pad_ref_btn(task, cls="btn btn-outline-secondary", icon_cls="") }}
       <form method="post" action="{{ url_for('tasks.toggle_flag', task_id=task.pk) }}" class="m-0">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-outline-secondary" type="submit"

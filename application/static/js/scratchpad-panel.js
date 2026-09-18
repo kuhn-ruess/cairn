@@ -31,6 +31,54 @@
   // The pad page's own button: no panel here, just the flag.
   const pinBtn = document.getElementById("scratchpadWindow");
 
+  // ---- sending something into the pad --------------------------------------
+
+  /** Put ``text`` into the pad, wherever its caret sits — the point of the
+   *  window is that it is open while you read something else, so a reference
+   *  to what you are reading belongs in the line you were writing.
+   *
+   *  The pad is an iframe (same origin), so this is a plain call into its
+   *  outliner; on the pad's own page there is no window and the editor is
+   *  right here. A closed window opens first and the frame loads before the
+   *  text lands in it. */
+  function insert(text) {
+    if (!text) return;
+    if (!panel) {
+      const own = window.CairnOutliner;
+      if (own && own.insert) own.insert(text);
+      return;
+    }
+    const frame = panel.querySelector(".sp-frame");
+    const put = () => {
+      const win = frame.contentWindow;
+      if (!win || !win.CairnOutliner || !win.CairnOutliner.insert) return;
+      win.focus();
+      win.CairnOutliner.insert(text);
+    };
+    if (panel.hidden) {
+      save({ open: true });
+      open();
+    }
+    if (frame.contentWindow && frame.contentWindow.CairnOutliner) put();
+    else frame.addEventListener("load", put, { once: true });
+  }
+
+  // Any page may carry one of these — a task row, a task's own page. Delegated
+  // on the document, because a view that swaps <main> takes its buttons with it.
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-pad-insert]");
+    if (!btn) return;
+    ev.preventDefault();
+    insert(btn.dataset.padInsert);
+    const icon = btn.querySelector("i");
+    if (!icon) return;
+    const was = icon.className;
+    icon.className = "bi bi-check-lg text-success";
+    setTimeout(() => { icon.className = was; }, 1200);
+  });
+
+  window.CairnScratchpad = { insert: insert };
+
   function setToggleState(open) {
     if (!toggle) return;
     toggle.classList.toggle("active", !!open);
