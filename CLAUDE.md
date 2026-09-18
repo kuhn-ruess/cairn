@@ -287,7 +287,10 @@ Non-trivial logic that doesn't belong in a view or model lives here:
 - `calendar_sync.py` / `calendar_writeback.py` — Google Calendar OAuth + event push (single shared OAuth client per deployment, configured via `BKTODO_GOOGLE_CLIENT_ID`/`_SECRET`). **CalDAV takes the server's address, not one calendar's**: `discover_caldav_calendars` walks the standard chain (`current-user-principal` → `calendar-home-set` → the collections under it, starting at `/.well-known/caldav` when the address itself isn't a DAV resource) and connects every event calendar as its own `ExternalCalendar` — task lists, subscriptions and the scheduling inbox/outbox are skipped. A collection URL still means that one calendar. Only ONE of them starts visible in Today (the server's `schedule-default-calendar-URL`, else the first): a dozen calendars arriving in Today unasked is what the button would otherwise cost. The root it listed from is kept on each row (`caldav_home`), because a collection URL can't be walked back up to its home — that is what *Refresh from CalDAV* re-asks, the same gesture as Google's *Refresh*, with the stored credentials: names and colours are refreshed, new calendars arrive hidden, and one deleted on the server loses its row (only under a home that just answered, only in that connection — a failed refresh removes nothing, because "not in the answer" is also what a broken connection looks like; a removed write target is cleared)
 - `booking.py` — **the Calendly-style booking page** (`/book/<slug>`, with a
   directory of everyone who opted in at `/book` and a portrait per person in
-  its own `booking_photos` collection — NOT on `User`, which Flask-Login reads
+  its own `booking_photos` collection — the crop is CHOSEN in the browser
+  (`booking-photo.js` drags a square window and reports `crop_x/y/size` in the
+  image's own pixels) but CUT by Pillow server-side, so the stored bytes don't
+  depend on a canvas and no-JavaScript still gets the centre — NOT on `User`, which Flask-Login reads
   on every request; `views/booking.py`, settings under Settings → Booking
   page). The public page shows DAYS first and that day's times second, a week
   at a time behind ‹ › — one long scroller looked, on a mouse, like there was

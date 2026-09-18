@@ -1317,7 +1317,7 @@ def _store_booking_photo(user, req) -> str:
         # carry script and this file is served to the public.
         return "That file isn't a PNG, JPEG, GIF or WebP image."
     try:
-        data = _square_webp(raw, BOOKING_PHOTO_PX)
+        data = _square_webp(raw, BOOKING_PHOTO_PX, _crop_box(req.form))
     except Exception as exc:  # noqa: BLE001 — a broken upload is the user's news
         return f"That image couldn't be read: {exc}"
     BookingPhoto.objects(owner=user).delete()
@@ -1326,8 +1326,25 @@ def _store_booking_photo(user, req) -> str:
     return ""
 
 
-def _square_webp(raw: bytes, size: int) -> bytes:
-    """Centre-crop to a square and re-encode as WebP."""
+def _crop_box(form):
+    """``(x, y, side)`` the cropper in the browser picked, or ``None``.
+
+    Numbers from a form are numbers from anyone, so they are only read here —
+    ``_square_webp`` is what clamps them to the image it actually opened."""
+    try:
+        box = (int(float(form["crop_x"])), int(float(form["crop_y"])),
+               int(float(form["crop_size"])))
+    except (KeyError, TypeError, ValueError):
+        return None
+    return box if box[2] > 0 else None
+
+
+def _square_webp(raw: bytes, size: int, box=None) -> bytes:
+    """Crop to a square and re-encode as WebP.
+
+    ``box`` is the ``(x, y, side)`` the user dragged out in natural pixels;
+    without one (no JavaScript, or an untouched preview) the centre of the
+    image is taken, which is the right guess for a portrait."""
     import io
 
     from PIL import Image
@@ -1336,9 +1353,14 @@ def _square_webp(raw: bytes, size: int) -> bytes:
     img.load()
     if img.mode not in ("RGB", "L"):
         img = img.convert("RGB")
-    side = min(img.width, img.height)
-    left = (img.width - side) // 2
-    top = (img.height - side) // 2
+    if box:
+        side = max(1, min(box[2], img.width, img.height))
+        left = max(0, min(box[0], img.width - side))
+        top = max(0, min(box[1], img.height - side))
+    else:
+        side = min(img.width, img.height)
+        left = (img.width - side) // 2
+        top = (img.height - side) // 2
     img = img.crop((left, top, left + side, top + side)).resize(
         (size, size), Image.LANCZOS)
     out = io.BytesIO()

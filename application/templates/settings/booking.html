@@ -111,12 +111,27 @@
                    name="photo" accept="image/png,image/jpeg,image/gif,image/webp">
           </div>
           <div class="form-text small">
-            Cropped to a square and scaled down for you.
+            Drag to choose the part that shows; without JavaScript the middle
+            is taken.
             {% if has_photo %}
               <label class="ms-1">
                 <input type="checkbox" name="remove_photo"> remove the current one
               </label>
             {% endif %}
+          </div>
+
+          {# The picked rectangle travels as three numbers in the image's own
+             pixels; the crop itself happens server-side. #}
+          <input type="hidden" name="crop_x" id="crop_x">
+          <input type="hidden" name="crop_y" id="crop_y">
+          <input type="hidden" name="crop_size" id="crop_size">
+          <div id="photo-crop" class="d-none mt-2">
+            <div class="crop-frame"><img alt=""></div>
+            <label class="form-label small mt-2 mb-0 d-block">
+              Zoom
+              <input type="range" class="form-range" min="1" max="3" step="0.01"
+                     value="1">
+            </label>
           </div>
         </div>
         <div class="col-12">
@@ -293,4 +308,15 @@
     <div class="card-body text-muted small">Nothing booked yet.</div>
   {% endif %}
 </div>
+<style>
+  /* The window IS the photo: what it shows is what gets stored. */
+  .crop-frame { width: 240px; height: 240px; overflow: hidden; position: relative;
+                border-radius: 50%; cursor: grab; touch-action: none;
+                background: var(--gv-bg2); box-shadow: 0 0 0 1px var(--gv-bg3); }
+  .crop-frame:active { cursor: grabbing; }
+  .crop-frame img { position: absolute; top: 0; left: 0; transform-origin: 0 0;
+                    max-width: none; user-select: none; -webkit-user-drag: none; }
+  #photo-crop .form-range { max-width: 240px; }
+</style>
+<script src="{{ asset('js/booking-photo.js') }}"></script>
 {% endblock %}

@@ -27,6 +27,31 @@ def png(width: int, height: int) -> bytes:
     return buf.getvalue()
 
 
+def quartered_png(side: int) -> bytes:
+    """A square split into four flat colours, so a crop can be told apart by
+    the colour that comes back."""
+    from PIL import Image
+    img = Image.new("RGB", (side, side), (255, 0, 0))          # top-left red
+    half = side // 2
+    img.paste(Image.new("RGB", (half, half), (0, 255, 0)), (half, 0))    # green
+    img.paste(Image.new("RGB", (half, half), (0, 0, 255)), (0, half))    # blue
+    img.paste(Image.new("RGB", (half, half), (255, 255, 0)), (half, half))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def middle_pixel(data: bytes):
+    from PIL import Image
+    img = Image.open(io.BytesIO(data)).convert("RGB")
+    return img.getpixel((img.width // 2, img.height // 2))
+
+
+def looks_like(pixel, expected, tol=16) -> bool:
+    """WebP is lossy, so a flat green comes back as very nearly green."""
+    return all(abs(a - b) <= tol for a, b in zip(pixel, expected))
+
+
 def form_data(**over):
     data = {
         "enabled": "y", "slug": "alice", "title": "Talk to me", "intro": "Hi.",
@@ -350,6 +375,36 @@ class BookingPageTests(unittest.TestCase):
         from PIL import Image
         img = Image.open(io.BytesIO(resp.data))
         self.assertEqual(img.size, (320, 320))
+
+    def test_the_chosen_crop_is_what_gets_stored(self):
+        """The browser reports the rectangle; the server cuts it. Picking the
+        green quarter must not give back the middle of the whole picture."""
+        self.save_page(photo=(io.BytesIO(quartered_png(400)), "q.png"),
+                       crop_x="200", crop_y="0", crop_size="200")
+        data = self.client.get("/book/alice/photo").data
+        self.assertTrue(looks_like(middle_pixel(data), (0, 255, 0)),
+                        middle_pixel(data))
+
+    def test_without_a_crop_the_middle_is_taken(self):
+        self.save_page(photo=(io.BytesIO(quartered_png(400)), "q.png"))
+        # The centre of a four-colour square sits on the seam, so the test is
+        # simply that it is NOT one quarter's flat colour.
+        self.assertFalse(looks_like(
+            middle_pixel(self.client.get("/book/alice/photo").data), (0, 255, 0)))
+
+    def test_a_crop_outside_the_image_is_pulled_back_in(self):
+        """Numbers from a form are numbers from anyone."""
+        self.save_page(photo=(io.BytesIO(quartered_png(400)), "q.png"),
+                       crop_x="9999", crop_y="-500", crop_size="99999")
+        resp = self.client.get("/book/alice/photo")
+        self.assertEqual(resp.status_code, 200)
+        from PIL import Image
+        self.assertEqual(Image.open(io.BytesIO(resp.data)).size, (320, 320))
+
+    def test_a_nonsense_crop_falls_back_to_the_middle(self):
+        self.save_page(photo=(io.BytesIO(quartered_png(400)), "q.png"),
+                       crop_x="abc", crop_y="", crop_size="0")
+        self.assertEqual(self.client.get("/book/alice/photo").status_code, 200)
 
     def test_no_photo_is_a_404_not_a_broken_page(self):
         self.save_page()
