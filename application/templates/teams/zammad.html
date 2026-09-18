@@ -169,8 +169,19 @@
               <a href="{{ url_for('timetracking.people', team=team.pk) }}">Match them</a>,
               and the next sync files the <em>next</em> ones properly — these
               stay here, because a sync never re-files a ticket it already
-              imported. “Hand tickets to their Zammad owner” above moves
-              them.</li>
+              imported. It does assign them to their owner once the roster can
+              name them; “Hand tickets to their Zammad owner” above moves
+              them outright.</li>
+          {% endif %}
+          {% if stats.tickets_owner_unmapped %}
+            <li class="text-warning">
+              {{ stats.tickets_owner_unmapped }} ticket(s) already imported
+              whose Zammad owner the roster cannot name — their task keeps
+              whatever assignment it has, which is how a hand-over in Zammad
+              fails to arrive here.
+              <a href="{{ url_for('timetracking.people', team=team.pk) }}">Match
+              the agent</a> and the next sync hands the whole back catalogue
+              over.</li>
           {% endif %}
           {% if stats.images_imported %}
             <li>Images taken out of Zammad and onto their task:

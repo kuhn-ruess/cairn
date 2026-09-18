@@ -24,6 +24,14 @@ a private project this team cannot see, put there by a person, and a sync has no
 business overruling that — nor creating a second task beside it, which is what
 the switch from personal to team syncing would otherwise produce on day one.
 
+What *does* follow Zammad is the **assignment**: whoever owns the ticket over
+there is assigned the task here, so it reaches their Inbox and their search
+even though it is filed on somebody else's account. That question is asked of
+every imported ticket on every run (:func:`_reconcile_assignments`), not only
+of the ones an incremental window happened to carry — otherwise a hand-over the
+roster could not resolve at the time is lost for good, and the ticket's owner
+cannot even find it.
+
 Whoever owns a ticket that nobody can be matched to keeps it: the run files it
 under the team's admin rather than dropping it, and says how often that happened.
 :func:`purge_team_import` is the way back out of all of it.
@@ -62,44 +70,92 @@ def _target_project(user):
     return Item.objects(pk=pid, owner=user, kind="project").first()
 
 
-def _mirror_ticket_assignment(item, raw, owners: dict, roster_pks: set,
-                              *, dry_run: bool) -> int:
-    """Mirror a ticket that changed hands in Zammad into Cairn's *assignment*.
+# "Cairn already says the right thing" — the answer for almost every task on
+# almost every run, and the one that must cost nothing.
+KEEP = object()
 
-    Reassigning a ticket is the same statement as assigning a task here — it
-    is still filed where it was, somebody else is now doing it — so it is
-    written the same way: :meth:`Item.assign_to`, the method the UI calls. The
-    assignee gets the same bell entry, the task turns up in their Inbox, their
-    own filing of it survives a round trip, and the owner keeps it in sight.
 
-    The owner deliberately does not move. An imported task may sit in a project
-    this team cannot even see, put there by a person; taking it out from under
-    them is a decision a sync doesn't get to make.
+def _assignment_for(owner_pk, assignee_pk, wanted, roster_pks: set):
+    """What a task's assignment should become, given who owns its ticket now.
 
-    Only what the roster can answer is mirrored:
+    ``wanted`` is the Cairn account the roster names for the ticket's current
+    Zammad owner, or ``None`` when it can name nobody. Returns that account, or
+    ``None`` to clear the assignment, or :data:`KEEP` to leave it alone.
+
+    The rules, which are the whole of the policy:
 
     * a Zammad owner with no Cairn account leaves the assignment alone — there
       is nobody to name, and clearing it would lose a real one,
     * the ticket coming back to the task's own owner clears the assignment, but
       only when the current assignee is somebody this sync could have set;
-      an assignment to anyone else was somebody's decision here.
-
-    Returns 1 when the assignment changed, so a run can report it."""
-    wanted = owners.get(str(raw.get("owner_id") or ""))
+      an assignment to anyone else was somebody's decision here,
+    * otherwise the ticket's owner is the assignee, and stays it until Zammad
+      or a person here says otherwise.
+    """
     if wanted is None:
+        return KEEP
+    if str(wanted.pk) == str(owner_pk):
+        if assignee_pk is None or str(assignee_pk) not in roster_pks:
+            return KEEP
+        return None                        # handed back → undo the delegation
+    if assignee_pk is not None and str(assignee_pk) == str(wanted.pk):
+        return KEEP                        # already says so
+    return wanted
+
+
+def _reconcile_assignments(members, owners: dict, roster_pks: set,
+                           owner_by_ext: dict, *, dry_run: bool) -> int:
+    """Mirror every imported ticket's Zammad owner into Cairn's *assignment*.
+
+    Reassigning a ticket is the same statement as assigning a task here — it
+    is still filed where it was, somebody else is now doing it — so it is
+    written the same way: :meth:`Item.assign_to`, the method the UI calls. The
+    assignee gets the same bell entry, the task turns up in their Inbox and
+    their search, their own filing of it survives a round trip, and the owner
+    keeps it in sight.
+
+    The owner deliberately does not move. An imported task may sit in a project
+    this team cannot even see, put there by a person; taking it out from under
+    them is a decision a sync doesn't get to make.
+
+    This runs over **every** imported ticket, not only the ones this run
+    fetched, and that is the point. The old pass only looked at tickets the
+    incremental window happened to carry, so a hand-over whose mirror could not
+    be made at the time — the roster could not name the new owner yet — was
+    lost for good: nothing ever asked about that ticket again, and the task sat
+    on a colleague's account where its owner could not even search for it.
+    Here the question is asked again on every run, for nothing: the ticket's
+    owner is stored on the task (``Item.external_owner``), ``owner_by_ext``
+    overrides it for the tickets this run did fetch, and the scan is one
+    projected query with no dereference. Repair therefore follows the roster —
+    match an agent today and their back catalogue arrives on the next run.
+
+    Returns how many assignments changed, so a run can report it."""
+    if not owners:
         return 0
-    current = item.assigned_to
-    if str(wanted.pk) == str(item.owner.pk):
-        if current is None or str(current.pk) not in roster_pks:
-            return 0
-        wanted = None                      # handed back → undo the delegation
-    elif current is not None and str(current.pk) == str(wanted.pk):
-        return 0                           # already says so
-    if dry_run:
-        return 1
-    item.assign_to(wanted, by_user=item.owner)
-    item.save()
-    return 1
+    rows = (Item.objects(owner__in=members, kind="task", source="zammad",
+                         external_id__startswith="zammad:")
+            .only("owner", "assigned_to", "external_id", "external_owner")
+            .as_pymongo())
+    changed = 0
+    for row in rows:
+        zammad_owner = (owner_by_ext.get(row.get("external_id") or "")
+                        or row.get("external_owner") or "")
+        target = _assignment_for(row.get("owner"), row.get("assigned_to"),
+                                 owners.get(str(zammad_owner)), roster_pks)
+        if target is KEEP:
+            continue
+        changed += 1
+        if dry_run:
+            continue
+        # Load the whole document only for the few that actually change: a
+        # projected row is cheap to read and unsafe to save.
+        item = Item.objects(pk=row["_id"]).first()
+        if item is None:
+            continue
+        item.assign_to(target, by_user=item.owner)
+        item.save()
+    return changed
 
 
 def _existing_task(team_members, external_id):
@@ -177,7 +233,7 @@ def sync_team(team, *, full: bool = False, dry_run: bool = False,
     targets: dict = {}
 
     _tick("fetching", 0, 0)
-    tickets = _fetch_tickets(base, token, stats, since)
+    tickets, owner_by_ext = _fetch_tickets(base, token, stats, since)
 
     stats.tickets_fetched = len(tickets)
     _tick("running", 0, len(tickets))
@@ -208,34 +264,36 @@ def sync_team(team, *, full: bool = False, dry_run: bool = False,
         # moment anything went wrong. Only tickets nobody has yet are filed
         # under their Zammad owner.
         existing = _existing_task(members, f"zammad:{raw.get('id')}")
+        zammad_owner = owners.get(str(raw.get("owner_id") or ""))
         if existing is not None:
             owner = existing.owner
             target = existing.parent
-            zammad_owner = owners.get(str(raw.get("owner_id") or ""))
-            if zammad_owner is not None and str(zammad_owner.pk) != str(owner.pk):
+            if zammad_owner is None:
+                # Nobody to hand it to. Counted, because this is exactly how a
+                # hand-over in Zammad fails to arrive here, and it used to
+                # happen in complete silence.
+                stats.tickets_owner_unmapped += 1
+            elif str(zammad_owner.pk) != str(owner.pk):
                 stats.tickets_foreign_owner += 1
         else:
-            owner = owners.get(str(raw.get("owner_id") or ""))
+            owner = zammad_owner
             if owner is None:
                 owner = fallback
                 stats.tickets_unowned += 1
             target = _cached_target(targets, owner, stats)
 
         try:
-            item = zi._upsert_ticket(owner, raw, base, token, target, stats,
-                                     dry_run, me_id=None, debug=debug,
-                                     opts=opts)
+            zi._upsert_ticket(owner, raw, base, token, target, stats,
+                              dry_run, me_id=None, debug=debug, opts=opts)
         except zi.ZammadError as exc:
             stats.errors.append(f"ticket {raw.get('id')}: {exc}")
             stats.tickets_skipped += 1
-        else:
-            # A ticket that changed hands in Zammad: the task stays where it is
-            # and the new agent is assigned it, exactly as a hand-off here
-            # would read. Only for tasks we already had — a new one is filed
-            # under its owner in the first place.
-            if existing is not None:
-                stats.tickets_assigned += _mirror_ticket_assignment(
-                    item or existing, raw, owners, roster_pks, dry_run=dry_run)
+
+    # A ticket that changed hands in Zammad: the task stays where it is and the
+    # new agent is assigned it, exactly as a hand-off here would read. Over the
+    # whole imported set, not just this run's slice — see the function.
+    stats.tickets_assigned = _reconcile_assignments(
+        members, owners, roster_pks, owner_by_ext, dry_run=dry_run)
 
     # Orphan reconcile is a full-pass decision, exactly as in the per-user run:
     # an incremental one asked for a slice, so "didn't come back" means "wasn't
@@ -275,9 +333,24 @@ def _cached_target(targets: dict, user, stats=None):
     return targets[key]
 
 
+def _owner_ids(rows) -> dict:
+    """``zammad:<id>`` → the ticket's Zammad owner id, for every row seen.
+
+    Read off the list before it is narrowed to what changed: knowing who owns a
+    ticket costs nothing here, and it is what lets
+    :func:`_reconcile_assignments` put right a ticket this run had no other
+    reason to touch."""
+    return {f"zammad:{r.get('id')}": str(r.get("owner_id") or "")
+            for r in rows if r.get("id")}
+
+
 def _fetch_tickets(base: str, token: str, stats: zi.ZammadStats,
-                   since) -> list[dict]:
+                   since) -> tuple[list[dict], dict]:
     """Every ticket the service token can see, narrowed to what changed.
+
+    Answers with that narrowed list AND the Zammad owner of every ticket it
+    saw on the way — the wider set, whenever the fallback below had to read the
+    whole list anyway.
 
     Search first (Elasticsearch carries the cutoff for us), the plain list as
     the fallback — the same two paths the per-user import uses, minus the
@@ -317,7 +390,7 @@ def _fetch_tickets(base: str, token: str, stats: zi.ZammadStats,
             page += 1
         if tickets:
             stats.fetched_via = "team connection (search)"
-            return tickets
+            return tickets, _owner_ids(tickets)
 
     page = 1
     while page <= 50:
@@ -333,9 +406,11 @@ def _fetch_tickets(base: str, token: str, stats: zi.ZammadStats,
         tickets.extend(rows)
         page += 1
     stats.fetched_via = "team connection (full list)"
+    owners = _owner_ids(tickets)
     if since is not None:
         # No search index: drop the untouched ones before they cost a request
-        # each for articles, tags and time.
+        # each for articles, tags and time. Their OWNERS stay — that much we
+        # already know, and it is free.
         fresh = []
         for raw in tickets:
             stamp = zi._stamp(raw.get("updated_at"))
@@ -344,7 +419,7 @@ def _fetch_tickets(base: str, token: str, stats: zi.ZammadStats,
                 continue
             fresh.append(raw)
         tickets = fresh
-    return tickets
+    return tickets, owners
 
 
 def _rows(chunk):
@@ -560,10 +635,7 @@ def refile_team_owners(team, *, dry_run: bool = True) -> dict:
 
     owners = _owner_map(team)
     stats = zi.ZammadStats()
-    ticket_owner = {}
-    for raw in _fetch_tickets(base, token, stats, None):
-        if raw.get("id") is not None:
-            ticket_owner[str(raw["id"])] = str(raw.get("owner_id") or "")
+    _tickets, ticket_owner = _fetch_tickets(base, token, stats, None)
     out["tickets"] = len(ticket_owner)
 
     members = team_members(team)
@@ -571,8 +643,7 @@ def refile_team_owners(team, *, dry_run: bool = True) -> dict:
     for item in Item.objects(owner__in=members, kind="task", source="zammad",
                              external_id__startswith="zammad:"):
         out["checked"] += 1
-        wanted = owners.get(ticket_owner.get(
-            (item.external_id or "").split(":", 1)[-1], ""))
+        wanted = owners.get(ticket_owner.get(item.external_id or "", ""))
         if wanted is None:
             # Nobody in the roster owns this ticket in Zammad — leave it with
             # whoever has it rather than guess.

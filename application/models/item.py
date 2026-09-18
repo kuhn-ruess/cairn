@@ -314,6 +314,13 @@ class Item(Document):
     # prefix when filling this so the chip in the UI reads cleanly and
     # users can ⌘P + paste a ticket number to jump to its task.
     external_ref = StringField()
+    # Who owns this over there, as of the last sync (a Zammad user id). The
+    # import files a ticket under the Cairn account its Zammad owner maps to,
+    # and that mapping can arrive LATER than the ticket — an agent nobody had
+    # matched yet, a hand-over between two runs. Keeping the upstream owner on
+    # the task is what lets a later run put the assignment right without asking
+    # the ticket again: see ``zammad_team._reconcile_assignments``.
+    external_owner = StringField()
     # Human-readable origin (``todoist`` / ``zammad`` / ``csv`` /
     # ``jira`` / …). Importers fill this so the UI can show a "source"
     # chip without parsing the ``external_id`` prefix.

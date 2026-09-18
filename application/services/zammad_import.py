@@ -90,8 +90,13 @@ class ZammadStats:
     # isn't the ticket's Zammad owner — left where they are, on purpose.
     tickets_unowned: int = 0
     tickets_foreign_owner: int = 0
+    # Tickets this run looked at whose Zammad owner the roster cannot name.
+    # Their task keeps whatever assignment it has — but the miss is the reason
+    # a hand-over in Zammad can fail to arrive here, so it is counted rather
+    # than shrugged off.
+    tickets_owner_unmapped: int = 0
     # Tickets whose Zammad owner changed hands: mirrored into Cairn's own
-    # assignment rather than moved (see zammad_team._mirror_ticket_assignment).
+    # assignment rather than moved (see zammad_team._reconcile_assignments).
     tickets_assigned: int = 0
     time_task_links_cleared: int = 0  # per-task billing links an earlier sync wrote
     # Zammad user id → actor snapshot, cached for the run (not reported).
@@ -142,6 +147,7 @@ class ZammadStats:
             "closed_with_time": self.closed_with_time,
             "tickets_unowned": self.tickets_unowned,
             "tickets_foreign_owner": self.tickets_foreign_owner,
+            "tickets_owner_unmapped": self.tickets_owner_unmapped,
             "tickets_assigned": self.tickets_assigned,
             "time_task_links_cleared": self.time_task_links_cleared,
             "me_id": self.me_id,
@@ -727,6 +733,9 @@ def _upsert_ticket(
         existing.note = note
         existing.source = "zammad"
         existing.external_ref = znum
+        # Who owns the ticket over there, kept on the task so a later run can
+        # still put the assignment right once the roster can name them.
+        existing.external_owner = str(raw.get("owner_id") or "")
         if tags_fetched:
             existing.tags = overwrite_group_tags(
                 existing.tags, owned, new_external)
@@ -789,6 +798,7 @@ def _upsert_ticket(
             parent=project,
             external_id=todoist_key,
             external_ref=znum,
+            external_owner=str(raw.get("owner_id") or ""),
             source="zammad",
             tags=list(new_external),
             external_tags=list(new_external),
