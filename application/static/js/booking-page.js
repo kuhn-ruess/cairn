@@ -36,8 +36,10 @@
     return fmt(iso, { year: "numeric", month: "2-digit", day: "2-digit" });
   }
 
-  var days = [];      // [{key, slots:[iso]}] in order
+  var days = [];      // [{key, slots:[iso]}] in order, only days with times
   var chosenDay = 0;
+  var pageStart = 0;  // first day of the visible week
+  var PER_PAGE = 7;
 
   function render(slots) {
     slotsBox.textContent = "";
@@ -58,25 +60,50 @@
       byKey[key].slots.push(iso);
     });
     if (chosenDay >= days.length) { chosenDay = 0; }
+    if (pageStart >= days.length) { pageStart = 0; }
 
+    var shown = days.slice(pageStart, pageStart + PER_PAGE);
     var strip = document.createElement("div");
     strip.className = "book-days";
-    days.forEach(function (day, i) {
+    // A week at a time with arrows at both ends: the strip used to be one
+    // long scroller, which on a mouse looks like there is nothing after the
+    // edge of the box.
+    strip.appendChild(arrow("‹", pageStart > 0, function () {
+      pageStart = Math.max(0, pageStart - PER_PAGE);
+      chosenDay = pageStart;
+      render(slots);
+    }));
+    shown.forEach(function (day, i) {
+      var at = pageStart + i;
       var b = document.createElement("button");
       b.type = "button";
       b.className = "btn btn-sm book-day-btn " +
-        (i === chosenDay ? "btn-primary" : "btn-outline-secondary");
+        (at === chosenDay ? "btn-primary" : "btn-outline-secondary");
       b.innerHTML = "<span class='book-day-wd'>" +
         fmt(day.slots[0], { weekday: "short" }) + "</span>" +
         "<span class='book-day-num'>" + fmt(day.slots[0], { day: "numeric" }) + "</span>" +
         "<span class='book-day-mon'>" + fmt(day.slots[0], { month: "short" }) + "</span>";
       b.addEventListener("click", function () {
-        chosenDay = i;
+        chosenDay = at;
         render(slots);
       });
       strip.appendChild(b);
     });
+    strip.appendChild(arrow("›", pageStart + PER_PAGE < days.length, function () {
+      pageStart = pageStart + PER_PAGE;
+      chosenDay = pageStart;
+      render(slots);
+    }));
     slotsBox.appendChild(strip);
+
+    if (days.length > PER_PAGE) {
+      var count = document.createElement("div");
+      count.className = "book-tz mt-1";
+      count.textContent = "Days " + (pageStart + 1) + "–" +
+        Math.min(pageStart + PER_PAGE, days.length) + " of " + days.length +
+        " with free times";
+      slotsBox.appendChild(count);
+    }
 
     var head = document.createElement("div");
     head.className = "book-day-name";
@@ -98,6 +125,17 @@
     slotsBox.appendChild(row);
   }
 
+  function arrow(glyph, enabled, onClick) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn btn-sm btn-outline-secondary book-day-arrow";
+    b.textContent = glyph;
+    b.disabled = !enabled;
+    b.setAttribute("aria-label", glyph === "‹" ? "Earlier days" : "Later days");
+    if (enabled) { b.addEventListener("click", onClick); }
+    return b;
+  }
+
   function choose(iso) {
     document.getElementById("start").value = iso;
     document.getElementById("duration").value = String(duration);
@@ -117,6 +155,7 @@
 
   function load() {
     chosenDay = 0;
+    pageStart = 0;
     slotsBox.textContent = "";
     var loading = document.createElement("div");
     loading.className = "text-muted small";

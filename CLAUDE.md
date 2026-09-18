@@ -289,7 +289,10 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   directory of everyone who opted in at `/book` and a portrait per person in
   its own `booking_photos` collection — NOT on `User`, which Flask-Login reads
   on every request; `views/booking.py`, settings under Settings → Booking
-  page). The directory filters `listed` in PYTHON, not in the query: a field
+  page). The public page shows DAYS first and that day's times second, a week
+  at a time behind ‹ › — one long scroller looked, on a mouse, like there was
+  nothing past the edge of the box; only days that actually have a free slot
+  are in the strip. The directory filters `listed` in PYTHON, not in the query: a field
   left at its default is never written to the document, so
   `booking__listed=True` matches nobody who simply left the switch alone. `free_slots` is
   a PURE function over intervals — no clock, no database, no network — because
