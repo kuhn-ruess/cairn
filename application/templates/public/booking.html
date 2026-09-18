@@ -1,5 +1,8 @@
 <!doctype html>
-<html lang="en" data-bs-theme="dark">
+{# Standalone this is a Cairn page and stays dark. Embedded it sits inside
+   somebody else's site, so it follows the visitor's light/dark setting unless
+   the embed URL says ?theme=light or ?theme=dark. #}
+<html lang="en" data-bs-theme="{{ 'light' if theme == 'light' else 'dark' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,8 +11,31 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
   <link rel="stylesheet" href="{{ asset('css/app.css') }}">
+  {% if embed and not theme %}
+    <script>
+      // Before first paint, so an embed on a light site never flashes black.
+      try {
+        if (matchMedia("(prefers-color-scheme: light)").matches) {
+          document.documentElement.dataset.bsTheme = "light";
+        }
+      } catch (e) { /* an old browser simply stays dark */ }
+    </script>
+  {% endif %}
   <style>
+    /* app.css is Gruvbox dark only. The booking page uses a small, known set
+       of its variables, so a light embed just redefines those — Bootstrap's
+       own light theme takes care of the buttons and inputs. */
+    :root[data-bs-theme="light"] {
+      --gv-bg0: #ffffff; --gv-bg0-soft: #f6f6f4; --gv-bg1: #eceae5;
+      --gv-bg2: #dedbd4; --gv-bg3: #c9c5bb;
+      --gv-fg0: #1d2021; --gv-fg1: #282828; --gv-fg2: #3c3836;
+      --gv-fg3: #504945; --gv-fg4: #6f6a62;
+    }
     .book-wrap { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+    /* Embedded, the surrounding page supplies the frame and the background:
+       ours would otherwise paint a dark box inside a light site. */
+    body.embed { background: transparent; }
+    body.embed .book-wrap { padding: 1rem 1rem 1.5rem; max-width: none; }
     .book-title { font-weight: 600; letter-spacing: -.01em; margin: 0; }
     .book-sub { color: var(--gv-fg4); font-size: .85rem; margin-top: .25rem; }
     .book-intro { color: var(--gv-fg3); white-space: pre-wrap; margin: 1.25rem 0 0;
@@ -36,7 +62,7 @@
                  flex: 0 0 72px; background: var(--gv-bg2); }
   </style>
 </head>
-<body>
+<body class="{{ "embed" if embed else "" }}">
 <div class="book-wrap">
   <div class="d-flex align-items-center gap-3">
     {% if has_photo %}
@@ -78,7 +104,7 @@
   </div>
 
   <form class="book-section d-none" id="book-form" method="post"
-        action="{{ url_for('booking.book', slug=page.slug) }}">
+        action="{{ url_for('booking.book', slug=page.slug, embed=1 if embed else None) }}">
     <h2>Your details</h2>
     <input type="hidden" name="start" id="start">
     <input type="hidden" name="duration" id="duration">
@@ -105,8 +131,35 @@
     <button type="button" class="btn btn-link btn-sm mt-3" id="cancel">Pick another time</button>
   </form>
 
-  <p class="book-tz mt-5 mb-0">Powered by Cairn · {{ host_tz }} is {{ host_name }}'s timezone</p>
+  <p class="book-tz {{ 'mt-4' if embed else 'mt-5' }} mb-0">
+    Powered by Cairn · {{ host_tz }} is {{ host_name }}'s timezone
+  </p>
 </div>
+
+{% if embed %}
+  {# The frame can't know how tall this got, so the page says so. A host page
+     that ignores the message just keeps whatever height it set. #}
+  <script>
+    (function () {
+      var wrap = document.querySelector(".book-wrap");
+      var last = 0;
+      function tell() {
+        // NOT documentElement.scrollHeight: inside a frame that is at least
+        // the frame's own height, so the box could only ever grow. The
+        // content's own bottom edge is the honest number.
+        var h = Math.ceil(wrap.getBoundingClientRect().bottom + 16);
+        if (h === last) { return; }
+        last = h;
+        parent.postMessage({ cairnBooking: "height", height: h }, "*");
+      }
+      window.addEventListener("load", tell);
+      window.addEventListener("resize", tell);
+      new MutationObserver(tell).observe(document.body,
+        { childList: true, subtree: true, attributes: true });
+      setInterval(tell, 1000);
+    })();
+  </script>
+{% endif %}
 
 <script src="{{ asset('js/booking-page.js') }}"
         data-slots-url="{{ url_for('booking.slots', slug=page.slug) }}"

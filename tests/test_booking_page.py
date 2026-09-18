@@ -423,6 +423,81 @@ class BookingPageTests(unittest.TestCase):
         self.save_page(remove_photo="y")
         self.assertEqual(self.client.get("/book/alice/photo").status_code, 404)
 
+    # -- embedding on someone else's site ---------------------------------
+    def test_the_page_may_be_framed_by_anyone(self):
+        """The proxy sends X-Frame-Options: SAMEORIGIN for everything; a
+        browser that sees frame-ancestors ignores it, which is why the policy
+        has to come from here."""
+        self.save_page()
+        resp = self.client.get("/book/alice")
+        self.assertEqual(resp.headers["Content-Security-Policy"],
+                         "frame-ancestors *")
+        self.assertNotIn("X-Frame-Options", resp.headers)
+
+    def test_the_allowed_ancestors_are_configurable(self):
+        self.save_page()
+        old = self.app.config["BOOKING_FRAME_ANCESTORS"]
+        self.app.config["BOOKING_FRAME_ANCESTORS"] = "https://example.com"
+        try:
+            self.assertEqual(
+                self.client.get("/book/alice").headers["Content-Security-Policy"],
+                "frame-ancestors https://example.com")
+        finally:
+            self.app.config["BOOKING_FRAME_ANCESTORS"] = old
+
+    def test_the_rest_of_the_app_is_not_made_framable(self):
+        self.assertNotIn("Content-Security-Policy",
+                         self.client.get("/settings/booking").headers)
+
+    def test_embed_mode_drops_the_chrome_and_reports_its_height(self):
+        self.save_page()
+        plain = self.client.get("/book/alice").get_data(as_text=True)
+        embed = self.client.get("/book/alice?embed=1").get_data(as_text=True)
+        self.assertNotIn("cairnBooking", plain)
+        self.assertIn("cairnBooking", embed)
+        self.assertIn('<body class="embed">', embed)
+        # The form has to stay inside the frame, or confirming navigates the
+        # host page instead of the widget.
+        self.assertIn("/book/alice/book?embed=1", embed)
+
+    def test_the_confirmation_stays_embedded_too(self):
+        self.save_page()
+        resp = self.client.post("/book/alice/book?embed=1", data={
+            "start": self.first_slot(), "duration": "30", "name": "Bob",
+            "email": "bob@example.com", "note": "", "tz": "Europe/Berlin"})
+        self.assertEqual(resp.status_code, 200)
+        body = resp.get_data(as_text=True)
+        self.assertIn('<body class="embed">', body)
+        self.assertIn("cairnBooking", body)
+
+    def test_the_standalone_page_stays_dark_and_the_embed_asks_the_visitor(self):
+        self.save_page()
+        plain = self.client.get("/book/alice").get_data(as_text=True)
+        self.assertIn('data-bs-theme="dark"', plain)
+        self.assertNotIn("prefers-color-scheme", plain)
+        embed = self.client.get("/book/alice?embed=1").get_data(as_text=True)
+        self.assertIn("prefers-color-scheme", embed)
+
+    def test_a_theme_in_the_url_wins(self):
+        self.save_page()
+        light = self.client.get("/book/alice?embed=1&theme=light").get_data(as_text=True)
+        self.assertIn('data-bs-theme="light"', light)
+        self.assertNotIn("prefers-color-scheme", light)
+        dark = self.client.get("/book/alice?embed=1&theme=dark").get_data(as_text=True)
+        self.assertIn('data-bs-theme="dark"', dark)
+        self.assertNotIn("prefers-color-scheme", dark)
+
+    def test_a_nonsense_theme_is_ignored(self):
+        self.save_page()
+        body = self.client.get("/book/alice?embed=1&theme=pink").get_data(as_text=True)
+        self.assertIn("prefers-color-scheme", body)
+
+    def test_the_settings_page_hands_out_a_snippet(self):
+        self.save_page()
+        body = self.client.get("/settings/booking").get_data(as_text=True)
+        self.assertIn("/book/alice?embed=1", body)
+        self.assertIn("cairn-booking", body)
+
     def test_the_day_cap_closes_the_day_for_everyone(self):
         self.save_page(max_per_day="1")
         start = self.first_slot()

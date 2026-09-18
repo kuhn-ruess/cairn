@@ -285,6 +285,32 @@
   {% endif %}
 </form>
 
+{% if public_url %}
+<div class="card mt-4">
+  <div class="card-header py-2">
+    <h2 class="h6 mb-0"><i class="bi bi-code-slash text-muted"></i> Put it on your website</h2>
+  </div>
+  <div class="card-body">
+    <p class="text-muted small">
+      Paste this where the booking form should appear. The frame grows with
+      the content on its own; drop the &lt;script&gt; and it keeps the fixed
+      height instead.
+    </p>
+    <textarea class="form-control form-control-sm font-monospace" rows="9" readonly
+              id="embed-code" onclick="this.select();">{{ embed_code }}</textarea>
+    <button type="button" class="btn btn-sm btn-outline-secondary mt-2"
+            onclick="navigator.clipboard.writeText(document.getElementById('embed-code').value); this.innerHTML='<i class=&quot;bi bi-check2&quot;></i> copied';">
+      <i class="bi bi-clipboard"></i> Copy
+    </button>
+    <div class="form-text small">
+      The embedded page follows the visitor's light/dark setting. Add
+      <code>&amp;theme=light</code> or <code>&amp;theme=dark</code> to the URL
+      to fix it to one.
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="card mt-4">
   <div class="card-header py-2">
     <h2 class="h6 mb-0"><i class="bi bi-calendar-check text-muted"></i> Upcoming bookings</h2>

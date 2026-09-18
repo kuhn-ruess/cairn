@@ -292,7 +292,18 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   image's own pixels) but CUT by Pillow server-side, so the stored bytes don't
   depend on a canvas and no-JavaScript still gets the centre — NOT on `User`, which Flask-Login reads
   on every request; `views/booking.py`, settings under Settings → Booking
-  page). The public page shows DAYS first and that day's times second, a week
+  page). **It embeds in other sites**: `?embed=1` drops the outer margins and
+  posts its height to the parent frame (measured from the CONTENT's bottom
+  edge — inside a frame `documentElement.scrollHeight` is never smaller than
+  the frame itself, so a box could only ever grow), and `booking_bp` answers
+  with `Content-Security-Policy: frame-ancestors` (config
+  `BOOKING_FRAME_ANCESTORS`, default `*`) — which is what makes framing work
+  at all, because the proxy sends `X-Frame-Options: SAMEORIGIN` for
+  everything and a browser that sees `frame-ancestors` ignores that. Only this
+  blueprint: the logged-in app has every reason to refuse being framed. app.css
+  is dark-only, so an embed redefines the handful of `--gv-*` variables the
+  page uses and follows the visitor's `prefers-color-scheme`, `?theme=` wins.
+  Settings hands out the paste-ready snippet. The public page shows DAYS first and that day's times second, a week
   at a time behind ‹ › — one long scroller looked, on a mouse, like there was
   nothing past the edge of the box; only days that actually have a free slot
   are in the strip. The directory filters `listed` in PYTHON, not in the query: a field

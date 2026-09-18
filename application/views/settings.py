@@ -1209,7 +1209,31 @@ def booking():
         # out.
         public_url=(url_for("booking.page", slug=page.slug, _external=True)
                     if page.slug else ""),
+        embed_code=(_booking_embed_code(
+            url_for("booking.page", slug=page.slug, embed=1, _external=True))
+            if page.slug else ""),
     )
+
+
+def _booking_embed_code(src: str) -> str:
+    """The snippet to paste into somebody else's page.
+
+    Deliberately plain HTML with no build step and nothing to host: an iframe
+    that works on its own, plus a listener for the height the page reports so
+    it doesn't end up with an inner scrollbar. The message is matched on both
+    its source frame and its shape, so another widget on the same page can't
+    resize this one."""
+    return f"""<iframe src="{src}"
+        title="Book an appointment"
+        style="width:100%;border:0;height:820px" id="cairn-booking"></iframe>
+<script>
+  window.addEventListener("message", function (e) {{
+    var f = document.getElementById("cairn-booking");
+    if (!f || e.source !== f.contentWindow) return;
+    if (!e.data || e.data.cairnBooking !== "height") return;
+    f.style.height = Math.max(320, e.data.height) + "px";
+  }});
+</script>"""
 
 
 def _read_booking_form(user, page, form) -> list:

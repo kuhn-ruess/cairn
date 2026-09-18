@@ -57,6 +57,15 @@ class BaseConfig:
     RATELIMIT_BOOKING = "10 per hour"
     RATELIMIT_BOOKING_SLOTS = "60 per hour"
 
+    # Who may put the public booking page in an <iframe>. A CSP
+    # ``frame-ancestors`` is what makes embedding work at all: the reverse
+    # proxy sends ``X-Frame-Options: SAMEORIGIN`` for everything, and a
+    # browser that sees ``frame-ancestors`` ignores that older header. The
+    # page carries no session and no authenticated action, so the default is
+    # open; narrow it to your own sites via BKTODO_BOOKING_FRAME_ANCESTORS
+    # (a space-separated source list, e.g. "https://example.com").
+    BOOKING_FRAME_ANCESTORS = "*"
+
     # IANA timezone name attached to Google Calendar events when the
     # task's datetime is naive (the datetime-local form input has no
     # offset). Set via BKTODO_DEFAULT_TZ in env, e.g. ``Europe/Berlin``.

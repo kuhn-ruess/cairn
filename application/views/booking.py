@@ -28,6 +28,21 @@ from application.services.booking import BookingError, confirm, slots_for
 booking_bp = Blueprint("booking", __name__, url_prefix="/book")
 
 
+@booking_bp.after_request
+def _allow_framing(resp):
+    """Let these pages be embedded in somebody else's site.
+
+    Only this blueprint: the rest of Cairn is a logged-in app and has every
+    reason to refuse being framed. ``frame-ancestors`` also has to be here
+    rather than in the proxy, because a browser that sees it ignores the
+    ``X-Frame-Options: SAMEORIGIN`` the proxy sends for everything — which is
+    the header that would otherwise make an embed show an empty box."""
+    resp.headers.pop("X-Frame-Options", None)
+    resp.headers["Content-Security-Policy"] = (
+        "frame-ancestors " + (current_app.config.get("BOOKING_FRAME_ANCESTORS") or "*"))
+    return resp
+
+
 def _host_or_404(slug: str):
     user = User.objects(booking__slug=(slug or "").strip().lower()).first()
     if user is None or not user.booking or not user.booking.is_live():
@@ -70,6 +85,10 @@ def _render_page(user, error=None, status=200):
         durations=user.booking.ordered_durations(),
         has_photo=bool(BookingPhoto.objects(owner=user).only("id").first()),
         error=error,
+        # Embedded: the surrounding site supplies the page, so this one drops
+        # its outer margins and reports its height to the frame.
+        embed=bool(request.args.get("embed")),
+        theme=_theme(),
     )
     return html if status == 200 else (html, status)
 
@@ -140,7 +159,16 @@ def book(slug):
     announce(user, booking)
     return render_template("public/booking_done.html", host=user,
                            host_name=user.display_name or user.username,
-                           booking=booking)
+                           booking=booking,
+                           embed=bool(request.args.get("embed")),
+                           theme=_theme())
+
+
+def _theme() -> str:
+    """``light``/``dark`` if the embed URL insists, else "" — which means the
+    page asks the visitor's browser."""
+    wanted = (request.args.get("theme") or "").strip().lower()
+    return wanted if wanted in ("light", "dark") else ""
 
 
 def _error(user, message: str):
