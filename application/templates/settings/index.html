@@ -39,6 +39,18 @@
   </div>
   {% endif %}
   <div class="col-md-6">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.booking') }}">
+      <div class="card-body">
+        <h2 class="h6"><i class="bi bi-calendar-check"></i> Booking page</h2>
+        <p class="text-muted small mb-0">
+          A public link where other people book a slot in your calendar:
+          which calendars count as busy, where appointments are written,
+          slot lengths and your hours per weekday.
+        </p>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-6">
     <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('settings.todoist') }}">
       <div class="card-body">
         <h2 class="h6"><i class="bi bi-cloud-download"></i> Import from Todoist</h2>

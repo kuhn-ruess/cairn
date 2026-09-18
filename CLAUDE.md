@@ -125,8 +125,8 @@ conventions.
    — so e.g. `BKTODO_MONGO_HOST` lands as `app.config["MONGO_HOST"]`.
 3. Initializes a single mongoengine connection (`alias="default"`, `tz_aware=True`).
 4. Registers all blueprints (auth, dashboard, tasks, projects, tags, review,
-   settings, tree, perspectives, admin, teams, public_share, api_v1) and
-   exempts `api_v1_bp` from CSRF.
+   settings, tree, perspectives, admin, teams, public_share, booking, api_v1)
+   and exempts `api_v1_bp`, `caldav_bp` and `booking_bp` from CSRF.
 5. Registers the `cairn` CLI group and Jinja filters.
 
 `wsgi.py` simply calls `create_app()` — gunicorn (prod) and `flask run` (dev)
@@ -280,6 +280,23 @@ Non-trivial logic that doesn't belong in a view or model lives here:
 
 - `perspectives.py` / `perspective_filter.py` — GTD perspective queries (Inbox, Today, Next, Forecast, Flagged, Waiting, Someday, Completed)
 - `calendar_sync.py` / `calendar_writeback.py` — Google Calendar OAuth + event push (single shared OAuth client per deployment, configured via `BKTODO_GOOGLE_CLIENT_ID`/`_SECRET`). **CalDAV takes the server's address, not one calendar's**: `discover_caldav_calendars` walks the standard chain (`current-user-principal` → `calendar-home-set` → the collections under it, starting at `/.well-known/caldav` when the address itself isn't a DAV resource) and connects every event calendar as its own `ExternalCalendar` — task lists, subscriptions and the scheduling inbox/outbox are skipped. A collection URL still means that one calendar. Only ONE of them starts visible in Today (the server's `schedule-default-calendar-URL`, else the first): a dozen calendars arriving in Today unasked is what the button would otherwise cost. The root it listed from is kept on each row (`caldav_home`), because a collection URL can't be walked back up to its home — that is what *Refresh from CalDAV* re-asks, the same gesture as Google's *Refresh*, with the stored credentials: names and colours are refreshed, new calendars arrive hidden, and one deleted on the server loses its row (only under a home that just answered, only in that connection — a failed refresh removes nothing, because "not in the answer" is also what a broken connection looks like; a removed write target is cleared)
+- `booking.py` — **the Calendly-style booking page** (`/book/<slug>`,
+  `views/booking.py`, settings under Settings → Booking page). `free_slots` is
+  a PURE function over intervals — no clock, no database, no network — because
+  a slot handed out wrongly is a double-booked afternoon and that has to be
+  provable without a Nextcloud; everything that talks to a calendar sits
+  around it. Two rules are safety, not preference: **a busy calendar that
+  fails to answer stops the page** (an incomplete busy list is how a booking
+  page double-books its owner — the visitor gets "can't load times", never a
+  guess), and **bookings count as busy on their own** (the write calendar need
+  not be among the checked ones, so the `bookings` collection is what keeps
+  two visitors apart, behind a unique index on `(owner, start)` plus a
+  withdraw-the-loser check for overlapping-but-different starts). Everything
+  is computed in UTC; the HOST's timezone only says where a weekday starts and
+  what `09:00` means, and the VISITOR's browser formats the instants — the
+  server never renders a time on that page. `BookingPage` is embedded on
+  `User` (the slug lookup already loads the document), `Booking` is a real
+  Document for the reasons above
 - `todoist_import.py` — Todoist API ingest used by the CLI command
 - `zammad_billing.py` — where Zammad's time lands (one entry per ticket, day and agent: the day's bookings are summed into a single entry whose `external_ids` list the bookings it covers, so a re-sync updates the total instead of adding the parts beside it): customers auto-created from Zammad organisations (`external_id="zammad:org:<id>"`, one `intake` project per customer) and the team-level agent roster (`Team.zammad_agents`) that maps Zammad agents to Cairn accounts; assigning one re-attributes the time already booked
 - `cleanup.py` — per-user indexed bulk-delete of completed tasks past retention

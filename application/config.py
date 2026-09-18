@@ -50,6 +50,12 @@ class BaseConfig:
     RATELIMIT_RESET_CONFIRM = "10 per hour"
     # Signup, against automated account creation.
     RATELIMIT_REGISTER = "5 per hour"
+    # The public booking page. Confirming writes an event into somebody's real
+    # calendar and sends two mails, so it is the one public POST worth holding
+    # down hard; reading free times is cheap for us but costs a round of
+    # calendar requests, hence a limit that a person browsing never reaches.
+    RATELIMIT_BOOKING = "10 per hour"
+    RATELIMIT_BOOKING_SLOTS = "60 per hour"
 
     # IANA timezone name attached to Google Calendar events when the
     # task's datetime is naive (the datetime-local form input has no

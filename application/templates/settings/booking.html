@@ -1,0 +1,222 @@
+{% extends "layout/base.html" %}
+{% block title %}Booking page · Cairn{% endblock %}
+{% block content %}
+<h1 class="h4 mb-1">Booking page</h1>
+<p class="text-muted small mb-3">
+  A public page where other people pick a free slot in your calendar. You say
+  which calendars count as busy, where the appointment is written, how long
+  the slots are and when you're available — Cairn does the rest.
+</p>
+
+<form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="form-check form-switch mb-3">
+        <input class="form-check-input" type="checkbox" name="enabled" id="enabled"
+               {% if page.enabled %}checked{% endif %}>
+        <label class="form-check-label fw-semibold" for="enabled">
+          Page is live
+        </label>
+        <div class="form-text small">
+          Off means the link 404s. Everything below is kept either way.
+        </div>
+      </div>
+
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label small" for="slug">Link name</label>
+          <div class="input-group input-group-sm">
+            <span class="input-group-text">/book/</span>
+            <input class="form-control" id="slug" name="slug" value="{{ page.slug }}"
+                   placeholder="your-name" maxlength="40">
+          </div>
+          {% if public_url and page.enabled %}
+            <div class="form-text small">
+              <a href="{{ public_url }}" target="_blank" rel="noopener">{{ public_url }}</a>
+            </div>
+          {% else %}
+            <div class="form-text small">Lowercase letters, digits and dashes.</div>
+          {% endif %}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small" for="title">Headline</label>
+          <input class="form-control form-control-sm" id="title" name="title"
+                 value="{{ page.title }}" maxlength="120"
+                 placeholder="Book a call with me">
+        </div>
+        <div class="col-12">
+          <label class="form-label small" for="intro">Intro text</label>
+          <textarea class="form-control form-control-sm" id="intro" name="intro"
+                    rows="2" maxlength="2000"
+                    placeholder="What people should know before they book.">{{ page.intro }}</textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <h2 class="h6 mb-2"><i class="bi bi-calendar2-check text-muted"></i> Calendars</h2>
+      {% if not calendars %}
+        <p class="text-muted small mb-0">
+          No calendars connected yet — <a href="{{ url_for('settings.calendars') }}">connect one first</a>.
+        </p>
+      {% else %}
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div class="form-label small">Checked for busy times</div>
+            {% for cal in calendars %}
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="busy_calendar_ids"
+                       value="{{ cal.pk }}" id="busy-{{ cal.pk }}"
+                       {% if cal.pk|string in page.busy_calendar_ids %}checked{% endif %}>
+                <label class="form-check-label small" for="busy-{{ cal.pk }}">
+                  <span class="cal-swatch d-inline-block align-middle"
+                        style="background: {{ cal.color }};"></span>
+                  {{ cal.name }}
+                  <span class="text-muted">· {{ cal.provider }}</span>
+                </label>
+              </div>
+            {% endfor %}
+            <div class="form-text small">
+              Every event in these blocks the time. None ticked means your
+              page thinks you're free around the clock.
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small" for="write_calendar_id">
+              New appointments are written to
+            </label>
+            <select class="form-select form-select-sm" id="write_calendar_id"
+                    name="write_calendar_id">
+              <option value="">— pick a calendar —</option>
+              {% for cal in writable %}
+                <option value="{{ cal.pk }}"
+                  {% if page.write_calendar_id == cal.pk|string %}selected{% endif %}>
+                  {{ cal.name }}
+                </option>
+              {% endfor %}
+            </select>
+            <div class="form-text small">
+              Only writable calendars (Google, CalDAV). A booking is blocked
+              for the next visitor even if this calendar isn't ticked on the
+              left — Cairn remembers its own appointments.
+            </div>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <h2 class="h6 mb-2"><i class="bi bi-clock text-muted"></i> What can be booked</h2>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label small" for="durations">Lengths in minutes</label>
+          <input class="form-control form-control-sm" id="durations" name="durations"
+                 value="{{ page.ordered_durations()|join(', ') }}"
+                 placeholder="30, 60">
+          <div class="form-text small">
+            Comma-separated. The visitor picks one of them first.
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small" for="days_ahead">Bookable up to (days ahead)</label>
+          <input class="form-control form-control-sm" type="number" min="1" max="365"
+                 id="days_ahead" name="days_ahead" value="{{ page.days_ahead }}">
+        </div>
+      </div>
+
+      <div class="form-label small mt-3">Hours per weekday
+        <span class="text-muted">({{ current_user.timezone or 'server default' }})</span>
+      </div>
+      {% for day, label in weekdays %}
+        {% set window = hours_by_day[day][0] if hours_by_day[day] else None %}
+        <div class="row g-2 align-items-center mb-1">
+          <div class="col-5 col-sm-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="day-{{ day }}"
+                     name="day-{{ day }}" {% if window %}checked{% endif %}>
+              <label class="form-check-label small" for="day-{{ day }}">{{ label }}</label>
+            </div>
+          </div>
+          <div class="col-3 col-sm-2">
+            <input class="form-control form-control-sm" type="time" name="start-{{ day }}"
+                   value="{{ window.start_hhmm if window else default_hour.start_hhmm }}">
+          </div>
+          <div class="col-auto text-muted small">to</div>
+          <div class="col-3 col-sm-2">
+            <input class="form-control form-control-sm" type="time" name="end-{{ day }}"
+                   value="{{ window.end_hhmm if window else default_hour.end_hhmm }}">
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <h2 class="h6 mb-2"><i class="bi bi-shield-check text-muted"></i> Protection</h2>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label small" for="min_notice_hours">Earliest booking (hours from now)</label>
+          <input class="form-control form-control-sm" type="number" min="0" max="720"
+                 id="min_notice_hours" name="min_notice_hours"
+                 value="{{ page.min_notice_hours }}">
+          <div class="form-text small">Nobody lands in your calendar in ten minutes.</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small" for="buffer_minutes">Buffer around events (minutes)</label>
+          <input class="form-control form-control-sm" type="number" min="0" max="240"
+                 id="buffer_minutes" name="buffer_minutes" value="{{ page.buffer_minutes }}">
+          <div class="form-text small">Kept free before and after anything already booked.</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small" for="max_per_day">Max bookings per day</label>
+          <input class="form-control form-control-sm" type="number" min="0" max="50"
+                 id="max_per_day" name="max_per_day" value="{{ page.max_per_day }}">
+          <div class="form-text small">0 = no limit.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button class="btn btn-primary btn-sm">Save</button>
+  {% if public_url and page.enabled %}
+    <a class="btn btn-outline-secondary btn-sm" href="{{ public_url }}"
+       target="_blank" rel="noopener">
+      <i class="bi bi-box-arrow-up-right"></i> Open the page
+    </a>
+  {% endif %}
+</form>
+
+<div class="card mt-4">
+  <div class="card-header py-2">
+    <h2 class="h6 mb-0"><i class="bi bi-calendar-check text-muted"></i> Upcoming bookings</h2>
+  </div>
+  {% if upcoming %}
+    <ul class="list-group list-group-flush">
+      {% for b in upcoming %}
+        <li class="list-group-item d-flex align-items-center gap-3">
+          <div class="me-auto">
+            <div class="fw-semibold">{{ b.name }} · {{ b.duration_minutes }} min</div>
+            <div class="small text-muted">
+              {{ b.start|localdt }}
+              {% if b.email %}· {{ b.email }}{% endif %}
+              {% if b.event_error %}
+                · <span class="text-danger" title="{{ b.event_error }}">not written to the calendar</span>
+              {% endif %}
+            </div>
+            {% if b.note %}<div class="small">{{ b.note }}</div>{% endif %}
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="card-body text-muted small">Nothing booked yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -67,7 +67,10 @@ class User(UserMixin, Document):
         # ``api_tokens.token`` indexed so token-based auth stays a
         # single keyed lookup (the embedded layout doesn't change the
         # underlying B-tree shape).
-        "indexes": ["email", "username", "team", "api_tokens.token_hash"],
+        # ``booking.slug`` indexed because every hit on a public /book/<slug>
+        # page resolves the user through it.
+        "indexes": ["email", "username", "team", "api_tokens.token_hash",
+                    "booking.slug"],
     }
 
     username = StringField(required=True, unique=True, max_length=64)
@@ -330,6 +333,12 @@ class User(UserMixin, Document):
     # on every page — see application.models.notification. Capped on write.
     from application.models.notification import Notification as _Notification  # noqa: E402
     notifications = EmbeddedDocumentListField(_Notification)
+
+    # The public booking page (embedded — the slug lookup already has to load
+    # the user document, and the page then reads its whole configuration out
+    # of it). See application.models.booking.
+    from application.models.booking import BookingPage as _BookingPage  # noqa: E402
+    booking = EmbeddedDocumentField(_BookingPage, default=_BookingPage)
 
     # Time tracking: the running stopwatch (at most one) and the billing
     # project last logged to. Embedded so the navbar timer chip and the

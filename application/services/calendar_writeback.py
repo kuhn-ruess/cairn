@@ -45,7 +45,9 @@ def _write_calendar(user):
     return None
 
 
-def _create_event(cal, user, **kw):
+def create_event(cal, user, **kw):
+    """Create one event on any writable calendar. Public because the booking
+    page writes appointments through the same door."""
     if cal.provider == "caldav":
         return caldav_create_event(cal, user, **kw)
     return google_create_event(cal, user, **kw)
@@ -102,11 +104,11 @@ def sync_task_to_calendar(task, user) -> list[str]:
                              duration_minutes=duration,
                              timezone=tz)
             elif when and not event_id:
-                created = _create_event(cal, user,
-                                        title=title, when=when, all_day=False,
-                                        description=_describe(task),
-                                        duration_minutes=duration,
-                                        timezone=tz)
+                created = create_event(cal, user,
+                                       title=title, when=when, all_day=False,
+                                       description=_describe(task),
+                                       duration_minutes=duration,
+                                       timezone=tz)
                 setattr(task, field_id_attr, created.get("id") or "")
                 id_dirty = True
             elif not when and event_id:

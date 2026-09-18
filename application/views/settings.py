@@ -1159,6 +1159,140 @@ def calendar_caldav_new():
     return redirect(url_for("settings.calendars"))
 
 
+@settings_bp.route("/booking", methods=["GET", "POST"])
+@login_required
+def booking():
+    """Configure the public booking page (``/book/<slug>``).
+
+    Hand-parsed rather than a WTForm: the bulk of it is seven weekday rows
+    and two checkbox lists over the user's calendars, which a declarative
+    form would have to rebuild dynamically anyway. The CSRF token is checked
+    the same way the other settings forms here do it.
+
+    Everything is validated before anything is written, because half-saved
+    opening hours are a page that quietly offers the wrong times."""
+    from application.models.booking import WEEKDAYS, BookingHour
+    from application.models.booking import Booking
+
+    user = current_user._get_current_object()
+    page = user.booking
+    if request.method == "POST":
+        errors = _read_booking_form(user, page, request.form)
+        if errors:
+            for err in errors:
+                flash(err, "danger")
+        else:
+            user.save()
+            flash("Booking page saved.", "success")
+            return redirect(url_for("settings.booking"))
+
+    cals = sorted(user.calendars or [], key=lambda c: c.name.lower())
+    upcoming = Booking.objects(
+        owner=user, start__gte=datetime.now(timezone.utc)).order_by("start")[:20]
+    return render_template(
+        "settings/booking.html",
+        page=page, calendars=cals,
+        writable=[c for c in cals if c.can_write],
+        weekdays=list(enumerate(WEEKDAYS)),
+        hours_by_day={d: page.windows_for(d) for d in range(7)},
+        default_hour=BookingHour(),
+        upcoming=upcoming,
+        public_url=(url_for("booking.page", slug=page.slug, _external=True)
+                    if page.slug else ""),
+    )
+
+
+def _read_booking_form(user, page, form) -> list:
+    """Fill ``page`` from the posted form. Returns a list of complaints; on a
+    non-empty list nothing about the page should be saved."""
+    import re
+
+    from application.models.booking import WEEKDAYS, BookingHour
+    from application.models.user import User
+
+    errors = []
+    slug = (form.get("slug") or "").strip().lower()
+    enabled = bool(form.get("enabled"))
+    if slug and not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,38}", slug):
+        errors.append("The link name may use lowercase letters, digits and "
+                      "dashes only, and must start with a letter or digit.")
+    elif slug and User.objects(booking__slug=slug, pk__ne=user.pk).first():
+        errors.append("Somebody else already uses that link name.")
+    if enabled and not slug:
+        errors.append("A public page needs a link name.")
+
+    durations = []
+    for raw in (form.get("durations") or "").replace(";", ",").split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        if not raw.isdigit() or not (5 <= int(raw) <= 480):
+            errors.append(f"“{raw}” isn't a length in minutes between 5 and 480.")
+            continue
+        durations.append(int(raw))
+    if enabled and not durations:
+        errors.append("Offer at least one appointment length.")
+
+    hours = []
+    for day in range(7):
+        if not form.get(f"day-{day}"):
+            continue
+        start = _hhmm(form.get(f"start-{day}"))
+        end = _hhmm(form.get(f"end-{day}"))
+        if start is None or end is None:
+            errors.append(f"{WEEKDAYS[day]}: please give both times as HH:MM.")
+            continue
+        if end <= start:
+            errors.append(f"{WEEKDAYS[day]}: the end has to be after the start.")
+            continue
+        hours.append(BookingHour(weekday=day, start_minute=start, end_minute=end))
+    if enabled and not hours:
+        errors.append("Pick at least one day you're bookable.")
+
+    write_id = (form.get("write_calendar_id") or "").strip()
+    if write_id and not user.find_calendar(write_id):
+        errors.append("The calendar for new appointments no longer exists.")
+    if enabled and not write_id:
+        errors.append("Choose a calendar for new appointments to be written to.")
+    busy_ids = [cid for cid in form.getlist("busy_calendar_ids")
+                if user.find_calendar(cid)]
+
+    if errors:
+        return errors
+
+    page.enabled = enabled
+    page.slug = slug
+    page.title = (form.get("title") or "").strip()[:120]
+    page.intro = (form.get("intro") or "").strip()[:2000]
+    page.durations = sorted(set(durations))
+    page.days_ahead = _clamp(form.get("days_ahead"), 1, 365, 30)
+    page.hours = hours
+    page.busy_calendar_ids = busy_ids
+    page.write_calendar_id = write_id
+    page.min_notice_hours = _clamp(form.get("min_notice_hours"), 0, 720, 0)
+    page.buffer_minutes = _clamp(form.get("buffer_minutes"), 0, 240, 0)
+    page.max_per_day = _clamp(form.get("max_per_day"), 0, 50, 0)
+    return []
+
+
+def _hhmm(value):
+    """``"09:30"`` → 570. ``None`` when it isn't a time of day."""
+    parts = (value or "").strip().split(":")
+    if len(parts) != 2 or not all(p.isdigit() for p in parts):
+        return None
+    hours, minutes = int(parts[0]), int(parts[1])
+    if hours > 24 or minutes > 59 or hours * 60 + minutes > 24 * 60:
+        return None
+    return hours * 60 + minutes
+
+
+def _clamp(value, low, high, fallback):
+    try:
+        return max(low, min(high, int(str(value).strip())))
+    except (TypeError, ValueError):
+        return fallback
+
+
 @settings_bp.route("/calendars/caldav/refresh", methods=["POST"])
 @login_required
 def calendar_caldav_refresh():
