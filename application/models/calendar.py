@@ -73,6 +73,24 @@ class ExternalCalendar(EmbeddedDocument):
     created_at = DateTimeField(default=_utcnow)
 
     @property
+    def caldav_host(self) -> str:
+        """``cloud.example.com`` out of the collection URL. With two CalDAV
+        accounts connected, the username alone stops telling them apart."""
+        if not self.caldav_url:
+            return ""
+        from urllib.parse import urlsplit
+        return urlsplit(self.caldav_url).hostname or ""
+
+    @property
+    def account_label(self) -> str:
+        """Who this calendar comes from, as one short string."""
+        if self.provider == "caldav":
+            host = self.caldav_host
+            user = self.caldav_username or ""
+            return f"{user}@{host}" if user and host else (user or host or "connected")
+        return self.account_email or "connected"
+
+    @property
     def pk(self):
         """Mongoengine convenience — embedded docs don't get a real
         ``pk``, so views that called ``cal.pk`` keep working."""

@@ -39,6 +39,11 @@ and loses the user's data. Containers are intentionally named `bktodo-app-1` /
 
 `./cairn` is the CLI wrapper (the old `./bktodo` symlink beside it is gone).
 
+**Several CalDAV accounts** can be connected at once — each row keeps its own
+URL, username, password and discovery home, and a refresh treats one
+`(username, home)` pair as one connection. `ExternalCalendar.account_label`
+(`alice@cloud.example.com`) is what tells them apart in the UI.
+
 ## Common commands
 
 ### Docker dev loop (preferred — `./helper` auto-detects docker/podman)
@@ -280,8 +285,13 @@ Non-trivial logic that doesn't belong in a view or model lives here:
 
 - `perspectives.py` / `perspective_filter.py` — GTD perspective queries (Inbox, Today, Next, Forecast, Flagged, Waiting, Someday, Completed)
 - `calendar_sync.py` / `calendar_writeback.py` — Google Calendar OAuth + event push (single shared OAuth client per deployment, configured via `BKTODO_GOOGLE_CLIENT_ID`/`_SECRET`). **CalDAV takes the server's address, not one calendar's**: `discover_caldav_calendars` walks the standard chain (`current-user-principal` → `calendar-home-set` → the collections under it, starting at `/.well-known/caldav` when the address itself isn't a DAV resource) and connects every event calendar as its own `ExternalCalendar` — task lists, subscriptions and the scheduling inbox/outbox are skipped. A collection URL still means that one calendar. Only ONE of them starts visible in Today (the server's `schedule-default-calendar-URL`, else the first): a dozen calendars arriving in Today unasked is what the button would otherwise cost. The root it listed from is kept on each row (`caldav_home`), because a collection URL can't be walked back up to its home — that is what *Refresh from CalDAV* re-asks, the same gesture as Google's *Refresh*, with the stored credentials: names and colours are refreshed, new calendars arrive hidden, and one deleted on the server loses its row (only under a home that just answered, only in that connection — a failed refresh removes nothing, because "not in the answer" is also what a broken connection looks like; a removed write target is cleared)
-- `booking.py` — **the Calendly-style booking page** (`/book/<slug>`,
-  `views/booking.py`, settings under Settings → Booking page). `free_slots` is
+- `booking.py` — **the Calendly-style booking page** (`/book/<slug>`, with a
+  directory of everyone who opted in at `/book` and a portrait per person in
+  its own `booking_photos` collection — NOT on `User`, which Flask-Login reads
+  on every request; `views/booking.py`, settings under Settings → Booking
+  page). The directory filters `listed` in PYTHON, not in the query: a field
+  left at its default is never written to the document, so
+  `booking__listed=True` matches nobody who simply left the switch alone. `free_slots` is
   a PURE function over intervals — no clock, no database, no network — because
   a slot handed out wrongly is a double-booked afternoon and that has to be
   provable without a Nextcloud; everything that talks to a calendar sits

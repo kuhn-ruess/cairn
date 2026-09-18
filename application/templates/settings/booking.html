@@ -8,11 +8,41 @@
   the slots are and when you're available — Cairn does the rest.
 </p>
 
-<form method="post">
+<form method="post" enctype="multipart/form-data">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
   <div class="card mb-3">
     <div class="card-body">
+      {% if public_url %}
+        {# The whole point of the page is a link to hand out, so it is shown
+           whole and copyable — also while the page is still switched off,
+           where it is the thing you check before going live. #}
+        <div class="mb-3">
+          <label class="form-label small mb-1">Your link</label>
+          <div class="input-group input-group-sm">
+            <input type="text" class="form-control" readonly value="{{ public_url }}"
+                   onclick="this.select();">
+            <button type="button" class="btn btn-outline-secondary"
+                    onclick="navigator.clipboard.writeText('{{ public_url }}'); this.innerHTML='<i class=&quot;bi bi-check2&quot;></i>';"
+                    title="Copy link">
+              <i class="bi bi-clipboard"></i>
+            </button>
+            <a class="btn btn-outline-secondary" href="{{ public_url }}"
+               target="_blank" rel="noopener" title="Open">
+              <i class="bi bi-box-arrow-up-right"></i>
+            </a>
+          </div>
+          <div class="form-text small">
+            {% if page.enabled %}
+              Anyone with this link can book a free slot.
+            {% else %}
+              The page is switched off — this link answers 404 until you turn
+              it on below.
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
       <div class="form-check form-switch mb-3">
         <input class="form-check-input" type="checkbox" name="enabled" id="enabled"
                {% if page.enabled %}checked{% endif %}>
@@ -24,6 +54,19 @@
         </div>
       </div>
 
+      <div class="form-check form-switch mb-3">
+        <input class="form-check-input" type="checkbox" name="listed" id="listed"
+               {% if page.listed %}checked{% endif %}>
+        <label class="form-check-label" for="listed">
+          List me on <a href="{{ url_for('booking.index') }}" target="_blank"
+                        rel="noopener">/book</a>
+        </label>
+        <div class="form-text small">
+          That page shows everyone here who takes bookings, with photo and
+          headline. Off means only people you give the link to can find you.
+        </div>
+      </div>
+
       <div class="row g-3">
         <div class="col-md-6">
           <label class="form-label small" for="slug">Link name</label>
@@ -32,19 +75,33 @@
             <input class="form-control" id="slug" name="slug" value="{{ page.slug }}"
                    placeholder="your-name" maxlength="40">
           </div>
-          {% if public_url and page.enabled %}
-            <div class="form-text small">
-              <a href="{{ public_url }}" target="_blank" rel="noopener">{{ public_url }}</a>
-            </div>
-          {% else %}
-            <div class="form-text small">Lowercase letters, digits and dashes.</div>
-          {% endif %}
+          <div class="form-text small">Lowercase letters, digits and dashes.</div>
         </div>
         <div class="col-md-6">
           <label class="form-label small" for="title">Headline</label>
           <input class="form-control form-control-sm" id="title" name="title"
                  value="{{ page.title }}" maxlength="120"
                  placeholder="Book a call with me">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small" for="photo">Photo</label>
+          <div class="d-flex align-items-center gap-2">
+            {% if has_photo %}
+              <img src="{{ url_for('booking.photo', slug=page.slug) }}?v={{ range(100000)|random }}"
+                   alt="" width="48" height="48"
+                   style="border-radius: 50%; object-fit: cover;">
+            {% endif %}
+            <input class="form-control form-control-sm" type="file" id="photo"
+                   name="photo" accept="image/png,image/jpeg,image/gif,image/webp">
+          </div>
+          <div class="form-text small">
+            Cropped to a square and scaled down for you.
+            {% if has_photo %}
+              <label class="ms-1">
+                <input type="checkbox" name="remove_photo"> remove the current one
+              </label>
+            {% endif %}
+          </div>
         </div>
         <div class="col-12">
           <label class="form-label small" for="intro">Intro text</label>
@@ -76,7 +133,7 @@
                   <span class="cal-swatch d-inline-block align-middle"
                         style="background: {{ cal.color }};"></span>
                   {{ cal.name }}
-                  <span class="text-muted">· {{ cal.provider }}</span>
+                  <span class="text-muted">· {{ cal.account_label }}</span>
                 </label>
               </div>
             {% endfor %}

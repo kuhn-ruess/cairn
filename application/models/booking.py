@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 
 from bson import ObjectId
 from mongoengine import (
+    BinaryField,
     BooleanField,
     DateTimeField,
     Document,
@@ -70,6 +71,10 @@ class BookingPage(EmbeddedDocument):
     """A user's public booking page, addressed by ``/book/<slug>``."""
 
     enabled = BooleanField(default=False)
+    # Listed on the public directory at ``/book``. Separate from ``enabled``
+    # because "anyone with my link may book" and "put my face on a page that
+    # lists everybody" are two different decisions.
+    listed = BooleanField(default=True)
     slug = StringField(max_length=40, default="")
     title = StringField(max_length=120, default="")
     intro = StringField(max_length=2000, default="")
@@ -108,6 +113,23 @@ class BookingPage(EmbeddedDocument):
         """Configured enough to answer a visitor at all."""
         return bool(self.enabled and self.slug and self.ordered_durations()
                     and (self.hours or []))
+
+
+class BookingPhoto(Document):
+    """The portrait shown on a booking page and in the ``/book`` directory.
+
+    Its own collection, NOT a field on ``User``: Flask-Login loads the user
+    document on every single request, and a photo living there would be read
+    on every page of the app to be used on two. Stored already resized (see
+    ``views.settings._store_booking_photo``), so it is small and uniform."""
+
+    meta = {"collection": "booking_photos", "indexes": [
+        {"fields": ["owner"], "unique": True}]}
+
+    owner = ReferenceField("User", required=True)
+    data = BinaryField(required=True)
+    content_type = StringField(default="image/webp")
+    updated_at = DateTimeField(default=_utcnow)
 
 
 class Booking(Document):

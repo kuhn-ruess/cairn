@@ -180,6 +180,23 @@ class CalDavConnectTests(unittest.TestCase):
                 self.User.objects.get(username="caldav-test").calendar_write_target,
                 "")
 
+    def test_two_accounts_live_side_by_side_and_say_which_is_which(self):
+        """Several CalDAV accounts are the normal case (work + club + a shared
+        mailbox), and a row has to name the one it came from."""
+        self.connect()
+        other = "https://dav.example.net/calendars/bob/"
+        self.answer = (other, [{"url": other + "team/", "name": "Team",
+                                "color": "", "default": True}])
+        self.connect(url=other, username="bob")
+        cals = self.reload()
+        self.assertEqual([c.name for c in cals], ["Arbeit", "Privat", "Team"])
+        self.assertEqual(
+            {c.name: c.account_label for c in cals},
+            {"Arbeit": "alice@cloud.example.com",
+             "Privat": "alice@cloud.example.com",
+             "Team": "bob@dav.example.net"})
+        self.assertEqual({c.caldav_username for c in cals}, {"alice", "bob"})
+
     def test_one_account_going_quiet_leaves_the_other_accounts_rows(self):
         """Two connections, one answering: the other's rows are not "gone"."""
         self.connect()

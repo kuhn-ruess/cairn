@@ -88,7 +88,7 @@
               {% if cal.provider == "google" %}
                 {{ cal.account_email or 'connected' }} · {{ 'read/write' if cal.can_write else 'read-only' }}
               {% elif cal.provider == "caldav" %}
-                {{ cal.caldav_username or 'connected' }} · read/write
+                {{ cal.account_label }} · read/write
               {% else %}
                 read-only iCal
               {% endif %}

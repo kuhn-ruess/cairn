@@ -1171,13 +1171,19 @@ def booking():
 
     Everything is validated before anything is written, because half-saved
     opening hours are a page that quietly offers the wrong times."""
-    from application.models.booking import WEEKDAYS, BookingHour
-    from application.models.booking import Booking
+    from application.models.booking import (
+        WEEKDAYS, Booking, BookingHour, BookingPhoto,
+    )
 
     user = current_user._get_current_object()
     page = user.booking
     if request.method == "POST":
         errors = _read_booking_form(user, page, request.form)
+        # The photo is stored separately from the page's fields, but it is
+        # refused for the same reasons, so it is validated in the same pass.
+        photo_error = _store_booking_photo(user, request)
+        if photo_error:
+            errors.append(photo_error)
         if errors:
             for err in errors:
                 flash(err, "danger")
@@ -1197,6 +1203,10 @@ def booking():
         hours_by_day={d: page.windows_for(d) for d in range(7)},
         default_hour=BookingHour(),
         upcoming=upcoming,
+        has_photo=bool(BookingPhoto.objects(owner=user).only("id").first()),
+        # Shown whether or not the page is live: an unsaved slug has no link
+        # yet, but a configured one always has, and that is what gets handed
+        # out.
         public_url=(url_for("booking.page", slug=page.slug, _external=True)
                     if page.slug else ""),
     )
@@ -1261,6 +1271,7 @@ def _read_booking_form(user, page, form) -> list:
         return errors
 
     page.enabled = enabled
+    page.listed = bool(form.get("listed"))
     page.slug = slug
     page.title = (form.get("title") or "").strip()[:120]
     page.intro = (form.get("intro") or "").strip()[:2000]
@@ -1273,6 +1284,63 @@ def _read_booking_form(user, page, form) -> list:
     page.buffer_minutes = _clamp(form.get("buffer_minutes"), 0, 240, 0)
     page.max_per_day = _clamp(form.get("max_per_day"), 0, 50, 0)
     return []
+
+
+# A portrait is shown at 72px on the page and 64px in the directory, so it is
+# stored at 320 square: crisp on a retina screen, a few dozen KB, and the same
+# shape for everyone no matter what came out of the phone.
+BOOKING_PHOTO_PX = 320
+BOOKING_PHOTO_MAX_BYTES = 8 * 1024 * 1024
+
+
+def _store_booking_photo(user, req) -> str:
+    """Save, replace or remove the booking portrait. Returns a complaint, or
+    an empty string when there was nothing wrong (including nothing to do)."""
+    from application.models.booking import BookingPhoto
+    from application.views.tasks import _sniff_image_type
+
+    if req.form.get("remove_photo"):
+        BookingPhoto.objects(owner=user).delete()
+        return ""
+    fileobj = req.files.get("photo")
+    if not fileobj or not fileobj.filename:
+        return ""
+    raw = fileobj.read(BOOKING_PHOTO_MAX_BYTES + 1)
+    if len(raw) > BOOKING_PHOTO_MAX_BYTES:
+        return (f"That photo is larger than "
+                f"{BOOKING_PHOTO_MAX_BYTES // 1024 // 1024} MB.")
+    if not _sniff_image_type(raw[:12]):
+        # Sniffed, not taken from the filename — and SVG stays out, it can
+        # carry script and this file is served to the public.
+        return "That file isn't a PNG, JPEG, GIF or WebP image."
+    try:
+        data = _square_webp(raw, BOOKING_PHOTO_PX)
+    except Exception as exc:  # noqa: BLE001 — a broken upload is the user's news
+        return f"That image couldn't be read: {exc}"
+    BookingPhoto.objects(owner=user).delete()
+    BookingPhoto(owner=user, data=data, content_type="image/webp",
+                 updated_at=datetime.now(timezone.utc)).save()
+    return ""
+
+
+def _square_webp(raw: bytes, size: int) -> bytes:
+    """Centre-crop to a square and re-encode as WebP."""
+    import io
+
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(raw))
+    img.load()
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    side = min(img.width, img.height)
+    left = (img.width - side) // 2
+    top = (img.height - side) // 2
+    img = img.crop((left, top, left + side, top + side)).resize(
+        (size, size), Image.LANCZOS)
+    out = io.BytesIO()
+    img.save(out, format="WEBP", quality=82, method=4)
+    return out.getvalue()
 
 
 def _hhmm(value):

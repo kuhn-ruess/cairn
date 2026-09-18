@@ -6,6 +6,7 @@ calendar layer is replaced, so what's under test is the bookkeeping around it
 — who may see the page, what the form refuses to save, and the three ways two
 visitors can end up fighting over one slot.
 """
+import io
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -18,12 +19,21 @@ except ImportError:  # pragma: no cover - no mongoengine installed
 BERLIN = "Europe/Berlin"
 
 
+def png(width: int, height: int) -> bytes:
+    """A real PNG — the upload path sniffs the bytes, so a fake won't do."""
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), (80, 120, 160)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def form_data(**over):
     data = {
         "enabled": "y", "slug": "alice", "title": "Talk to me", "intro": "Hi.",
         "durations": "30, 60", "days_ahead": "14",
         "write_calendar_id": "", "busy_calendar_ids": [],
         "min_notice_hours": "0", "buffer_minutes": "0", "max_per_day": "0",
+        "listed": "y",
     }
     for day in range(5):
         data[f"day-{day}"] = "y"
@@ -51,16 +61,17 @@ class BookingPageTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         with cls.app.app_context():
-            from application.models.booking import Booking
+            from application.models.booking import Booking, BookingPhoto
             from application.models.user import User
             for name in ("book-test", "book-other"):
                 for u in User.objects(username=name):
                     Booking.objects(owner=u).delete()
+                    BookingPhoto.objects(owner=u).delete()
                     u.delete()
         disconnect(alias="default")
 
     def setUp(self):
-        from application.models.booking import Booking
+        from application.models.booking import Booking, BookingPhoto
         from application.models.calendar import ExternalCalendar
         from application.models.user import User
         from application.services import booking as svc
@@ -71,6 +82,7 @@ class BookingPageTests(unittest.TestCase):
             for name in ("book-test", "book-other"):
                 for u in User.objects(username=name):
                     Booking.objects(owner=u).delete()
+                    BookingPhoto.objects(owner=u).delete()
                     u.delete()
             user = User(username="book-test", email="b@example.com",
                         level="premium", timezone=BERLIN)
@@ -110,6 +122,7 @@ class BookingPageTests(unittest.TestCase):
     def save_page(self, **over):
         over.setdefault("write_calendar_id", self.cal_id)
         return self.client.post("/settings/booking", data=form_data(**over),
+                                content_type="multipart/form-data",
                                 follow_redirects=True)
 
     def reload(self):
@@ -289,6 +302,59 @@ class BookingPageTests(unittest.TestCase):
         self.assertNotIn(start,
                          self.client.get("/book/alice/slots?duration=30")
                          .get_json()["slots"])
+
+    # -- the directory and the portrait -----------------------------------
+    def test_the_directory_lists_a_live_page(self):
+        self.save_page()
+        body = self.client.get("/book/").data
+        self.assertIn(b"book-test", body)
+        self.assertIn(b"/book/alice", body)
+
+    def test_a_page_whose_document_predates_the_switch_is_still_listed(self):
+        """``listed`` defaults to True, and a field at its default is never
+        written — so the stored document has no such key at all. Querying for
+        it in Mongo found nobody; the default only exists after a load."""
+        self.save_page()
+        with self.app.app_context():
+            self.User._get_collection().update_one(
+                {"username": "book-test"}, {"$unset": {"booking.listed": ""}})
+        self.assertIn(b"/book/alice", self.client.get("/book/").data)
+
+    def test_a_page_that_asks_not_to_be_listed_is_not(self):
+        self.save_page(listed="")
+        self.assertNotIn(b"/book/alice", self.client.get("/book/").data)
+        # …and is still reachable for anyone holding the link.
+        self.assertEqual(self.client.get("/book/alice").status_code, 200)
+
+    def test_a_page_that_is_switched_off_is_not_listed(self):
+        self.save_page(enabled="")
+        self.assertNotIn(b"/book/alice", self.client.get("/book/").data)
+
+    def test_a_photo_is_stored_square_and_served_as_webp(self):
+        self.save_page(photo=(io.BytesIO(png(600, 300)), "me.png"))
+        resp = self.client.get("/book/alice/photo")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.mimetype, "image/webp")
+        from PIL import Image
+        img = Image.open(io.BytesIO(resp.data))
+        self.assertEqual(img.size, (320, 320))
+
+    def test_no_photo_is_a_404_not_a_broken_page(self):
+        self.save_page()
+        self.assertEqual(self.client.get("/book/alice/photo").status_code, 404)
+        self.assertEqual(self.client.get("/book/alice").status_code, 200)
+
+    def test_a_file_that_is_not_an_image_is_refused(self):
+        resp = self.save_page(photo=(io.BytesIO(b"<svg onload=alert(1)>"), "x.svg"))
+        # The apostrophe in the message is HTML-escaped by the time it renders.
+        self.assertIn(b"a PNG, JPEG, GIF or WebP image", resp.data)
+        self.assertEqual(self.client.get("/book/alice/photo").status_code, 404)
+
+    def test_a_photo_can_be_removed_again(self):
+        self.save_page(photo=(io.BytesIO(png(64, 64)), "me.png"))
+        self.assertEqual(self.client.get("/book/alice/photo").status_code, 200)
+        self.save_page(remove_photo="y")
+        self.assertEqual(self.client.get("/book/alice/photo").status_code, 404)
 
     def test_the_day_cap_closes_the_day_for_everyone(self):
         self.save_page(max_per_day="1")

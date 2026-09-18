@@ -17,3 +17,4 @@ markdownify==0.13.1
 celery==5.4.0
 redis==5.0.8
 stripe==10.10.0
+pillow==12.2.0

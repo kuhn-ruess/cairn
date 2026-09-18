@@ -29,12 +29,21 @@
     .book-slots { display: flex; flex-wrap: wrap; gap: .4rem; }
     .book-slot { min-width: 5.5rem; }
     .book-tz { font-size: .8rem; color: var(--gv-fg4); }
+    .book-face { width: 72px; height: 72px; border-radius: 50%; object-fit: cover;
+                 flex: 0 0 72px; background: var(--gv-bg2); }
   </style>
 </head>
 <body>
 <div class="book-wrap">
-  <h1 class="book-title h3">{{ page.title or ('Book time with ' ~ host_name) }}</h1>
-  <div class="book-sub">{{ host_name }}</div>
+  <div class="d-flex align-items-center gap-3">
+    {% if has_photo %}
+      <img class="book-face" src="{{ url_for('booking.photo', slug=page.slug) }}" alt="">
+    {% endif %}
+    <div>
+      <h1 class="book-title h3">{{ page.title or ('Book time with ' ~ host_name) }}</h1>
+      <div class="book-sub">{{ host_name }}</div>
+    </div>
+  </div>
   {% if page.intro %}<div class="book-intro">{{ page.intro }}</div>{% endif %}
 
   {% if error %}

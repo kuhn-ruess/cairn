@@ -1,9 +1,10 @@
-"""The public booking page — ``/book/<slug>``, no login.
+"""The public booking pages — ``/book`` and ``/book/<slug>``, no login.
 
-Three routes and a deliberate division of labour between them:
+A deliberate division of labour between the routes:
 
-* ``page`` renders the shell. It knows nothing about times, because the
-  visitor's timezone lives in the browser and nowhere else.
+* ``index`` lists everyone who switched their page on and asked to be listed.
+* ``page`` renders one person's shell. It knows nothing about times, because
+  the visitor's timezone lives in the browser and nowhere else.
 * ``slots`` answers with UTC instants as JSON. The browser formats them in
   its own zone and groups them into days, which is why the server never
   renders a time on this page.
@@ -17,7 +18,7 @@ can see and delete.
 from datetime import datetime, timezone
 
 from flask import (
-    Blueprint, abort, current_app, jsonify, render_template, request,
+    Blueprint, Response, abort, current_app, jsonify, render_template, request,
 )
 
 from application import limiter
@@ -34,16 +35,54 @@ def _host_or_404(slug: str):
     return user
 
 
+@booking_bp.route("/")
+def index():
+    """Everyone who has switched their page on and asked to be listed.
+
+    One query, and the portraits are fetched by the browser from
+    ``/book/<slug>/photo`` — so a directory of fifty people is still one
+    document read, not fifty blobs rendered into the page.
+
+    ``listed`` is filtered HERE and not in the query on purpose: a field left
+    at its default is never written to the document, so ``booking.listed:
+    true`` matches nobody who simply left the switch alone. The default only
+    exists once the document is loaded, which is where the test for it
+    belongs."""
+    hosts = [u for u in User.objects(booking__enabled=True)
+             .only("username", "display_name", "booking")
+             if u.booking and u.booking.is_live() and u.booking.listed]
+    hosts.sort(key=lambda u: (u.display_name or u.username).lower())
+    return render_template("public/booking_index.html", hosts=hosts)
+
+
 @booking_bp.route("/<slug>")
 def page(slug):
-    user = _host_or_404(slug)
+    return _render_page(_host_or_404(slug))
+
+
+def _render_page(user, error=None, status=200):
+    from application.models.booking import BookingPhoto
     from application.services.tz import user_zone
-    return render_template(
+    html = render_template(
         "public/booking.html", host=user, page=user.booking,
         host_name=user.display_name or user.username,
         host_tz=str(user_zone(user)),
         durations=user.booking.ordered_durations(),
+        has_photo=bool(BookingPhoto.objects(owner=user).only("id").first()),
+        error=error,
     )
+    return html if status == 200 else (html, status)
+
+
+@booking_bp.route("/<slug>/photo")
+def photo(slug):
+    from application.models.booking import BookingPhoto
+    user = _host_or_404(slug)
+    shot = BookingPhoto.objects(owner=user).first()
+    if shot is None:
+        abort(404)
+    return Response(bytes(shot.data), mimetype=shot.content_type,
+                    headers={"Cache-Control": "public, max-age=3600"})
 
 
 @booking_bp.route("/<slug>/slots")
@@ -105,10 +144,4 @@ def book(slug):
 
 
 def _error(user, message: str):
-    from application.services.tz import user_zone
-    return render_template(
-        "public/booking.html", host=user, page=user.booking,
-        host_name=user.display_name or user.username,
-        host_tz=str(user_zone(user)),
-        durations=user.booking.ordered_durations(),
-        error=message), 400
+    return _render_page(user, error=message, status=400)
