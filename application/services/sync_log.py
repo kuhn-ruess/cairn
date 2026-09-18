@@ -18,7 +18,7 @@ _KEEP = (
     "tickets_fetched", "tickets_created", "tickets_updated", "tickets_skipped",
     "tickets_dropped", "tickets_unchanged", "tickets_unowned",
     "tickets_foreign_owner", "filtered_assignee", "filtered_closed",
-    "closed_with_time", "comments_imported",
+    "closed_with_time", "comments_imported", "images_imported",
     "time_entries_imported", "time_entries_repaired", "time_customers_created",
     "time_folders_linked", "time_task_links_cleared", "time_skipped_unlinked",
     "time_skipped_no_time", "time_skipped_old", "time_users_matched",

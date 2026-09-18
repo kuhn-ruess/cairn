@@ -15,6 +15,10 @@ Mapping
 * First article body → ``note``; every later reply → a Cairn comment
   (authored by the external sender, deduped by the Zammad article id) so
   ticket updates keep flowing in on re-sync
+* The images of an article → stored ON the task (``Item.note_images``, like a
+  pasted image) with the body pointed at them, because "it looks like this" is
+  half of what a ticket says and every way Zammad points at a picture needs
+  Zammad to resolve it (see :func:`_absorb_images`)
 * Priority "1 low"/"2 normal"/"3 high" → Cairn P4/P3/P2
 * State "closed"/"merged"/"pending close" → ``status=done`` with
   ``completed_at`` stamped; every other state → ``status=open`` (a
@@ -27,6 +31,7 @@ from __future__ import annotations
 import itertools
 import json
 import logging
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -64,6 +69,7 @@ class ZammadStats:
     filtered_closed: int = 0
     tickets_dropped: int = 0  # orphans closed (status=done) during reconcile
     comments_imported: int = 0  # ticket replies mirrored in as comments
+    images_imported: int = 0    # inline images pulled onto the task itself
     time_entries_imported: int = 0  # Zammad time accounting → Cairn time entries
     time_entries_repaired: int = 0  # older imports backfilled with title + link
     time_users_matched: int = 0     # Zammad agents resolved to a Cairn account
@@ -121,6 +127,7 @@ class ZammadStats:
             "filtered_closed": self.filtered_closed,
             "tickets_dropped": self.tickets_dropped,
             "comments_imported": self.comments_imported,
+            "images_imported": self.images_imported,
             "time_entries_imported": self.time_entries_imported,
             "time_entries_repaired": self.time_entries_repaired,
             "time_users_matched": self.time_users_matched,
@@ -764,6 +771,7 @@ def _upsert_ticket(
         if not keep_scheduled and cairn_status != "done":
             apply_label_rules(existing, user)
         _sync_article_comments(existing, articles, stats, user, me_id)
+        _absorb_images(existing, articles, base, token, zid, stats)
         # Parent stays put either way: the user might have moved the
         # task / project into a specific place after the first import.
         existing.save()
@@ -789,6 +797,11 @@ def _upsert_ticket(
             apply_label_rules(item, user)
         _sync_article_comments(item, articles, stats, user, me_id)
         item.save()
+        # After the save, not before: an image is stored ON the item and the
+        # body points at it by the item's own id, which a new task does not
+        # have until it has been written once.
+        if _absorb_images(item, articles, base, token, zid, stats):
+            item.save()
         _import_time_accounting(user, item, base, token, zid, znum, stats,
                                 me_id, raw=raw, opts=opts)
         stats.tickets_created += 1
@@ -1365,3 +1378,239 @@ def _sync_article_comments(item: Item, articles: list[dict], stats: ZammadStats,
                 is_public=is_public,
             ))
             stats.comments_imported += 1
+
+
+# --- images out of Zammad ---------------------------------------------------
+
+# Zammad serves an article's files at /ticket_attachment/<ticket>/<article>/<id>;
+# an inline image in a body points there, or at "cid:<Content-ID>" from the mail.
+_ATTACH_PATH_RE = re.compile(r"ticket_attachment/\d+/\d+/(\d+)")
+# ``![alt](src)``, with an optional title — what markdownify made of an <img>.
+_MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(\s*<?([^)\s]+)>?(\s+\"[^\"]*\")?\s*\)")
+# An image pasted into Zammad's own editor arrives as a base64 blob in the body.
+_DATA_URL_RE = re.compile(r"^data:image/[a-z.+-]+;base64,(.+)$", re.I | re.S)
+# Tracking pixels, spacer GIFs, the dots in a mail footer: a handful in every
+# signature, and none of them a picture anyone wants on a task. A kilobyte is
+# the floor because it is safely above those and safely below a screenshot —
+# raise it here if signature logos turn out to be noise.
+_MIN_IMAGE_BYTES = 1024
+
+
+def _absorb_images(item: Item, articles: list[dict], base: str, token: str,
+                   zid: str, stats: ZammadStats) -> bool:
+    """Store a ticket's images ON the task and point its bodies at them.
+
+    An image in an article is a reference Cairn cannot follow: a ``cid:`` left
+    over from the mail, a path into Zammad's API that only opens with the
+    sync's token, or a base64 blob that would sit in the note text forever.
+    Each one is stored on the item exactly as a pasted image is
+    (``Item.note_images``), and the body is rewritten to the app's own URL — so
+    the picture is in the task, in the export and in the WebDAV mirror, and is
+    still there when the ticket has been closed and archived away.
+
+    Idempotent, which is what makes it cheap: an image's token is derived from
+    the Zammad ids, so a re-sync recognises what it already has and downloads
+    nothing. Only images are taken; other attachments stay in Zammad, which the
+    note's back-link reaches.
+
+    Returns True when it changed the item.
+    """
+    if not articles:
+        return False
+    # The first article is the note; every later one is the comment
+    # ``_sync_article_comments`` just wrote from it.
+    holders = {c.external_id: c for c in (item.comments or []) if c.external_id}
+    targets = []
+    for i, a in enumerate(articles):
+        holder = item if i == 0 else holders.get(str(a.get("id") or ""))
+        if holder is not None:
+            targets.append((a, holder))
+
+    changed = False
+    for article, holder in targets:
+        field_name = "note" if holder is item else "body"
+        text = getattr(holder, field_name) or ""
+        # Nothing in the text to repoint and nothing hanging off the article:
+        # the overwhelming majority of articles, and not worth a look.
+        if "![" not in text and not article.get("attachments"):
+            continue
+        rewritten = _rewrite_images(item, text, article, base, token, zid, stats)
+        if rewritten != text:
+            setattr(holder, field_name, rewritten)
+            changed = True
+    return changed
+
+
+def _rewrite_images(item: Item, text: str, article: dict, base: str, token: str,
+                    zid: str, stats: ZammadStats) -> str:
+    """Every ``![](…)`` in one body, pointed at an image stored on the item."""
+    atts = [a for a in (article.get("attachments") or []) if isinstance(a, dict)]
+    by_id = {str(a.get("id")): a for a in atts if a.get("id")}
+    by_cid = {}
+    for a in atts:
+        cid = str((a.get("preferences") or {}).get("Content-ID") or "").strip("<>")
+        if cid:
+            by_cid[cid] = a
+    aid = str(article.get("id") or "")
+
+    used: set[str] = set()
+
+    def repl(m):
+        alt, src, title = m.group(1), m.group(2), m.group(3) or ""
+        att = None
+        data_url = _DATA_URL_RE.match(src)
+        if data_url:
+            url = _store_data_url(item, data_url.group(1), stats)
+        else:
+            if src.lower().startswith("cid:"):
+                att = by_cid.get(src[4:].strip("<>"))
+            else:
+                path = _ATTACH_PATH_RE.search(src)
+                att = by_id.get(path.group(1)) if path else None
+            url = _store_attachment(item, att, base, token, zid, aid, stats)
+        if not url:
+            return m.group(0)
+        if att is not None:
+            used.add(str(att.get("id")))
+        return f"![{alt or 'image'}]({url}{title})"
+
+    out = _MD_IMAGE_RE.sub(repl, text)
+
+    # A screenshot is just as often ATTACHED as pasted into the mail — nothing
+    # in the body points at it, and dropping it would lose the half of the
+    # ticket that says what the problem looks like. Appended in the order
+    # Zammad lists them, so a re-sync writes the very same body.
+    for att in atts:
+        att_id = str(att.get("id") or "")
+        if att_id in used or not _looks_like_image(att):
+            continue
+        url = _store_attachment(item, att, base, token, zid, aid, stats)
+        # Already in the text — either appended by an earlier round or pointed
+        # at from where the mail had it inline.
+        if not url or url in out:
+            continue
+        name = str(att.get("filename") or "image").replace("]", ")")
+        out = _append_image(out, f"![{name}]({url})")
+    return out
+
+
+# The back-link the importer writes under every note. An attached picture goes
+# above it: the link is the note's last line by design.
+_BACKLINK_RE = re.compile(r"\[Zammad #\d+\]\([^)]*\)\s*$")
+
+
+def _append_image(text: str, line: str) -> str:
+    """An attached image at the end of a body, above the ticket back-link."""
+    if not text.strip():
+        return line
+    m = _BACKLINK_RE.search(text)
+    if m:
+        return (text[:m.start()].rstrip() + "\n\n" + line
+                + "\n\n" + m.group(0).strip())
+    return text.rstrip() + "\n\n" + line
+
+
+def _looks_like_image(att: dict) -> bool:
+    """Zammad's own word for it — the mail's Content-Type, else the filename.
+    Only a gate on what to DOWNLOAD; the bytes decide in :func:`_keep_image`."""
+    prefs = att.get("preferences") or {}
+    ctype = str(prefs.get("Content-Type") or prefs.get("Mime-Type") or "").lower()
+    if ctype:
+        return ctype.startswith("image/") and "svg" not in ctype
+    name = str(att.get("filename") or "").lower()
+    return name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
+
+
+def _store_data_url(item: Item, b64: str, stats: ZammadStats) -> str:
+    """A base64 image out of a body, keyed by its own bytes — the same picture
+    pasted into two replies is stored once."""
+    import base64
+    import hashlib
+
+    try:
+        data = base64.b64decode("".join(b64.split()))
+    except ValueError:            # binascii.Error is one of these
+        return ""
+    return _keep_image(item, "zm-" + hashlib.sha1(data).hexdigest()[:16], data, stats)
+
+
+def _store_attachment(item: Item, att, base: str, token: str, zid: str,
+                      aid: str, stats: ZammadStats) -> str:
+    """One attachment of one article, downloaded only if we don't have it."""
+    from application.views.tasks import NOTE_IMAGE_MAX_BYTES
+
+    if not att or not aid:
+        return ""
+    att_id = str(att.get("id") or "")
+    if not att_id:
+        return ""
+    key = f"zm-{aid}-{att_id}"
+    if any(i.token == key for i in (item.note_images or [])):
+        return f"/tasks/{item.pk}/note-image/{key}"
+    try:
+        size = int(att.get("size") or 0)
+    except (TypeError, ValueError):
+        size = 0
+    if 0 < size < _MIN_IMAGE_BYTES:
+        return ""                 # a spacer or a footer dot — don't even fetch it
+    if size > NOTE_IMAGE_MAX_BYTES:
+        stats.errors.append(
+            f"#{zid}: '{att.get('filename')}' is too large to import "
+            f"({size // 1024 // 1024} MB) — it stays in Zammad.")
+        return ""
+    data = _download(base + f"/ticket_attachment/{zid}/{aid}/{att_id}", token, stats)
+    if not data:
+        return ""
+    return _keep_image(item, key, data, stats)
+
+
+def _keep_image(item: Item, key: str, data: bytes, stats: ZammadStats) -> str:
+    """Put the bytes on the item as a note image, if they are one and they fit."""
+    from application.models.item import ITEM_MAX_BYTES, NoteImage
+    from application.views.tasks import _sniff_image_type
+
+    if any(i.token == key for i in (item.note_images or [])):
+        return f"/tasks/{item.pk}/note-image/{key}"
+    if len(data) < _MIN_IMAGE_BYTES:
+        return ""                 # a spacer or a footer dot, not a picture
+    ctype = _sniff_image_type(data[:12])
+    if not ctype:
+        return ""                 # not a raster image (SVG included, on purpose)
+    item.note_images.append(NoteImage(token=key, content_type=ctype, data=data))
+    if item.storage_bytes() > ITEM_MAX_BYTES:
+        item.note_images.pop()
+        stats.errors.append(
+            f"{item.title}: no room for another image — the task is full.")
+        return ""
+    # Counted here, where an image is really taken in: a re-sync repoints the
+    # same bodies at the images it already has, and reporting those as imported
+    # would make every run look like it did work.
+    stats.images_imported += 1
+    return f"/tasks/{item.pk}/note-image/{key}"
+
+
+def _download(url: str, token: str, stats: ZammadStats) -> bytes:
+    """Raw bytes from Zammad. :func:`_request` speaks JSON; an attachment is a
+    file, and the other difference is that a lost one is a missing picture, not
+    a failed sync — so it is logged and the body keeps the text it had."""
+    from application.services.http_safety import (
+        UnsafeURLError, safe_urlopen, validate_outbound_url,
+    )
+    from application.views.tasks import NOTE_IMAGE_MAX_BYTES
+
+    next(_CALLS)
+    try:
+        validate_outbound_url(url)
+    except UnsafeURLError as exc:
+        stats.errors.append(f"refusing to fetch: {exc}")
+        return b""
+    req = urllib.request.Request(url, method="GET", headers={
+        "Authorization": f"Token token={token}",
+        "Accept": "*/*",
+    })
+    try:
+        with safe_urlopen(req, timeout=30) as resp:
+            return resp.read(NOTE_IMAGE_MAX_BYTES + 1)
+    except (UnsafeURLError, urllib.error.URLError, OSError) as exc:
+        stats.errors.append(f"attachment {url.rsplit('/', 1)[-1]}: {exc}")
+        return b""

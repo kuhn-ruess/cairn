@@ -172,6 +172,10 @@
               imported. “Hand tickets to their Zammad owner” above moves
               them.</li>
           {% endif %}
+          {% if stats.images_imported %}
+            <li>Images taken out of Zammad and onto their task:
+              <strong>{{ stats.images_imported }}</strong></li>
+          {% endif %}
           {% if stats.time_entries_imported %}
             <li>Time bookings imported: <strong>{{ stats.time_entries_imported }}</strong></li>
           {% endif %}

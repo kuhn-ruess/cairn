@@ -248,6 +248,10 @@
         {% if stats.tickets_dropped %}
           <li>Closed (no longer in Zammad): <strong>{{ stats.tickets_dropped }}</strong></li>
         {% endif %}
+        {% if stats.images_imported %}
+          <li>Images taken out of Zammad and onto their task:
+            <strong>{{ stats.images_imported }}</strong></li>
+        {% endif %}
         {% if stats.time_entries_imported %}
           <li>Time bookings imported: <strong>{{ stats.time_entries_imported }}</strong>
             (<a href="{{ url_for('timetracking.day') }}">time tracking</a>)</li>
