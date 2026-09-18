@@ -5,9 +5,10 @@ the multistatus bodies are what a Nextcloud answers, and the request layer is
 replaced so the walk itself (address → principal → calendar home → the
 collections under it) is what's under test.
 
-The two things worth pinning: a calendar home holds more than calendars (the
-home itself, the scheduling inbox/outbox, subscriptions, task lists), and an
-address that already IS one calendar must stay one calendar.
+The things worth pinning: a calendar home holds more than calendars (the home
+itself, the scheduling inbox/outbox, subscriptions, task lists), an address
+that already IS one calendar must stay one calendar, and exactly one of the
+answers is the ``default`` — the only one that starts out visible in Today.
 """
 import unittest
 
@@ -87,6 +88,7 @@ PRINCIPAL = """<?xml version="1.0"?>
     <d:propstat><d:prop>
       <d:resourcetype><d:collection/><d:principal/></d:resourcetype>
       <c:calendar-home-set><d:href>/remote.php/dav/calendars/alice/</d:href></c:calendar-home-set>
+      <c:schedule-default-calendar-URL><d:href>/remote.php/dav/calendars/alice/personal/</d:href></c:schedule-default-calendar-URL>
       </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
   </d:response>
 </d:multistatus>
@@ -147,16 +149,38 @@ class WalkTests(unittest.TestCase):
         except KeyError:
             raise cs.CalendarError(f"CalDAV PROPFIND 405: {url}") from None
 
-    def test_base_url_reaches_every_calendar(self):
-        base = "https://cloud.example.com/remote.php/dav/"
+    def _nextcloud(self):
         self.answers = {
-            base: ROOT,
+            "https://cloud.example.com/remote.php/dav/": ROOT,
             "https://cloud.example.com/remote.php/dav/principals/users/alice/": PRINCIPAL,
             HOME: LISTING,
         }
-        found = cs.discover_caldav_calendars(base, "alice", "pw")
+
+    def test_base_url_reaches_every_calendar(self):
+        self._nextcloud()
+        root, found = cs.discover_caldav_calendars(
+            "https://cloud.example.com/remote.php/dav/", "alice", "pw")
         self.assertEqual([c["name"] for c in found], ["Arbeit", "Privat"])
+        self.assertEqual(root, HOME)
         self.assertEqual(self.asked[-1], (HOME, "1"))
+
+    def test_the_servers_default_calendar_is_the_one_marked_default(self):
+        self._nextcloud()
+        _root, found = cs.discover_caldav_calendars(
+            "https://cloud.example.com/remote.php/dav/", "alice", "pw")
+        self.assertEqual([c["name"] for c in found if c["default"]], ["Privat"])
+
+    def test_without_a_default_the_first_calendar_takes_the_role(self):
+        self._nextcloud()
+        self.answers[
+            "https://cloud.example.com/remote.php/dav/principals/users/alice/"
+        ] = PRINCIPAL.replace(
+            "<c:schedule-default-calendar-URL>"
+            "<d:href>/remote.php/dav/calendars/alice/personal/</d:href>"
+            "</c:schedule-default-calendar-URL>", "")
+        _root, found = cs.discover_caldav_calendars(
+            "https://cloud.example.com/remote.php/dav/", "alice", "pw")
+        self.assertEqual([c["name"] for c in found if c["default"]], ["Arbeit"])
 
     def test_bare_server_address_falls_back_to_well_known(self):
         self.answers = {
@@ -164,14 +188,17 @@ class WalkTests(unittest.TestCase):
             "https://cloud.example.com/remote.php/dav/principals/users/alice/": PRINCIPAL,
             HOME: LISTING,
         }
-        found = cs.discover_caldav_calendars("https://cloud.example.com", "alice", "pw")
+        _root, found = cs.discover_caldav_calendars(
+            "https://cloud.example.com", "alice", "pw")
         self.assertEqual([c["name"] for c in found], ["Arbeit", "Privat"])
 
     def test_a_single_collection_url_stays_a_single_calendar(self):
         url = HOME + "personal/"
         self.answers = {url: ONE_CALENDAR}
-        found = cs.discover_caldav_calendars(url, "alice", "pw")
-        self.assertEqual(found, [{"url": url, "name": "Privat", "color": ""}])
+        root, found = cs.discover_caldav_calendars(url, "alice", "pw")
+        self.assertEqual(
+            found, [{"url": url, "name": "Privat", "color": "", "default": True}])
+        self.assertEqual(root, url)
         self.assertEqual(len(self.asked), 1)
 
     def test_an_unreachable_address_reports_the_address_that_was_typed(self):

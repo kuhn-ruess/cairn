@@ -62,6 +62,11 @@ class ExternalCalendar(EmbeddedDocument):
     caldav_url = StringField()
     caldav_username = StringField(max_length=255)
     caldav_password = StringField()
+    # Where this calendar was discovered from (the calendar home, or the
+    # collection itself when that is what was pasted). Asking it again is what
+    # "Refresh from CalDAV" does — a collection URL alone can't be walked back
+    # up to its home.
+    caldav_home = StringField()
 
     last_synced_at = DateTimeField()
     last_error = StringField()

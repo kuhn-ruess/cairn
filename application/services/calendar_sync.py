@@ -645,7 +645,8 @@ _CALDAV_DISCOVER_BODY = (
     '<?xml version="1.0" encoding="utf-8"?>'
     '<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
     '<d:prop><d:resourcetype/><d:displayname/>'
-    '<d:current-user-principal/><c:calendar-home-set/></d:prop>'
+    '<d:current-user-principal/><c:calendar-home-set/>'
+    '<c:schedule-default-calendar-URL/></d:prop>'
     '</d:propfind>'
 )
 
@@ -845,17 +846,24 @@ def _caldav_props(url: str, auth: str) -> "tuple[str, list, str]":
     return at, responses[0][1], responses[0][0] or at
 
 
-def _caldav_home(at: str, props, auth: str) -> str:
-    """The calendar home for a resource: its own ``calendar-home-set``, or the
-    one its principal names."""
+def _caldav_home(at: str, props, auth: str) -> "tuple[str, str]":
+    """``(calendar home, default calendar)`` for a resource — its own
+    ``calendar-home-set``, or the one its principal names.
+
+    The default calendar is the one the server drops an invitation into
+    (RFC 6638). Most servers answer it on the principal; the ones that don't
+    leave it empty, and then "default" is decided further up."""
     home = _prop_href(props, f"{{{CALDAV_NS}}}calendar-home-set", at)
+    default = _prop_href(props, f"{{{CALDAV_NS}}}schedule-default-calendar-URL", at)
     if home:
-        return home
+        return home, default
     principal = _prop_href(props, "{DAV:}current-user-principal", at)
     if not principal:
-        return ""
+        return "", default
     p_at, p_props, _href = _caldav_props(principal, auth)
-    return _prop_href(p_props, f"{{{CALDAV_NS}}}calendar-home-set", p_at)
+    return (_prop_href(p_props, f"{{{CALDAV_NS}}}calendar-home-set", p_at),
+            default or _prop_href(
+                p_props, f"{{{CALDAV_NS}}}schedule-default-calendar-URL", p_at))
 
 
 def _well_known_caldav(url: str) -> str:
@@ -864,8 +872,15 @@ def _well_known_caldav(url: str) -> str:
         (parts.scheme, parts.netloc, "/.well-known/caldav", "", ""))
 
 
-def discover_caldav_calendars(url: str, username: str, password: str) -> list[dict]:
-    """Every readable calendar behind ``url`` — ``[{url, name, color}, …]``.
+def discover_caldav_calendars(url: str, username: str,
+                              password: str) -> "tuple[str, list[dict]]":
+    """Every readable calendar behind ``url``.
+
+    Returns ``(root, [{url, name, color, default}, …])``. The ROOT is the
+    address the calendars were listed from — the calendar home, or the
+    collection itself when that is all ``url`` pointed at. It is worth keeping:
+    asking it again later is a refresh, and it is the only part of the walk a
+    collection URL can't be re-derived from.
 
     ``url`` may be one calendar's collection URL, and then that one calendar
     comes back. Anything above it — a principal, a calendar home, or the bare
@@ -874,6 +889,10 @@ def discover_caldav_calendars(url: str, username: str, password: str) -> list[di
     ``calendar-home-set`` → the collections under it (RFC 4791), starting at
     ``/.well-known/caldav`` when the address itself isn't a DAV resource
     (RFC 6764). That is how any other client finds them all from one address.
+
+    Exactly one entry is ``default``: the server's scheduling default calendar
+    where it names one, else the first. Connecting a dozen calendars shouldn't
+    put a dozen into Today, and this is the one of them that means "mine".
 
     Getting an answer at all is the credential check too, so the caller needs
     no separate probe."""
@@ -891,19 +910,28 @@ def discover_caldav_calendars(url: str, username: str, password: str) -> list[di
             raise exc from None
 
     if _is_calendar(props):
-        return [_calendar_entry(href, props)]
+        one = _calendar_entry(href, props)
+        one["default"] = True
+        return one["url"], [one]
 
-    home = _caldav_home(at, props, auth)
+    home, default = _caldav_home(at, props, auth)
     if not home and _well_known_caldav(start) != at:
         at, props, href = _caldav_props(_well_known_caldav(start), auth)
         if _is_calendar(props):
-            return [_calendar_entry(href, props)]
-        home = _caldav_home(at, props, auth)
+            one = _calendar_entry(href, props)
+            one["default"] = True
+            return one["url"], [one]
+        home, default = _caldav_home(at, props, auth)
     if not home:
         raise CalendarError("no CalDAV calendars found at that address")
 
     at, text = _caldav_propfind(_with_slash(home), auth, _CALDAV_LIST_BODY, "1")
-    return caldav_calendars_from_listing(text, at)
+    found = caldav_calendars_from_listing(text, at)
+    for entry in found:
+        entry["default"] = _with_slash(entry["url"]) == _with_slash(default or "")
+    if found and not any(e["default"] for e in found):
+        found[0]["default"] = True
+    return _with_slash(home), found
 
 
 def _fetch_caldav(calendar, user, since: datetime, until: datetime) -> list[CalendarEvent]:

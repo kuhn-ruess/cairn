@@ -46,7 +46,9 @@ class CalDavForm(FlaskForm):
     password = PasswordField("Password / app token", validators=[DataRequired()])
     name = StringField("Name (optional)", validators=[Optional(), Length(max=128)])
     color = StringField("Color", default="#458588")
-    show_in_today = BooleanField("Show events in Today", default=True)
+    # One calendar out of a whole account starts visible; the others are a
+    # click away in the list, which is why this doesn't say "events".
+    show_in_today = BooleanField("Show the main calendar in Today", default=True)
     submit = SubmitField("Connect")
 
 
@@ -1106,7 +1108,7 @@ def calendar_caldav_new():
     username = form.username.data.strip()
     password = form.password.data
     try:
-        found = discover_caldav_calendars(url, username, password)
+        root, found = discover_caldav_calendars(url, username, password)
     except CalendarError as exc:
         flash(f"Couldn't reach that calendar: {exc}", "danger")
         return redirect(url_for("settings.calendars"))
@@ -1134,9 +1136,13 @@ def calendar_caldav_new():
             provider="caldav",
             name=name,
             color=picked or entry["color"] or "#458588",
-            show_in_today=form.show_in_today.data,
+            # A whole account's worth of calendars in Today is a wall of
+            # events nobody asked for, so only the default one starts visible
+            # — the rest are one click away in the list above.
+            show_in_today=bool(form.show_in_today.data and entry["default"]),
             can_write=True,
             caldav_url=entry["url"],
+            caldav_home=root,
             caldav_username=username,
             caldav_password=secret,
         ))
@@ -1148,7 +1154,79 @@ def calendar_caldav_new():
     if len(added) == 1:
         flash(f"Connected to \u201c{added[0]}\u201d.", "success")
     else:
-        flash(f"Connected {len(added)} calendars: " + ", ".join(added), "success")
+        flash(f"Connected {len(added)} calendars: " + ", ".join(added)
+              + ". Pick which of them show in Today above.", "success")
+    return redirect(url_for("settings.calendars"))
+
+
+@settings_bp.route("/calendars/caldav/refresh", methods=["POST"])
+@login_required
+def calendar_caldav_refresh():
+    """Re-ask each connected CalDAV account for its calendars.
+
+    The Google equivalent of this button reuses the OAuth grant; here the
+    stored credentials do the same job, so a calendar created on the server
+    since arrives without anyone typing a URL again. Names and colours of the
+    rows already here are refreshed, new calendars arrive hidden (appearing in
+    Today unasked is the one thing a refresh must not do), and nothing is
+    deleted — a calendar gone from the server keeps its row until the user
+    drops it.
+
+    One connection is one ``(username, home)`` pair: several accounts, or
+    several servers, are refreshed each on their own."""
+    from application.models.calendar import ExternalCalendar
+    from application.services.calendar_sync import discover_caldav_calendars
+    from application.services.crypto import decrypt_for_user
+
+    user = current_user._get_current_object()
+    cals = [c for c in (user.calendars or []) if c.provider == "caldav"]
+    if not cals:
+        flash("Connect a CalDAV calendar first.", "warning")
+        return redirect(url_for("settings.calendars"))
+
+    seeds: dict = {}
+    for cal in cals:
+        # Calendars connected before the home was recorded: the collection's
+        # parent is the home on every server that lays them out that way, and
+        # the discovery walk corrects it from there if it isn't.
+        home = cal.caldav_home or urllib.parse.urljoin(cal.caldav_url or "", "..")
+        seeds.setdefault((cal.caldav_username or "", home), cal)
+
+    by_url = {(c.caldav_url or "").rstrip("/"): c for c in cals}
+    created = updated = 0
+    errors = []
+    for (username, home), seed in seeds.items():
+        try:
+            root, found = discover_caldav_calendars(
+                home, username, decrypt_for_user(user, seed.caldav_password) or "")
+        except CalendarError as exc:
+            errors.append(f"{home}: {exc}")
+            continue
+        for entry in found:
+            existing = by_url.get(entry["url"].rstrip("/"))
+            if existing:
+                existing.name = entry["name"] or existing.name
+                existing.color = entry["color"] or existing.color
+                existing.caldav_home = root
+                updated += 1
+                continue
+            user.calendars.append(ExternalCalendar(
+                provider="caldav",
+                name=entry["name"],
+                color=entry["color"] or "#458588",
+                show_in_today=False,
+                can_write=True,
+                caldav_url=entry["url"],
+                caldav_home=root,
+                caldav_username=username,
+                caldav_password=seed.caldav_password,
+            ))
+            created += 1
+    user.save()
+    for err in errors:
+        flash(f"Refresh failed: {err}", "danger")
+    if created or updated:
+        flash(f"Refreshed: {created} added, {updated} updated.", "success")
     return redirect(url_for("settings.calendars"))
 
 

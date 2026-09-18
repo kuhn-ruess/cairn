@@ -66,6 +66,16 @@
           </button>
         </form>
       {% endif %}
+      {% if calendars|selectattr('provider', 'equalto', 'caldav')|list %}
+        <form method="post" action="{{ url_for('settings.calendar_caldav_refresh') }}"
+              class="m-0 ms-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm btn-outline-secondary"
+                  title="Ask your CalDAV server for calendars added since">
+            <i class="bi bi-arrow-clockwise"></i> Refresh from CalDAV
+          </button>
+        </form>
+      {% endif %}
     </div>
     <ul class="list-group list-group-flush">
       {% for cal in calendars %}
