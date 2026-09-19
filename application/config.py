@@ -95,6 +95,9 @@ class BaseConfig:
     SMTP_PASSWORD = ""
     SMTP_FROM = ""
     SMTP_TLS = "1"
+    # Implicit TLS. Empty means "decide by the port" (465 = yes), which is
+    # what a deployment that only sets host/port/user expects.
+    SMTP_SSL = ""
 
     # ---- Subscriptions ----
     # The whole commercial model — plans, trials, the free tier, and the

@@ -440,7 +440,7 @@ Non-trivial logic that doesn't belong in a view or model lives here:
 - `capture.py` — marked blocks → tasks (into a picked project) or → a note; behind `/capture/*`, used by the scratchpad and by a note's rendered body. `parse_tasks` reads indentation with `expandtabs(4)`, which is why the outline's tab nesting converts straight into a task tree
 - `quick_parse.py` — natural-language task parsing
 - `permissions.py` — sharing/visibility checks
-- `mail.py` / `crypto.py` — SMTP for password resets, token signing
+- `mail.py` / `crypto.py` — SMTP for password resets and booking confirmations, token signing. `deliver()` raises and `send_email()` swallows, because a confirmation must not take down the request it rides on while `./cairn test-mail <address>` is worth nothing unless it can print what the server answered. Implicit TLS is inferred from port 465 (`SMTP_SSL` overrides): the wrong mode is a timeout, not an error, and an empty `SMTP_HOST` sends nothing and says nothing — which is what “mails don't go out” nearly always is
 
 ### Sync log
 

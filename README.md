@@ -68,6 +68,7 @@ Two equivalent entry points:
 | `./cairn issue-token USER [--name NAME]` | Print a new API token |
 | `./cairn list-users` | List all users |
 | `./cairn seed-demo USER` | Create sample projects/tags/tasks |
+| `./cairn test-mail ADDRESS` | Send a test email and print why it failed |
 
 ## Configuration
 
@@ -81,6 +82,47 @@ All settings are overridable through `BKTODO_*` env vars:
 | `BKTODO_MONGO_DB` | `bktodo` (the legacy internal name — keeps existing data working) |
 | `BKTODO_MONGO_USER` / `_PASSWORD` / `_AUTH_SOURCE` | empty |
 | `BKTODO_CONFIG` | `application.config.DevConfig` |
+
+### Email
+
+Mail is **off** until `BKTODO_SMTP_HOST` is set — nothing is sent and nothing
+complains, which is the usual reason password resets and booking
+confirmations don't arrive.
+
+| Variable | Default | |
+|---|---|---|
+| `BKTODO_SMTP_HOST` | empty | empty = mail switched off |
+| `BKTODO_SMTP_PORT` | `587` | 587 STARTTLS · 465 implicit TLS |
+| `BKTODO_SMTP_USER` / `_PASSWORD` | empty | omit both for a relay without login |
+| `BKTODO_SMTP_FROM` | the SMTP user | many providers refuse a foreign From |
+| `BKTODO_SMTP_TLS` | `1` | `0` disables STARTTLS |
+| `BKTODO_SMTP_SSL` | by port | `1` forces implicit TLS on any port |
+
+Check it end to end — this prints the resolved settings and the server's own
+answer, which is the difference between "wrong password" and "wrong TLS mode":
+
+```sh
+./helper cairn test-mail you@example.com     # docker
+./cairn test-mail you@example.com            # venv
+```
+
+### Microsoft Teams meetings (booking page)
+
+One Entra app registration per deployment; each user then connects their own
+account under Settings → Booking page. Register it at
+[entra.microsoft.com](https://entra.microsoft.com) → App registrations → New:
+account type *any organizational directory*, redirect URI (Web)
+`https://<host>/settings/booking/microsoft/callback`, delegated Graph
+permissions `OnlineMeetings.ReadWrite`, `User.Read`, `offline_access`. Then:
+
+| Variable | Default |
+|---|---|
+| `BKTODO_MS_CLIENT_ID` | empty (no Teams option shown) |
+| `BKTODO_MS_CLIENT_SECRET` | empty |
+| `BKTODO_MS_TENANT` | `organizations` |
+
+A personal Microsoft account can't host a Teams meeting, and the connecting
+account needs a Teams licence — hence the tenant default.
 
 ## REST API
 

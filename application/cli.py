@@ -55,6 +55,38 @@ def rename_user(old_username, new_username):
     user.save()
     click.echo(f"renamed {old_username} → {user.username} ({user.pk})")
 
+@cairn_cli.command("test-mail")
+@click.argument("address")
+def test_mail(address):
+    """Send a test email to ADDRESS and say exactly what happened.
+
+    The point of this command is the failure, not the success: "mail doesn't
+    arrive" is otherwise a log line nobody reads, and the three ways it goes
+    wrong (not configured at all, wrong TLS mode for the port, refused
+    credentials) look identical from the outside."""
+    from application.services.mail import deliver, smtp_settings
+
+    cfg = smtp_settings()
+    if not cfg["host"]:
+        raise click.ClickException(
+            "BKTODO_SMTP_HOST is empty — mail is switched off. Set the "
+            "BKTODO_SMTP_* variables in .env and restart.")
+    mode = ("implicit TLS" if cfg["ssl"]
+            else "STARTTLS" if cfg["starttls"] else "no encryption")
+    click.echo(f"host     {cfg['host']}:{cfg['port']} ({mode})")
+    click.echo(f"user     {cfg['user'] or '— (no login)'}")
+    click.echo(f"password {'set' if cfg['password'] else '— (no login)'}")
+    click.echo(f"from     {cfg['sender']}")
+    click.echo(f"to       {address}")
+    try:
+        deliver(address, "Cairn test mail",
+                "This is a test mail from Cairn.\n\nIf it arrived, the "
+                "booking confirmations and password resets will too.\n")
+    except Exception as exc:  # noqa: BLE001 — the reason is the whole point
+        raise click.ClickException(f"{type(exc).__name__}: {exc}") from exc
+    click.echo("sent — check the inbox (and the spam folder)")
+
+
 @cairn_cli.command("wipe-legacy-collections")
 def wipe_legacy_collections():
     """Drop the pre-unification ``tasks`` and ``projects`` collections.
