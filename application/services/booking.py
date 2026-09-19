@@ -103,28 +103,37 @@ def _bookings_per_day(booked, host_tz) -> dict:
 # The parts that talk to the outside world.
 
 
-def busy_intervals(user, page, since: datetime, until: datetime) -> list:
-    """Busy times from the calendars the page is told to check.
+def busy_events(user, page, since: datetime, until: datetime) -> list:
+    """The events from the calendars the page is told to check.
 
-    Raises ``BookingError`` if any of them fails — see the module docstring:
+    The one place that talks to a calendar for this page. ``busy_intervals``
+    is its projection — slot maths only ever wanted the two instants, but the
+    OWNER, looking at their own page, wants to know which appointment took
+    the morning away.
+
+    Raises ``BookingError`` if any calendar fails — see the module docstring:
     an incomplete busy list is how a booking page double-books its owner.
     """
     from application.services.calendar_sync import CalendarError, fetch_events
 
     wanted = {str(cid) for cid in (page.busy_calendar_ids or [])}
-    intervals = []
+    events = []
     for cal in (user.calendars or []):
         if str(cal.pk_ref) not in wanted:
             continue
         try:
-            events = fetch_events(cal, since, until, user=user)
+            events.extend(fetch_events(cal, since, until, user=user))
         except CalendarError as exc:
             log.warning("booking page: calendar %s unreadable: %s", cal.name, exc)
             raise BookingError(
                 f"The calendar “{cal.name}” could not be read, so free times "
                 "can't be shown right now.") from exc
-        intervals.extend((e.start, e.end) for e in events)
-    return intervals
+    return events
+
+
+def busy_intervals(user, page, since: datetime, until: datetime) -> list:
+    """Just the ``(start, end)`` pairs — what ``free_slots`` consumes."""
+    return [(e.start, e.end) for e in busy_events(user, page, since, until)]
 
 
 def booked_intervals(user, since: datetime, until: datetime) -> list:
@@ -133,15 +142,25 @@ def booked_intervals(user, since: datetime, until: datetime) -> list:
         owner=user, start__lt=until, end__gt=since).only("start", "end")]
 
 
-def slots_for(user, duration_minutes: int, *, now=None):
-    """The page's answer to "when are you free?" — UTC starts."""
+def window_for(user, *, now=None) -> tuple:
+    """The span the page answers about: now → the end of ``days_ahead``."""
+    now = now or datetime.now(timezone.utc)
+    return now, now + timedelta(days=int(user.booking.days_ahead or 30) + 1)
+
+
+def slots_for(user, duration_minutes: int, *, now=None, busy=None):
+    """The page's answer to "when are you free?" — UTC starts.
+
+    ``busy`` is passed in by a caller that has already read the calendars
+    (the owner's view wants the events themselves), so one page load stays
+    one round of calendar requests."""
     from application.services.tz import user_zone
 
     page = user.booking
     host_tz = user_zone(user)
-    now = now or datetime.now(timezone.utc)
-    until = now + timedelta(days=int(page.days_ahead or 30) + 1)
-    busy = busy_intervals(user, page, now, until)
+    now, until = window_for(user, now=now)
+    if busy is None:
+        busy = busy_intervals(user, page, now, until)
     booked = booked_intervals(user, now, until)
     return free_slots(page, duration_minutes, busy=busy, booked=booked,
                       now=now, host_tz=host_tz)

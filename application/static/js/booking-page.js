@@ -15,6 +15,9 @@
   var SLOTS_URL = script.dataset.slotsUrl;
   var HOST_TZ = script.dataset.hostTz || "UTC";
   var HOST_NAME = script.dataset.hostName || "";
+  // The host, logged in and looking at their own page. The server decides
+  // this; the flag only says whether to ask for the panel.
+  var IS_OWNER = script.dataset.owner === "1";
   var GUEST_TZ = (function () {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; }
     catch (e) { return "UTC"; }
@@ -69,18 +72,12 @@
 
   var days = [];       // [{key, slots:[iso]}] ascending, only days with times
   var byDay = {};
+  var busyByDay = {};  // owner only: key -> [event] that blocks that day
   var chosenKey = "";  // the day whose times are listed
   var shownMonth = ""; // "YYYY-MM" the grid is showing
 
   function render(slots) {
     slotsBox.textContent = "";
-    if (!slots.length) {
-      var none = document.createElement("div");
-      none.className = "text-muted small";
-      none.textContent = "No free times in the next weeks. Try a shorter appointment.";
-      slotsBox.appendChild(none);
-      return;
-    }
     // A month at a time, days first and times second: the question a visitor
     // opens this page with is "which day can I even have", and a fortnight of
     // half-hours in one list is a wall that doesn't answer it.
@@ -92,9 +89,25 @@
       byDay[key].slots.push(iso);
     });
     days.sort(function (a, b) { return a.key < b.key ? -1 : 1; });
-    if (!byDay[chosenKey]) { chosenKey = days[0].key; }
-    var first = monthOf(days[0].key);
-    var last = monthOf(days[days.length - 1].key);
+
+    // The grid spans the days worth opening. For the owner a fully booked day
+    // is one of them — a calendar with nothing free at all is exactly when
+    // "what is blocking it" is the only question left.
+    var keys = days.map(function (d) { return d.key; });
+    if (IS_OWNER) { keys = keys.concat(Object.keys(busyByDay)); }
+    keys.sort();
+    if (!keys.length) {
+      var none = document.createElement("div");
+      none.className = "text-muted small";
+      none.textContent = "No free times in the next weeks. Try a shorter appointment.";
+      slotsBox.appendChild(none);
+      return;
+    }
+    if (!byDay[chosenKey] && !busyByDay[chosenKey]) {
+      chosenKey = days.length ? days[0].key : keys[0];
+    }
+    var first = monthOf(keys[0]);
+    var last = monthOf(keys[keys.length - 1]);
     if (shownMonth < first || shownMonth > last) { shownMonth = monthOf(chosenKey); }
 
     var pick = document.createElement("div");
@@ -161,7 +174,8 @@
     var wrap = document.createElement("div");
     wrap.className = "book-cal-cell";
     var day = byDay[key];
-    if (!day) {
+    var blocked = !day && (busyByDay[key] || []).length > 0;
+    if (!day && !blocked) {
       // Not a button and not styled like one: "nothing free here" has to be
       // readable without trying it.
       var flat = document.createElement("div");
@@ -174,9 +188,13 @@
     b.type = "button";
     b.className = "btn btn-sm book-cal-day " +
       (key === chosenKey ? "btn-primary" : "btn-outline-secondary") +
-      (isToday ? " book-cal-today" : "");
-    b.innerHTML = "<span>" + number + "</span><span class='book-cal-dot'></span>";
-    b.setAttribute("aria-label", day.slots.length + " free times");
+      (isToday ? " book-cal-today" : "") +
+      (blocked ? " book-cal-blocked" : "");
+    b.innerHTML = "<span>" + number + "</span>" +
+      (blocked ? "" : "<span class='book-cal-dot'></span>");
+    b.setAttribute("aria-label", blocked
+      ? busyByDay[key].length + " appointments, nothing free"
+      : day.slots.length + " free times");
     b.addEventListener("click", function () {
       chosenKey = key;
       render(slots);
@@ -191,6 +209,7 @@
     // times beside it on a day three weeks back reads as a broken page.
     var inMonth = days.filter(function (d) { return monthOf(d.key) === ym; });
     if (inMonth.length) { chosenKey = inMonth[0].key; }
+    else if (monthOf(chosenKey) !== ym) { chosenKey = ym + "-01"; }
     render(slots);
   }
 
@@ -211,7 +230,7 @@
 
     var row = document.createElement("div");
     row.className = "book-slots";
-    byDay[chosenKey].slots.forEach(function (iso) {
+    ((byDay[chosenKey] || {}).slots || []).forEach(function (iso) {
       var b = document.createElement("button");
       b.type = "button";
       b.className = "btn btn-sm btn-outline-secondary book-slot";
@@ -219,8 +238,77 @@
       b.addEventListener("click", function () { choose(iso); });
       row.appendChild(b);
     });
+    if (!row.childNodes.length) {
+      var empty = document.createElement("div");
+      empty.className = "text-muted small";
+      empty.textContent = "Nothing free on this day.";
+      row.appendChild(empty);
+    }
     box.appendChild(row);
+    var panel = busyPanel();
+    if (panel) { box.appendChild(panel); }
     return box;
+  }
+
+  function busyPanel() {
+    // Owner only, and the server is what decides that — this just renders
+    // what it was given. Answers the one question the grid can't: the day is
+    // gone, but to what?
+    var here = busyByDay[chosenKey] || [];
+    if (!IS_OWNER || !here.length) { return null; }
+    var box = document.createElement("div");
+    box.className = "book-busy";
+    var head = document.createElement("h3");
+    head.textContent = "Only you can see this — what blocks this day";
+    box.appendChild(head);
+    here.forEach(function (ev) {
+      var row = document.createElement("div");
+      row.className = "book-busy-row";
+      var dot = document.createElement("span");
+      dot.className = "book-busy-dot";
+      dot.style.background = ev.color || "var(--gv-fg4)";
+      row.appendChild(dot);
+      var when = document.createElement("span");
+      when.className = "book-busy-when";
+      when.textContent = ev.all_day ? "all day"
+        : fmt(ev.start, { hour: "2-digit", minute: "2-digit" }) + "–" +
+          fmt(ev.end, { hour: "2-digit", minute: "2-digit" });
+      row.appendChild(when);
+      var what = document.createElement("span");
+      what.className = "book-busy-what";
+      what.textContent = ev.title || "Busy";
+      row.appendChild(what);
+      if (ev.calendar) {
+        var cal = document.createElement("span");
+        cal.className = "book-busy-cal ms-auto";
+        cal.textContent = ev.calendar;
+        row.appendChild(cal);
+      }
+      box.appendChild(row);
+    });
+    return box;
+  }
+
+  function indexBusy(events) {
+    // An event is filed under every day it touches, in the SHOWN zone. An
+    // all-day event ends at midnight on the following day — that day is not
+    // blocked by it, hence the millisecond back.
+    busyByDay = {};
+    (events || []).forEach(function (ev) {
+      var day = dayKey(ev.start);
+      var lastDay = dayKey(new Date(Date.parse(ev.end) - 1).toISOString());
+      if (lastDay < day) { lastDay = day; }
+      for (var i = 0; i < 400 && day <= lastDay; i++) {
+        (busyByDay[day] = busyByDay[day] || []).push(ev);
+        day = nextDay(day);
+      }
+    });
+  }
+
+  function nextDay(key) {
+    var d = civil(key);
+    d.setDate(d.getDate() + 1);
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
   }
 
   function arrow(glyph, enabled, onClick) {
@@ -249,7 +337,8 @@
     document.getElementById("name").focus();
   }
 
-  var current = null;   // the slot list we last loaded, for a zone switch
+  var current = null;      // the slot list we last loaded, for a zone switch
+  var currentBusy = [];    // and the owner's blocking events beside it
 
   function load() {
     chosenKey = "";
@@ -267,6 +356,8 @@
     }).then(function (res) {
       if (!res.ok) { throw new Error(res.data.error || "Free times couldn't be loaded."); }
       current = res.data.slots || [];
+      currentBusy = res.data.busy || [];
+      indexBusy(currentBusy);
       render(current);
     }).catch(function (err) {
       slotsBox.textContent = "";
@@ -296,6 +387,8 @@
   document.getElementById("tz-toggle").addEventListener("click", function () {
     zone = zone === GUEST_TZ ? HOST_TZ : GUEST_TZ;
     showZone();
+    // Both indexes are day keys in the shown zone, so both are rebuilt.
+    indexBusy(currentBusy);
     if (current) { render(current); }
   });
 

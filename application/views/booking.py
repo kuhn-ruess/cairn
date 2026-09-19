@@ -10,6 +10,13 @@ A deliberate division of labour between the routes:
   renders a time on this page.
 * ``book`` takes one of those instants back and confirms it.
 
+The HOST, logged in and looking at their own page, gets one thing a visitor
+never does: ``slots`` also answers with the events that took the missing days
+away. It is the question the page otherwise can't answer — "why is Tuesday
+gone?" — and it is why ``_is_owner`` is checked on every single read of it.
+Never inside a frame: an embed is somebody else's site, and a calendar's
+titles have no business being rendered there.
+
 No CSRF token: the form is filled in by people who have never seen Cairn and
 hold no session. What guards it instead is the rate limit, the notice window,
 and the fact that the worst a forged POST achieves is an appointment the owner
@@ -75,11 +82,27 @@ def page(slug):
     return _render_page(_host_or_404(slug))
 
 
+def _is_owner(user) -> bool:
+    """Is the person reading this the host themselves?
+
+    ``embed`` is a hard no, not an oversight: the page is then rendered inside
+    a site Cairn doesn't control, and what blocks the host's calendar is not
+    for that context.
+    """
+    from flask_login import current_user
+
+    if request.args.get("embed"):
+        return False
+    return bool(getattr(current_user, "is_authenticated", False)
+                and getattr(current_user, "pk", None) == user.pk)
+
+
 def _render_page(user, error=None, status=200):
     from application.models.booking import BookingPhoto
     from application.services.tz import user_zone
     html = render_template(
         "public/booking.html", host=user, page=user.booking,
+        is_owner=_is_owner(user),
         host_name=user.display_name or user.username,
         host_tz=str(user_zone(user)),
         durations=user.booking.ordered_durations(),
@@ -115,16 +138,37 @@ def slots(slug):
         duration = 0
     if duration not in user.booking.ordered_durations():
         return jsonify({"error": "Unknown appointment length."}), 400
+    # Imported here, not at the top: the seam every other caller patches is
+    # the service module, and a name bound at import time isn't that seam.
+    from application.services.booking import busy_events, window_for
+
+    mine = _is_owner(user)
     try:
-        found = slots_for(user, duration)
+        # The owner's calendars are read ONCE and the intervals handed on, so
+        # their page costs no more requests than a visitor's.
+        events = (busy_events(user, user.booking, *window_for(user))
+                  if mine else None)
+        found = slots_for(
+            user, duration,
+            busy=[(e.start, e.end) for e in events] if events is not None else None)
     except BookingError as exc:
         # A calendar that won't answer means we don't know what's free. Say so
         # rather than offering times we can't stand behind.
         return jsonify({"error": str(exc)}), 503
-    return jsonify({
+    answer = {
         "duration": duration,
         "slots": [s.isoformat() for s in found],
-    })
+    }
+    if mine:
+        answer["busy"] = [{
+            "start": e.start.isoformat(),
+            "end": e.end.isoformat(),
+            "title": e.title or "Busy",
+            "all_day": bool(e.all_day),
+            "calendar": e.calendar_name,
+            "color": e.calendar_color,
+        } for e in sorted(events, key=lambda e: e.start)]
+    return jsonify(answer)
 
 
 @booking_bp.route("/<slug>/book", methods=["POST"])

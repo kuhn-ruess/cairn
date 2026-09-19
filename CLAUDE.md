@@ -333,7 +333,17 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   end of `days_ahead`, so paging months costs nothing; ‹ › step one month
   within the range that has slots and land on that month's first free day.
   Every date is computed in the SHOWN zone (`dayKey` → `YYYY-MM-DD`), so the
-  timezone toggle regroups the grid rather than relabelling it. The directory filters `listed` in PYTHON, not in the query: a field
+  timezone toggle regroups the grid rather than relabelling it.
+  **The HOST, logged in on their own page, is also told what took a day
+  away**: `/slots` then carries a `busy` array (title, times, which calendar)
+  and a fully blocked day becomes openable in the grid, because "why is
+  Tuesday gone" is the one question the grid cannot otherwise answer.
+  `_is_owner` gates every read of it and is `False` inside an `embed` — an
+  embed renders in a site Cairn does not control, and a calendar's titles
+  have no business there. `busy_events` is now the function that reads the
+  calendars and `busy_intervals` its projection; the view hands the intervals
+  it already has to `slots_for(busy=…)`, so the owner's page still costs one
+  round of calendar requests. The directory filters `listed` in PYTHON, not in the query: a field
   left at its default is never written to the document, so
   `booking__listed=True` matches nobody who simply left the switch alone. `free_slots` is
   a PURE function over intervals — no clock, no database, no network — because

@@ -68,6 +68,14 @@ def form_data(**over):
     return data
 
 
+def event(start, end, title="Busy", calendar="Work", all_day=False):
+    """A calendar event as the real fetch would hand it over."""
+    from application.services.calendar_sync import CalendarEvent
+    return CalendarEvent(uid=f"u-{start:%Y%m%d%H%M}", title=title, start=start,
+                         end=end, all_day=all_day, calendar_name=calendar,
+                         calendar_color="#d79921")
+
+
 @unittest.skipIf(connect is None, "mongoengine not installed")
 class BookingPageTests(unittest.TestCase):
 
@@ -125,11 +133,25 @@ class BookingPageTests(unittest.TestCase):
             sess["_fresh"] = True
 
         # No calendar is ever reached: busy times and event writes are stubbed.
+        # ``busy_events`` is the one that would talk to a calendar and
+        # ``busy_intervals`` its projection, so the fake sits at the same
+        # seam — and self.client is logged in AS THE HOST, which is the path
+        # that reads the events rather than the intervals.
         self._busy = svc.busy_intervals
+        self._events = svc.busy_events
         self._write = svc._write_event
         self.busy = []
+        self.events = None        # None = derive plain ones from self.busy
         self.written = []
-        svc.busy_intervals = lambda user, page, since, until: list(self.busy)
+
+        def fake_events(user, page, since, until):
+            if self.events is not None:
+                return list(self.events)
+            return [event(start, end) for start, end in self.busy]
+
+        svc.busy_events = fake_events
+        svc.busy_intervals = lambda user, page, since, until: [
+            (e.start, e.end) for e in fake_events(user, page, since, until)]
 
         def fake_write(user, page, booking):
             self.written.append(booking)
@@ -141,6 +163,7 @@ class BookingPageTests(unittest.TestCase):
 
     def tearDown(self):
         self.svc.busy_intervals = self._busy
+        self.svc.busy_events = self._events
         self.svc._write_event = self._write
 
     # -- helpers ----------------------------------------------------------
@@ -245,9 +268,15 @@ class BookingPageTests(unittest.TestCase):
             raise self.svc.BookingError("The calendar “Work” could not be read")
 
         self.svc.busy_intervals = broken
+        self.svc.busy_events = broken
         resp = self.client.get("/book/alice/slots?duration=30")
         self.assertEqual(resp.status_code, 503)
         self.assertIn("could not be read", resp.get_json()["error"])
+        # …and for a stranger just the same: the page refuses to guess for
+        # anybody.
+        stranger = self.app.test_client()
+        self.assertEqual(stranger.get("/book/alice/slots?duration=30").status_code,
+                         503)
 
     # -- booking ----------------------------------------------------------
     def test_a_booking_is_stored_written_and_announced(self):
@@ -339,6 +368,75 @@ class BookingPageTests(unittest.TestCase):
         self.assertNotIn(start,
                          self.client.get("/book/alice/slots?duration=30")
                          .get_json()["slots"])
+
+    # -- what blocks the calendar (the owner's own view) -------------------
+    def blocked(self):
+        """Two appointments on the first bookable day, and the page saved."""
+        self.save_page()
+        first = datetime.fromisoformat(self.first_slot())
+        self.events = [
+            event(first, first + timedelta(minutes=60), "Team standup"),
+            event(first + timedelta(hours=3), first + timedelta(hours=4),
+                  "Kunde Müller", calendar="Privat"),
+        ]
+        return first
+
+    def slots_json(self, client=None, query=""):
+        return (client or self.client).get(
+            "/book/alice/slots?duration=30" + query).get_json()
+
+    def test_the_owner_is_told_what_blocks_the_day(self):
+        self.blocked()
+        busy = self.slots_json()["busy"]
+        self.assertEqual([b["title"] for b in busy], ["Team standup", "Kunde Müller"])
+        self.assertEqual([b["calendar"] for b in busy], ["Work", "Privat"])
+        self.assertTrue(all(b["start"] and b["end"] for b in busy))
+
+    def test_a_visitor_is_told_nothing_about_the_calendar(self):
+        """The page is public. What is in the host's calendar is not."""
+        self.blocked()
+        stranger = self.app.test_client()
+        answer = self.slots_json(stranger)
+        self.assertNotIn("busy", answer)
+        self.assertNotIn(b"Team standup",
+                         stranger.get("/book/alice").data)
+
+    def test_another_logged_in_user_is_not_the_owner(self):
+        self.blocked()
+        with self.app.app_context():
+            other = self.User(username="book-other", email="o@example.com",
+                              level="premium")
+            other.set_password("x")
+            other.save()
+            other_id = str(other.pk)
+        client = self.app.test_client()
+        with client.session_transaction() as sess:
+            sess["_user_id"] = other_id
+            sess["_fresh"] = True
+        self.assertNotIn("busy", self.slots_json(client))
+
+    def test_an_embed_hides_it_even_from_the_owner(self):
+        """An embed renders inside a site Cairn doesn't control."""
+        self.blocked()
+        self.assertNotIn("busy", self.slots_json(query="&embed=1"))
+
+    def test_the_page_tells_the_script_which_one_it_is(self):
+        self.save_page()
+        self.assertIn(b'data-owner="1"', self.client.get("/book/alice").data)
+        self.assertIn(b'data-owner="0"',
+                      self.app.test_client().get("/book/alice").data)
+        self.assertIn(b'data-owner="0"',
+                      self.client.get("/book/alice?embed=1").data)
+
+    def test_the_owner_s_page_still_costs_one_round_of_calendar_reads(self):
+        """The events are read once and the intervals derived — not fetched a
+        second time for the slot maths."""
+        self.blocked()          # this already asks once, for the first slot
+        calls = []
+        real = self.svc.busy_events
+        self.svc.busy_events = lambda *a, **kw: calls.append(1) or real(*a, **kw)
+        self.slots_json()
+        self.assertEqual(len(calls), 1)
 
     # -- how you meet -----------------------------------------------------
     def connect_microsoft(self):
