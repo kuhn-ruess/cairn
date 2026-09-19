@@ -150,6 +150,9 @@ class Booking(Document):
             {"fields": ["owner", "start"], "unique": True},
             "owner",
             ("owner", "start", "end"),
+            # What the flood ceiling counts (services/booking_guard.py):
+            # how much this page has taken in the last hour and day.
+            ("owner", "created_at"),
         ],
     }
 

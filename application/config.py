@@ -57,6 +57,24 @@ class BaseConfig:
     RATELIMIT_BOOKING = "10 per hour"
     RATELIMIT_BOOKING_SLOTS = "60 per hour"
 
+    # ---- The public booking form -----------------------------------------
+    # The limits above are per IP, which is exactly what a script with a
+    # hundred addresses to post from walks around. These four don't care where
+    # the request came from; see services/booking_guard.py for why each exists.
+    # A form that comes back faster than this wasn't filled in by a person.
+    BOOKING_MIN_FORM_SECONDS = 3
+    # How long a rendered page stays bookable before it has to be reloaded.
+    # Long enough to leave the tab open over lunch, short enough that a form
+    # scraped once can't be replayed for a week.
+    BOOKING_FORM_TTL_HOURS = 12
+    # What one page may take in total, whoever books it. Generous against any
+    # real booking page and far below what a flood wants; 0 turns one off.
+    BOOKING_MAX_NEW_PER_HOUR = 6
+    BOOKING_MAX_NEW_PER_DAY = 20
+    # Open future appointments per email address — an anti-spam rule and what
+    # stops the page being used to mailbomb a stranger with confirmations.
+    BOOKING_MAX_OPEN_PER_EMAIL = 3
+
     # Who may put the public booking page in an <iframe>. A CSP
     # ``frame-ancestors`` is what makes embedding work at all: the reverse
     # proxy sends ``X-Frame-Options: SAMEORIGIN`` for everything, and a
@@ -152,3 +170,7 @@ class TestConfig(BaseConfig):
     # failing unrelated assertions with 429s. Flip it on in the test that
     # actually exercises the limits.
     RATELIMIT_ENABLED = False
+    # The form guard's clock, off: a test client posts in microseconds and
+    # every other booking test would have to sleep three seconds to pass.
+    # The ticket itself stays required — tests mint one like the page does.
+    BOOKING_MIN_FORM_SECONDS = 0

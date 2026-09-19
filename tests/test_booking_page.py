@@ -181,9 +181,16 @@ class BookingPageTests(unittest.TestCase):
         resp = self.client.get(f"/book/alice/slots?duration={duration}")
         return resp.get_json()["slots"][0]
 
+    def form_token(self, slug="alice"):
+        """What the rendered form carries (services/booking_guard.py)."""
+        from application.services.booking_guard import issue_form_token
+        with self.app.app_context():
+            return issue_form_token(slug)
+
     def book(self, start, duration=30, **over):
         data = {"start": start, "duration": str(duration), "name": "Bob",
-                "email": "bob@example.com", "note": "Hallo", "tz": "America/New_York"}
+                "email": "bob@example.com", "note": "Hallo", "tz": "America/New_York",
+                "form_token": self.form_token()}
         data.update(over)
         return self.client.post("/book/alice/book", data=data)
 
@@ -343,6 +350,77 @@ class BookingPageTests(unittest.TestCase):
         self.save_page(min_notice_hours="720")
         resp = self.book(start)
         self.assertEqual(resp.status_code, 400)
+
+    # -- the guards on the form (services/booking_guard.py) ---------------
+    def test_the_rendered_page_hands_out_a_working_form_token(self):
+        """What a browser actually does: read the form, post what's in it."""
+        import re
+        self.save_page()
+        html = self.client.get("/book/alice").get_data(as_text=True)
+        found = re.search(r'name="form_token" value="([^"]+)"', html)
+        self.assertIsNotNone(found)
+        resp = self.book(self.first_slot(), form_token=found.group(1))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_a_post_that_never_loaded_the_page_books_nothing(self):
+        """The shape a script takes: straight at the endpoint, no token."""
+        self.save_page()
+        resp = self.client.post("/book/alice/book", data={
+            "start": self.first_slot(), "duration": "30", "name": "Bot",
+            "email": "bot@example.com"})
+        self.assertEqual(resp.status_code, 400)
+        with self.app.app_context():
+            self.assertEqual(self.Booking.objects(owner=self.user).count(), 0)
+
+    def test_a_token_from_somebody_elses_page_books_nothing(self):
+        self.save_page()
+        resp = self.book(self.first_slot(), form_token=self.form_token("someone-else"))
+        self.assertEqual(resp.status_code, 400)
+        with self.app.app_context():
+            self.assertEqual(self.Booking.objects(owner=self.user).count(), 0)
+
+    def test_filling_the_honeypot_books_nothing(self):
+        from application.services.booking_guard import HONEYPOT_FIELD
+        self.save_page()
+        resp = self.book(self.first_slot(), **{HONEYPOT_FIELD: "Acme Ltd"})
+        self.assertEqual(resp.status_code, 400)
+        with self.app.app_context():
+            self.assertEqual(self.Booking.objects(owner=self.user).count(), 0)
+
+    def test_the_page_ceiling_stops_a_flood_whatever_the_ip(self):
+        """The limit that doesn't care where the request came from: once the
+        page has taken its hour's worth, the next one is refused."""
+        self.save_page()
+        slots = self.client.get("/book/alice/slots?duration=30").get_json()["slots"]
+        was = self.app.config["BOOKING_MAX_NEW_PER_HOUR"]
+        self.app.config["BOOKING_MAX_NEW_PER_HOUR"] = 1
+        try:
+            self.assertEqual(self.book(slots[0]).status_code, 200)
+            resp = self.book(slots[1], email="someone@example.com")
+            self.assertEqual(resp.status_code, 400)
+            self.assertIn(b"try again later", resp.data)
+        finally:
+            self.app.config["BOOKING_MAX_NEW_PER_HOUR"] = was
+        with self.app.app_context():
+            self.assertEqual(self.Booking.objects(owner=self.user).count(), 1)
+
+    def test_one_address_cannot_take_the_whole_week(self):
+        """Also what stops the page mailbombing a stranger with
+        confirmations."""
+        self.save_page()
+        slots = self.client.get("/book/alice/slots?duration=30").get_json()["slots"]
+        was = self.app.config["BOOKING_MAX_OPEN_PER_EMAIL"]
+        self.app.config["BOOKING_MAX_OPEN_PER_EMAIL"] = 1
+        try:
+            self.assertEqual(self.book(slots[0]).status_code, 200)
+            resp = self.book(slots[1])           # same email as the helper uses
+            self.assertEqual(resp.status_code, 400)
+            self.assertIn(b"email address", resp.data)
+            # …and somebody else still gets a slot.
+            self.assertEqual(self.book(slots[1], email="eve@example.com")
+                             .status_code, 200)
+        finally:
+            self.app.config["BOOKING_MAX_OPEN_PER_EMAIL"] = was
 
     def test_a_booking_without_an_email_is_refused(self):
         self.save_page()
@@ -757,7 +835,8 @@ class BookingPageTests(unittest.TestCase):
         self.save_page()
         resp = self.client.post("/book/alice/book?embed=1", data={
             "start": self.first_slot(), "duration": "30", "name": "Bob",
-            "email": "bob@example.com", "note": "", "tz": "Europe/Berlin"})
+            "email": "bob@example.com", "note": "", "tz": "Europe/Berlin",
+            "form_token": self.form_token()})
         self.assertEqual(resp.status_code, 200)
         body = resp.get_data(as_text=True)
         self.assertIn('<body class="embed">', body)

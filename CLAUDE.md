@@ -374,7 +374,20 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   it already has to `slots_for(busy=…)`, so the owner's page still costs one
   round of calendar requests. The directory filters `listed` in PYTHON, not in the query: a field
   left at its default is never written to the document, so
-  `booking__listed=True` matches nobody who simply left the switch alone. `free_slots` is
+  `booking__listed=True` matches nobody who simply left the switch alone.
+  **The form is public, so it is guarded** (`services/booking_guard.py`, wired
+  in `views/booking.py`): a signed form token minted per page render (it carries
+  the slug, a minimum age and a TTL — a POST without one never loaded the
+  page), a honeypot field, and two ceilings that do NOT depend on the client's
+  address — what one page may take per hour and per day, and how many open
+  appointments one email address may hold. The per-IP `RATELIMIT_BOOKING`
+  stops one machine; those two are what a rotating set of addresses meets, and
+  the email one is also why this page can't be used to mailbomb a stranger
+  with confirmations. All of it is `BKTODO_BOOKING_*` config, and the chosen
+  failure is that a flood exhausts the page ceiling and the page says "try
+  later" — better than a calendar the host has to empty by hand. No CAPTCHA on
+  purpose: somebody who has never seen Cairn must be able to book in twenty
+  seconds. `free_slots` is
   a PURE function over intervals — no clock, no database, no network — because
   a slot handed out wrongly is a double-booked afternoon and that has to be
   provable without a Nextcloud; everything that talks to a calendar sits

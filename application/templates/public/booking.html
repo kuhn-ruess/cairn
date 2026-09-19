@@ -42,6 +42,8 @@
                   padding-left: 1rem; border-left: 3px solid var(--gv-bg2);
                   font-size: .95rem; }
     .book-section { margin-top: 2rem; }
+    .book-hp { position: absolute; left: -10000px; width: 1px;
+               height: 1px; overflow: hidden; }
     .book-section h2 { font-size: .75rem; text-transform: uppercase;
                        letter-spacing: .08em; color: var(--gv-fg4); margin: 0 0 .6rem; }
     /* Calendar on the left, that day's times on the right; stacked once
@@ -145,6 +147,17 @@
     <input type="hidden" name="start" id="start">
     <input type="hidden" name="duration" id="duration">
     <input type="hidden" name="tz" id="tz">
+    {# Minted when this page was rendered: a POST without it never loaded the
+       page. See services/booking_guard.py. #}
+    <input type="hidden" name="form_token" value="{{ form_token }}">
+    {# Hidden from everyone but a script that fills in every input it finds.
+       Off the tab order and out of the accessibility tree, so nobody who
+       belongs here ever meets it. #}
+    <div class="book-hp" aria-hidden="true">
+      <label for="{{ honeypot }}">Company (leave empty)</label>
+      <input id="{{ honeypot }}" name="{{ honeypot }}" type="text" value=""
+             tabindex="-1" autocomplete="off">
+    </div>
     <div class="alert alert-secondary py-2 small" id="chosen"></div>
     <div class="row g-2">
       <div class="col-sm-6">

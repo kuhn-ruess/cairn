@@ -18,9 +18,11 @@ Never inside a frame: an embed is somebody else's site, and a calendar's
 titles have no business being rendered there.
 
 No CSRF token: the form is filled in by people who have never seen Cairn and
-hold no session. What guards it instead is the rate limit, the notice window,
-and the fact that the worst a forged POST achieves is an appointment the owner
-can see and delete.
+hold no session. What guards it instead is ``services/booking_guard.py`` — a
+signed form token minted when the page renders, a honeypot field, and ceilings
+on what one page and one email address may take — on top of the per-IP rate
+limit, the notice window, and the fact that the worst a forged POST achieves
+is an appointment the owner can see and delete.
 """
 from datetime import datetime, timezone
 
@@ -99,10 +101,15 @@ def _is_owner(user) -> bool:
 
 def _render_page(user, error=None, status=200):
     from application.models.booking import BookingPhoto
+    from application.services.booking_guard import HONEYPOT_FIELD, issue_form_token
     from application.services.tz import user_zone
     html = render_template(
         "public/booking.html", host=user, page=user.booking,
         is_owner=_is_owner(user),
+        # Minted per render, so an error page hands out a fresh one and the
+        # visitor who tripped a check can simply submit again.
+        form_token=issue_form_token(user.booking.slug),
+        honeypot=HONEYPOT_FIELD,
         host_name=user.display_name or user.username,
         host_tz=str(user_zone(user)),
         durations=user.booking.ordered_durations(),
@@ -221,6 +228,16 @@ def slots(slug):
 def book(slug):
     user = _host_or_404(slug)
     form = request.form
+    # Before anything is read out of the form: did this come from the page?
+    from application.services.booking_guard import (
+        HONEYPOT_FIELD, check_flood, check_form_token, check_honeypot,
+    )
+    try:
+        check_honeypot(form.get(HONEYPOT_FIELD))
+        check_form_token(slug, form.get("form_token") or "")
+    except BookingError as exc:
+        return _error(user, str(exc))
+
     name = (form.get("name") or "").strip()
     email = (form.get("email") or "").strip()
     if not name or "@" not in email:
@@ -246,6 +263,9 @@ def book(slug):
         return _error(user, "That meeting link is too long.")
 
     try:
+        # Last, because it is the only check that costs a query — and it sits
+        # inside the same handler, so a ceiling reads like any other refusal.
+        check_flood(user, email)
         booking = confirm(user, start=start, duration_minutes=duration, name=name,
                           email=email, note=(form.get("note") or "").strip(),
                           guest_timezone=(form.get("tz") or "").strip(),
