@@ -75,6 +75,50 @@ def free_slots(page, duration_minutes: int, *, busy, booked, now: datetime,
     return out
 
 
+def busy_spans(events, host_tz) -> list:
+    """``(start, end)`` per event — with an ALL-DAY one expanded to the host's
+    own civil day.
+
+    A whole-day VEVENT carries a DATE, and the calendar layer turns a date
+    into midnight **UTC** (``calendar_sync._normalise_ical_dt``). Two hours
+    east of UTC that is 02:00, so a day marked "Urlaub" used to block from
+    02:00 to 02:00: it left the first two hours of the NEXT day blocked and,
+    west of UTC, blocked the evening before instead of the day itself. A day
+    off is a day in the host's calendar, so that is what it becomes here —
+    and because the page is handed these same spans, what it lists is exactly
+    what the slot maths used.
+    """
+    out = []
+    for ev in events:
+        start, end = ev.start, ev.end
+        if getattr(ev, "all_day", False):
+            first = start.astimezone(timezone.utc).date()
+            last = first
+            if end > start:
+                last = (end.astimezone(timezone.utc) - timedelta(seconds=1)).date()
+            if last < first:
+                last = first
+            start = _at(first, 0, host_tz)
+            end = _at(last + timedelta(days=1), 0, host_tz)
+        out.append((start, end))
+    return out
+
+
+def blocking_spans(events, host_tz) -> list:
+    """``busy_spans`` minus the events that block nothing.
+
+    An event marked free in the calendar — ``TRANSP:TRANSPARENT``, Google's
+    ``transparency: transparent``, which is what an all-day birthday or a
+    "Homeoffice" marker is by default — must not take a day off the booking
+    page. It is not shown to the host either: the panel answers "what took
+    this day", and something that took nothing is a line to read past.
+
+    Whether an entry is all-day has no say in it. A whole day marked busy
+    blocks the whole day and is listed like any other appointment."""
+    return [span for ev, span in zip(events, busy_spans(events, host_tz))
+            if getattr(ev, "busy", True)]
+
+
 def day_states(page, duration_minutes: int, *, busy, booked, now: datetime,
                host_tz) -> dict:
     """Why each day offers what it offers — ``{"YYYY-MM-DD": state}`` in the
@@ -226,8 +270,16 @@ def busy_events(user, page, since: datetime, until: datetime) -> list:
 
 
 def busy_intervals(user, page, since: datetime, until: datetime) -> list:
-    """Just the ``(start, end)`` pairs — what ``free_slots`` consumes."""
-    return [(e.start, e.end) for e in busy_events(user, page, since, until)]
+    """Just the blocking ``(start, end)`` pairs — what ``free_slots`` consumes.
+
+    Two things happen here rather than in the caller, so that a visitor and
+    the owner are answered from the same rules: an event the calendar itself
+    shows as FREE is dropped, and an all-day one is measured in the host's
+    own day (see ``busy_spans``)."""
+    from application.services.tz import user_zone
+
+    events = busy_events(user, page, since, until)
+    return blocking_spans(events, user_zone(user))
 
 
 def booked_intervals(user, since: datetime, until: datetime) -> list:

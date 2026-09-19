@@ -349,7 +349,21 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   that no bookable slot fits in (too small once the buffer counts, or not on
   the slot grid) is not the same as a day booked solid. Bookings made through
   the page are listed beside the calendar events, because they block just as
-  hard and appear in no calendar the host need have connected. The states are
+  hard and appear in no calendar the host need have connected. **An event the
+  calendar shows as FREE takes nothing off the page and is not listed** —
+  `CalendarEvent.busy` reads iCalendar's `TRANSP` and Google's `transparency`
+  (plus `STATUS:CANCELLED`), and an all-day entry is created transparent by
+  default in both, which is what a birthday, a holiday or a "Homeoffice"
+  marker is; blocking on those took whole days off the page that looked free
+  in the calendar. Being all-day decides nothing on its own: a whole day
+  marked busy blocks it and is listed like any other appointment.
+  `blocking_spans` is that filter and `busy_spans` the normaliser under it,
+  which measures an all-day event in the host's CIVIL DAY — the calendar
+  layer turns a DATE into midnight UTC, so without it a day off blocked from
+  02:00 to 02:00 in Berlin and the evening before in Los Angeles. The panel
+  also states the day's bookable WINDOW, because "booked solid" against hours
+  somebody once trimmed to half an hour is a verdict the host cannot
+  otherwise check. The states are
   keyed by the HOST's day and the page only trusts them while it is showing
   the host's zone. `busy_events` is now the function that reads the
   calendars and `busy_intervals` its projection; the view hands the intervals

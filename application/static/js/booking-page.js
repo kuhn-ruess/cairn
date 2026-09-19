@@ -75,6 +75,7 @@
   var busyByDay = {};  // owner only: key -> [event] that blocks that day
   var dayStates = {};  // owner only: host-day -> why it offers what it offers
   var rules = {};      // owner only: notice, buffer and cap, for the wording
+  var openHours = {};  // owner only: weekday -> [["09:00","17:00"], …]
   var chosenKey = "";  // the day whose times are listed
   var shownMonth = ""; // "YYYY-MM" the grid is showing
 
@@ -294,17 +295,41 @@
     return "Nothing free on this day.";
   }
 
+  function openHoursFor(key) {
+    // Same rule as the day states: the hours are the HOST's weekday, so they
+    // are only shown while the page is in the host's zone.
+    if (!IS_OWNER || zone !== HOST_TZ || !openHours) { return null; }
+    // getDay() counts from Sunday, the page's weekdays from Monday (as
+    // BookingHour.weekday does) — the shift is not optional.
+    var windows = openHours[String((civil(key).getDay() + 6) % 7)];
+    return windows || null;
+  }
+
   function busyPanel() {
     // Owner only, and the server is what decides that — this just renders
     // what it was given. Answers the one question the grid can't: the day is
     // gone, but to what?
     var here = busyByDay[chosenKey] || [];
-    if (!IS_OWNER || !here.length) { return null; }
+    var hours = openHoursFor(chosenKey);
+    if (!IS_OWNER || (!here.length && !hours)) { return null; }
     var box = document.createElement("div");
     box.className = "book-busy";
     var head = document.createElement("h3");
     head.textContent = "Only you can see this — what blocks this day";
     box.appendChild(head);
+    if (hours) {
+      // The yardstick "booked solid" is measured against. A window somebody
+      // trimmed to half an hour looks, from the outside, exactly like a
+      // calendar full of meetings.
+      var open = document.createElement("div");
+      open.className = "book-busy-open";
+      open.textContent = hours.length
+        ? "You're bookable " + hours.map(function (w) {
+            return w[0] + "–" + w[1];
+          }).join(", ") + " on this weekday."
+        : "You're not bookable on this weekday.";
+      box.appendChild(open);
+    }
     here.forEach(function (ev) {
       var row = document.createElement("div");
       row.className = "book-busy-row";
@@ -403,6 +428,7 @@
       currentBusy = res.data.busy || [];
       dayStates = res.data.days || {};
       rules = res.data.rules || {};
+      openHours = res.data.hours || {};
       indexBusy(currentBusy);
       render(current);
     }).catch(function (err) {

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from application.models.booking import BookingHour, BookingPage
-from application.services.booking import day_states, free_slots
+from application.services.booking import busy_spans, day_states, free_slots
 
 BERLIN = ZoneInfo("Europe/Berlin")
 NOW = datetime(2026, 9, 14, 6, 0, tzinfo=timezone.utc)   # Mon 08:00 Berlin
@@ -157,6 +157,55 @@ class SlotTests(unittest.TestCase):
         now = berlin(2026, 9, 14, 13, 20).astimezone(timezone.utc)
         slots = hhmm(self.call(page(), 30, now=now), berlin(2026, 9, 14, 9).date())
         self.assertEqual(slots[0], "13:30")
+
+
+class AllDayTests(unittest.TestCase):
+    """A whole-day entry blocks the HOST's day, not a UTC one.
+
+    ``calendar_sync`` turns a DATE into midnight UTC, which in Berlin is
+    02:00 — so "Urlaub" on Tuesday used to leave Tuesday morning bookable in
+    zones west of UTC and block two hours of Wednesday in zones east of it.
+    """
+
+    def whole_day(self, y, m, d, days=1):
+        from application.services.calendar_sync import CalendarEvent
+        from datetime import datetime
+        start = datetime(y, m, d, tzinfo=timezone.utc)
+        return CalendarEvent(uid="x", title="Urlaub", start=start,
+                             end=start + timedelta(days=days), all_day=True)
+
+    def test_it_covers_the_host_day_exactly(self):
+        (start, end), = busy_spans([self.whole_day(2026, 9, 15)], BERLIN)
+        self.assertEqual(start, berlin(2026, 9, 15, 0))
+        self.assertEqual(end, berlin(2026, 9, 16, 0))
+
+    def test_several_days_stay_several_days(self):
+        """DTEND is exclusive: 15th to the 18th is three days off."""
+        (start, end), = busy_spans([self.whole_day(2026, 9, 15, days=3)], BERLIN)
+        self.assertEqual(start, berlin(2026, 9, 15, 0))
+        self.assertEqual(end, berlin(2026, 9, 18, 0))
+
+    def test_a_timed_event_is_handed_through_untouched(self):
+        from application.services.calendar_sync import CalendarEvent
+        ev = CalendarEvent(uid="y", title="Standup",
+                           start=berlin(2026, 9, 15, 9),
+                           end=berlin(2026, 9, 15, 10))
+        self.assertEqual(busy_spans([ev], BERLIN), [(ev.start, ev.end)])
+
+    def test_a_day_off_takes_that_day_and_leaves_the_next_alone(self):
+        busy = busy_spans([self.whole_day(2026, 9, 15)], BERLIN)
+        slots = free_slots(page(), 30, busy=busy, booked=[], now=NOW,
+                           host_tz=BERLIN)
+        self.assertEqual(hhmm(slots, berlin(2026, 9, 15, 9).date()), [])
+        self.assertEqual(hhmm(slots, berlin(2026, 9, 16, 9).date())[0], "09:00")
+        self.assertEqual(hhmm(slots, berlin(2026, 9, 14, 9).date())[0], "09:00")
+
+    def test_and_the_day_reads_as_booked_solid_not_as_a_puzzle(self):
+        busy = busy_spans([self.whole_day(2026, 9, 15)], BERLIN)
+        got = day_states(page(), 30, busy=busy, booked=[], now=NOW,
+                         host_tz=BERLIN)
+        self.assertEqual(got["2026-09-15"], "full")
+        self.assertEqual(got["2026-09-16"], "free")
 
 
 class DayStateTests(unittest.TestCase):

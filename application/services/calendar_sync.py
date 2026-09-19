@@ -41,6 +41,12 @@ class CalendarEvent:
     start: datetime
     end: datetime
     all_day: bool = False
+    # Does this event make its owner UNAVAILABLE? A calendar says so itself —
+    # iCalendar's ``TRANSP``, Google's ``transparency`` — and says no
+    # surprisingly often: an all-day entry is created as "free" by default,
+    # which is what a birthday, a holiday or a "Homeoffice" marker is. Only
+    # the booking page asks; everything else shows the event either way.
+    busy: bool = True
     location: str = ""
     url: str = ""
     calendar_color: str = "#458588"
@@ -54,6 +60,7 @@ class CalendarEvent:
             "start": self.start.isoformat(),
             "end": self.end.isoformat(),
             "all_day": self.all_day,
+            "busy": self.busy,
             "location": self.location,
             "url": self.url,
             "calendar_color": self.calendar_color,
@@ -352,6 +359,8 @@ def _fetch_google(calendar, user, since: datetime, until: datetime) -> list[Cale
             start=start,
             end=end,
             all_day=all_day,
+            busy=(it.get("transparency") != "transparent"
+                  and it.get("status") != "cancelled"),
             location=it.get("location", "") or "",
             url=it.get("htmlLink", "") or "",
             calendar_color=calendar.color,
@@ -453,12 +462,17 @@ def _vevent_to_event(comp, calendar) -> "CalendarEvent | None":
     start_dt = _normalise_ical_dt(start.dt)
     end_dt = _normalise_ical_dt(end.dt) if end else start_dt
     all_day = not isinstance(start.dt, datetime)
+    # TRANSPARENT = "shows me as free"; a cancelled occurrence blocks nothing
+    # either. Both are the calendar's own word on it.
+    transp = str(comp.get("TRANSP", "") or "").strip().upper()
+    status = str(comp.get("STATUS", "") or "").strip().upper()
     return CalendarEvent(
         uid=str(comp.get("UID", "")),
         title=str(comp.get("SUMMARY", "(no title)")),
         start=start_dt,
         end=end_dt,
         all_day=all_day,
+        busy=(transp != "TRANSPARENT" and status != "CANCELLED"),
         location=str(comp.get("LOCATION", "") or ""),
         url=str(comp.get("URL", "") or ""),
         calendar_color=calendar.color,
