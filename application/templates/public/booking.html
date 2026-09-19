@@ -140,6 +140,25 @@
                required maxlength="255">
       </div>
       <div class="col-12">
+        <label class="form-label small" for="meeting_url">
+          Your meeting link (optional)
+        </label>
+        <input class="form-control form-control-sm" type="url" id="meeting_url"
+               name="meeting_url" maxlength="500" placeholder="https://…">
+        <div class="form-text small">
+          {% if page.meeting_mode == 'teams' %}
+            Paste your own room to meet there instead. Leave it empty and you
+            get a Microsoft Teams link.
+          {% elif page.meeting_mode == 'link' %}
+            Paste your own room to meet there instead. Leave it empty and
+            {{ host_name }}'s link is used.
+          {% else %}
+            If you'd like to meet in your own room, paste the link — it goes
+            into both confirmations and the calendar entry.
+          {% endif %}
+        </div>
+      </div>
+      <div class="col-12">
         <label class="form-label small" for="note">What's it about? (optional)</label>
         <textarea class="form-control form-control-sm" id="note" name="note" rows="3"
                   maxlength="2000"></textarea>

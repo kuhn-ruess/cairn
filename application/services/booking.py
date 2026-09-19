@@ -148,7 +148,8 @@ def slots_for(user, duration_minutes: int, *, now=None):
 
 
 def confirm(user, *, start: datetime, duration_minutes: int, name: str,
-            email: str, note: str, guest_timezone: str = "", now=None):
+            email: str, note: str, guest_timezone: str = "",
+            meeting_url: str = "", now=None):
     """Take the slot if it is still free, then write the event.
 
     The order is deliberate. The Booking row goes in FIRST, behind a unique
@@ -189,20 +190,29 @@ def confirm(user, *, start: datetime, duration_minutes: int, name: str,
         raise BookingError("That time was just taken — please pick another.")
 
     # Before the event, so the calendar entry can carry the link.
-    _attach_meeting(user, page, booking)
+    _attach_meeting(user, page, booking, guest_link=meeting_url)
     _write_event(user, page, booking)
     return booking
 
 
-def _attach_meeting(user, page, booking) -> None:
-    """Give the booking the place it happens, per the page's meeting mode.
+def _attach_meeting(user, page, booking, guest_link: str = "") -> None:
+    """Give the booking the place it happens.
+
+    A link the GUEST brought wins over whatever the page would have done —
+    somebody who pastes their own room is telling us where this meeting is,
+    and a second link beside it only invites the two of you to different
+    places. It also short-circuits the Teams call, so no meeting is created
+    for a link nobody will open.
 
     Never fatal, for the same reason ``_write_event`` isn't: the slot is
     taken, the visitor has been told so, and a Teams outage must not turn a
     confirmed appointment into an error page. What failed is recorded on the
     booking, which is where the host reads it."""
     mode = page.meeting_mode or "none"
-    if mode == "link":
+    if guest_link:
+        booking.meeting_url = guest_link[:500]
+        booking.meeting_provider = "guest"
+    elif mode == "link":
         booking.meeting_url = (page.meeting_link or "")[:500]
         booking.meeting_provider = "link" if booking.meeting_url else ""
     elif mode == "teams":
@@ -289,12 +299,16 @@ def announce(user, booking) -> None:
     # whichever calendar it is dropped into shows the same entry.
     invite = [attachment(booking, host_name=host_name, host_email=user.email or "")]
     where = f"Where: {booking.meeting_url}\n" if booking.meeting_url else ""
+    # The host is the one who needs to know whose room this is: a link they
+    # didn't set is the guest's, and it is worth a look before the day.
+    theirs = where.rstrip("\n") + " (their link)\n" \
+        if booking.meeting_provider == "guest" else where
     send_email(
         user.email,
         f"New booking: {who}, {stamp}",
         f"{who} booked {booking.duration_minutes} minutes with you.\n\n"
         f"When: {stamp} ({user_zone(user)})\n"
-        + where +
+        + theirs +
         f"Email: {booking.email or '—'}\n"
         f"Note: {booking.note or '—'}\n",
         attachments=invite,

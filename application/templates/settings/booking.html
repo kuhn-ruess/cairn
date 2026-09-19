@@ -418,6 +418,9 @@
               <div class="small">
                 <i class="bi bi-camera-video text-muted"></i>
                 <a href="{{ b.meeting_url }}" target="_blank" rel="noopener">{{ b.meeting_url }}</a>
+                {% if b.meeting_provider == 'guest' %}
+                  <span class="text-muted">· their link</span>
+                {% endif %}
               </div>
             {% endif %}
             {% if b.note %}<div class="small">{{ b.note }}</div>{% endif %}

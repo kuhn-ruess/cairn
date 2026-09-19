@@ -148,10 +148,20 @@ def book(slug):
     except ValueError:
         duration = 0
 
+    # A link the visitor brought. Checked here rather than taken as typed:
+    # it is shown as a clickable link on the host's settings page, so a
+    # "javascript:" one would be a trap laid by a stranger.
+    meeting_url = (form.get("meeting_url") or "").strip()
+    if meeting_url and not meeting_url.startswith(("http://", "https://")):
+        return _error(user, "The meeting link has to start with http:// or https://.")
+    if len(meeting_url) > 500:
+        return _error(user, "That meeting link is too long.")
+
     try:
         booking = confirm(user, start=start, duration_minutes=duration, name=name,
                           email=email, note=(form.get("note") or "").strip(),
-                          guest_timezone=(form.get("tz") or "").strip())
+                          guest_timezone=(form.get("tz") or "").strip(),
+                          meeting_url=meeting_url)
     except BookingError as exc:
         return _error(user, str(exc))
 

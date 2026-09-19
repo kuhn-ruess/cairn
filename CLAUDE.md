@@ -311,6 +311,12 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   `BKTODO_MS_CLIENT_ID`/`_SECRET`, tenant `organizations` because a personal
   Microsoft account cannot host one; tokens on `User.ms_*`, encrypted; nothing
   is ever READ from Microsoft, busy times stay with the connected calendars).
+  The VISITOR can paste their own room into the booking form, and that wins
+  over all three — somebody who brings a link is telling you where this
+  meeting is, two links only invite the two of you to different places — and
+  it short-circuits the Graph call, so no Teams meeting is created for a link
+  nobody will open. It is checked for an `http(s)` scheme in the view, because
+  it is rendered as a clickable link on the host's settings page.
   The URL lands on the BOOKING, not the page, so changing the mode later never
   moves an appointment somebody was already told to turn up at; a Teams call
   that fails is `Booking.meeting_error` and never the visitor's problem, same

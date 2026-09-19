@@ -429,6 +429,55 @@ class BookingPageTests(unittest.TestCase):
         self.assertEqual(user.booking.meeting_mode, "none")
         self.assertFalse(user.ms_refresh_token)
 
+    def test_a_link_the_guest_brings_is_the_one_that_counts(self):
+        self.save_page(meeting_mode="link",
+                       meeting_link="https://meet.example/alice")
+        self.book(self.first_slot(), meeting_url="https://zoom.example/bob")
+        with self.app.app_context():
+            booking = self.Booking.objects.get(owner=self.user)
+            self.assertEqual(booking.meeting_url, "https://zoom.example/bob")
+            self.assertEqual(booking.meeting_provider, "guest")
+
+    def test_a_guest_link_means_no_teams_meeting_is_created(self):
+        """Creating one nobody will open leaves a stray meeting in the host's
+        Teams for every booking."""
+        self.connect_microsoft()
+        asked = []
+        from application.services import msgraph
+        real = msgraph.create_meeting
+        msgraph.create_meeting = lambda user, **kw: asked.append(kw) or {
+            "join_url": "https://teams.example/l/x", "id": "m"}
+        self.addCleanup(setattr, msgraph, "create_meeting", real)
+        self.save_page(meeting_mode="teams")
+        self.book(self.first_slot(), meeting_url="https://zoom.example/bob")
+        self.assertEqual(asked, [])
+        with self.app.app_context():
+            self.assertEqual(self.Booking.objects.get(owner=self.user).meeting_url,
+                             "https://zoom.example/bob")
+
+    def test_the_guest_link_has_to_be_an_http_one(self):
+        """It is rendered as a clickable link on the host's settings page, so
+        a stranger must not be able to put javascript: there."""
+        self.save_page()
+        start = self.first_slot()
+        resp = self.book(start, meeting_url="javascript:alert(1)")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn(b"http:// or https://", resp.data)
+        with self.app.app_context():
+            self.assertEqual(self.Booking.objects(owner=self.user).count(), 0)
+        # …and the slot is still there to try again with.
+        self.assertIn(start, self.client.get("/book/alice/slots?duration=30")
+                      .get_json()["slots"])
+
+    def test_no_link_from_the_guest_leaves_the_page_in_charge(self):
+        self.save_page(meeting_mode="link",
+                       meeting_link="https://meet.example/alice")
+        self.book(self.first_slot(), meeting_url="")
+        with self.app.app_context():
+            booking = self.Booking.objects.get(owner=self.user)
+            self.assertEqual(booking.meeting_url, "https://meet.example/alice")
+            self.assertEqual(booking.meeting_provider, "link")
+
     def test_both_confirmations_carry_the_invitation(self):
         from application.services import mail
 
