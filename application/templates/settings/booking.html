@@ -204,6 +204,84 @@
 
   <div class="card mb-3">
     <div class="card-body">
+      <h2 class="h6 mb-2"><i class="bi bi-camera-video text-muted"></i> How you meet</h2>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="meeting_mode"
+                   id="meeting-none" value="none"
+                   {% if page.meeting_mode != 'link' and page.meeting_mode != 'teams' %}checked{% endif %}>
+            <label class="form-check-label small" for="meeting-none">
+              Nothing — you'll sort it out yourselves
+            </label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="meeting_mode"
+                   id="meeting-link" value="link"
+                   {% if page.meeting_mode == 'link' %}checked{% endif %}>
+            <label class="form-check-label small" for="meeting-link">
+              Always this link
+            </label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="meeting_mode"
+                   id="meeting-teams" value="teams"
+                   {% if page.meeting_mode == 'teams' %}checked{% endif %}
+                   {% if not (ms_configured and ms_connected) %}disabled{% endif %}>
+            <label class="form-check-label small" for="meeting-teams">
+              A fresh Microsoft Teams meeting per appointment
+            </label>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small" for="meeting_link">Meeting link</label>
+          <input class="form-control form-control-sm" id="meeting_link"
+                 name="meeting_link" type="url" placeholder="https://…"
+                 value="{{ page.meeting_link }}">
+          <div class="form-text small">
+            Your standing room — Jitsi, Zoom, a Teams link you already have.
+            Used only with the middle option.
+          </div>
+        </div>
+      </div>
+      <hr class="my-3">
+      {% if not ms_configured %}
+        <p class="text-muted small mb-0">
+          <i class="bi bi-microsoft"></i> Teams meetings aren't set up on this
+          server. The administrator registers one Microsoft app for everybody
+          (<code>BKTODO_MS_CLIENT_ID</code> / <code>BKTODO_MS_CLIENT_SECRET</code>).
+        </p>
+      {% elif ms_connected %}
+        <p class="small mb-1">
+          <i class="bi bi-microsoft text-success"></i> Microsoft connected
+          {% if current_user.ms_account %}as <strong>{{ current_user.ms_account }}</strong>{% endif %}.
+          <button type="submit" form="ms-disconnect"
+                  class="btn btn-link btn-sm p-0 align-baseline text-danger">
+            Disconnect
+          </button>
+        </p>
+        <p class="text-muted small mb-0">
+          Each booking gets its own Teams meeting, hosted by that account.
+          The link goes into both confirmation emails, into the .ics and into
+          the calendar entry.
+        </p>
+      {% else %}
+        <p class="small mb-1">
+          <a class="btn btn-outline-secondary btn-sm"
+             href="{{ url_for('settings.booking_microsoft_connect') }}">
+            <i class="bi bi-microsoft"></i> Connect Microsoft
+          </a>
+        </p>
+        <p class="text-muted small mb-0">
+          Save this page first — connecting leaves it. Needs a work or school
+          account: a personal Microsoft account can't host a Teams meeting.
+        </p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
       <h2 class="h6 mb-2"><i class="bi bi-clock text-muted"></i> What can be booked</h2>
       <div class="row g-3">
         <div class="col-md-6">
@@ -285,6 +363,11 @@
   {% endif %}
 </form>
 
+<form id="ms-disconnect" method="post" class="d-none"
+      action="{{ url_for('settings.booking_microsoft_disconnect') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+</form>
+
 {% if public_url %}
 <div class="card mt-4">
   <div class="card-header py-2">
@@ -327,7 +410,16 @@
               {% if b.event_error %}
                 · <span class="text-danger" title="{{ b.event_error }}">not written to the calendar</span>
               {% endif %}
+              {% if b.meeting_error %}
+                · <span class="text-danger" title="{{ b.meeting_error }}">no meeting link</span>
+              {% endif %}
             </div>
+            {% if b.meeting_url %}
+              <div class="small">
+                <i class="bi bi-camera-video text-muted"></i>
+                <a href="{{ b.meeting_url }}" target="_blank" rel="noopener">{{ b.meeting_url }}</a>
+              </div>
+            {% endif %}
             {% if b.note %}<div class="small">{{ b.note }}</div>{% endif %}
           </div>
         </li>

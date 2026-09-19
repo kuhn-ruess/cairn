@@ -340,6 +340,120 @@ class BookingPageTests(unittest.TestCase):
                          self.client.get("/book/alice/slots?duration=30")
                          .get_json()["slots"])
 
+    # -- how you meet -----------------------------------------------------
+    def connect_microsoft(self):
+        """A connected Microsoft account, without going near Entra."""
+        self.app.config["MS_CLIENT_ID"] = "cid"
+        self.app.config["MS_CLIENT_SECRET"] = "secret"
+        self.addCleanup(self.app.config.update, MS_CLIENT_ID="", MS_CLIENT_SECRET="")
+        with self.app.app_context():
+            user = self.User.objects.get(username="book-test")
+            user.ms_refresh_token = "stored"
+            user.ms_account = "alice@contoso.com"
+            user.save()
+
+    def stub_teams(self, answer=None, error=None):
+        from application.services import msgraph
+
+        def fake(user, *, subject, start, end):
+            if error:
+                raise msgraph.GraphError(error)
+            return {"join_url": answer, "id": "meet-1"}
+
+        real = msgraph.create_meeting
+        msgraph.create_meeting = fake
+        self.addCleanup(setattr, msgraph, "create_meeting", real)
+
+    def test_a_fixed_link_is_handed_to_every_booking(self):
+        self.save_page(meeting_mode="link",
+                       meeting_link="https://meet.example/alice")
+        resp = self.book(self.first_slot())
+        self.assertIn(b"Join link", resp.data)
+        with self.app.app_context():
+            booking = self.Booking.objects.get(owner=self.user)
+            self.assertEqual(booking.meeting_url, "https://meet.example/alice")
+            self.assertEqual(booking.meeting_provider, "link")
+
+    def test_that_link_has_to_be_there_and_has_to_be_a_link(self):
+        resp = self.save_page(meeting_mode="link", meeting_link="")
+        self.assertIn(b"Give the meeting link", resp.data)
+        resp = self.save_page(meeting_mode="link", meeting_link="meet.example")
+        self.assertIn(b"http:// or https://", resp.data)
+        self.assertEqual(self.reload().booking.meeting_mode, "none")
+
+    def test_teams_cannot_be_promised_without_a_connected_account(self):
+        """Otherwise the page takes bookings and fails on every one of them,
+        where only the host ever sees it."""
+        resp = self.save_page(meeting_mode="teams")
+        self.assertIn(b"Teams meetings aren", resp.data)   # not set up here
+        self.app.config["MS_CLIENT_ID"] = "cid"
+        self.app.config["MS_CLIENT_SECRET"] = "secret"
+        self.addCleanup(self.app.config.update, MS_CLIENT_ID="", MS_CLIENT_SECRET="")
+        resp = self.save_page(meeting_mode="teams")
+        self.assertIn(b"Connect your Microsoft account", resp.data)
+        self.assertEqual(self.reload().booking.meeting_mode, "none")
+
+    def test_a_teams_meeting_is_made_for_each_booking(self):
+        self.connect_microsoft()
+        self.stub_teams(answer="https://teams.example/l/meet-1")
+        self.save_page(meeting_mode="teams")
+        self.book(self.first_slot())
+        with self.app.app_context():
+            booking = self.Booking.objects.get(owner=self.user)
+            self.assertEqual(booking.meeting_url, "https://teams.example/l/meet-1")
+            self.assertEqual(booking.meeting_provider, "teams")
+
+    def test_a_teams_failure_keeps_the_appointment(self):
+        """Same rule as a failed calendar write: the visitor was told yes, so
+        the slot stays taken and the host reads what went wrong."""
+        self.connect_microsoft()
+        self.stub_teams(error="Microsoft answered 403: no licence")
+        self.save_page(meeting_mode="teams")
+        start = self.first_slot()
+        self.assertEqual(self.book(start).status_code, 200)
+        with self.app.app_context():
+            booking = self.Booking.objects.get(owner=self.user)
+            self.assertEqual(booking.meeting_url, "")
+            self.assertIn("no licence", booking.meeting_error)
+        self.assertNotIn(start,
+                         self.client.get("/book/alice/slots?duration=30")
+                         .get_json()["slots"])
+
+    def test_disconnecting_stops_the_page_promising_teams(self):
+        self.connect_microsoft()
+        self.stub_teams(answer="https://teams.example/l/meet-1")
+        self.save_page(meeting_mode="teams")
+        self.client.post("/settings/booking/microsoft/disconnect",
+                         follow_redirects=True)
+        user = self.reload()
+        self.assertEqual(user.booking.meeting_mode, "none")
+        self.assertFalse(user.ms_refresh_token)
+
+    def test_both_confirmations_carry_the_invitation(self):
+        from application.services import mail
+
+        sent = []
+        self.app.config["SMTP_HOST"] = "smtp.example"
+        self.addCleanup(self.app.config.update, SMTP_HOST="")
+        real = mail.send_email
+        mail.send_email = lambda to, subject, body, html=None, attachments=None: (
+            sent.append((to, body, attachments)) or True)
+        self.addCleanup(setattr, mail, "send_email", real)
+
+        self.save_page(meeting_mode="link",
+                       meeting_link="https://meet.example/alice")
+        self.book(self.first_slot())
+
+        self.assertEqual([to for to, _b, _a in sent],
+                         ["b@example.com", "bob@example.com"])
+        for _to, body, attachments in sent:
+            self.assertIn("https://meet.example/alice", body)
+            self.assertEqual(len(attachments), 1)
+            name, mimetype, data = attachments[0]
+            self.assertEqual((name, mimetype), ("appointment.ics", "text/calendar"))
+            self.assertIn(b"BEGIN:VEVENT", data)
+            self.assertIn(b"LOCATION:https://meet.example/alice", data)
+
     # -- the directory and the portrait -----------------------------------
     def test_the_directory_lists_a_live_page(self):
         self.save_page()

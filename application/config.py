@@ -77,6 +77,15 @@ class BaseConfig:
     GOOGLE_CLIENT_ID = ""
     GOOGLE_CLIENT_SECRET = ""
 
+    # Microsoft Entra app registration — same idea, used by the booking page
+    # to create a Teams meeting per appointment (services/msgraph.py). The
+    # tenant stays ``organizations``: a personal Microsoft account cannot host
+    # a Teams meeting through Graph, so letting one consent would only buy a
+    # connection that fails the first time somebody books.
+    MS_CLIENT_ID = ""
+    MS_CLIENT_SECRET = ""
+    MS_TENANT = "organizations"
+
     # SMTP for password-reset emails (and future notifications).
     # Empty SMTP_HOST disables mail — the password-reset flow then asks
     # the user to contact the admin (who can use ``./cairn reset-password``).

@@ -97,6 +97,15 @@ class BookingPage(EmbeddedDocument):
         default=lambda: [BookingHour(weekday=d, start_minute=s, end_minute=e)
                          for d, s, e in DEFAULT_HOURS])
 
+    # How the appointment is met. ``none`` says nothing, ``link`` hands out
+    # the same room every time (``meeting_link`` — a Jitsi, a Zoom, a standing
+    # Teams room), ``teams`` asks Microsoft for a fresh Teams meeting per
+    # booking (services/msgraph.py). The mode is on the PAGE and the resulting
+    # URL on the BOOKING: switching the mode later must not rewrite where
+    # somebody was already told to turn up.
+    meeting_mode = StringField(choices=("none", "link", "teams"), default="none")
+    meeting_link = StringField(max_length=500, default="")
+
     # The three rules that keep a public link from becoming a nuisance.
     min_notice_hours = IntField(min_value=0, max_value=720, default=4)
     buffer_minutes = IntField(min_value=0, max_value=240, default=0)
@@ -155,6 +164,14 @@ class Booking(Document):
     email = StringField(max_length=255, default="")
     note = StringField(max_length=2000, default="")
     guest_timezone = StringField(max_length=64, default="")
+
+    # Where the two of you meet. Written once, when the booking is taken, and
+    # then repeated in the confirmation mails, in the .ics and on the host's
+    # calendar entry. ``meeting_error`` is the host's news, like
+    # ``event_error``: the visitor has the slot either way.
+    meeting_url = StringField(max_length=500, default="")
+    meeting_provider = StringField(default="")   # "link" | "teams"
+    meeting_error = StringField(default="")
 
     # Where the event landed, so it stays traceable from the Cairn side.
     calendar_id = StringField(default="")   # ExternalCalendar.pk_ref

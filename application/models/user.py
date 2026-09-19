@@ -136,6 +136,18 @@ class User(UserMixin, Document):
     show_todoist_sync = BooleanField(default=False)
     last_todoist_sync_at = DateTimeField()
 
+    # ---- Microsoft (Entra) — connected only to create Teams meetings for
+    # booking-page appointments. Delegated consent per user, because a Teams
+    # meeting has an organiser and that is whoever owns the page; the app
+    # registration itself is deployment-wide (BKTODO_MS_CLIENT_ID/_SECRET).
+    # See services/msgraph.py. Tokens encrypted like every secret here.
+    ms_refresh_token = StringField()
+    ms_access_token = StringField()
+    ms_token_expires_at = DateTimeField()
+    # The account that was linked ("someone@contoso.com"), read once at
+    # connect time so the settings page can name it.
+    ms_account = StringField(max_length=255, default="")
+
     # ---- Notes mirror: the notes tree as Markdown files on a WebDAV share
     # (a Synology, so DEVONthink can index them). Two-way; see
     # services/notes_sync.py. The password is encrypted like every other

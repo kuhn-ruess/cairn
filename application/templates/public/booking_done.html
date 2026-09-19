@@ -43,6 +43,15 @@
     {{ booking.duration_minutes }} minutes with {{ host_name }}
     {% if booking.email %}· a confirmation is on its way to {{ booking.email }}{% endif %}
   </p>
+  {% if booking.meeting_url %}
+    <p class="mt-3 mb-0">
+      <a class="btn btn-outline-secondary btn-sm" href="{{ booking.meeting_url }}"
+         target="_blank" rel="noopener">
+        <i class="bi bi-camera-video"></i> Join link
+      </a>
+    </p>
+    <p class="book-sub mt-2 mb-0">It's in your confirmation email too.</p>
+  {% endif %}
   {% if booking.note %}
     <p class="book-sub mt-3 mb-0">What you wrote: {{ booking.note }}</p>
   {% endif %}

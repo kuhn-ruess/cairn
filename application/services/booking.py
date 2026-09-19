@@ -188,8 +188,38 @@ def confirm(user, *, start: datetime, duration_minutes: int, name: str,
         booking.delete()
         raise BookingError("That time was just taken — please pick another.")
 
+    # Before the event, so the calendar entry can carry the link.
+    _attach_meeting(user, page, booking)
     _write_event(user, page, booking)
     return booking
+
+
+def _attach_meeting(user, page, booking) -> None:
+    """Give the booking the place it happens, per the page's meeting mode.
+
+    Never fatal, for the same reason ``_write_event`` isn't: the slot is
+    taken, the visitor has been told so, and a Teams outage must not turn a
+    confirmed appointment into an error page. What failed is recorded on the
+    booking, which is where the host reads it."""
+    mode = page.meeting_mode or "none"
+    if mode == "link":
+        booking.meeting_url = (page.meeting_link or "")[:500]
+        booking.meeting_provider = "link" if booking.meeting_url else ""
+    elif mode == "teams":
+        from application.services.msgraph import GraphError, create_meeting
+        try:
+            made = create_meeting(
+                user, subject=f"{booking.name or 'Appointment'} · "
+                              f"{user.display_name or user.username}",
+                start=booking.start, end=booking.end)
+        except GraphError as exc:
+            log.warning("booking %s: Teams meeting failed: %s", booking.pk, exc)
+            booking.meeting_error = str(exc)
+        else:
+            booking.meeting_url = made["join_url"][:500]
+            booking.meeting_provider = "teams"
+    if booking.meeting_url or booking.meeting_error:
+        booking.save()
 
 
 def _write_event(user, page, booking) -> None:
@@ -207,6 +237,8 @@ def _write_event(user, page, booking) -> None:
     body = [f"Booked through Cairn by {booking.name}".strip()]
     if booking.email:
         body.append(booking.email)
+    if booking.meeting_url:
+        body.append(f"Join: {booking.meeting_url}")
     if booking.guest_timezone:
         body.append(f"Their timezone: {booking.guest_timezone}")
     if booking.note:
@@ -233,6 +265,7 @@ def announce(user, booking) -> None:
     box that isn't configured is the normal case on a fresh deployment."""
     from flask import url_for
 
+    from application.services.booking_ics import attachment
     from application.services.mail import send_email, smtp_configured
     from application.services.tz import user_zone
 
@@ -252,13 +285,19 @@ def announce(user, booking) -> None:
     if not smtp_configured():
         return
     host_name = user.display_name or user.username
+    # The same invitation goes to both sides — one appointment, one UID, so
+    # whichever calendar it is dropped into shows the same entry.
+    invite = [attachment(booking, host_name=host_name, host_email=user.email or "")]
+    where = f"Where: {booking.meeting_url}\n" if booking.meeting_url else ""
     send_email(
         user.email,
         f"New booking: {who}, {stamp}",
         f"{who} booked {booking.duration_minutes} minutes with you.\n\n"
         f"When: {stamp} ({user_zone(user)})\n"
+        + where +
         f"Email: {booking.email or '—'}\n"
         f"Note: {booking.note or '—'}\n",
+        attachments=invite,
     )
     if booking.email:
         guest_stamp = stamp
@@ -275,5 +314,8 @@ def announce(user, booking) -> None:
             f"Your appointment with {host_name}",
             f"Your {booking.duration_minutes}-minute appointment with "
             f"{host_name} is confirmed.\n\nWhen: {guest_stamp}\n"
-            + (f"\nWhat you wrote: {booking.note}\n" if booking.note else ""),
+            + where
+            + (f"\nWhat you wrote: {booking.note}\n" if booking.note else "")
+            + "\nThe attached file adds it to your calendar.\n",
+            attachments=invite,
         )

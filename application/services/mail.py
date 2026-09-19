@@ -23,11 +23,15 @@ def smtp_configured() -> bool:
     return bool(current_app.config.get("SMTP_HOST"))
 
 
-def send_email(to: str, subject: str, body: str, html: str | None = None) -> bool:
+def send_email(to: str, subject: str, body: str, html: str | None = None,
+               attachments: list[tuple[str, str, bytes]] | None = None) -> bool:
     """Send a single email. Returns True on success, False otherwise.
 
     Returning False instead of raising lets the caller fall back to a
     "tell the user to ask the admin" UX without blowing up the request.
+
+    ``attachments`` are ``(filename, mimetype, bytes)`` — what the booking
+    page needs to put an ``.ics`` beside the confirmation.
     """
     cfg = current_app.config
     host = cfg.get("SMTP_HOST")
@@ -48,6 +52,15 @@ def send_email(to: str, subject: str, body: str, html: str | None = None) -> boo
     msg.set_content(body)
     if html:
         msg.add_alternative(html, subtype="html")
+    for filename, mimetype, data in (attachments or []):
+        maintype, _, subtype = mimetype.partition("/")
+        msg.add_attachment(data, maintype=maintype, subtype=subtype or "plain",
+                           filename=filename)
+        # Attached bytes carry no charset of their own, so a text part would
+        # be read as us-ascii — and a guest called Müller comes out broken in
+        # the calendar entry.
+        if maintype == "text":
+            msg.get_payload()[-1].set_param("charset", "utf-8")
 
     try:
         with smtplib.SMTP(host, port, timeout=15) as smtp:

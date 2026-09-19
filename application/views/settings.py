@@ -1174,6 +1174,7 @@ def booking():
     from application.models.booking import (
         WEEKDAYS, Booking, BookingHour, BookingPhoto,
     )
+    from application.services import msgraph
 
     user = current_user._get_current_object()
     page = user.booking
@@ -1204,6 +1205,8 @@ def booking():
         default_hour=BookingHour(),
         upcoming=upcoming,
         has_photo=bool(BookingPhoto.objects(owner=user).only("id").first()),
+        ms_configured=msgraph.configured(),
+        ms_connected=msgraph.connected(user),
         # Shown whether or not the page is live: an unsaved slug has no link
         # yet, but a configured one always has, and that is what gets handed
         # out.
@@ -1234,6 +1237,86 @@ def _booking_embed_code(src: str) -> str:
     f.style.height = Math.max(320, e.data.height) + "px";
   }});
 </script>"""
+
+
+# -------- Microsoft, for the booking page's Teams meetings -------------------
+#
+# Deliberately under /settings/booking rather than beside the Google flow in
+# /settings/calendars: Cairn does not read anything from Microsoft. The
+# consent buys one call — create an online meeting — and it belongs to the
+# page that uses it.
+
+
+@settings_bp.route("/booking/microsoft/connect")
+@login_required
+def booking_microsoft_connect():
+    from application.services.msgraph import GraphError, authorize_url
+
+    redirect_uri = url_for("settings.booking_microsoft_callback", _external=True)
+    state = secrets.token_urlsafe(24)
+    session["ms_oauth_state"] = state
+    try:
+        url = authorize_url(redirect_uri, state)
+    except GraphError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("settings.booking"))
+    return redirect(url)
+
+
+@settings_bp.route("/booking/microsoft/callback")
+@login_required
+def booking_microsoft_callback():
+    from application.services.msgraph import (
+        GraphError, account_label, exchange_code, store_tokens,
+    )
+
+    user = current_user._get_current_object()
+    expected = session.pop("ms_oauth_state", None)
+    if not expected or request.args.get("state") != expected:
+        flash("OAuth state mismatch — please retry.", "danger")
+        return redirect(url_for("settings.booking"))
+    if request.args.get("error"):
+        desc = request.args.get("error_description") or ""
+        flash(f"Microsoft declined: {request.args.get('error')}"
+              f"{' — ' + desc if desc else ''}", "danger")
+        return redirect(url_for("settings.booking"))
+    code = request.args.get("code")
+    if not code:
+        flash("No authorisation code received.", "danger")
+        return redirect(url_for("settings.booking"))
+
+    redirect_uri = url_for("settings.booking_microsoft_callback", _external=True)
+    try:
+        data = exchange_code(code, redirect_uri)
+        store_tokens(user, data)
+        # Named here and not later: this is the one moment a raw access token
+        # is already in hand, and the label is only ever read for display.
+        user.ms_account = account_label(data.get("access_token") or "")
+    except GraphError as exc:
+        flash(f"Connecting to Microsoft failed: {exc}", "danger")
+        return redirect(url_for("settings.booking"))
+    user.save()
+    flash(f"Microsoft connected as {user.ms_account or 'your account'}.", "success")
+    return redirect(url_for("settings.booking"))
+
+
+@settings_bp.route("/booking/microsoft/disconnect", methods=["POST"])
+@login_required
+def booking_microsoft_disconnect():
+    """Forget the tokens — and stop promising Teams links we can no longer
+    make. A page left on ``teams`` without a connection would take bookings
+    and record a failure on every one of them."""
+    from application.services.msgraph import disconnect
+
+    user = current_user._get_current_object()
+    disconnect(user)
+    dropped = user.booking.meeting_mode == "teams"
+    if dropped:
+        user.booking.meeting_mode = "none"
+    user.save()
+    flash("Microsoft disconnected." + (" New bookings no longer get a Teams "
+                                       "link." if dropped else ""), "info")
+    return redirect(url_for("settings.booking"))
 
 
 def _read_booking_form(user, page, form) -> list:
@@ -1294,6 +1377,27 @@ def _read_booking_form(user, page, form) -> list:
     busy_ids = [cid for cid in form.getlist("busy_calendar_ids")
                 if user.find_calendar(cid)]
 
+    # How the appointment is met. Checked here rather than at booking time:
+    # a page that promises a Teams link it cannot make would only say so to
+    # the person who booked, and only afterwards.
+    mode = (form.get("meeting_mode") or "none").strip()
+    if mode not in ("none", "link", "teams"):
+        mode = "none"
+    link = (form.get("meeting_link") or "").strip()[:500]
+    if mode == "link":
+        if not link:
+            errors.append("Give the meeting link, or pick another option "
+                          "under “How you meet”.")
+        elif not link.startswith(("http://", "https://")):
+            errors.append("The meeting link has to start with http:// or https://.")
+    if mode == "teams":
+        from application.services import msgraph
+        if not msgraph.configured():
+            errors.append("Teams meetings aren't set up on this server.")
+        elif not msgraph.connected(user):
+            errors.append("Connect your Microsoft account before asking for "
+                          "Teams links.")
+
     if errors:
         return errors
 
@@ -1307,6 +1411,8 @@ def _read_booking_form(user, page, form) -> list:
     page.hours = hours
     page.busy_calendar_ids = busy_ids
     page.write_calendar_id = write_id
+    page.meeting_mode = mode
+    page.meeting_link = link
     page.min_notice_hours = _clamp(form.get("min_notice_hours"), 0, 720, 0)
     page.buffer_minutes = _clamp(form.get("buffer_minutes"), 0, 240, 0)
     page.max_per_day = _clamp(form.get("max_per_day"), 0, 50, 0)
