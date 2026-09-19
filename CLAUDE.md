@@ -317,6 +317,10 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   it short-circuits the Graph call, so no Teams meeting is created for a link
   nobody will open. It is checked for an `http(s)` scheme in the view, because
   it is rendered as a clickable link on the host's settings page.
+  In the event Cairn writes to the host's calendar the link goes into
+  **LOCATION** (and `URL` over CalDAV), not only into the description: that is
+  the field a calendar turns into a join button, on the lock screen and in the
+  reminder five minutes before. `create_event` takes a `location` for it.
   The URL lands on the BOOKING, not the page, so changing the mode later never
   moves an appointment somebody was already told to turn up at; a Teams call
   that fails is `Booking.meeting_error` and never the visitor's problem, same

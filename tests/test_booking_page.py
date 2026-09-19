@@ -576,6 +576,38 @@ class BookingPageTests(unittest.TestCase):
             self.assertEqual(booking.meeting_url, "https://meet.example/alice")
             self.assertEqual(booking.meeting_provider, "link")
 
+    def test_the_calendar_entry_carries_the_link_as_its_location(self):
+        """Not only in the description: LOCATION is what a calendar turns into
+        a join button, which is the whole point of writing it out."""
+        from application.services import calendar_writeback
+
+        wrote = {}
+        real = calendar_writeback.create_event
+        calendar_writeback.create_event = lambda cal, user, **kw: (
+            wrote.update(kw) or {"id": "evt-9"})
+        self.addCleanup(setattr, calendar_writeback, "create_event", real)
+        self.svc._write_event = self._write          # the real one
+
+        self.save_page(meeting_mode="link",
+                       meeting_link="https://meet.example/alice")
+        self.book(self.first_slot())
+        self.assertEqual(wrote["location"], "https://meet.example/alice")
+        self.assertIn("Join: https://meet.example/alice", wrote["description"])
+
+    def test_without_a_meeting_there_is_no_location(self):
+        from application.services import calendar_writeback
+
+        wrote = {}
+        real = calendar_writeback.create_event
+        calendar_writeback.create_event = lambda cal, user, **kw: (
+            wrote.update(kw) or {"id": "evt-9"})
+        self.addCleanup(setattr, calendar_writeback, "create_event", real)
+        self.svc._write_event = self._write
+
+        self.save_page()
+        self.book(self.first_slot())
+        self.assertEqual(wrote["location"], "")
+
     def test_both_confirmations_carry_the_invitation(self):
         from application.services import mail
 

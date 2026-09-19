@@ -235,42 +235,43 @@ def _fallback_tz() -> str:
 
 
 def _event_body(title: str, when: datetime, all_day: bool, description: str,
-                duration_minutes: int = 30, timezone: str | None = None) -> dict:
+                duration_minutes: int = 30, timezone: str | None = None,
+                location: str = "") -> dict:
+    """The Google event. ``location`` is where a meeting link BELONGS: that
+    is the field every calendar turns into a join button, on the phone's lock
+    screen too. In the description it is a line of text somebody has to find
+    and copy."""
+    body = {"summary": title, "description": description or ""}
+    if location:
+        body["location"] = location
     if all_day:
         date = when.date().isoformat()
-        return {
-            "summary": title,
-            "description": description or "",
-            "start": {"date": date},
-            "end": {"date": date},
-        }
+        body["start"] = {"date": date}
+        body["end"] = {"date": date}
+        return body
     end_when = when + timedelta(minutes=duration_minutes)
     if when.tzinfo is not None:
         # Aware → offset in the iso string is enough.
-        return {
-            "summary": title,
-            "description": description or "",
-            "start": {"dateTime": when.isoformat()},
-            "end": {"dateTime": end_when.isoformat()},
-        }
+        body["start"] = {"dateTime": when.isoformat()}
+        body["end"] = {"dateTime": end_when.isoformat()}
+        return body
     # Naive → tell Google how to interpret the wall-clock value.
     tz = timezone or _fallback_tz()
-    return {
-        "summary": title,
-        "description": description or "",
-        "start": {"dateTime": when.isoformat(), "timeZone": tz},
-        "end": {"dateTime": end_when.isoformat(), "timeZone": tz},
-    }
+    body["start"] = {"dateTime": when.isoformat(), "timeZone": tz}
+    body["end"] = {"dateTime": end_when.isoformat(), "timeZone": tz}
+    return body
 
 
 def google_create_event(calendar, user, *, title: str, when: datetime,
                         all_day: bool = True, description: str = "",
                         duration_minutes: int = 30,
-                        timezone: str | None = None) -> dict:
+                        timezone: str | None = None,
+                        location: str = "") -> dict:
     """Push a task to a Google calendar as a single all-day or timed event."""
     token = _ensure_google_access_token(calendar, user)
     cal_id = calendar.calendar_id or "primary"
-    body = _event_body(title, when, all_day, description, duration_minutes, timezone)
+    body = _event_body(title, when, all_day, description, duration_minutes,
+                       timezone, location)
     url = f"{GOOGLE_API_URL}/calendars/{urllib.parse.quote(cal_id)}/events"
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST")
@@ -287,11 +288,13 @@ def google_create_event(calendar, user, *, title: str, when: datetime,
 def google_patch_event(calendar, user, event_id: str, *, title: str, when: datetime,
                        all_day: bool = True, description: str = "",
                        duration_minutes: int = 30,
-                       timezone: str | None = None) -> dict:
+                       timezone: str | None = None,
+                       location: str = "") -> dict:
     """Replace an existing event's title/time. PUT keeps the same id."""
     token = _ensure_google_access_token(calendar, user)
     cal_id = calendar.calendar_id or "primary"
-    body = _event_body(title, when, all_day, description, duration_minutes, timezone)
+    body = _event_body(title, when, all_day, description, duration_minutes,
+                       timezone, location)
     url = (f"{GOOGLE_API_URL}/calendars/{urllib.parse.quote(cal_id)}"
            f"/events/{urllib.parse.quote(event_id)}")
     data = json.dumps(body).encode("utf-8")
@@ -988,7 +991,7 @@ def _fetch_caldav(calendar, user, since: datetime, until: datetime) -> list[Cale
 
 def _caldav_event_ics(uid: str, title: str, when: datetime, all_day: bool,
                       description: str, duration_minutes: int,
-                      tz_name: str | None) -> str:
+                      tz_name: str | None, location: str = "") -> str:
     from icalendar import Calendar as ICalendar, Event as IEvent
     cal = ICalendar()
     cal.add("prodid", "-//Cairn//Calendar//EN")
@@ -998,6 +1001,11 @@ def _caldav_event_ics(uid: str, title: str, when: datetime, all_day: bool,
     ev.add("summary", title or "")
     if description:
         ev.add("description", description)
+    if location:
+        # LOCATION is the join button in Apple Calendar, Thunderbird and every
+        # phone; URL is what the ones that have a link field read.
+        ev.add("location", location)
+        ev.add("url", location)
     if all_day:
         ev.add("dtstart", when.date())
         ev.add("dtend", (when + timedelta(days=1)).date())
@@ -1014,13 +1022,14 @@ def _caldav_event_ics(uid: str, title: str, when: datetime, all_day: bool,
 def caldav_create_event(calendar, user, *, title: str, when: datetime,
                         all_day: bool = True, description: str = "",
                         duration_minutes: int = 30,
-                        timezone: str | None = None) -> dict:
+                        timezone: str | None = None,
+                        location: str = "") -> dict:
     """Create an event by PUTting a fresh ``<uid>.ics`` resource. Returns
     ``{"id": uid}`` so the caller stores the UID like a Google event id."""
     import uuid
     uid = f"cairn-{uuid.uuid4().hex}"
     ics = _caldav_event_ics(uid, title, when, all_day, description,
-                            duration_minutes, timezone)
+                            duration_minutes, timezone, location)
     _caldav_request("PUT", _caldav_href(calendar, uid), calendar=calendar, user=user,
                     body=ics, headers={"Content-Type": "text/calendar; charset=utf-8",
                                        "If-None-Match": "*"})
@@ -1030,10 +1039,11 @@ def caldav_create_event(calendar, user, *, title: str, when: datetime,
 def caldav_patch_event(calendar, user, event_id: str, *, title: str, when: datetime,
                        all_day: bool = True, description: str = "",
                        duration_minutes: int = 30,
-                       timezone: str | None = None) -> dict:
+                       timezone: str | None = None,
+                       location: str = "") -> dict:
     """Update an event by re-PUTting its ``<uid>.ics`` (same UID = replace)."""
     ics = _caldav_event_ics(event_id, title, when, all_day, description,
-                            duration_minutes, timezone)
+                            duration_minutes, timezone, location)
     _caldav_request("PUT", _caldav_href(calendar, event_id), calendar=calendar, user=user,
                     body=ics, headers={"Content-Type": "text/calendar; charset=utf-8"})
     return {"id": event_id}

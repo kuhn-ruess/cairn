@@ -424,6 +424,8 @@ def _write_event(user, page, booking) -> None:
     if booking.email:
         body.append(booking.email)
     if booking.meeting_url:
+        # In the body as well, for the clients that show only the description
+        # in a notification — but LOCATION below is what makes it a button.
         body.append(f"Join: {booking.meeting_url}")
     if booking.guest_timezone:
         body.append(f"Their timezone: {booking.guest_timezone}")
@@ -435,7 +437,10 @@ def _write_event(user, page, booking) -> None:
             title=f"{booking.name or 'Appointment'} ({booking.duration_minutes} min)",
             when=booking.start, all_day=False, description="\n".join(body),
             duration_minutes=booking.duration_minutes,
-            timezone=(user.timezone or None))
+            timezone=(user.timezone or None),
+            # The meeting link belongs in LOCATION: that is the field a
+            # calendar turns into a join button, on the lock screen too.
+            location=booking.meeting_url or "")
         booking.calendar_id = str(cal.pk_ref)
         booking.event_id = created.get("id") or ""
     except CalendarError as exc:
