@@ -303,10 +303,31 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   blueprint: the logged-in app has every reason to refuse being framed. app.css
   is dark-only, so an embed redefines the handful of `--gv-*` variables the
   page uses and follows the visitor's `prefers-color-scheme`, `?theme=` wins.
-  Settings hands out the paste-ready snippet. The public page shows DAYS first and that day's times second, a week
-  at a time behind ‹ › — one long scroller looked, on a mouse, like there was
-  nothing past the edge of the box; only days that actually have a free slot
-  are in the strip. The directory filters `listed` in PYTHON, not in the query: a field
+  Settings hands out the paste-ready snippet. **Where you meet** is a page
+  setting with three answers (`BookingPage.meeting_mode`): nothing, one fixed
+  link, or a **fresh Teams meeting per booking** — the only thing
+  `services/msgraph.py` exists for (delegated consent per user, because a
+  Teams meeting has an organiser; one Entra app per deployment,
+  `BKTODO_MS_CLIENT_ID`/`_SECRET`, tenant `organizations` because a personal
+  Microsoft account cannot host one; tokens on `User.ms_*`, encrypted; nothing
+  is ever READ from Microsoft, busy times stay with the connected calendars).
+  The URL lands on the BOOKING, not the page, so changing the mode later never
+  moves an appointment somebody was already told to turn up at; a Teams call
+  that fails is `Booking.meeting_error` and never the visitor's problem, same
+  rule as a failed event write. Both confirmation mails carry the appointment
+  as an **`.ics` attachment** (`services/booking_ics.py` — `build_ics` is pure
+  for the same reason `free_slots` is; `METHOD:PUBLISH`, not `REQUEST`,
+  because nothing is being asked, and one UID per booking so a second mail
+  updates the entry instead of doubling it). The public page shows DAYS first and that day's times second, as a
+  MONTH GRID beside the slot list (`static/js/booking-page.js`): the question
+  a visitor arrives with is "which day can I even have", and a fortnight of
+  half-hours in one list does not answer it. A day with something free is a
+  button with a dot, a day without is flat muted text — so the answer is the
+  thing that stands out. One request already carries every free instant to the
+  end of `days_ahead`, so paging months costs nothing; ‹ › step one month
+  within the range that has slots and land on that month's first free day.
+  Every date is computed in the SHOWN zone (`dayKey` → `YYYY-MM-DD`), so the
+  timezone toggle regroups the grid rather than relabelling it. The directory filters `listed` in PYTHON, not in the query: a field
   left at its default is never written to the document, so
   `booking__listed=True` matches nobody who simply left the switch alone. `free_slots` is
   a PURE function over intervals — no clock, no database, no network — because

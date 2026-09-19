@@ -44,17 +44,35 @@
     .book-section { margin-top: 2rem; }
     .book-section h2 { font-size: .75rem; text-transform: uppercase;
                        letter-spacing: .08em; color: var(--gv-fg4); margin: 0 0 .6rem; }
-    .book-days { display: flex; gap: .4rem; overflow-x: auto; padding-bottom: .5rem;
-                 align-items: stretch; }
-    .book-day-arrow { display: flex; align-items: center; font-size: 1.2rem;
-                      line-height: 1; padding: .4rem .55rem; }
-    .book-day-btn { display: flex; flex-direction: column; align-items: center;
-                    line-height: 1.15; padding: .4rem .6rem; min-width: 3.4rem; }
-    .book-day-wd { font-size: .7rem; text-transform: uppercase; opacity: .75; }
-    .book-day-num { font-size: 1.05rem; font-weight: 600; }
-    .book-day-mon { font-size: .7rem; opacity: .75; }
+    /* Calendar on the left, that day's times on the right; stacked once
+       there isn't room, which is also what the embed usually gets. */
+    .book-pick { display: flex; flex-wrap: wrap; gap: 1.25rem 2rem; }
+    .book-cal { flex: 0 0 auto; width: 19rem; max-width: 100%; }
+    .book-times { flex: 1 1 13rem; min-width: 0; }
+    .book-cal-head { display: flex; align-items: center; gap: .5rem;
+                     margin-bottom: .5rem; }
+    .book-cal-title { margin: 0 auto; font-size: .95rem; font-weight: 600; }
+    .book-cal-arrow { line-height: 1; padding: .15rem .55rem; font-size: 1.1rem; }
+    .book-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr);
+                     gap: .2rem; }
+    .book-cal-wd { text-align: center; font-size: .65rem; text-transform: uppercase;
+                   letter-spacing: .04em; color: var(--gv-fg4); padding-bottom: .1rem; }
+    .book-cal-cell { aspect-ratio: 1 / 1; }
+    .book-cal-day { width: 100%; height: 100%; padding: 0; display: flex;
+                    flex-direction: column; align-items: center;
+                    justify-content: center; gap: 2px; font-size: .85rem;
+                    line-height: 1; }
+    .book-cal-dot { width: 4px; height: 4px; border-radius: 50%;
+                    background: currentColor; opacity: .75; }
+    /* A day with nothing free is deliberately not button-shaped: the whole
+       point of the grid is that free days are the ones that stand out. */
+    .book-cal-none { width: 100%; height: 100%; display: flex;
+                     align-items: center; justify-content: center;
+                     font-size: .85rem; color: var(--gv-fg4); opacity: .45;
+                     border-radius: .25rem; }
+    .book-cal-today { box-shadow: inset 0 0 0 1px var(--gv-fg4); }
     .book-day-name { font-size: .85rem; color: var(--gv-fg2);
-                     margin: 1rem 0 .45rem; }
+                     margin: 0 0 .45rem; }
     .book-slots { display: flex; flex-wrap: wrap; gap: .4rem; }
     .book-slot { min-width: 5.5rem; }
     .book-tz { font-size: .8rem; color: var(--gv-fg4); }
