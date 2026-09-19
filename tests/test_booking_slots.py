@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from application.models.booking import BookingHour, BookingPage
-from application.services.booking import free_slots
+from application.services.booking import day_states, free_slots
 
 BERLIN = ZoneInfo("Europe/Berlin")
 NOW = datetime(2026, 9, 14, 6, 0, tzinfo=timezone.utc)   # Mon 08:00 Berlin
@@ -157,6 +157,80 @@ class SlotTests(unittest.TestCase):
         now = berlin(2026, 9, 14, 13, 20).astimezone(timezone.utc)
         slots = hhmm(self.call(page(), 30, now=now), berlin(2026, 9, 14, 9).date())
         self.assertEqual(slots[0], "13:30")
+
+
+class DayStateTests(unittest.TestCase):
+    """Why a day offers nothing — the host's own view of their page.
+
+    The case that prompted this: a day with two meetings on it says "nothing
+    free" while the meetings visibly leave room, because the buffer around
+    them eats the rest. A page that can't say so reads like a broken one.
+    """
+
+    def states(self, p, duration=30, busy=(), booked=(), now=NOW):
+        return day_states(p, duration, busy=list(busy), booked=list(booked),
+                          now=now, host_tz=BERLIN)
+
+    def test_a_day_with_room_is_free(self):
+        self.assertEqual(self.states(page())["2026-09-14"], "free")
+
+    def test_a_weekday_with_no_window_says_so(self):
+        """Saturday isn't blocked by anything — it simply isn't offered."""
+        self.assertEqual(self.states(page())["2026-09-19"], "closed")
+
+    def test_a_day_covered_end_to_end_is_full(self):
+        busy = [(berlin(2026, 9, 15, 9), berlin(2026, 9, 15, 17))]
+        self.assertEqual(self.states(page(), busy=busy)["2026-09-15"], "full")
+
+    def test_the_buffer_is_counted_in_that(self):
+        """08:30–16:30 plus 30 minutes either side covers 09:00–17:00."""
+        busy = [(berlin(2026, 9, 15, 8, 30), berlin(2026, 9, 15, 16, 30))]
+        self.assertEqual(
+            self.states(page(buffer_minutes=30), busy=busy)["2026-09-15"], "full")
+
+    def test_room_that_is_too_small_is_not_the_same_as_none(self):
+        """Two meetings with an hour between them, asked for 60 minutes with a
+        15-minute buffer: half an hour IS left, and none of it is bookable.
+        That half hour is exactly what makes "nothing free" look wrong."""
+        busy = [(berlin(2026, 9, 15, 9), berlin(2026, 9, 15, 11)),
+                (berlin(2026, 9, 15, 12), berlin(2026, 9, 15, 17))]
+        got = self.states(page(buffer_minutes=15), duration=60, busy=busy)
+        self.assertEqual(got["2026-09-15"], "short")
+
+    def test_a_gap_the_slot_grid_steps_over_is_short_as_well(self):
+        """11:30–12:30 is a free hour, and a 60-minute page offers 09:00,
+        10:00, 11:00, 12:00 — none of which fits it. The day is not "booked
+        solid" and the page must not say it is."""
+        busy = [(berlin(2026, 9, 15, 9), berlin(2026, 9, 15, 11, 30)),
+                (berlin(2026, 9, 15, 12, 30), berlin(2026, 9, 15, 17))]
+        got = self.states(page(), duration=60, busy=busy)
+        self.assertEqual(got["2026-09-15"], "short")
+
+    def test_a_window_shorter_than_the_appointment_is_short_too(self):
+        p = page(hours=[BookingHour(weekday=1, start_minute=9 * 60,
+                                    end_minute=9 * 60 + 30)], durations=[60])
+        self.assertEqual(self.states(p, duration=60)["2026-09-15"], "short")
+
+    def test_a_day_inside_the_notice_window_says_that_instead(self):
+        """Nothing is blocking Monday — it is simply too soon."""
+        p = page(min_notice_hours=48)
+        self.assertEqual(self.states(p)["2026-09-14"], "notice")
+        self.assertEqual(self.states(p)["2026-09-17"], "free")
+
+    def test_the_daily_cap_is_named_as_itself(self):
+        booked = [(berlin(2026, 9, 15, 9), berlin(2026, 9, 15, 9, 30))]
+        got = self.states(page(max_per_day=1), booked=booked)
+        self.assertEqual(got["2026-09-15"], "cap")
+
+    def test_a_booking_blocks_a_day_as_hard_as_an_event(self):
+        booked = [(berlin(2026, 9, 15, 9), berlin(2026, 9, 15, 17))]
+        self.assertEqual(self.states(page(), booked=booked)["2026-09-15"], "full")
+
+    def test_every_day_of_the_window_gets_a_verdict(self):
+        got = self.states(page(days_ahead=7))
+        self.assertEqual(len(got), 8)          # today plus the horizon
+        self.assertEqual(min(got), "2026-09-14")
+        self.assertEqual(max(got), "2026-09-21")
 
 
 class HorizonTests(unittest.TestCase):

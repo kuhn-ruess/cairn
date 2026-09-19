@@ -73,6 +73,8 @@
   var days = [];       // [{key, slots:[iso]}] ascending, only days with times
   var byDay = {};
   var busyByDay = {};  // owner only: key -> [event] that blocks that day
+  var dayStates = {};  // owner only: host-day -> why it offers what it offers
+  var rules = {};      // owner only: notice, buffer and cap, for the wording
   var chosenKey = "";  // the day whose times are listed
   var shownMonth = ""; // "YYYY-MM" the grid is showing
 
@@ -174,7 +176,12 @@
     var wrap = document.createElement("div");
     wrap.className = "book-cal-cell";
     var day = byDay[key];
-    var blocked = !day && (busyByDay[key] || []).length > 0;
+    // Openable for the owner when there is something to say about it. A
+    // weekday they simply don't work stays flat: they chose that, and a grid
+    // full of clickable Sundays answers a question nobody asked.
+    var state = IS_OWNER ? dayStates[key] : null;
+    var blocked = !day && ((busyByDay[key] || []).length > 0 ||
+      (state && state !== "free" && state !== "closed"));
     if (!day && !blocked) {
       // Not a button and not styled like one: "nothing free here" has to be
       // readable without trying it.
@@ -193,7 +200,7 @@
     b.innerHTML = "<span>" + number + "</span>" +
       (blocked ? "" : "<span class='book-cal-dot'></span>");
     b.setAttribute("aria-label", blocked
-      ? busyByDay[key].length + " appointments, nothing free"
+      ? (busyByDay[key] || []).length + " appointments, nothing free"
       : day.slots.length + " free times");
     b.addEventListener("click", function () {
       chosenKey = key;
@@ -241,13 +248,50 @@
     if (!row.childNodes.length) {
       var empty = document.createElement("div");
       empty.className = "text-muted small";
-      empty.textContent = "Nothing free on this day.";
+      empty.textContent = whyEmpty(chosenKey);
       row.appendChild(empty);
     }
     box.appendChild(row);
     var panel = busyPanel();
     if (panel) { box.appendChild(panel); }
     return box;
+  }
+
+  function whyEmpty(key) {
+    // The states are keyed by the HOST's day. They are only trusted while the
+    // page is showing that same zone — otherwise a grid day straddles two of
+    // theirs and the sentence could be about the wrong one. Travelling, the
+    // host gets the plain sentence and the list below it, which is never wrong.
+    var state = (IS_OWNER && zone === HOST_TZ) ? dayStates[key] : null;
+    if (state === "closed") {
+      return "You don't take appointments on this weekday.";
+    }
+    if (state === "cap") {
+      return "Your limit of " + rules.max_per_day +
+        " a day is already booked.";
+    }
+    if (state === "notice") {
+      return "Too soon — your page asks for " + rules.min_notice_hours +
+        " hours' notice.";
+    }
+    if (state === "short") {
+      // The one that reads like a bug without a sentence: time IS left on
+      // this day, it just doesn't come out as a bookable slot — too short
+      // once the buffer is counted, or not lined up with the slot grid.
+      return "Time is left, but not as a bookable " + duration +
+        "-minute slot" +
+        (rules.buffer_minutes
+          ? " once the " + rules.buffer_minutes +
+            "-minute buffer around each appointment is counted."
+          : ".");
+    }
+    if (state === "full") {
+      return "Booked solid" +
+        (rules.buffer_minutes
+          ? " — including the " + rules.buffer_minutes + "-minute buffer around each appointment."
+          : ".");
+    }
+    return "Nothing free on this day.";
   }
 
   function busyPanel() {
@@ -357,6 +401,8 @@
       if (!res.ok) { throw new Error(res.data.error || "Free times couldn't be loaded."); }
       current = res.data.slots || [];
       currentBusy = res.data.busy || [];
+      dayStates = res.data.days || {};
+      rules = res.data.rules || {};
       indexBusy(currentBusy);
       render(current);
     }).catch(function (err) {

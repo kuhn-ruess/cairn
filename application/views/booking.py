@@ -140,16 +140,22 @@ def slots(slug):
         return jsonify({"error": "Unknown appointment length."}), 400
     # Imported here, not at the top: the seam every other caller patches is
     # the service module, and a name bound at import time isn't that seam.
-    from application.services.booking import busy_events, window_for
+    from application.services.booking import (
+        bookings_in, busy_events, day_states, window_for,
+    )
+    from application.services.tz import user_zone
 
     mine = _is_owner(user)
+    # One window for the whole answer: the slots, the events and the per-day
+    # verdicts all have to be about the same span, and each call to
+    # ``window_for`` starts its own clock.
+    since, until = window_for(user)
     try:
         # The owner's calendars are read ONCE and the intervals handed on, so
         # their page costs no more requests than a visitor's.
-        events = (busy_events(user, user.booking, *window_for(user))
-                  if mine else None)
+        events = busy_events(user, user.booking, since, until) if mine else None
         found = slots_for(
-            user, duration,
+            user, duration, now=since,
             busy=[(e.start, e.end) for e in events] if events is not None else None)
     except BookingError as exc:
         # A calendar that won't answer means we don't know what's free. Say so
@@ -160,6 +166,7 @@ def slots(slug):
         "slots": [s.isoformat() for s in found],
     }
     if mine:
+        booked = bookings_in(user, since, until)
         answer["busy"] = [{
             "start": e.start.isoformat(),
             "end": e.end.isoformat(),
@@ -167,7 +174,28 @@ def slots(slug):
             "all_day": bool(e.all_day),
             "calendar": e.calendar_name,
             "color": e.calendar_color,
-        } for e in sorted(events, key=lambda e: e.start)]
+        } for e in sorted(events, key=lambda e: e.start)] + [{
+            # An appointment booked through this page blocks the slot just as
+            # hard, and it is the one kind the host can't see in a calendar
+            # they may not even have connected as a busy one.
+            "start": b.start.isoformat(),
+            "end": b.end.isoformat(),
+            "title": b.name or b.email or "Booked",
+            "all_day": False,
+            "calendar": "Booked here",
+            "color": "#8ec07c",
+        } for b in booked]
+        # …and why a day offers nothing even where the list above leaves room.
+        answer["days"] = day_states(
+            user.booking, duration,
+            busy=[(e.start, e.end) for e in events],
+            booked=[(b.start, b.end) for b in booked],
+            now=since, host_tz=user_zone(user))
+        answer["rules"] = {
+            "min_notice_hours": int(user.booking.min_notice_hours or 0),
+            "buffer_minutes": int(user.booking.buffer_minutes or 0),
+            "max_per_day": int(user.booking.max_per_day or 0),
+        }
     return jsonify(answer)
 
 

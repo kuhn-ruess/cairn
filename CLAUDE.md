@@ -340,7 +340,18 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   Tuesday gone" is the one question the grid cannot otherwise answer.
   `_is_owner` gates every read of it and is `False` inside an `embed` — an
   embed renders in a site Cairn does not control, and a calendar's titles
-  have no business there. `busy_events` is now the function that reads the
+  have no business there. The list alone is not the answer, though, and
+  `day_states` (pure, beside `free_slots`, a second pass on purpose) is what
+  makes it one: a day is `closed` / `cap` / `notice` / `short` / `full` /
+  `free`, so "nothing free" can name the BUFFER, the notice window or the
+  daily cap instead of pointing at two meetings that visibly leave room.
+  `short` against `full` is the distinction that matters — time left over
+  that no bookable slot fits in (too small once the buffer counts, or not on
+  the slot grid) is not the same as a day booked solid. Bookings made through
+  the page are listed beside the calendar events, because they block just as
+  hard and appear in no calendar the host need have connected. The states are
+  keyed by the HOST's day and the page only trusts them while it is showing
+  the host's zone. `busy_events` is now the function that reads the
   calendars and `busy_intervals` its projection; the view hands the intervals
   it already has to `slots_for(busy=…)`, so the owner's page still costs one
   round of calendar requests. The directory filters `listed` in PYTHON, not in the query: a field

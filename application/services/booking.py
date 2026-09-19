@@ -75,6 +75,100 @@ def free_slots(page, duration_minutes: int, *, busy, booked, now: datetime,
     return out
 
 
+def day_states(page, duration_minutes: int, *, busy, booked, now: datetime,
+               host_tz) -> dict:
+    """Why each day offers what it offers — ``{"YYYY-MM-DD": state}`` in the
+    HOST's zone, for the host's own view of their page.
+
+    Pure, like ``free_slots``, and deliberately a SECOND pass rather than a
+    second return value from it: the slot maths is the one function that must
+    stay easy to read, and this answers a different question — not "when am I
+    free" but "what happened to Wednesday".
+
+    The states, in the order they are decided:
+
+    * ``closed`` — no bookable window on that weekday at all
+    * ``cap``    — ``max_per_day`` already reached by existing bookings
+    * ``notice`` — the whole day falls inside ``min_notice_hours``
+    * ``short``  — time is left, but no run of it long enough for this length
+      (a window shorter than the appointment lands here too)
+    * ``full``   — covered end to end by events, bookings and their buffers
+    * ``free``   — something is offered
+
+    The distinction that matters is ``short`` against ``full``: a day with two
+    meetings and a 30-minute buffer around each looks half empty in a list of
+    appointments and is genuinely unbookable, and "nothing free" without that
+    sentence reads like a bug.
+    """
+    duration = int(duration_minutes)
+    step = timedelta(minutes=duration)
+    buffer_ = timedelta(minutes=int(page.buffer_minutes or 0))
+    blocked = [(s, e) for s, e in list(busy) + list(booked) if s and e]
+    earliest = now + timedelta(hours=int(page.min_notice_hours or 0))
+    per_day = _bookings_per_day(booked, host_tz)
+    cap = int(page.max_per_day or 0)
+
+    today = now.astimezone(host_tz).date()
+    horizon = today + timedelta(days=int(page.days_ahead or 30))
+    states = {}
+    day = today
+    while day <= horizon:
+        states[day.isoformat()] = _day_state(
+            page, day, step, blocked, buffer_, earliest,
+            per_day.get(day, 0), cap, host_tz)
+        day += timedelta(days=1)
+    return states
+
+
+def _day_state(page, day, step, blocked, buffer_, earliest, booked_today, cap,
+               host_tz) -> str:
+    windows = page.windows_for(day.weekday())
+    if not windows:
+        return "closed"
+    if cap and booked_today >= cap:
+        return "cap"
+    bounds = [(_at(day, w.start_minute, host_tz), _at(day, w.end_minute, host_tz))
+              for w in windows]
+    any_start = False
+    late_enough = False
+    for start, window_end in bounds:
+        while start + step <= window_end:
+            any_start = True
+            if start >= earliest:
+                late_enough = True
+                if not _collides(start, start + step, blocked, buffer_):
+                    return "free"
+            start += step
+    if not any_start:
+        return "short"          # the window itself is shorter than the length
+    if not late_enough:
+        return "notice"
+    return "short" if _has_gap(bounds, blocked, buffer_, earliest) else "full"
+
+
+def _has_gap(bounds, blocked, buffer_, earliest) -> bool:
+    """Is any minute of the day's windows left over once everything blocking
+    has been laid on them? That is what separates "booked solid" from "the
+    leftovers are too small"."""
+    for start, end in bounds:
+        start = max(start, earliest)
+        if start >= end:
+            continue
+        spans = sorted((b_start - buffer_, b_end + buffer_)
+                       for b_start, b_end in blocked
+                       if b_start - buffer_ < end and b_end + buffer_ > start)
+        cursor = start
+        for b_start, b_end in spans:
+            if b_start > cursor:
+                return True
+            cursor = max(cursor, b_end)
+            if cursor >= end:
+                break
+        if cursor < end:
+            return True
+    return False
+
+
 def _at(day: date, minute: int, host_tz) -> datetime:
     """Wall-clock ``minute`` on ``day`` in the host's zone.
 
@@ -140,6 +234,17 @@ def booked_intervals(user, since: datetime, until: datetime) -> list:
     from application.models.booking import Booking
     return [(b.start, b.end) for b in Booking.objects(
         owner=user, start__lt=until, end__gt=since).only("start", "end")]
+
+
+def bookings_in(user, since: datetime, until: datetime) -> list:
+    """The appointments themselves — the host's view needs their names.
+
+    A booking blocks a slot exactly as hard as a calendar event does (see the
+    module docstring), so a panel that lists only the calendar is a panel that
+    lies about a day taken by this very page."""
+    from application.models.booking import Booking
+    return list(Booking.objects(owner=user, start__lt=until, end__gt=since)
+                .order_by("start"))
 
 
 def window_for(user, *, now=None) -> tuple:
