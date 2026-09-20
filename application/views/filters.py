@@ -343,6 +343,11 @@ def register_filters(app):
             nav_counts["trash"] = Item.all_objects(
                 owner=user, trashed_at__ne=None
             ).count()
+            # Asked only of somebody who has a booking page at all, so the
+            # count costs nothing for everyone else.
+            if user.booking and user.booking.enabled:
+                from application.views.bookings import upcoming_count
+                nav_counts["bookings"] = upcoming_count(user)
 
         # Active OmniFocus-style focus (folder/project/section) — drives the
         # navbar chip and is available to every template. Validates + clears

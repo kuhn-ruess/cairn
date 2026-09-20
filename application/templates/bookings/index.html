@@ -1,0 +1,83 @@
+{% extends "layout/base.html" %}
+{% block title %}Bookings · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center gap-2 mb-3">
+  <h1 class="h5 mb-0"><i class="bi bi-calendar-check text-muted"></i> Bookings</h1>
+  <a class="btn btn-sm btn-outline-secondary ms-auto"
+     href="{{ url_for('settings.booking') }}">
+    <i class="bi bi-sliders"></i> Booking page settings
+  </a>
+</div>
+
+{% if not page or not page.enabled %}
+  <div class="alert alert-secondary">
+    Your booking page is switched off, so nobody can pick a time.
+    <a href="{{ url_for('settings.booking') }}">Set it up</a> to start taking
+    appointments.
+  </div>
+{% elif page.slug %}
+  <p class="text-muted small">
+    People book at
+    <a href="{{ url_for('booking.page', slug=page.slug, _external=True) }}"
+       target="_blank" rel="noopener">{{ url_for('booking.page', slug=page.slug, _external=True) }}</a>
+  </p>
+{% endif %}
+
+<div class="card">
+  <div class="card-header py-2">
+    <h2 class="h6 mb-0">Upcoming appointments</h2>
+  </div>
+  {% if upcoming %}
+    <ul class="list-group list-group-flush">
+      {% for b in upcoming %}
+        <li class="list-group-item d-flex align-items-center gap-3">
+          <div class="me-auto">
+            <div class="fw-semibold">{{ b.name }} · {{ b.duration_minutes }} min</div>
+            <div class="small text-muted">
+              {{ b.start|localdt }}
+              {% if b.email %}· {{ b.email }}{% endif %}
+              {% if b.guest_timezone %}· {{ b.guest_timezone }}{% endif %}
+              {% if b.event_error %}
+                · <span class="text-danger" title="{{ b.event_error }}">not written to the calendar</span>
+              {% endif %}
+              {% if b.meeting_error %}
+                · <span class="text-danger" title="{{ b.meeting_error }}">no meeting link</span>
+              {% endif %}
+            </div>
+            {% if b.meeting_url %}
+              <div class="small">
+                <i class="bi bi-camera-video text-muted"></i>
+                <a href="{{ b.meeting_url }}" target="_blank" rel="noopener">{{ b.meeting_url }}</a>
+                {% if b.meeting_provider == 'guest' %}
+                  <span class="text-muted">· their link</span>
+                {% endif %}
+              </div>
+            {% endif %}
+            {% if b.note %}<div class="small">{{ b.note }}</div>{% endif %}
+          </div>
+          {# Calling one off: the calendar entry goes, the slot comes back,
+             and the guest is told unless the box is cleared — which is what
+             a test booking of your own wants. #}
+          <form method="post" class="text-end flex-shrink-0"
+                action="{{ url_for('bookings.cancel', booking_id=b.id) }}"
+                onsubmit="return confirm('Cancel this appointment?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if b.email %}
+              <div class="form-check form-check-inline small me-1">
+                <input class="form-check-input" type="checkbox" value="1"
+                       name="notify" id="notify-{{ b.id }}" checked>
+                <label class="form-check-label text-muted" for="notify-{{ b.id }}">
+                  Tell them
+                </label>
+              </div>
+            {% endif %}
+            <button class="btn btn-sm btn-outline-danger">Cancel</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="card-body text-muted small">Nothing booked yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

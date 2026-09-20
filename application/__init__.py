@@ -11,7 +11,7 @@ from mongoengine import connect, disconnect
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Public app version — surfaced in the nav footer + the About page.
-APP_VERSION = "1.4.459"
+APP_VERSION = "1.4.460"
 
 # Pull settings out of a local ``.env`` file if one exists. Doesn't override
 # values that are already set in the real environment.
@@ -93,6 +93,7 @@ def create_app(config_object: str | None = None) -> Flask:
     from application.views.templates import templates_bp
     from application.views.caldav import caldav_bp
     from application.views.booking import booking_bp
+    from application.views.bookings import bookings_bp
     from application.views.billing import billing_bp, webhook as billing_webhook
     from application.api.v1 import api_v1_bp
 
@@ -120,6 +121,7 @@ def create_app(config_object: str | None = None) -> Flask:
     app.register_blueprint(templates_bp)
     app.register_blueprint(caldav_bp)
     app.register_blueprint(booking_bp)
+    app.register_blueprint(bookings_bp)
     # The public booking page is filled in by people who have never seen Cairn
     # and carry no session, so a CSRF token would only turn "cookies blocked"
     # into "can't book". A forged POST there achieves one appointment its owner

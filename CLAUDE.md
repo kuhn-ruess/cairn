@@ -406,8 +406,13 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   is computed in UTC; the HOST's timezone only says where a weekday starts and
   what `09:00` means, and the VISITOR's browser formats the instants — the
   server never renders a time on that page.
-  An appointment is **called off from the list under Settings → Booking**
-  (`settings.booking_cancel` → `booking.cancel`): the calendar entry is
+  The appointments themselves are **a page in the main menu**, not in
+  Settings (`views/bookings.py`, `/bookings`): the settings form is where
+  the page is CONFIGURED and is touched once, while what arrives through
+  it is worked with. The sidebar entry and its count appear only for a
+  user whose page is switched on, so everyone else pays no query for it.
+  An appointment is **called off from that list**
+  (`bookings.cancel` → `booking.cancel`): the calendar entry is
   deleted, the guest gets a mail carrying an `.ics` with the SAME UID,
   `METHOD:CANCEL` and a bumped `SEQUENCE` — that trio is what makes a
   calendar DROP the entry instead of filing a second one — and the row is

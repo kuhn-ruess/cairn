@@ -351,6 +351,23 @@ class BookingPageTests(unittest.TestCase):
         resp = self.book(start)
         self.assertEqual(resp.status_code, 400)
 
+    # -- the list in the main menu ----------------------------------------
+    def test_the_appointments_are_a_page_of_their_own(self):
+        self.save_page()
+        self.book(self.first_slot())
+        body = self.client.get("/bookings/").get_data(as_text=True)
+        self.assertIn("Bob", body)
+        self.assertIn("/cancel", body)
+
+    def test_the_menu_only_carries_it_once_the_page_is_on(self):
+        """A booking page nobody switched on has no appointments to work
+        with, so the entry — and the count query behind it — stays away."""
+        before = self.client.get("/bookings/").get_data(as_text=True)
+        self.assertNotIn('href="/bookings/"', before)
+        self.save_page()
+        after = self.client.get("/bookings/").get_data(as_text=True)
+        self.assertIn('href="/bookings/"', after)
+
     # -- calling one off --------------------------------------------------
     def test_cancelling_gives_the_slot_back(self):
         self.save_page()
@@ -360,7 +377,7 @@ class BookingPageTests(unittest.TestCase):
             "/book/alice/slots?duration=30").get_json()["slots"])
         with self.app.app_context():
             booking = self.Booking.objects.get(owner=self.user)
-        resp = self.client.post(f"/settings/booking/{booking.pk}/cancel",
+        resp = self.client.post(f"/bookings/{booking.pk}/cancel",
                                 data={"notify": ""}, follow_redirects=True)
         self.assertEqual(resp.status_code, 200)
         with self.app.app_context():
@@ -378,7 +395,7 @@ class BookingPageTests(unittest.TestCase):
         try:
             with self.app.app_context():
                 booking = self.Booking.objects.get(owner=self.user)
-            self.client.post(f"/settings/booking/{booking.pk}/cancel", data={})
+            self.client.post(f"/bookings/{booking.pk}/cancel", data={})
         finally:
             calendar_writeback.delete_event = real
         self.assertEqual(gone, ["evt-1"])
@@ -398,7 +415,7 @@ class BookingPageTests(unittest.TestCase):
             sess["_user_id"] = str(other.pk)
             sess["_fresh"] = True
         self.assertEqual(client.post(
-            f"/settings/booking/{booking.pk}/cancel", data={}).status_code, 404)
+            f"/bookings/{booking.pk}/cancel", data={}).status_code, 404)
         with self.app.app_context():
             self.assertEqual(self.Booking.objects(owner=self.user).count(), 1)
 
