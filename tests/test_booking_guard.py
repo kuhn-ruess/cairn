@@ -72,6 +72,19 @@ class TicketTests(unittest.TestCase):
 
 
 class HoneypotTests(unittest.TestCase):
+    def test_the_field_name_is_one_no_browser_will_fill(self):
+        """It was ``company`` once, and autofilling the name and email two
+        rows above put a company in it — which refused a real booking."""
+        from application.services.booking_guard import HONEYPOT_FIELD
+        autofilled = ("name", "email", "company", "organization", "org",
+                      "address", "street", "city", "zip", "postal", "phone",
+                      "tel", "country", "url", "website", "username", "user",
+                      "nickname", "title", "given", "family", "surname")
+        self.assertNotIn(HONEYPOT_FIELD.lower(), autofilled)
+        for word in autofilled:
+            self.assertNotIn(word, HONEYPOT_FIELD.lower(),
+                             f"{HONEYPOT_FIELD!r} reads like {word!r} to a browser")
+
     def test_an_empty_honeypot_passes(self):
         with app_for().app_context():
             check_honeypot("")

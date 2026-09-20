@@ -378,7 +378,10 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   **The form is public, so it is guarded** (`services/booking_guard.py`, wired
   in `views/booking.py`): a signed form token minted per page render (it carries
   the slug, a minimum age and a TTL — a POST without one never loaded the
-  page), a honeypot field, and two ceilings that do NOT depend on the client's
+  page), a honeypot field (its NAME matters twice — it was `company`, and a
+  browser autofilling name and email filled it too, which refused real
+  bookings; nothing in it may read like an autofill token, and a test says
+  so), and two ceilings that do NOT depend on the client's
   address — what one page may take per hour and per day, and how many open
   appointments one email address may hold. The per-IP `RATELIMIT_BOOKING`
   stops one machine; those two are what a rotating set of addresses meets, and

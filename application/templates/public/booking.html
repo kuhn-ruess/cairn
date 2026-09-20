@@ -42,8 +42,7 @@
                   padding-left: 1rem; border-left: 3px solid var(--gv-bg2);
                   font-size: .95rem; }
     .book-section { margin-top: 2rem; }
-    .book-hp { position: absolute; left: -10000px; width: 1px;
-               height: 1px; overflow: hidden; }
+    .book-hp { display: none; }
     .book-section h2 { font-size: .75rem; text-transform: uppercase;
                        letter-spacing: .08em; color: var(--gv-fg4); margin: 0 0 .6rem; }
     /* Calendar on the left, that day's times on the right; stacked once
@@ -151,10 +150,11 @@
        page. See services/booking_guard.py. #}
     <input type="hidden" name="form_token" value="{{ form_token }}">
     {# Hidden from everyone but a script that fills in every input it finds.
-       Off the tab order and out of the accessibility tree, so nobody who
-       belongs here ever meets it. #}
+       ``display:none`` rather than off-screen, and a name no autofill
+       vocabulary knows: a browser filling this on the visitor's behalf is a
+       real person refused, which is worse than a bot let through. #}
     <div class="book-hp" aria-hidden="true">
-      <label for="{{ honeypot }}">Company (leave empty)</label>
+      <label for="{{ honeypot }}">Leave this field empty</label>
       <input id="{{ honeypot }}" name="{{ honeypot }}" type="text" value=""
              tabindex="-1" autocomplete="off">
     </div>

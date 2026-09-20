@@ -10,7 +10,9 @@ each one alone is trivially beaten:
   or two wasn't typed by a person. It carries the slug, so a token minted on
   one page is worth nothing on another.
 * the **honeypot** is a field no browser shows and no person fills. A script
-  that posts every input it finds fills it.
+  that posts every input it finds fills it. Its name is chosen so that no
+  BROWSER fills it either: it was once ``company``, and autofilling name and
+  email two rows above put a company in it and refused a real booking.
 * the **page ceiling** counts what was actually created, per page, no matter
   who created it — the one limit a rotating set of IP addresses cannot walk
   around. The per-IP rate limit on the route stops one machine; this stops a
@@ -29,20 +31,35 @@ refusal writes a warning to the log.
 """
 from datetime import datetime, timedelta, timezone
 
-from flask import current_app
+from flask import current_app, request
 from itsdangerous import BadSignature, SignatureExpired, TimestampSigner
 
 from application.services.booking import BookingError
 
-# The field the form hides and a bot fills. Named like something a form would
-# plausibly ask for — "honeypot" would be a giveaway.
-HONEYPOT_FIELD = "company"
+# The field the form hides and a bot fills. The name matters twice over: it
+# must mean nothing to a bot, and nothing to a BROWSER either. "company" was
+# both — Safari and every password manager fill a company field when the
+# visitor autofills their name and email two rows above, and the guard then
+# refused a real person. Nothing in this name is in an autofill vocabulary.
+HONEYPOT_FIELD = "note_2"
 
 _SALT = "cairn-booking-form"
 
 # One message for every "your form is wrong" case. A script learns nothing
-# from it, and a person only ever needs the one instruction it gives.
+# from it, and a person only ever needs the one instruction it gives. WHICH
+# check refused goes to the log instead — the visitor must not be told, but a
+# refusal nobody can explain afterwards is how a guard quietly eats real
+# bookings.
 _RELOAD = "Please reload the page and pick your time again."
+
+
+def _refuse(why: str, message: str = _RELOAD) -> BookingError:
+    current_app.logger.warning(
+        "Booking form refused (%s): %s %s from %s", why,
+        request.method if request else "?",
+        request.path if request else "?",
+        (request.remote_addr if request else "?"))
+    return BookingError(message)
 
 
 def _signer() -> TimestampSigner:
@@ -58,27 +75,33 @@ def check_form_token(slug: str, token: str) -> None:
     ttl = int(current_app.config.get("BOOKING_FORM_TTL_HOURS") or 12) * 3600
     min_age = int(current_app.config.get("BOOKING_MIN_FORM_SECONDS") or 0)
     if not token:
-        raise BookingError(_RELOAD)
+        # Also what a page rendered before this guard existed looks like, and
+        # what a browser sends from a cached copy of one.
+        raise _refuse("no form token — the page predates the guard, or the "
+                      "POST never loaded it")
     try:
         value, stamped = _signer().unsign(
             token, max_age=ttl, return_timestamp=True)
     except SignatureExpired as exc:
-        raise BookingError(
+        raise _refuse(
+            "form token older than the TTL",
             "This page has been open for a while — please reload it and pick "
             "your time again.") from exc
     except BadSignature as exc:
-        raise BookingError(_RELOAD) from exc
+        raise _refuse("form token doesn't verify — forged, or the "
+                      "SECRET_KEY changed under it") from exc
     if value.decode("utf-8", "replace") != (slug or "").strip().lower():
-        raise BookingError(_RELOAD)
+        raise _refuse("form token was minted for another booking page")
     if min_age and (datetime.now(timezone.utc) - stamped).total_seconds() < min_age:
         # Re-rendering the page hands out a fresh token, so a person who
         # really did fill it in that fast just submits again.
-        raise BookingError("That was quick — please submit the form once more.")
+        raise _refuse("form came back in under BOOKING_MIN_FORM_SECONDS",
+                      "That was quick — please submit the form once more.")
 
 
 def check_honeypot(value: str) -> None:
     if (value or "").strip():
-        raise BookingError(_RELOAD)
+        raise _refuse("honeypot field was filled in")
 
 
 def check_flood(user, email: str) -> None:
@@ -97,11 +120,9 @@ def check_flood(user, email: str) -> None:
         made = Booking.objects(owner=user,
                                created_at__gte=now - span).count()
         if made >= limit:
-            current_app.logger.warning(
-                "Booking page %s refused a booking: %s taken in the last %s "
-                "(limit %s) — the page may be under a flood.",
-                getattr(user.booking, "slug", "?"), made, label, limit)
-            raise BookingError(
+            raise _refuse(
+                f"page ceiling: {made} taken in the last {label} "
+                f"(limit {limit}) — this page may be under a flood",
                 "This page has taken a lot of bookings just now. Please try "
                 "again later.")
 
@@ -110,6 +131,8 @@ def check_flood(user, email: str) -> None:
         open_ones = Booking.objects(owner=user, start__gte=now,
                                     email__iexact=address).count()
         if open_ones >= per_email:
-            raise BookingError(
+            raise _refuse(
+                f"address ceiling: {open_ones} open appointments already "
+                f"(limit {per_email})",
                 "There are already several appointments booked for that email "
                 "address. Please reply to your confirmation instead.")
