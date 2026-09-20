@@ -71,9 +71,11 @@ class BaseConfig:
     # real booking page and far below what a flood wants; 0 turns one off.
     BOOKING_MAX_NEW_PER_HOUR = 6
     BOOKING_MAX_NEW_PER_DAY = 20
-    # Open future appointments per email address — an anti-spam rule and what
-    # stops the page being used to mailbomb a stranger with confirmations.
-    BOOKING_MAX_OPEN_PER_EMAIL = 3
+    # How often one email address may book PER DAY. Every booking mails that
+    # address a confirmation, so this bounds how fast a stranger's inbox can
+    # be filled. It counts bookings MADE, not appointments held — somebody
+    # booking a term's worth of sessions is not what this is for.
+    BOOKING_MAX_PER_EMAIL_PER_DAY = 3
 
     # Who may put the public booking page in an <iframe>. A CSP
     # ``frame-ancestors`` is what makes embedding work at all: the reverse

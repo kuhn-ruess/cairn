@@ -17,9 +17,11 @@ each one alone is trivially beaten:
   who created it — the one limit a rotating set of IP addresses cannot walk
   around. The per-IP rate limit on the route stops one machine; this stops a
   hundred.
-* the **address ceiling** bounds one email address to a few open appointments.
-  It is an anti-spam rule and the reason this page can't be used to mailbomb a
-  stranger with confirmations they never asked for.
+* the **address ceiling** bounds how often one email address may book PER DAY.
+  Each booking mails that address a confirmation, so this is what stops the
+  page being used to fill a stranger's inbox. It counts bookings MADE, not
+  appointments held: a client booking a term's worth of sessions is not what
+  this is looking for.
 
 None of it is a CAPTCHA and none of it asks the visitor for anything, because
 the page's whole job is that somebody who has never seen Cairn can book in
@@ -111,7 +113,7 @@ def check_flood(user, email: str) -> None:
     now = datetime.now(timezone.utc)
     per_hour = int(current_app.config.get("BOOKING_MAX_NEW_PER_HOUR") or 0)
     per_day = int(current_app.config.get("BOOKING_MAX_NEW_PER_DAY") or 0)
-    per_email = int(current_app.config.get("BOOKING_MAX_OPEN_PER_EMAIL") or 0)
+    per_email = int(current_app.config.get("BOOKING_MAX_PER_EMAIL_PER_DAY") or 0)
 
     for limit, span, label in ((per_hour, timedelta(hours=1), "hour"),
                                (per_day, timedelta(days=1), "day")):
@@ -126,13 +128,18 @@ def check_flood(user, email: str) -> None:
                 "This page has taken a lot of bookings just now. Please try "
                 "again later.")
 
+    # Counted over what this address BOOKED TODAY, not over what it holds.
+    # The rule is about the rate a stranger's inbox can be filled at, and a
+    # client who books six sessions for the term is not that — the first cut
+    # of this counted open future appointments and locked out exactly the
+    # people the page exists for.
     address = (email or "").strip()
     if per_email and address:
-        open_ones = Booking.objects(owner=user, start__gte=now,
-                                    email__iexact=address).count()
-        if open_ones >= per_email:
+        today = Booking.objects(owner=user, email__iexact=address,
+                                created_at__gte=now - timedelta(days=1)).count()
+        if today >= per_email:
             raise _refuse(
-                f"address ceiling: {open_ones} open appointments already "
-                f"(limit {per_email})",
-                "There are already several appointments booked for that email "
-                "address. Please reply to your confirmation instead.")
+                f"address ceiling: {today} bookings from this address in the "
+                f"last day (limit {per_email})",
+                "That email address has booked several times today already. "
+                "Please try again tomorrow, or reply to your confirmation.")

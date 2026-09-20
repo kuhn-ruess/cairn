@@ -382,8 +382,10 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   browser autofilling name and email filled it too, which refused real
   bookings; nothing in it may read like an autofill token, and a test says
   so), and two ceilings that do NOT depend on the client's
-  address — what one page may take per hour and per day, and how many open
-  appointments one email address may hold. The per-IP `RATELIMIT_BOOKING`
+  address — what one page may take per hour and per day, and how often one
+  email address may book per day (bookings MADE, not appointments held: the
+  first cut counted open future ones and locked out the repeat client the page
+  exists for). The per-IP `RATELIMIT_BOOKING`
   stops one machine; those two are what a rotating set of addresses meets, and
   the email one is also why this page can't be used to mailbomb a stranger
   with confirmations. All of it is `BKTODO_BOOKING_*` config, and the chosen

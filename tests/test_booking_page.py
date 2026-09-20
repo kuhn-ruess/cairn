@@ -404,23 +404,46 @@ class BookingPageTests(unittest.TestCase):
         with self.app.app_context():
             self.assertEqual(self.Booking.objects(owner=self.user).count(), 1)
 
-    def test_one_address_cannot_take_the_whole_week(self):
-        """Also what stops the page mailbombing a stranger with
+    def test_one_address_cannot_book_over_and_over_in_a_day(self):
+        """What stops the page filling a stranger's inbox with
         confirmations."""
         self.save_page()
         slots = self.client.get("/book/alice/slots?duration=30").get_json()["slots"]
-        was = self.app.config["BOOKING_MAX_OPEN_PER_EMAIL"]
-        self.app.config["BOOKING_MAX_OPEN_PER_EMAIL"] = 1
+        was = self.app.config["BOOKING_MAX_PER_EMAIL_PER_DAY"]
+        self.app.config["BOOKING_MAX_PER_EMAIL_PER_DAY"] = 1
         try:
             self.assertEqual(self.book(slots[0]).status_code, 200)
             resp = self.book(slots[1])           # same email as the helper uses
             self.assertEqual(resp.status_code, 400)
-            self.assertIn(b"email address", resp.data)
+            self.assertIn(b"booked several times today", resp.data)
             # …and somebody else still gets a slot.
             self.assertEqual(self.book(slots[1], email="eve@example.com")
                              .status_code, 200)
         finally:
-            self.app.config["BOOKING_MAX_OPEN_PER_EMAIL"] = was
+            self.app.config["BOOKING_MAX_PER_EMAIL_PER_DAY"] = was
+
+    def test_appointments_already_held_do_not_block_the_next_one(self):
+        """The rule counts the RATE, not the stock: a client who books six
+        sessions for the term must not be locked out of the seventh — which
+        is what the first cut of this did."""
+        self.save_page()
+        slots = self.client.get("/book/alice/slots?duration=30").get_json()["slots"]
+        was = self.app.config["BOOKING_MAX_PER_EMAIL_PER_DAY"]
+        self.app.config["BOOKING_MAX_PER_EMAIL_PER_DAY"] = 2
+        try:
+            with self.app.app_context():
+                # Three appointments this address booked last week, all still
+                # ahead of it.
+                then = datetime.now(timezone.utc) - timedelta(days=7)
+                for n in range(3):
+                    start = datetime.fromisoformat(slots[0]) + timedelta(days=30 + n)
+                    self.Booking(owner=self.user, start=start,
+                                 end=start + timedelta(minutes=30),
+                                 duration_minutes=30, name="Bob",
+                                 email="bob@example.com", created_at=then).save()
+            self.assertEqual(self.book(slots[0]).status_code, 200)
+        finally:
+            self.app.config["BOOKING_MAX_PER_EMAIL_PER_DAY"] = was
 
     def test_a_booking_without_an_email_is_refused(self):
         self.save_page()
