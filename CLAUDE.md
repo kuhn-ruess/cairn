@@ -405,7 +405,20 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   withdraw-the-loser check for overlapping-but-different starts). Everything
   is computed in UTC; the HOST's timezone only says where a weekday starts and
   what `09:00` means, and the VISITOR's browser formats the instants — the
-  server never renders a time on that page. `BookingPage` is embedded on
+  server never renders a time on that page.
+  An appointment is **called off from the list under Settings → Booking**
+  (`settings.booking_cancel` → `booking.cancel`): the calendar entry is
+  deleted, the guest gets a mail carrying an `.ics` with the SAME UID,
+  `METHOD:CANCEL` and a bumped `SEQUENCE` — that trio is what makes a
+  calendar DROP the entry instead of filing a second one — and the row is
+  DELETED rather than flagged, because a cancelled booking has to stop
+  blocking its slot in all four places that ask (the public page, the day
+  states, the host's panel, the ceilings), and one collection holding only
+  live appointments keeps that true without four filters that can each be
+  forgotten. The mail is a per-row checkbox, cleared for a test booking of
+  your own. Neither a calendar that won't answer nor a missing SMTP stops
+  the cancellation; both are warnings to the host.
+  `BookingPage` is embedded on
   `User` (the slug lookup already loads the document), `Booking` is a real
   Document for the reasons above
 - `todoist_import.py` — Todoist API ingest used by the CLI command
