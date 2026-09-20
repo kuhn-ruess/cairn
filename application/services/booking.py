@@ -514,3 +514,54 @@ def announce(user, booking) -> None:
             + "\nThe attached file adds it to your calendar.\n",
             attachments=invite,
         )
+
+
+def cancel(user, booking, *, notify: bool = True) -> list:
+    """Withdraw one appointment: calendar entry, guest, row — in that order.
+
+    Returns the warnings worth showing the host. None of them stop the
+    cancellation: once the host has said "this is off", leaving the row in
+    place because a calendar or an SMTP server was unreachable would be the
+    worse answer — the slot has to become free again, and the host can chase
+    a stuck calendar entry by hand.
+
+    The row is DELETED rather than flagged. A cancelled booking must stop
+    blocking its slot in every one of the places that ask (the public page,
+    the day states, the host's own panel, the ceilings), and one collection
+    that only ever holds live appointments is how that stays true without
+    four filters that can each be forgotten.
+    """
+    from application.services.booking_ics import attachment
+    from application.services.calendar_sync import CalendarError
+    from application.services.calendar_writeback import delete_event
+    from application.services.mail import send_email, smtp_configured
+    from application.services.tz import user_zone
+
+    warnings = []
+    cal = user.find_calendar(booking.calendar_id) if booking.calendar_id else None
+    if cal is not None and booking.event_id:
+        try:
+            delete_event(cal, user, booking.event_id)
+        except CalendarError as exc:
+            log.warning("booking %s: event delete failed: %s", booking.pk, exc)
+            warnings.append(f"The calendar entry couldn't be removed: {exc}")
+
+    if notify and booking.email and smtp_configured():
+        host_name = user.display_name or user.username
+        stamp = booking.start.astimezone(user_zone(user)).strftime(
+            "%a %d %b %Y, %H:%M")
+        send_email(
+            booking.email,
+            f"Cancelled: your appointment with {host_name}",
+            f"Your {booking.duration_minutes}-minute appointment with "
+            f"{host_name} on {stamp} ({user_zone(user)}) has been cancelled.\n\n"
+            "The attached file removes it from your calendar. You're welcome "
+            "to book another time.\n",
+            attachments=[attachment(booking, host_name=host_name,
+                                    host_email=user.email or "", cancel=True)],
+        )
+    elif notify and booking.email and not smtp_configured():
+        warnings.append("No SMTP is configured, so the guest wasn't told.")
+
+    booking.delete()
+    return warnings

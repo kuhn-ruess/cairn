@@ -1319,6 +1319,29 @@ def booking_microsoft_disconnect():
     return redirect(url_for("settings.booking"))
 
 
+@settings_bp.route("/booking/<booking_id>/cancel", methods=["POST"])
+@login_required
+def booking_cancel(booking_id):
+    """Call off one appointment from the list under the booking page.
+
+    Owner-scoped by the query itself, not by a check afterwards: a booking
+    that isn't this user's simply isn't found."""
+    from application.models.booking import Booking
+    from application.services.booking import cancel
+
+    user = current_user._get_current_object()
+    booking = Booking.objects(pk=booking_id, owner=user).first()
+    if booking is None:
+        abort(404)
+    who = booking.name or booking.email or "the guest"
+    warnings = cancel(user, booking,
+                      notify=bool(request.form.get("notify")))
+    flash(f"Appointment with {who} cancelled." if not warnings
+          else f"Appointment with {who} cancelled. " + " ".join(warnings),
+          "info" if not warnings else "warning")
+    return redirect(url_for("settings.booking"))
+
+
 def _read_booking_form(user, page, form) -> list:
     """Fill ``page`` from the posted form. Returns a list of complaints; on a
     non-empty list nothing about the page should be saved."""

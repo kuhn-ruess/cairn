@@ -59,10 +59,16 @@ def _patch_event(cal, user, event_id, **kw):
     return google_patch_event(cal, user, event_id, **kw)
 
 
-def _delete_event(cal, user, event_id):
+def delete_event(cal, user, event_id):
+    """Remove one event from any calendar. Public for the same reason
+    ``create_event`` is: cancelling a booking goes through this door."""
     if cal.provider == "caldav":
         return caldav_delete_event(cal, user, event_id)
     return google_delete_event(cal, user, event_id)
+
+
+# The name the task paths have always called it by.
+_delete_event = delete_event
 
 
 def sync_task_to_calendar(task, user) -> list[str]:

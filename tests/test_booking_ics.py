@@ -30,6 +30,25 @@ def unfolded(text: str) -> str:
     return text.replace("\r\n ", "").replace("\r\n\t", "")
 
 
+class CancellationTests(unittest.TestCase):
+    """What makes a calendar REMOVE the entry instead of adding a second."""
+
+    def test_it_withdraws_the_same_appointment(self):
+        text = unfolded(ics(method="CANCEL", sequence=1))
+        self.assertIn("METHOD:CANCEL", text)
+        self.assertIn("STATUS:CANCELLED", text)
+        self.assertIn("SEQUENCE:1", text)
+        # The UID has to be the one the invitation carried, or the guest's
+        # calendar keeps the appointment and files a cancellation beside it.
+        self.assertIn("UID:cairn-booking-1@cairn", text)
+
+    def test_an_invitation_says_none_of_that(self):
+        text = unfolded(ics())
+        self.assertIn("METHOD:PUBLISH", text)
+        self.assertNotIn("STATUS:CANCELLED", text)
+        self.assertNotIn("SEQUENCE", text)
+
+
 class IcsTests(unittest.TestCase):
 
     def test_it_is_one_publishable_event(self):

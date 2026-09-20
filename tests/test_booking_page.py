@@ -351,6 +351,57 @@ class BookingPageTests(unittest.TestCase):
         resp = self.book(start)
         self.assertEqual(resp.status_code, 400)
 
+    # -- calling one off --------------------------------------------------
+    def test_cancelling_gives_the_slot_back(self):
+        self.save_page()
+        start = self.first_slot()
+        self.assertEqual(self.book(start).status_code, 200)
+        self.assertNotIn(start, self.client.get(
+            "/book/alice/slots?duration=30").get_json()["slots"])
+        with self.app.app_context():
+            booking = self.Booking.objects.get(owner=self.user)
+        resp = self.client.post(f"/settings/booking/{booking.pk}/cancel",
+                                data={"notify": ""}, follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        with self.app.app_context():
+            self.assertEqual(self.Booking.objects(owner=self.user).count(), 0)
+        self.assertIn(start, self.client.get(
+            "/book/alice/slots?duration=30").get_json()["slots"])
+
+    def test_cancelling_takes_the_calendar_entry_with_it(self):
+        from application.services import calendar_writeback
+        self.save_page()
+        self.book(self.first_slot())
+        gone = []
+        real = calendar_writeback.delete_event
+        calendar_writeback.delete_event = lambda cal, user, eid: gone.append(eid)
+        try:
+            with self.app.app_context():
+                booking = self.Booking.objects.get(owner=self.user)
+            self.client.post(f"/settings/booking/{booking.pk}/cancel", data={})
+        finally:
+            calendar_writeback.delete_event = real
+        self.assertEqual(gone, ["evt-1"])
+
+    def test_somebody_elses_appointment_cannot_be_cancelled(self):
+        """Owner-scoped by the query, so another host's booking is a 404."""
+        self.save_page()
+        self.book(self.first_slot())
+        with self.app.app_context():
+            other = self.User(username="book-other", email="o@example.com",
+                              level="premium")
+            other.set_password("x")
+            other.save()
+            booking = self.Booking.objects.get(owner=self.user)
+        client = self.app.test_client()
+        with client.session_transaction() as sess:
+            sess["_user_id"] = str(other.pk)
+            sess["_fresh"] = True
+        self.assertEqual(client.post(
+            f"/settings/booking/{booking.pk}/cancel", data={}).status_code, 404)
+        with self.app.app_context():
+            self.assertEqual(self.Booking.objects(owner=self.user).count(), 1)
+
     # -- the guards on the form (services/booking_guard.py) ---------------
     def test_the_rendered_page_hands_out_a_working_form_token(self):
         """What a browser actually does: read the form, post what's in it."""

@@ -25,17 +25,25 @@ def build_ics(*, uid: str, start: datetime, end: datetime, summary: str,
               description: str = "", location: str = "", url: str = "",
               organizer_name: str = "", organizer_email: str = "",
               attendee_name: str = "", attendee_email: str = "",
-              stamp: datetime | None = None) -> bytes:
+              stamp: datetime | None = None,
+              method: str = "PUBLISH", sequence: int = 0) -> bytes:
     """One VEVENT in a VCALENDAR, as the bytes that go into the mail."""
     from icalendar import Calendar, Event, vCalAddress, vText
 
     cal = Calendar()
     cal.add("prodid", "-//Cairn//Booking//EN")
     cal.add("version", "2.0")
-    cal.add("method", "PUBLISH")
+    cal.add("method", method)
 
     ev = Event()
     ev.add("uid", uid)
+    if method == "CANCEL":
+        # The three things that make a client REMOVE the entry rather than
+        # add a second one: the UID it already has, a higher SEQUENCE, and
+        # the status. Without the bump a calendar may keep the old version.
+        ev.add("status", "CANCELLED")
+    if sequence:
+        ev.add("sequence", sequence)
     ev.add("summary", summary or "Appointment")
     ev.add("dtstart", _utc(start))
     ev.add("dtend", _utc(end))
@@ -89,7 +97,24 @@ def invite_for(booking, *, host_name: str, host_email: str = "") -> bytes:
     )
 
 
-def attachment(booking, *, host_name: str, host_email: str = "") -> tuple:
+def cancellation_for(booking, *, host_name: str, host_email: str = "") -> bytes:
+    """The same appointment, withdrawn.
+
+    Same UID as the invitation, so the guest's calendar takes this as the
+    entry it already has and drops it instead of showing a second one."""
+    return build_ics(
+        uid=f"cairn-booking-{booking.pk}@cairn",
+        start=booking.start, end=booking.end,
+        summary=f"{host_name} · {booking.name}".strip(" ·"),
+        organizer_name=host_name, organizer_email=host_email,
+        attendee_name=booking.name or "", attendee_email=booking.email or "",
+        method="CANCEL", sequence=1,
+    )
+
+
+def attachment(booking, *, host_name: str, host_email: str = "",
+               cancel: bool = False) -> tuple:
     """``(filename, mimetype, bytes)`` — what ``mail.send_email`` wants."""
+    build = cancellation_for if cancel else invite_for
     return ("appointment.ics", "text/calendar",
-            invite_for(booking, host_name=host_name, host_email=host_email))
+            build(booking, host_name=host_name, host_email=host_email))

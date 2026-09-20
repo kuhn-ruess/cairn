@@ -425,6 +425,24 @@
             {% endif %}
             {% if b.note %}<div class="small">{{ b.note }}</div>{% endif %}
           </div>
+          {# Calling one off: the calendar entry goes, the slot comes back,
+             and the guest is told unless the box is cleared — which is what
+             a test booking of your own wants. #}
+          <form method="post" class="text-end flex-shrink-0"
+                action="{{ url_for('settings.booking_cancel', booking_id=b.id) }}"
+                onsubmit="return confirm('Cancel this appointment?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if b.email %}
+              <div class="form-check form-check-inline small me-1">
+                <input class="form-check-input" type="checkbox" value="1"
+                       name="notify" id="notify-{{ b.id }}" checked>
+                <label class="form-check-label text-muted" for="notify-{{ b.id }}">
+                  Tell them
+                </label>
+              </div>
+            {% endif %}
+            <button class="btn btn-sm btn-outline-danger">Cancel</button>
+          </form>
         </li>
       {% endfor %}
     </ul>
