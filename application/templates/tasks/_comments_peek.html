@@ -1,0 +1,31 @@
+{# The comment thread of one item, rendered for the hover panel behind the
+   comment chip in a task list (``static/js/comment-peek.js``).
+
+   Read-only on purpose: the panel is a glance, not a second editor — every
+   action (post, edit, visibility) stays on the detail page / inspector, which
+   is the single place those rules live. Newest first, same order the detail
+   page opens in. Expects ``item``. #}
+<div class="comment-peek-head">
+  <i class="bi bi-chat-left-text"></i>
+  <span class="comment-peek-count">{{ item.comments|length }} comment{{ '' if item.comments|length == 1 else 's' }}</span>
+  <span class="comment-peek-title">{{ item.title }}</span>
+</div>
+<div class="comment-peek-list">
+  {% for c in item.comments|reverse %}
+    <div class="comment-peek-item {% if c.is_public %}is-public{% endif %}">
+      <div class="comment-peek-meta">
+        <strong>{{ c.author_name }}</strong>
+        {% if c.is_external %}
+          <span class="badge text-bg-secondary" title="Imported from an external system"><i class="bi bi-box-arrow-in-down"></i></span>
+        {% endif %}
+        {% if c.is_public %}
+          <span class="badge text-bg-success" title="Visible on the public share"><i class="bi bi-globe"></i></span>
+        {% endif %}
+        <span class="comment-peek-time">{{ c.created_at|localdt }}</span>
+      </div>
+      <div class="comment-peek-body md-body">{{ c.body|markdown }}</div>
+    </div>
+  {% else %}
+    <p class="text-muted small mb-0">No comments yet.</p>
+  {% endfor %}
+</div>

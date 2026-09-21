@@ -3202,6 +3202,25 @@ def comment(task_id):
     # Stay where the comment was posted (task detail OR a project page).
     return redirect(request.referrer or url_for("tasks.detail", task_id=task_id))
 
+@tasks_bp.route("/<task_id>/comments/peek")
+@login_required
+def comments_peek(task_id):
+    """The comment thread of one item as a bare partial, for the hover panel
+    behind the comment chip in a task list (``static/js/comment-peek.js``).
+
+    Fetched on OPEN, not on render: a list renders a hundred rows and the
+    comments of the one row a pointer rests on are the only ones anybody
+    reads. The client keeps what it got per task for the life of the page, so
+    hovering the same chip ten times is still one query — and a page render
+    costs exactly what it did before this feature existed.
+    """
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_viewed_by(user):
+        abort(404)
+    return render_template("tasks/_comments_peek.html", item=task)
+
+
 @tasks_bp.route("/<task_id>/comments/<int:index>/toggle-visibility", methods=["POST"])
 @login_required
 def toggle_comment_visibility(task_id, index):

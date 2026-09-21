@@ -46,7 +46,11 @@
                 </span>
               {% endif %}
               {% if t.comments %}
-                <span class="task-comment-count">
+                {# Same hover panel as the list rows — comment-peek.js. #}
+                <span class="task-comment-count comment-peek-trigger" tabindex="0" role="button"
+                      data-comment-peek="{{ url_for('tasks.comments_peek', task_id=t.pk) }}"
+                      aria-expanded="false"
+                      title="{{ t.comments|length }} comment(s) — hover to read">
                   <i class="bi bi-chat-left-text"></i> {{ t.comments|length }}
                 </span>
               {% endif %}

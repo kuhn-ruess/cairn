@@ -814,6 +814,69 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
 }
 .task-comment-count i { font-size: .8em; }
 
+/* The chip is also the handle for the hover panel (comment-peek.js). */
+.comment-peek-trigger { cursor: pointer; }
+.comment-peek-trigger:hover,
+.comment-peek-trigger[aria-expanded="true"] { background: var(--gv-bg2); color: var(--gv-fg1); }
+.comment-peek-trigger:focus-visible { outline: 2px solid var(--gv-yellow); outline-offset: 1px; }
+
+/* Comment hover panel. Lives in <body> (never inside a scrolling list or a
+   kanban column, which would clip it) and is placed in fixed coordinates by
+   comment-peek.js; the max-height it sets is what makes this scroll. */
+.comment-peek {
+  position: fixed;
+  z-index: 2040;  /* over the inspector (1048), under the md lightbox (2050) */
+  width: min(30rem, calc(100vw - 1rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--gv-bg0-soft);
+  border: 1px solid var(--gv-bg2);
+  border-radius: .4rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+  font-size: .82rem;
+}
+.comment-peek[hidden] { display: none; }
+.comment-peek-inner { padding: .5rem .6rem .6rem; }
+.comment-peek-status { color: var(--gv-fg4); padding: .25rem 0; }
+.comment-peek-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: baseline;
+  gap: .35rem;
+  margin: -.5rem -.6rem .4rem;
+  padding: .4rem .6rem;
+  background: var(--gv-bg1);
+  border-bottom: 1px solid var(--gv-bg2);
+  color: var(--gv-fg3);
+  font-size: .74rem;
+}
+.comment-peek-count { font-weight: 600; color: var(--gv-fg2); }
+.comment-peek-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--gv-fg4);
+}
+.comment-peek-item { padding: .35rem 0; border-top: 1px solid var(--gv-bg1); }
+.comment-peek-item:first-child { border-top: 0; }
+.comment-peek-item.is-public { border-left: 2px solid var(--gv-green); padding-left: .4rem; }
+.comment-peek-meta {
+  display: flex;
+  align-items: baseline;
+  gap: .3rem;
+  color: var(--gv-fg3);
+  font-size: .72rem;
+}
+.comment-peek-meta .badge { font-size: .6rem; padding: .1rem .25rem; }
+.comment-peek-time { margin-left: auto; color: var(--gv-fg4); white-space: nowrap; }
+.comment-peek-body { color: var(--gv-fg1); }
+.comment-peek-body > :last-child { margin-bottom: 0; }
+/* A screenshot in a comment must not become the whole panel. */
+.comment-peek-body img { max-height: 140px; }
+
 .next-chip {
   display: inline-block;
   margin-left: .4rem;

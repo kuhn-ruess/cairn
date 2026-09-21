@@ -199,7 +199,11 @@
               <span class="badge text-bg-secondary">{{ task.status|status_label }}</span>
             {% endif %}
             {% if task.comments and current_user.show_field('comments', view_key=_vk) %}
-              <span class="task-comment-count" title="{{ task.comments|length }} comment(s)">
+              {# Hover (or focus, or tap) opens the thread — comment-peek.js. #}
+              <span class="task-comment-count comment-peek-trigger" tabindex="0" role="button"
+                    data-comment-peek="{{ url_for('tasks.comments_peek', task_id=task.pk) }}"
+                    aria-expanded="false"
+                    title="{{ task.comments|length }} comment(s) — hover to read">
                 <i class="bi bi-chat-left-text"></i> {{ task.comments|length }}
               </span>
             {% endif %}
