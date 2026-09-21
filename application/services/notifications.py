@@ -27,12 +27,13 @@ def _task_link(task) -> str:
         return f"/tasks/{task.pk}"
 
 
-def _push(recipient, *, kind, text, link="", icon="bi-bell", actor=""):
+def _push(recipient, *, kind, text, link="", icon="bi-bell", actor="", item_id=None):
     if recipient is None:
         return
     try:
         recipient.add_notification(
             kind=kind, text=text, link=link or "", icon=icon, actor=actor or "",
+            item_id=item_id,
         )
         recipient.save()
     except Exception:
@@ -51,6 +52,7 @@ def notify_assigned(task, *, by_user) -> None:
         link=_task_link(task),
         icon="bi-person-check",
         actor=str(by_user),
+        item_id=task.pk,
     )
 
 
@@ -66,6 +68,7 @@ def notify_completed(task, *, by_user) -> None:
         link=_task_link(task),
         icon="bi-check2-circle",
         actor=str(by_user),
+        item_id=task.pk,
     )
 
 
@@ -87,6 +90,7 @@ def notify_handed_back(task, *, by_user, to_users) -> None:
             link=_task_link(task),
             icon="bi-arrow-return-left",
             actor=str(by_user),
+            item_id=task.pk,
         )
 
 
@@ -101,6 +105,7 @@ def notify_mention(recipient, *, by_user, task) -> None:
         link=_task_link(task),
         icon="bi-at",
         actor=str(by_user),
+        item_id=task.pk,
     )
 
 

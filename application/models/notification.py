@@ -28,10 +28,14 @@ def _utcnow():
 class Notification(EmbeddedDocument):
     # Stable id so the mark-read endpoint can target a single entry.
     pk_ref = ObjectIdField(default=lambda: ObjectId())
-    kind = StringField()              # team_invite | assigned | completed
+    kind = StringField()              # assigned | unassigned | completed | mention | team_invite
     text = StringField()              # human-readable message
     link = StringField()              # where clicking the entry navigates
     icon = StringField(default="bi-bell")   # Bootstrap-icon class
     actor = StringField()             # display name of who triggered it
     created_at = DateTimeField(default=_utcnow)
     read = BooleanField(default=False)
+    # The item the entry is about, when there is one (assignment, mention,
+    # completion — not a team invite). ``link`` already carries the path, but
+    # an API client should not have to parse a URL to know what it was handed.
+    item_id = ObjectIdField()

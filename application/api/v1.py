@@ -10,6 +10,7 @@ from application.api.serializers import tag as ser_tag
 from application.api.serializers import task as ser_task
 from application.api.serializers import task_compact as ser_task_compact
 from application.api.serializers import note as ser_note
+from application.api.serializers import notification as ser_notification
 from application.api.serializers import note_share as ser_note_share
 from application.api.serializers import perspective as ser_perspective
 from application.api.serializers import tt_customer as ser_tt_customer
@@ -1609,6 +1610,50 @@ def _value_error(exc):
 
 
 # ---------------- docs ----------------
+
+@api_v1_bp.get("/notifications")
+@token_required
+def list_notifications():
+    """The caller's own bell entries, newest first.
+
+    This is the one feed that carries both halves of "somebody addressed me" —
+    an assignment (``Item.assign_to``) and an ``@name`` in a comment
+    (``views.tasks._notify_mentions``) — which is what a poller outside the app
+    needs; a mention alone never puts the task in ``_scope()``. ``unread=true``
+    narrows it to what nobody has claimed yet, and ``read`` is the claim (see
+    POST /notifications/read)."""
+    user = g.current_user
+    rows = list(reversed(user.notifications or []))   # stored oldest-last
+    if request.args.get("unread") == "true":
+        rows = [n for n in rows if not n.read]
+    kind = request.args.get("kind")
+    if kind:
+        wanted = {k.strip() for k in kind.split(",") if k.strip()}
+        rows = [n for n in rows if n.kind in wanted]
+    limit = max(1, min(int(request.args.get("limit", 50) or 50), 200))
+    return jsonify({
+        "items": [ser_notification(n) for n in rows[:limit]],
+        "unread": user.unread_notification_count,
+    })
+
+
+@api_v1_bp.post("/notifications/read")
+@token_required
+def mark_notifications_read():
+    """Mark entries read — with ``ids``, only those; without, all of them (the
+    bell's "mark all read"). An agent working the feed should send only the ids
+    it actually took, so whatever it left is still waiting for the next reader."""
+    data = request.get_json(silent=True) or {}
+    ids = data.get("ids")
+    if ids is not None:
+        ids = [str(i) for i in ids if str(i).strip()]
+        if not ids:
+            return _bad_request("ids must not be empty")
+    user = g.current_user
+    if user.mark_notifications_read(ids):
+        user.save()
+    return jsonify({"ok": True, "unread": user.unread_notification_count})
+
 
 @api_v1_bp.get("/openapi.json")
 def openapi_spec():

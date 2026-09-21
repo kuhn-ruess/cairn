@@ -40,6 +40,29 @@ def build_openapi_spec() -> dict:
                 },
             },
             "schemas": {
+                "Notification": {
+                    "type": "object",
+                    "description": ("One navbar-bell entry. Fired from user-facing "
+                                    "choke points only (assignment, mention, "
+                                    "completion, hand-back, team invite) — never "
+                                    "from an import or a background sync."),
+                    "properties": {
+                        "id": {"type": "string",
+                               "description": "Pass to /notifications/read."},
+                        "kind": {"type": "string",
+                                 "enum": ["assigned", "unassigned", "completed",
+                                          "mention", "team_invite"]},
+                        "text": {"type": "string"},
+                        "actor": {"type": "string",
+                                  "description": "Display name of whoever triggered it."},
+                        "link": {"type": "string"},
+                        "item_id": {"type": "string", "format": "objectid",
+                                    "description": ("The task it is about; null for a "
+                                                    "team invite.")},
+                        "read": {"type": "boolean"},
+                        "created_at": {"type": "string", "format": "date-time"},
+                    },
+                },
                 "Note": {
                     "type": "object",
                     "description": ("A note, or a notes FOLDER — the same "
@@ -1572,6 +1595,65 @@ def build_openapi_spec() -> dict:
                                 "content": {"application/json": {"schema": {
                                     "$ref": "#/components/schemas/Error"}}}},
                         "404": {"description": "Not found, or not yours"},
+                    },
+                },
+            },
+            "/notifications": {
+                "get": {
+                    "summary": "The caller's bell entries (assignments, mentions, …)",
+                    "tags": ["notifications"],
+                    "description": ("The one feed that carries both being assigned a "
+                                    "task and being @-mentioned in a comment on one. "
+                                    "Newest first. Poll with `unread=true` and claim "
+                                    "what you take via POST /notifications/read."),
+                    "parameters": [
+                        {"name": "unread", "in": "query",
+                         "schema": {"type": "string", "enum": ["true"]}},
+                        {"name": "kind", "in": "query",
+                         "description": "Comma-separated filter: assigned, unassigned, completed, mention, team_invite.",
+                         "schema": {"type": "string"}},
+                        {"name": "limit", "in": "query",
+                         "schema": {"type": "integer", "default": 50, "maximum": 200}},
+                    ],
+                    "responses": {
+                        "200": {"description": "Notifications",
+                                "content": {"application/json": {"schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "items": {"type": "array", "items": {
+                                            "$ref": "#/components/schemas/Notification"}},
+                                        "unread": {"type": "integer"},
+                                    },
+                                }}}},
+                    },
+                },
+            },
+            "/notifications/read": {
+                "post": {
+                    "summary": "Mark notifications read",
+                    "tags": ["notifications"],
+                    "description": ("With `ids`, marks those; without, marks all read. "
+                                    "Send only the ids you actually handled, so what "
+                                    "you left is still waiting for the next reader."),
+                    "requestBody": {
+                        "required": False,
+                        "content": {"application/json": {"schema": {
+                            "type": "object",
+                            "properties": {
+                                "ids": {"type": "array", "items": {"type": "string"}},
+                            },
+                        }}},
+                    },
+                    "responses": {
+                        "200": {"description": "New unread count",
+                                "content": {"application/json": {"schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "ok": {"type": "boolean"},
+                                        "unread": {"type": "integer"},
+                                    },
+                                }}}},
+                        "400": {"description": "ids was given but empty"},
                     },
                 },
             },

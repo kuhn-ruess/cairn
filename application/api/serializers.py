@@ -145,6 +145,22 @@ def comment(c, task_pk=None) -> dict[str, Any]:
     }
 
 
+def notification(n) -> dict[str, Any]:
+    """One navbar-bell entry. ``item_id`` is the task an assignment/mention/
+    completion is about (null for a team invite), so a client can go straight
+    to ``GET /tasks/<id>`` without parsing ``link``."""
+    return {
+        "id": str(n.pk_ref),
+        "kind": n.kind,
+        "text": n.text,
+        "actor": n.actor,
+        "link": n.link,
+        "item_id": str(n.item_id) if n.item_id else None,
+        "read": bool(n.read),
+        "created_at": iso(n.created_at),
+    }
+
+
 def task_compact(t) -> dict[str, Any]:
     """Slim task projection for list/sync endpoints.
 
