@@ -108,11 +108,31 @@ def _editable_note_or_404(note_id, *, kinds=("note", "folder")):
     return item
 
 
+def _filing_folder(user, raw_id):
+    """The notes folder ``raw_id`` if the user may file into it, else ``None``.
+
+    "May file into it" is "may edit it" — the same rule the rest of this module
+    writes by — NOT "owns it". A notebook shared with someone is a notebook
+    they work in: scoping this to the owner is what made dropping a note into
+    a shared notebook come back as if the folder did not exist.
+    """
+    if not raw_id or not ObjectId.is_valid(raw_id):
+        return None
+    folder = Item.objects(pk=raw_id, kind="folder",
+                          folder_domain="notes").first()
+    if folder is None or not folder.can_be_edited_by(user):
+        return None
+    return folder
+
+
 def _folder_choices(user, *, exclude_pk=None):
-    """``[(pk, "Folder / Sub")]`` of the user's notes folders, for the
-    parent picker. Plain breadcrumb labels; cheap in-memory path walk."""
+    """``[(pk, "Folder / Sub")]`` of the notes folders the user may file into —
+    their own and the ones shared with them, the same set the navigator draws.
+    Plain breadcrumb labels; cheap in-memory path walk."""
+    from application.services.permissions import container_visibility_q
     folders = list(
-        Item.objects(owner=user, kind="folder", folder_domain="notes")
+        Item.objects(container_visibility_q(user)
+                     & Q(kind="folder", folder_domain="notes"))
         .only("pk", "title", "parent")
     )
     by_id = {str(f.pk): f for f in folders}
@@ -544,11 +564,7 @@ def new():
     if kind not in ("note", "folder"):
         kind = "note"
     raw_parent = (request.values.get("parent") or "").strip()
-    parent = None
-    if raw_parent:
-        parent = Item.objects(
-            pk=raw_parent, owner=user, kind="folder", folder_domain="notes"
-        ).first()
+    parent = _filing_folder(user, raw_parent)
 
     if request.method == "POST":
         title = (request.form.get("title") or "").strip()
@@ -768,18 +784,22 @@ def titles():
 @login_required
 def move(note_id):
     """Drag-drop reparent within the notes tree. ``parent_id`` empty = top
-    level. Only notes-folders are valid parents; cycles are rejected."""
+    level. Only notes-folders are valid parents; cycles are rejected.
+
+    Both ends go by "may edit", not by "owns": the navigator draws shared
+    notes and shared notebooks as drag sources and drop targets, so anything
+    stricter here answers a drop the page just offered with "not found".
+    """
     user = current_user._get_current_object()
-    item = Item.objects(pk=note_id, owner=user, kind__in=["note", "folder"]).first()
-    if not item:
+    item = Item.objects(pk=note_id, kind__in=["note", "folder"]).first()
+    if (not item or not item.can_be_edited_by(user)
+            or (item.kind == "folder" and item.folder_domain != "notes")):
         return jsonify({"error": "not found"}), 404
     raw_parent = (request.form.get("parent_id") or "").strip()
     if not raw_parent:
         item.parent = None
     else:
-        new_parent = Item.objects(
-            pk=raw_parent, owner=user, kind="folder", folder_domain="notes"
-        ).first()
+        new_parent = _filing_folder(user, raw_parent)
         if not new_parent:
             return jsonify({"error": "invalid parent"}), 400
         # Reject cycles (a folder can't move inside its own subtree).

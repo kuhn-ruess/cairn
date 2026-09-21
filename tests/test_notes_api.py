@@ -202,6 +202,33 @@ class NotesApiTests(unittest.TestCase):
             [m.username for m in self.Item.objects(pk=folder["id"]).first().members],
             ["mate"])
 
+    def test_a_shared_notebook_can_be_filed_into(self):
+        """The share is what makes it a notebook the two of them WORK in —
+        a folder somebody may edit is a folder they may file into, from this
+        end as much as from the navigator's drag and drop."""
+        folder = self._folder()
+        self._put(f"/api/v1/notes/{folder['id']}/share", {"member_ids": ["mate"]})
+        made = self._post("/api/v1/notes",
+                          {"parent_id": folder["id"], "note": "- von mate\n"},
+                          self.mate_token)
+        self.assertEqual(made.status_code, 201, made.json)
+        loose = self._post("/api/v1/notes", {"note": "- erst lose\n"},
+                           self.mate_token).json
+        moved = self._patch(f"/api/v1/notes/{loose['id']}",
+                            {"parent_id": folder["id"]}, self.mate_token)
+        self.assertEqual(moved.status_code, 200, moved.json)
+        self.assertEqual(str(self.Item.objects(pk=loose["id"]).first().parent.pk),
+                         folder["id"])
+
+    def test_filing_into_a_notebook_nobody_shared_is_refused(self):
+        folder = self._folder()
+        theirs = self._post("/api/v1/notes", {"note": "- meins\n"},
+                            self.mate_token).json
+        r = self._patch(f"/api/v1/notes/{theirs['id']}",
+                        {"parent_id": folder["id"]}, self.mate_token)
+        self.assertEqual(r.status_code, 400)
+        self.assertIsNone(self.Item.objects(pk=theirs["id"]).first().parent)
+
     def test_a_read_only_token_may_not_share(self):
         folder = self._folder()
         self.assertEqual(self._put(f"/api/v1/notes/{folder['id']}/share",

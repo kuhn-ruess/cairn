@@ -942,6 +942,18 @@ def _note_by_id(note_id, *, own=False):
     return item
 
 
+def _filing_folder(user, raw_id):
+    """The notes folder ``raw_id`` if ``user`` may file into it, else ``None``.
+
+    Filing follows "may edit", not "owns" — a notebook shared with someone is
+    a notebook they work in, and the web navigator (views/notes) reads it the
+    same way."""
+    folder = _note_by_id(raw_id)
+    if folder is None or folder.kind != "folder":
+        return None
+    return folder if folder.can_be_edited_by(user) else None
+
+
 @api_v1_bp.get("/notes")
 @token_required
 def list_notes():
@@ -1000,9 +1012,9 @@ def create_note():
     if raw_parent and folder_path:
         return _bad_request("give parent_id or folder_path, not both")
     if raw_parent:
-        parent = _note_by_id(raw_parent, own=True)
-        if not parent or parent.kind != "folder":
-            return _bad_request("parent_id is not one of your notes folders")
+        parent = _filing_folder(user, raw_parent)
+        if not parent:
+            return _bad_request("parent_id is not a notes folder you may write to")
     elif folder_path:
         from application.services.note_folders import ensure_path
         parent = ensure_path(user, folder_path)
@@ -1091,9 +1103,9 @@ def update_note(note_id):
         if not raw:
             item.parent = None
         else:
-            parent = _note_by_id(raw, own=True)
-            if not parent or parent.kind != "folder" or parent.pk == item.pk:
-                return _bad_request("parent_id is not one of your notes folders")
+            parent = _filing_folder(user, raw)
+            if not parent or parent.pk == item.pk:
+                return _bad_request("parent_id is not a notes folder you may write to")
             item.parent = parent
     if "tags" in data:
         item.tags = [str(t) for t in (data.get("tags") or []) if t]
