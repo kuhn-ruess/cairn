@@ -108,12 +108,32 @@ answer, which is the difference between "wrong password" and "wrong TLS mode":
 
 ### Microsoft Teams meetings (booking page)
 
-One Entra app registration per deployment; each user then connects their own
-account under Settings → Booking page. Register it at
-[entra.microsoft.com](https://entra.microsoft.com) → App registrations → New:
-account type *any organizational directory*, redirect URI (Web)
-`https://<host>/settings/booking/microsoft/callback`, delegated Graph
-permissions `OnlineMeetings.ReadWrite`, `User.Read`, `offline_access`. Then:
+Every appointment taken through a booking page can carry its own freshly
+created Teams meeting. It takes two things, and they are done by two different
+people: the **administrator registers one Entra app for the whole deployment**,
+and then **each user connects their own Microsoft account**, because a Teams
+meeting has an organiser and the organiser is whoever's page was booked.
+
+**1. Register the app** (once, at
+[entra.microsoft.com](https://entra.microsoft.com)):
+
+1. Applications → App registrations → New registration, any name.
+2. Supported account types: *Accounts in any organizational directory*. A
+   personal Microsoft account cannot host a Teams meeting through Graph, so
+   letting one consent would only buy a connection that fails on first use.
+3. Redirect URI, platform **Web**:
+   `https://<host>/settings/booking/microsoft/callback` — locally
+   `http://localhost:5004/settings/booking/microsoft/callback`. It has to match
+   the address users reach Cairn on, character for character.
+4. API permissions → Microsoft Graph → **Delegated**:
+   `OnlineMeetings.ReadWrite`, `User.Read`, `offline_access`. Grant admin
+   consent if the tenant requires it, otherwise each user is asked at connect
+   time.
+5. Certificates & secrets → New client secret → copy the **Value** (not the
+   Secret ID). It is shown once, and it expires — note the date.
+
+**2. Put it in the environment** and restart (on the server: `/opt/cairn/.env`,
+then the compose rebuild; see the deploy notes):
 
 | Variable | Default |
 |---|---|
@@ -121,8 +141,38 @@ permissions `OnlineMeetings.ReadWrite`, `User.Read`, `offline_access`. Then:
 | `BKTODO_MS_CLIENT_SECRET` | empty |
 | `BKTODO_MS_TENANT` | `organizations` |
 
-A personal Microsoft account can't host a Teams meeting, and the connecting
-account needs a Teams licence — hence the tenant default.
+**3. Connect an account**, per user, under Settings → Booking page: save the
+form first (connecting leaves the page), *Connect Microsoft*, consent, and the
+page then names the account it linked. Pick *A fresh Microsoft Teams meeting
+per appointment* under **How you meet** and save — the option stays disabled
+until both halves are in place, so a page can never promise a link it cannot
+make. *Disconnect* drops the tokens and puts a page that was on `teams` back to
+no meeting, for the same reason.
+
+From then on every booking calls `/me/onlineMeetings` once. The join URL lands
+on the **booking**, not on the page, so changing the mode later never moves an
+appointment somebody was already told to turn up at, and it goes into both
+confirmation mails, into the `.ics` they carry, and into the calendar event's
+`LOCATION` — the field a calendar turns into a join button.
+
+What it deliberately does not do:
+
+* **Nothing is ever read from Microsoft.** Busy times come only from the
+  calendars connected under Settings → Calendars (Google, CalDAV, iCal). For a
+  Microsoft 365 mailbox that means publishing the Outlook calendar as an ICS
+  URL and adding it there — Exchange Online speaks no CalDAV, and a published
+  ICS refreshes on Microsoft's own schedule, not instantly.
+* **`/me/onlineMeetings` creates a meeting, not a calendar entry.** The
+  appointment appears in the host's calendar only through the calendar Cairn
+  writes to (Google or CalDAV), or by opening the `.ics` from the confirmation
+  mail.
+* A **link the visitor pastes** into the booking form wins over the page
+  setting and skips the Graph call — two links only invite the two of you to
+  different places.
+* A failed Graph call is never the visitor's problem: the slot is confirmed
+  either way and the reason is recorded on the booking, shown as *no meeting
+  link* under Appointments. The usual cause is a connected account without a
+  Teams licence, which Graph answers with 403.
 
 ## REST API
 
