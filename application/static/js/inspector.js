@@ -183,6 +183,12 @@
     }
   }
 
+  // Re-render the offcanvas with fresh server markup. Exposed for the handful
+  // of controls that change the item behind the panel's back (the Zammad
+  // refresh below): a bktodo:refresh-needed swap only reaches an inspector that
+  // sits INSIDE <main>, which the offcanvas does not.
+  window.bktodoOpenInspector = openInspector;
+
   // Friendly inspector message for a non-OK fetch. Keeps raw HTTP status pages
   // out of the panel — an unauthorized teammate sees an explanation, not a 404.
   function inspectorErrorHtml(status, detail) {
@@ -945,6 +951,94 @@
       if (status) { status.textContent = "Failed"; status.hidden = false; }
     } finally {
       btn.disabled = false;
+    }
+  });
+})();
+
+/* "Refresh from Zammad": pull THIS ticket now instead of waiting for the next
+ * scheduled pass. Delegated on document — like quick-plan above — so it drives
+ * the inline inspector on the detail page as well as the offcanvas, and keeps
+ * working after either of them has been re-rendered.
+ *
+ * It is one outbound call to a live external system per click, so the button
+ * says it is busy, refuses a second click while it is, and puts a failure where
+ * the user can read it instead of doing nothing visible. */
+(function () {
+  const PAUSE_MS = 700;   // long enough to read "Updated" before the re-render
+
+  function summarise(data) {
+    const bits = [];
+    if (data.comments_imported) bits.push(data.comments_imported + " new comments");
+    if (data.time_entries_imported) bits.push(data.time_entries_imported + " time entries");
+    if (data.reassigned) bits.push("reassigned");
+    return "Updated" + (bits.length ? " — " + bits.join(", ") : "");
+  }
+
+  document.addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("[data-zammad-refresh]");
+    if (!btn) return;
+    const block = btn.closest("[data-zammad-refresh-block]");
+    if (!block) return;
+    ev.preventDefault();
+    // A second click while the first is in flight would start a second sync of
+    // the same ticket against a live Zammad. One at a time.
+    if (block.dataset.busy === "1") return;
+    block.dataset.busy = "1";
+
+    const status = block.querySelector("[data-zammad-refresh-status]");
+    const icon = block.querySelector("[data-zammad-refresh-icon]");
+    const taskId = block.dataset.taskId;
+    // Whether this inspector is the offcanvas (which a <main> swap never
+    // touches) or the detail page's inline one (which it re-renders).
+    const inPanel = !!btn.closest("#inspector-panel");
+
+    function say(text, cls) {
+      if (!status) return;
+      status.className = "ms-1 small " + (cls || "text-muted");
+      status.textContent = text;
+      status.hidden = false;
+    }
+
+    btn.disabled = true;
+    if (icon) icon.classList.add("spin");
+    say("Asking Zammad…");
+    try {
+      const fd = new FormData();
+      fd.append("csrf_token", block.dataset.csrf || "");
+      const resp = await fetch("/tasks/" + taskId + "/zammad-refresh", {
+        method: "POST",
+        body: fd,
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      });
+      let data = {};
+      try { data = await resp.json(); } catch (e) { /* non-JSON error page */ }
+      if (!resp.ok || !data.ok) {
+        // Token gone, ticket deleted, Zammad down: say which, so there is
+        // something to do about it. The button stays clickable for a retry.
+        say(data.error || ("Zammad refresh failed (" + resp.status + ")"),
+            "text-danger");
+        btn.disabled = false;
+        if (icon) icon.classList.remove("spin");
+        block.dataset.busy = "0";
+        return;
+      }
+      say(summarise(data), "text-success");
+      setTimeout(() => {
+        // Show what came back without a page reload. The offcanvas has to be
+        // re-fetched; the inline inspector rides the <main> refresh, which also
+        // updates the list behind it.
+        if (inPanel && typeof window.bktodoOpenInspector === "function") {
+          window.bktodoOpenInspector("/tasks/" + taskId, data.title || "");
+          document.dispatchEvent(new Event("bktodo:refresh-needed"));
+        } else {
+          document.dispatchEvent(new Event("bktodo:refresh-needed"));
+        }
+      }, PAUSE_MS);
+    } catch (err) {
+      say("Zammad refresh failed: " + err.message, "text-danger");
+      btn.disabled = false;
+      if (icon) icon.classList.remove("spin");
+      block.dataset.busy = "0";
     }
   });
 })();

@@ -489,6 +489,24 @@
             {% else %}
               <code>{{ task.external_ref }}</code>
             {% endif %}</span>
+          {# Pull this one ticket from Zammad now, instead of waiting for the
+             next scheduled pass. Only where there IS a ticket to pull and only
+             for someone who may change the task — it rewrites title, state,
+             tags and comments. The handler is delegated on document
+             (inspector.js), so it survives both the <main> swap and an AJAX
+             inspector reload. #}
+          {% if task.zammad_ticket_id() and task.can_be_edited_by(current_user) %}
+            <span data-zammad-refresh-block
+                  data-task-id="{{ task.pk }}"
+                  data-csrf="{{ csrf_token() }}">
+              <button type="button" class="btn btn-link btn-sm p-0 align-baseline text-decoration-none"
+                      data-zammad-refresh
+                      title="Fetch this ticket from Zammad now">
+                <i class="bi bi-arrow-clockwise" data-zammad-refresh-icon></i>
+                Refresh from Zammad</button>
+              <span class="ms-1" data-zammad-refresh-status hidden></span>
+            </span>
+          {% endif %}
         {% endif %}
       </div>
     {% endif %}

@@ -139,6 +139,14 @@ body > .navbar {
   from { transform: rotate(0); }
   to { transform: rotate(360deg); }
 }
+/* The inspector's "Refresh from Zammad" icon turns while the request is in
+   flight. It is one call to a live external system per click, so the button
+   has to look like it landed — silence reads as a broken button and invites a
+   second click. */
+[data-zammad-refresh-icon].spin {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
 
 /* Brand-specific importer icons keep their own colour even on hover —
    we just dim the rest of the toolbar background underneath. */

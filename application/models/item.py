@@ -848,6 +848,22 @@ class Item(Document):
                            if isinstance(d, Item) and str(d.pk) != str(other_pk)]
         self.save()
 
+    def zammad_ticket_id(self) -> str:
+        """Zammad's own ticket id for this item, or ``""`` when it has none.
+
+        The single answer to "is this a Zammad ticket, and which one" — asked
+        by the template that offers the inspector's refresh button and by the
+        service behind it, so the two can't disagree about what counts.
+        ``external_ref`` is the human Ticket#; the id that addresses the API
+        is the one stamped into ``external_id``.
+        """
+        if self.source != "zammad":
+            return ""
+        ext = self.external_id or ""
+        if not ext.startswith("zammad:"):
+            return ""
+        return ext.split(":", 1)[1].strip()
+
     def external_url(self, user=None):
         """Deep link to the upstream item this was imported from, or None.
 

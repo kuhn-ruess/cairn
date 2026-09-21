@@ -2457,6 +2457,45 @@ def quick_plan(task_id):
     })
 
 
+@tasks_bp.route("/<task_id>/zammad-refresh", methods=["POST"])
+@login_required
+def zammad_refresh(task_id):
+    """The inspector's refresh button beside a Zammad ticket number.
+
+    Asks Zammad for that one ticket right now and merges it in through the
+    very code the scheduled sync uses, so the two can't say different things
+    about the same ticket. Read-only against Zammad. Returns JSON; the client
+    re-renders the inspector so the new title/state/comments are simply there.
+    """
+    from flask import jsonify
+    from application.services import zammad_refresh as zr
+    from application.services.zammad_import import ZammadError
+
+    task = _editable_task_or_404(task_id)
+    if not zr.ticket_id(task):
+        return jsonify({"error": "This task didn't come from Zammad."}), 400
+    try:
+        stats = zr.refresh_item(task)
+    except zr.NotConfigured as exc:
+        # The owner's own settings — fixable here, so it is not a gateway fault.
+        return jsonify({"error": str(exc)}), 400
+    except ZammadError as exc:
+        return jsonify({"error": str(exc)}), 502
+    # The merge wrote through its own copy of the document; re-read before
+    # reporting, so the panel's header gets the title Zammad actually has now.
+    task.reload()
+    return jsonify({
+        "ok": True,
+        "title": task.title,
+        "ticket": task.external_ref or zr.ticket_id(task),
+        "comments_imported": stats.comments_imported,
+        "time_entries_imported": stats.time_entries_imported,
+        "reassigned": bool(stats.tickets_assigned),
+        "errors": list(stats.errors),
+        "stats": stats.as_dict(),
+    })
+
+
 # Preset times of day for the Today-list quick snooze. Wall-clock in the
 # user's timezone; "tomorrow" is the next day.
 SNOOZE_TARGETS = {
