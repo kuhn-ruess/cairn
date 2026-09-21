@@ -29,7 +29,15 @@ case "$RUNTIME" in
     *) echo "Unsupported CONTAINER_RUNTIME: $RUNTIME" >&2; exit 1 ;;
 esac
 
+# Compose declares `env_file: .env` for app/worker/beat, and .env is gitignored
+# — a fresh clone would fail before the first build. .env.example holds the
+# names with no secrets in them, so seeding from it is safe and keeps the
+# first run working.
 compose() {
+    if [ ! -f .env ]; then
+        echo "No .env found - seeding it from .env.example (fill in your own values)."
+        cp .env.example .env
+    fi
     "${COMPOSE[@]}" -f docker-compose.yml -f docker-compose.local.yml -p "$PROJECT" "$@"
 }
 

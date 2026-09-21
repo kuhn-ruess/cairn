@@ -24,6 +24,13 @@ Built on the same stack as
 The `./helper` script wraps the most common dev-loop commands (modeled on the
 cmdbsyncer helper). It auto-detects docker or podman.
 
+Compose reads a `.env` beside the compose file, and a fresh clone has none —
+`./helper` copies `.env.example` into place on its first run so the stack comes
+up, then you fill in what you actually use (SMTP, Google, Microsoft …). The
+core four (`BKTODO_SECRET_KEY`, Mongo host/db, Redis URL) are set in
+`docker-compose.yml` itself and take precedence over `.env`; change them there
+before this goes anywhere near production.
+
 ```sh
 ./helper up                                 # build + start (mongo + app, foreground)
 ./helper create_user alice alice@example.com
