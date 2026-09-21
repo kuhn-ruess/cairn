@@ -1,4 +1,12 @@
 <!doctype html>
+{#
+  The public share page. Everything on it is read-only and anonymous: there is
+  no form that writes, no link that leaves the share, and no identity beyond
+  what a task row already carried. The three views (list / board / timeline)
+  all render the SAME task set the view already filtered — switching is a plain
+  link that keeps ?q and ?status, so the page stays bookmarkable and works
+  without JavaScript.
+#}
 <html lang="en" data-bs-theme="dark">
 <head>
   <meta charset="utf-8">
@@ -9,12 +17,34 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
   <style>
-    .public-wrap { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+    /* The page used to be a 760px column, which wasted most of a laptop
+       screen and made a timeline impossible. It now takes the width it is
+       given; only the prose (the project note) stays measured. */
+    .public-wrap { max-width: 1440px; margin: 0 auto;
+                   padding: 2rem clamp(1rem, 3vw, 2.5rem) 4rem; }
+    .public-wrap.is-wide { max-width: none; }
     .public-title { font-weight: 600; letter-spacing: -.01em; margin: 0; }
     .public-sub { color: var(--gv-fg4); font-size: .85rem; margin-top: .25rem; }
     .public-note { color: var(--gv-fg3); white-space: pre-wrap;
-                   margin: 1.25rem 0 2rem; padding-left: 1rem;
+                   margin: 1.25rem 0 0; padding-left: 1rem; max-width: 70ch;
                    border-left: 3px solid var(--gv-bg2); font-size: .95rem; }
+
+    /* Toolbar: search + status chips + view switch. Wraps down to a phone. */
+    .public-bar { display: flex; flex-wrap: wrap; align-items: center;
+                  gap: .5rem; margin: 1.75rem 0 .75rem; }
+    .public-search { flex: 1 1 16rem; max-width: 26rem; }
+    .public-chips { display: flex; flex-wrap: wrap; gap: .35rem;
+                    margin-bottom: 1.25rem; }
+    .public-chip { display: inline-flex; align-items: center; gap: .3rem;
+                   padding: .2rem .6rem; border-radius: 1rem; font-size: .78rem;
+                   text-decoration: none; border: 1px solid var(--gv-bg2);
+                   color: var(--gv-fg3); background: var(--gv-bg0-soft); }
+    .public-chip:hover { color: var(--gv-fg0); border-color: var(--gv-bg3); }
+    .public-chip.on { background: var(--gv-bg2); color: var(--gv-fg0);
+                      border-color: var(--gv-bg3); }
+    .public-chip .n { color: var(--gv-fg4); font-variant-numeric: tabular-nums; }
+
+    /* List view */
     .public-section { margin-top: 2rem; }
     .public-section h2 { font-size: .75rem; text-transform: uppercase;
                          letter-spacing: .08em; color: var(--gv-fg4);
@@ -32,66 +62,170 @@
                         font-size: .8rem; color: var(--gv-fg4);
                         margin-top: .2rem; }
     .public-task-meta .overdue { color: var(--gv-red-br); }
+
+    /* Board view — the app's own kanban skin, minus everything that writes:
+       no drag handle, no quick-add, so the card is a link and nothing else. */
+    .public-wrap .kanban-card { cursor: default; user-select: text; }
+    .public-wrap .kanban-column { max-height: calc(100vh - 16rem); }
+
     .public-footer { text-align: center; color: var(--gv-fg4);
                      font-size: .75rem; margin-top: 3rem; }
   </style>
 </head>
 <body class="bg-body">
-<div class="public-wrap">
+<div class="public-wrap {{ 'is-wide' if view != 'list' else '' }}">
   <header>
     <h1 class="public-title h3">{{ project.name }}</h1>
     <div class="public-sub">
       <strong>{{ project_status_label }}</strong>
-      · {{ total }} task{{ '' if total == 1 else 's' }}
+      · {% if filtered %}{{ shown_count }} of {{ total }} tasks{% else %}{{ total }} task{{ '' if total == 1 else 's' }}{% endif %}
       · read-only share
     </div>
+
+    {% if project.note %}
+      <div class="public-note md-body">{{ project.note|markdown }}</div>
+    {% endif %}
   </header>
 
-  {% if project.note %}
-    <div class="public-note md-body">{{ project.note|markdown }}</div>
-  {% endif %}
+  <div class="public-bar">
+    <form class="public-search" method="get" role="search"
+          action="{{ url_for('public.project', token=token) }}">
+      {# The view and the status ride along so searching never throws away
+         what the visitor was looking at. #}
+      {% if view != 'list' %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
+      {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+      <div class="input-group input-group-sm">
+        <span class="input-group-text"><i class="bi bi-search"></i></span>
+        <input class="form-control" type="search" name="q" value="{{ q }}"
+               maxlength="80" autocomplete="off"
+               placeholder="Search tasks…" aria-label="Search tasks">
+        {% if q %}
+          <a class="btn btn-outline-secondary"
+             href="{{ url_for('public.project', token=token, view=(view if view != 'list' else none), status=(status or none)) }}"
+             title="Clear search"><i class="bi bi-x-lg"></i></a>
+        {% endif %}
+        <button class="btn btn-outline-secondary" type="submit">Search</button>
+      </div>
+    </form>
 
-  {% if not groups %}
-    <p class="text-muted">No tasks to show.</p>
-  {% endif %}
+    <div class="btn-group btn-group-sm ms-auto" role="group" aria-label="View">
+      <a class="btn {{ 'btn-secondary' if view == 'list' else 'btn-outline-secondary' }}"
+         href="{{ view_links['list'] }}" title="List"><i class="bi bi-list-ul"></i> List</a>
+      <a class="btn {{ 'btn-secondary' if view == 'board' else 'btn-outline-secondary' }}"
+         href="{{ view_links['board'] }}" title="Board"><i class="bi bi-kanban"></i> Board</a>
+      <a class="btn {{ 'btn-secondary' if view == 'timeline' else 'btn-outline-secondary' }}"
+         href="{{ view_links['timeline'] }}" title="Timeline"><i class="bi bi-bar-chart-steps"></i> Timeline</a>
+    </div>
+  </div>
 
-  {% for status, bucket in groups.items() %}
-    <section class="public-section">
-      <h2><i class="bi {{ bucket.icon }}"></i> {{ bucket.label }} <span class="text-muted">· {{ bucket.tasks|length }}</span></h2>
-      {% for task in bucket.tasks %}
-        {% set public_comments = task.comments | selectattr("is_public") | list %}
-        <a class="public-task" href="{{ url_for('public.task', token=token, task_id=task.pk) }}">
-          <div class="public-task-title">
-            {% if task.flagged %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
-            {% if task.priority %}<span class="priority-p{{ task.priority }}">P{{ task.priority }}</span>{% endif %}
-            {{ task.title }}
-            {% if task.project and task.project.pk != project.pk %}
-              <span class="public-task-parent">in {{ task.project.name }}</span>
-            {% endif %}
-          </div>
-          <div class="public-task-meta">
-            {% if task.due_date %}
-              <span class="{% if task.due_date|localdate < now_utc()|localdate and task.status != 'done' %}overdue{% endif %}">
-                <i class="bi bi-calendar-event"></i> {{ task.due_date|date }}
-              </span>
-            {% endif %}
-            {% if task.plan_date %}
-              <span><i class="bi bi-bookmark-star"></i> {{ task.plan_date|date }}</span>
-            {% endif %}
-            {% if task.completed_at %}
-              <span><i class="bi bi-check2"></i> {{ task.completed_at|date }}</span>
-            {% endif %}
-            {% if public_comments %}
-              <span><i class="bi bi-chat-left-text"></i> {{ public_comments|length }}</span>
-            {% endif %}
-            {% if task.note %}
-              <span class="text-truncate" style="max-width: 24rem;">— {{ task.note }}</span>
-            {% endif %}
-          </div>
+  {% if status_chips %}
+    <div class="public-chips">
+      <a class="public-chip {{ 'on' if not status else '' }}"
+         href="{{ url_for('public.project', token=token, view=(view if view != 'list' else none), q=(q or none)) }}">
+        All <span class="n">{{ total }}</span>
+      </a>
+      {% for c in status_chips %}
+        <a class="public-chip {{ 'on' if status == c.key else '' }}"
+           href="{{ url_for('public.project', token=token, view=(view if view != 'list' else none), q=(q or none), status=c.key) }}">
+          <i class="bi {{ c.icon }}"></i> {{ c.label }} <span class="n">{{ c.count }}</span>
         </a>
       {% endfor %}
-    </section>
-  {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if not shown_count %}
+    <p class="text-muted">
+      {% if filtered %}Nothing matches that filter.{% else %}No tasks to show.{% endif %}
+    </p>
+
+  {% elif view == 'timeline' %}
+    {# The app's own timeline, told it is being read by a stranger. #}
+    {% with gantt = gantt_context(gantt_rows), public_token = token,
+            status_labels = gantt_status_labels %}
+      {% include "_gantt.html" %}
+    {% endwith %}
+
+  {% elif view == 'board' %}
+    <div class="kanban-board">
+      {% for status_key, bucket in groups.items() %}
+        <div class="kanban-column">
+          <div class="kanban-col-header">
+            <i class="bi {{ bucket.icon }}"></i>
+            <span class="kanban-col-name">{{ bucket.label }}</span>
+            <span class="kanban-col-count">{{ bucket.tasks|length }}</span>
+          </div>
+          <div class="kanban-cards">
+            {% for task in bucket.tasks %}
+              <div class="kanban-card {{ 'is-next' if task.status == 'next' else '' }}">
+                <a class="kanban-card-title text-decoration-none text-body"
+                   href="{{ url_for('public.task', token=token, task_id=task.pk) }}">
+                  {% if task.flagged %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
+                  {% if task.priority %}<span class="priority-p{{ task.priority }}">P{{ task.priority }}</span>{% endif %}
+                  {{ task.title }}
+                </a>
+                <div class="kanban-card-meta">
+                  {% if task._container and task._container.pk != project.pk %}
+                    <span class="public-task-parent">{{ task._container.name }}</span>
+                  {% endif %}
+                  {% if task.due_date %}
+                    <span class="{{ 'overdue' if task.due_date|localdate < now_utc()|localdate and task.status != 'done' else '' }}">
+                      <i class="bi bi-calendar-event"></i> {{ task.due_date|date }}
+                    </span>
+                  {% endif %}
+                  {% if task.plan_date %}
+                    <span><i class="bi bi-bookmark-star"></i> {{ task.plan_date|date }}</span>
+                  {% endif %}
+                  {% set public_comments = task.comments | selectattr("is_public") | list %}
+                  {% if public_comments %}
+                    <span><i class="bi bi-chat-left-text"></i> {{ public_comments|length }}</span>
+                  {% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+
+  {% else %}
+    {% for status_key, bucket in groups.items() %}
+      <section class="public-section">
+        <h2><i class="bi {{ bucket.icon }}"></i> {{ bucket.label }} <span class="text-muted">· {{ bucket.tasks|length }}</span></h2>
+        {% for task in bucket.tasks %}
+          {% set public_comments = task.comments | selectattr("is_public") | list %}
+          <a class="public-task" href="{{ url_for('public.task', token=token, task_id=task.pk) }}">
+            <div class="public-task-title">
+              {% if task.flagged %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
+              {% if task.priority %}<span class="priority-p{{ task.priority }}">P{{ task.priority }}</span>{% endif %}
+              {{ task.title }}
+              {% if task._container and task._container.pk != project.pk %}
+                <span class="public-task-parent">in {{ task._container.name }}</span>
+              {% endif %}
+            </div>
+            <div class="public-task-meta">
+              {% if task.due_date %}
+                <span class="{% if task.due_date|localdate < now_utc()|localdate and task.status != 'done' %}overdue{% endif %}">
+                  <i class="bi bi-calendar-event"></i> {{ task.due_date|date }}
+                </span>
+              {% endif %}
+              {% if task.plan_date %}
+                <span><i class="bi bi-bookmark-star"></i> {{ task.plan_date|date }}</span>
+              {% endif %}
+              {% if task.completed_at %}
+                <span><i class="bi bi-check2"></i> {{ task.completed_at|date }}</span>
+              {% endif %}
+              {% if public_comments %}
+                <span><i class="bi bi-chat-left-text"></i> {{ public_comments|length }}</span>
+              {% endif %}
+              {% if task.note %}
+                <span class="text-truncate" style="max-width: 24rem;">— {{ task.note }}</span>
+              {% endif %}
+            </div>
+          </a>
+        {% endfor %}
+      </section>
+    {% endfor %}
+  {% endif %}
 
   <div class="public-footer">
     Powered by <strong>Cairn</strong>

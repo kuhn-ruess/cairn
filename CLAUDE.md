@@ -279,6 +279,41 @@ leaving a second copy (201), so an import needs no bookkeeping of its own.
 `/api/v1/openapi.json` and rendered at `/api/v1/docs`. Add a path there for
 every route you add — `tests/test_time_api.py` asserts the two agree.
 
+### The public project share (`/p/<token>`)
+
+`views/public_share.py` — the one page in this app that answers an **anonymous**
+request with somebody's project, minted from the share dropdown on the project
+page (`Item.share_token` / `share_enabled`). It offers the same task set three
+ways — **list**, **board** and **timeline** — plus a search box and status
+chips, and it takes the width it is given (it used to be a 760px column, which
+is what "sie ist sehr schmal" was about).
+
+Two rules hold the whole thing up:
+
+- **Nothing is ever scoped by something the request sent.** `_share_tree(proj)`
+  walks the shared project's own subtree, stopping at any `is_internal=True`
+  container, and the ONE task query is bounded by the ids it returns. `?q=` and
+  `?status=` can only *narrow* that: `status` must be a key of
+  `PUBLIC_STATUS_LABEL`, `view` a member of `PUBLIC_VIEWS` (an unchecked one
+  would reach `render_template`), and `q` goes through mongoengine's
+  `icontains`, which escapes the value — a regex in the search box matches
+  nothing, and a test says so. A project id in the query string changes
+  nothing; also tested.
+- **It costs the same whatever you ask for.** One query per tree depth plus one
+  for the tasks, in every view. The tree walk and the task query both use
+  `no_dereference()` and the container name is resolved from what the walk
+  already fetched, because `task.project.name` in a template is a dereference
+  per row — free amplification on a page anyone with the link can hammer.
+  `tests/test_public_share_views.py` counts the queries. `RATELIMIT_PUBLIC_SHARE`
+  is the ceiling on top.
+
+The timeline is **the app's own `_gantt.html`**, not a second one: two optional
+variables (`public_token`, `status_labels`) make it link to `/p/<token>/t/<id>`
+instead of the inspector and print outward-facing status words. The board
+reuses the kanban CSS but columns by STATUS, not by section — a share is read,
+not dragged, and the internal `_kanban.html` is built entirely out of things a
+visitor cannot do (drag, quick-add, inspector).
+
 ### Services layer (`application/services/`)
 
 Non-trivial logic that doesn't belong in a view or model lives here:

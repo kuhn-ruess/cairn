@@ -1,7 +1,19 @@
 {# Gantt / timeline view. Context: gantt = build_gantt(...). Positions are in
    DAYS; we multiply by px-per-day so the canvas is wider than the viewport and
    scrolls horizontally. The left column is frozen (sticky); the page scrolls
-   the timeline to "today" on load. Rendered when ?view=gantt (premium). #}
+   the timeline to "today" on load. Rendered when ?view=gantt (premium).
+
+   The SAME template renders the public share page's timeline, so that there is
+   one timeline in this app and not two that drift apart. Two optional
+   variables are all that differ for an anonymous visitor:
+     public_token  — a share token: rows link to the public task page (and
+                     containers don't link at all), and no inspector hooks are
+                     emitted, because none of those routes answer without a
+                     login.
+     status_labels — {status: outward-facing label}; without it the raw
+                     internal status is shown, as it is inside the app. #}
+{% set public_token = public_token|default(none) %}
+{% set status_labels = status_labels|default(none) %}
 {% set ppd = gantt.px_per_day %}
 {% set tl_w = (gantt.total_days * ppd)|round|int %}
 <style>
@@ -80,14 +92,23 @@
         <div class="gantt-left">
           <span class="g-issue" style="padding-left: {{ r.indent * 1.1 }}rem;">
             <i class="bi {{ 'bi-folder' if it.kind == 'project' else ('bi-bookmark' if it.kind == 'section' else 'bi-check2-square') }} text-muted"></i>
-            <a class="text-decoration-none text-body"
-               href="{{ url_for('projects.detail', project_id=it.pk) if it.kind in ['project','folder','section'] else url_for('tasks.detail', task_id=it.pk) }}"
-               data-inspector-url="{{ url_for('projects.edit', project_id=it.pk) if it.kind in ['project','folder','section'] else url_for('tasks.edit', task_id=it.pk) }}"
-               data-inspector-title="{{ it.title }}">{{ it.title }}</a>
+            {% if public_token %}
+              {% if it.kind == 'task' %}
+                <a class="text-decoration-none text-body"
+                   href="{{ url_for('public.task', token=public_token, task_id=it.pk) }}">{{ it.title }}</a>
+              {% else %}
+                <span class="fw-semibold">{{ it.title }}</span>
+              {% endif %}
+            {% else %}
+              <a class="text-decoration-none text-body"
+                 href="{{ url_for('projects.detail', project_id=it.pk) if it.kind in ['project','folder','section'] else url_for('tasks.detail', task_id=it.pk) }}"
+                 data-inspector-url="{{ url_for('projects.edit', project_id=it.pk) if it.kind in ['project','folder','section'] else url_for('tasks.edit', task_id=it.pk) }}"
+                 data-inspector-title="{{ it.title }}">{{ it.title }}</a>
+            {% endif %}
           </span>
           <span class="g-date">{{ r.start.strftime('%d %b %Y') if r.start else '—' }}</span>
           <span class="g-date">{{ r.end.strftime('%d %b %Y') if r.end else '—' }}</span>
-          <span>{% if it.status %}<span class="badge text-bg-light text-uppercase">{{ it.status }}</span>{% endif %}</span>
+          <span>{% if it.status %}<span class="badge text-bg-light text-uppercase">{{ status_labels.get(it.status, it.status) if status_labels else it.status }}</span>{% endif %}</span>
         </div>
         <div class="gantt-timeline">
           {% for t in gantt.ticks %}

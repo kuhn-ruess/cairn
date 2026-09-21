@@ -1,13 +1,27 @@
 """Read-only public project dashboard, addressed by an opaque share token.
 
 URL: ``/p/<token>`` — no login required. Shows the project's non-internal
-tasks grouped by status, plus their non-internal comments. The token is
-revealed only to the project owner via the project detail page.
+tasks in one of three views (list / board / timeline), searchable and
+filterable by status. The token is revealed only to the project owner via the
+project detail page.
+
+**Everything a visitor may see is derived from the one shared project.** No
+identifier is ever taken from the request: the container set comes from a walk
+of the shared project's own subtree, and the task query is always bounded by
+that set. ``q`` and ``status`` narrow what is shown *within* those tasks and
+can never widen it — that is why ``status`` is checked against the label table
+and ``q`` goes through mongoengine's ``icontains`` (which escapes the value, so
+a regex cannot be smuggled in). The page is anonymous and therefore trivially
+hammerable, so it costs one query per tree depth plus exactly one for the
+tasks, whichever view is asked for, and it carries a per-IP rate limit.
 """
 from collections import OrderedDict
 from datetime import datetime
 
-from flask import Blueprint, abort, render_template, request
+from flask import Blueprint, abort, current_app, render_template, request
+from mongoengine import Q
+
+from application import limiter
 from application.models.item import Item
 
 public_bp = Blueprint("public", __name__, url_prefix="/p")
@@ -41,58 +55,200 @@ def _project_or_404(token):
         abort(404)
     return proj
 
-def _allowed_project_ids(proj):
-    """Walk the project's subtree, skipping any container marked
-    ``is_internal=True`` (and its descendants). The is_internal flag
-    is enforced at every level — without this, an internal sub-project
-    would still surface its name (and any non-internal tasks beneath)
-    via the public dashboard.
+# The three ways a visitor may look at the same task set. Anything else in
+# ``?view=`` falls back to the list — an unknown value must not reach a
+# template name.
+PUBLIC_VIEWS = ("list", "board", "timeline")
+
+# A search term is a substring match over title and note. Capped because this
+# page is unauthenticated: a megabyte of needle would be scanned against every
+# task in the project.
+MAX_QUERY_LEN = 80
+
+
+def _share_tree(proj):
+    """The containers a visitor may see, in tree order, each stamped with its
+    depth.
+
+    Walks the shared project's subtree and stops at any container marked
+    ``is_internal=True`` — the flag is enforced at *every* level, because an
+    internal sub-project would otherwise still surface its name (and the
+    non-internal tasks beneath it).
+
+    One query per depth level, not per node, and each row already carries the
+    name and the parent reference: the board groups by container and the
+    timeline nests by it, and asking the database again per row is the N+1 an
+    anonymous page can least afford. ``no_dereference`` keeps ``parent`` a
+    ``DBRef`` so reading it costs nothing.
     """
     if proj.is_internal:
         return []
-    ids = [proj.pk]
-    pending = [proj.pk]
-    while pending:
-        # Batch one BFS layer per query so the lookup is O(depth) Mongo
-        # round-trips instead of O(items).
-        children = list(Item.objects(parent__in=pending,
-                                       kind__in=["project", "section", "folder"],
-                                       is_internal__ne=True).only("id"))
-        pending = [c.pk for c in children]
-        ids.extend(pending)
-    return ids
+    root = {"pk": proj.pk, "name": proj.name, "parent": None,
+            "depth": 0, "item": proj}
+    nodes = [root]
+    children_of = {}
+    frontier = [proj.pk]
+    depth = 0
+    while frontier and depth < 40:
+        depth += 1
+        kids = list(Item.objects(parent__in=frontier,
+                                 kind__in=["project", "section", "folder"],
+                                 is_internal__ne=True)
+                    .order_by("+sort_order", "+title")
+                    .no_dereference())
+        if not kids:
+            break
+        frontier = []
+        for k in kids:
+            parent_pk = k.parent.id if k.parent else None
+            node = {"pk": k.pk, "name": k.title, "parent": parent_pk,
+                    "depth": depth, "item": k}
+            nodes.append(node)
+            children_of.setdefault(parent_pk, []).append(node)
+            frontier.append(k.pk)
+
+    # Re-order breadth-first into depth-first so the timeline reads as a tree.
+    ordered = []
+
+    def _walk(node):
+        ordered.append(node)
+        for c in children_of.get(node["pk"], []):
+            _walk(c)
+
+    _walk(root)
+    return ordered
+
+
+def _allowed_project_ids(proj):
+    """Just the ids of :func:`_share_tree` — the bound every task query on this
+    blueprint is filtered by."""
+    return [n["pk"] for n in _share_tree(proj)]
+
+
+def _read_filters():
+    """The two narrowing arguments, validated. Neither can widen the query:
+    ``status`` must be one this page has a label for, ``q`` is a capped
+    substring."""
+    q = (request.args.get("q") or "").strip()[:MAX_QUERY_LEN]
+    status = (request.args.get("status") or "").strip()
+    if status not in PUBLIC_STATUS_LABEL:
+        status = ""
+    view = (request.args.get("view") or "").strip()
+    if view not in PUBLIC_VIEWS:
+        view = "list"
+    return q, status, view
+
 
 @public_bp.route("/<token>")
+@limiter.limit(lambda: current_app.config["RATELIMIT_PUBLIC_SHARE"],
+               methods=["GET"])
 def project(token):
     proj = _project_or_404(token)
+    q, status, view = _read_filters()
 
-    # All non-internal tasks anywhere under this project (incl. sections).
-    project_ids = _allowed_project_ids(proj)
-    tasks = list(Item.objects(kind="task", parent__in=project_ids,
-                                is_internal__ne=True)
-                 .order_by("+status", "+sort_order"))
+    containers = _share_tree(proj)
+    by_pk = {n["pk"]: n for n in containers}
+
+    # The ONE task query. ``parent__in`` is the whole visibility rule and is
+    # never built from anything the request sent; ``q`` only narrows it.
+    qs = Item.objects(kind="task", parent__in=list(by_pk),
+                      is_internal__ne=True)
+    if q:
+        qs = qs.filter(Q(title__icontains=q) | Q(note__icontains=q))
+    tasks = list(qs.order_by("+status", "+sort_order").no_dereference())
+
+    # Resolve each task's container from what the tree walk already fetched,
+    # so no row costs a dereference.
+    for t in tasks:
+        node = by_pk.get(t.parent.id) if t.parent else None
+        t._container = node
+        t._public_status = PUBLIC_STATUS_LABEL.get(t.status, t.status)
+
+    # Status counts are over the SEARCH result, not the filtered one — the
+    # chips have to say what picking another status would give you.
+    counts = {}
+    for t in tasks:
+        counts[t.status] = counts.get(t.status, 0) + 1
+
+    shown = [t for t in tasks if t.status == status] if status else tasks
+
+    status_chips = [
+        {"key": key, "label": label, "icon": icon, "count": counts.get(key, 0)}
+        for key, label, icon in STATUS_ORDER if counts.get(key)
+    ]
 
     groups = OrderedDict()
-    for status, label, icon in STATUS_ORDER:
-        groups[status] = {"label": label, "icon": icon, "tasks": []}
-    for t in tasks:
+    for key, label, icon in STATUS_ORDER:
+        groups[key] = {"label": label, "icon": icon, "tasks": []}
+    for t in shown:
         bucket = groups.get(t.status)
         if bucket is None:
-            groups[t.status] = {"label": t.status, "icon": "bi-dash", "tasks": []}
+            groups[t.status] = {"label": t.status, "icon": "bi-dash",
+                                "tasks": []}
             bucket = groups[t.status]
         bucket["tasks"].append(t)
+    groups = OrderedDict((k, v) for k, v in groups.items() if v["tasks"])
 
-    # Strip empty buckets so the dashboard isn't cluttered.
-    groups = {k: v for k, v in groups.items() if v["tasks"]}
-
-    return render_template(
-        "public/project.html",
-        project=proj,
-        groups=groups,
-        total=len(tasks),
-        token=token,
-        project_status_label=PROJECT_STATUS_LABEL.get(proj.status, proj.status),
+    ctx = dict(
+        project=proj, token=token, view=view, q=q, status=status,
+        groups=groups, status_chips=status_chips,
+        total=len(tasks), shown_count=len(shown),
+        filtered=bool(q or status),
+        project_status_label=PROJECT_STATUS_LABEL.get(proj.status,
+                                                      proj.status),
+        view_links={v: _view_link(token, v, q, status) for v in PUBLIC_VIEWS},
     )
+    if view == "timeline":
+        ctx["gantt_rows"] = _timeline_rows(containers, shown)
+        # The timeline lists containers beside tasks, so it needs both label
+        # tables — and neither may show the internal GTD word.
+        ctx["gantt_status_labels"] = dict(PROJECT_STATUS_LABEL,
+                                          **PUBLIC_STATUS_LABEL)
+    return render_template("public/project.html", **ctx)
+
+
+def _view_link(token, view, q, status):
+    from flask import url_for
+    args = {"token": token}
+    if view != "list":
+        args["view"] = view
+    if q:
+        args["q"] = q
+    if status:
+        args["status"] = status
+    return url_for("public.project", **args)
+
+
+def _timeline_rows(containers, tasks):
+    """Rows for the shared Gantt template: every container that still holds a
+    matching task (plus its ancestors, so the tree stays connected), each
+    followed by its tasks. Pure — it works on what the two queries above
+    already returned."""
+    tasks_by_container = {}
+    for t in tasks:
+        tasks_by_container.setdefault(
+            t.parent.id if t.parent else None, []).append(t)
+
+    keep = set()
+    by_pk = {n["pk"]: n for n in containers}
+    for pk in tasks_by_container:
+        node = by_pk.get(pk)
+        while node is not None and node["pk"] not in keep:
+            keep.add(node["pk"])
+            node = by_pk.get(node["parent"])
+
+    rows = []
+    for node in containers:
+        if node["pk"] not in keep:
+            continue
+        item = node["item"]
+        item._gantt_indent = node["depth"]
+        rows.append(item)
+        for t in tasks_by_container.get(node["pk"], []):
+            t._gantt_indent = node["depth"] + 1
+            rows.append(t)
+    return rows
+
 
 @public_bp.route("/time/<token>")
 def project_time(token):

@@ -56,6 +56,11 @@ class BaseConfig:
     # calendar requests, hence a limit that a person browsing never reaches.
     RATELIMIT_BOOKING = "10 per hour"
     RATELIMIT_BOOKING_SLOTS = "60 per hour"
+    # The public project share page (/p/<token>). Anonymous, and its search
+    # box turns into a substring scan over the project's tasks, so it gets a
+    # ceiling — high enough that a whole office behind one NAT address can
+    # browse and filter all afternoon without ever meeting it.
+    RATELIMIT_PUBLIC_SHARE = "300 per hour"
 
     # ---- The public booking form -----------------------------------------
     # The limits above are per IP, which is exactly what a script with a
