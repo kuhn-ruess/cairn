@@ -1,4 +1,4 @@
-"""REST API v1 — the ``/notifications`` feed.
+"""REST API v1 — the ``/notifications`` feed and ``/tokens``.
 
 Run with ``python -m unittest discover tests``. Needs a MongoDB (``TestConfig``
 points at ``bktodo_test``); skipped when there isn't one.
@@ -21,7 +21,8 @@ except ImportError:  # pragma: no cover - no mongoengine installed
 
 
 @unittest.skipIf(connect is None, "mongoengine not installed")
-class NotificationsApiTests(unittest.TestCase):
+class _ApiHarness(unittest.TestCase):
+    """App context, a wiped database and an agent account with a token."""
 
     @classmethod
     def setUpClass(cls):
@@ -86,6 +87,9 @@ class NotificationsApiTests(unittest.TestCase):
         r = self._get(path)
         self.assertEqual(r.status_code, 200)
         return r.json["items"]
+
+
+class NotificationsApiTests(_ApiHarness):
 
     # -- reading ---------------------------------------------------------
 
@@ -159,6 +163,48 @@ class NotificationsApiTests(unittest.TestCase):
         r = self.client.post("/api/v1/notifications/read", json={},
                              headers={"Authorization": f"Bearer {ro}"})
         self.assertEqual(r.status_code, 403)
+
+
+@unittest.skipIf(connect is None, "mongoengine not installed")
+class TokenMintingTests(_ApiHarness):
+    """POST /tokens exists so an account that only ever speaks over the API can
+    issue itself a second credential — both browser paths need a session. The
+    property that keeps it from being an escalation is that a read-only token
+    cannot reach it at all."""
+
+    def test_a_minted_token_works_and_is_returned_exactly_once(self):
+        r = self._post("/api/v1/tokens", {"name": "second"})
+        self.assertEqual(r.status_code, 201)
+        raw = r.json["token"]
+        probe = self.client.get("/api/v1/notifications",
+                                headers={"Authorization": f"Bearer {raw}"})
+        self.assertEqual(probe.status_code, 200)
+        listed = self._get("/api/v1/tokens").json["items"]
+        self.assertIn("second", [t["name"] for t in listed])
+        self.assertNotIn("token", listed[-1])
+
+    def test_a_read_only_token_cannot_mint(self):
+        _, ro = self.agent.issue_api_token("ro", read_only=True)
+        r = self.client.post("/api/v1/tokens", json={"name": "escalate"},
+                             headers={"Authorization": f"Bearer {ro}"})
+        self.assertEqual(r.status_code, 403)
+
+    def test_a_minted_read_only_token_is_read_only(self):
+        raw = self._post("/api/v1/tokens",
+                         {"name": "ro", "read_only": True}).json["token"]
+        r = self.client.post("/api/v1/notifications/read", json={},
+                             headers={"Authorization": f"Bearer {raw}"})
+        self.assertEqual(r.status_code, 403)
+
+    def test_revoking_stops_the_token(self):
+        made = self._post("/api/v1/tokens", {"name": "throwaway"}).json
+        raw, tid = made["token"], made["id"]
+        self.assertEqual(self.client.delete(
+            f"/api/v1/tokens/{tid}",
+            headers={"Authorization": f"Bearer {self.token}"}).status_code, 200)
+        probe = self.client.get("/api/v1/notifications",
+                                headers={"Authorization": f"Bearer {raw}"})
+        self.assertEqual(probe.status_code, 401)
 
 
 if __name__ == "__main__":

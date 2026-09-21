@@ -40,6 +40,21 @@ def build_openapi_spec() -> dict:
                 },
             },
             "schemas": {
+                "ApiToken": {
+                    "type": "object",
+                    "description": ("An API token's metadata. The raw token is "
+                                    "never returned again after minting — only "
+                                    "its SHA-256 hash is stored."),
+                    "properties": {
+                        "id": {"type": "string"},
+                        "name": {"type": "string"},
+                        "read_only": {"type": "boolean"},
+                        "revoked": {"type": "boolean"},
+                        "created_at": {"type": "string", "format": "date-time"},
+                        "last_used_at": {"type": "string", "format": "date-time",
+                                         "nullable": True},
+                    },
+                },
                 "Notification": {
                     "type": "object",
                     "description": ("One navbar-bell entry. Fired from user-facing "
@@ -1595,6 +1610,69 @@ def build_openapi_spec() -> dict:
                                 "content": {"application/json": {"schema": {
                                     "$ref": "#/components/schemas/Error"}}}},
                         "404": {"description": "Not found, or not yours"},
+                    },
+                },
+            },
+            "/tokens": {
+                "get": {
+                    "summary": "The calling account's API tokens (metadata only)",
+                    "tags": ["tokens"],
+                    "responses": {
+                        "200": {"description": "Tokens",
+                                "content": {"application/json": {"schema": {
+                                    "type": "object",
+                                    "properties": {"items": {"type": "array", "items": {
+                                        "$ref": "#/components/schemas/ApiToken"}}},
+                                }}}},
+                    },
+                },
+                "post": {
+                    "summary": "Mint another token for the calling account",
+                    "tags": ["tokens"],
+                    "description": ("The browser paths to a token both need a "
+                                    "logged-in session; this is the headless one, "
+                                    "for an account that only speaks over the API. "
+                                    "Unreachable from a read-only token (every "
+                                    "mutating method is refused one), so a token "
+                                    "can never mint a stronger one than itself. "
+                                    "`token` is returned exactly once."),
+                    "requestBody": {
+                        "required": False,
+                        "content": {"application/json": {"schema": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "maxLength": 128},
+                                "read_only": {"type": "boolean"},
+                            },
+                        }}},
+                    },
+                    "responses": {
+                        "201": {"description": "The new token, raw",
+                                "content": {"application/json": {"schema": {
+                                    "allOf": [
+                                        {"$ref": "#/components/schemas/ApiToken"},
+                                        {"type": "object", "properties": {
+                                            "token": {"type": "string"}}},
+                                    ],
+                                }}}},
+                    },
+                },
+            },
+            "/tokens/{token_id}": {
+                "parameters": [
+                    {"name": "token_id", "in": "path", "required": True,
+                     "schema": {"type": "string"}},
+                ],
+                "delete": {
+                    "summary": "Revoke one of the calling account's tokens",
+                    "tags": ["tokens"],
+                    "description": ("Including the caller's own — the next request "
+                                    "with it then fails, which is what revoking means."),
+                    "responses": {
+                        "200": {"description": "The revoked token",
+                                "content": {"application/json": {"schema": {
+                                    "$ref": "#/components/schemas/ApiToken"}}}},
+                        "404": {"description": "Not found"},
                     },
                 },
             },

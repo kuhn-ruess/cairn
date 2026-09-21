@@ -11,6 +11,7 @@ from application.api.serializers import task as ser_task
 from application.api.serializers import task_compact as ser_task_compact
 from application.api.serializers import note as ser_note
 from application.api.serializers import notification as ser_notification
+from application.api.serializers import api_token as ser_api_token
 from application.api.serializers import note_share as ser_note_share
 from application.api.serializers import perspective as ser_perspective
 from application.api.serializers import tt_customer as ser_tt_customer
@@ -1610,6 +1611,52 @@ def _value_error(exc):
 
 
 # ---------------- docs ----------------
+
+@api_v1_bp.get("/tokens")
+@token_required
+def list_tokens():
+    """The calling account's own tokens — metadata only; the raw string exists
+    exactly once, in the response that minted it."""
+    return jsonify({"items": [ser_api_token(t)
+                              for t in (g.current_user.api_tokens or [])]})
+
+
+@api_v1_bp.post("/tokens")
+@token_required
+def create_token():
+    """Mint another token for the CALLING account.
+
+    Both browser paths to a token (the settings page and /settings/cli-authorize)
+    need a logged-in session, which an unattended agent account does not have —
+    so an account that only ever speaks over the API could not issue itself the
+    second credential a second worker needs, and a human had to click for it.
+
+    No escalation: ``token_required`` refuses a read-only token every mutating
+    method, so this is unreachable from one — a token can never mint a stronger
+    token than itself. It can mint an equal one, which is why the pair below
+    exists: whatever this creates can be revoked over the same interface."""
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "API").strip()[:128] or "API"
+    read_only = bool(data.get("read_only"))
+    tok, raw = g.current_user.issue_api_token(name=name, read_only=read_only)
+    return jsonify({**ser_api_token(tok), "token": raw}), 201
+
+
+@api_v1_bp.delete("/tokens/<token_id>")
+@token_required
+def revoke_token(token_id):
+    """Revoke one of the calling account's tokens (including the caller's own —
+    the next request with it then fails, which is what revoking means)."""
+    user = g.current_user
+    tok = next((t for t in (user.api_tokens or [])
+                if str(t.pk_ref) == token_id), None)
+    if tok is None:
+        return _bad_request("not found", 404)
+    if not tok.revoked:
+        tok.revoked = True
+        user.save()
+    return jsonify(ser_api_token(tok))
+
 
 @api_v1_bp.get("/notifications")
 @token_required

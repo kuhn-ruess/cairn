@@ -145,6 +145,19 @@ def comment(c, task_pk=None) -> dict[str, Any]:
     }
 
 
+def api_token(t) -> dict[str, Any]:
+    """An API token's metadata — never the token itself, which exists in
+    plaintext exactly once, in the response that minted it."""
+    return {
+        "id": str(t.pk_ref),
+        "name": t.name,
+        "read_only": bool(t.read_only),
+        "revoked": bool(t.revoked),
+        "created_at": iso(t.created_at),
+        "last_used_at": iso(t.last_used_at),
+    }
+
+
 def notification(n) -> dict[str, Any]:
     """One navbar-bell entry. ``item_id`` is the task an assignment/mention/
     completion is about (null for a team invite), so a client can go straight
