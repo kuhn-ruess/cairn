@@ -23,3 +23,19 @@ application/static/uploads/*
 
 # Claude Code: memory + local agent config live in the repo, not in git.
 .claude/
+
+# Credential material never belongs in the tree — the app takes everything
+# through BKTODO_* env vars (see .env.example, which holds names, no values).
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+*.kdbx
+
+# Real exports/dumps used while developing. A single customer CSV that was
+# committed by accident is the reason this line exists.
+*.csv
+!application/static/**/*.csv
