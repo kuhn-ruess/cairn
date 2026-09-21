@@ -52,10 +52,11 @@
   // ----- Light client-side preview parser (mirrors server tokens) -----
   const PREVIEW_PATTERNS = [
     { re: /(?<!\S)p([1-4])(?!\S)/i, label: m => `P${m[1]}`, cls: "qa-prio" },
-    { re: /(?<!\S)@"([^"\n]+)"/g, label: m => `@${m[1]}`, cls: "qa-tag" },
-    { re: /(?<!\S)@([\w\-äöüÄÖÜß]+)\b/g, label: m => `@${m[1]}`, cls: "qa-tag" },
+    { re: /(?<!\S)\+"([^"\n]+)"/g, label: m => `+${m[1]}`, cls: "qa-tag" },
+    { re: /(?<!\S)\+([\w\-äöüÄÖÜß]+)\b/g, label: m => `+${m[1]}`, cls: "qa-tag" },
     { re: /(?<!\S)#([\w\-äöüÄÖÜß]+)\b/g, label: m => `#${m[1]}`, cls: "qa-project" },
-    { re: /(?<!\S)\+([\w.\-äöüÄÖÜß]+)\b/g, label: m => `+${m[1]}`, cls: "qa-assignee" },
+    { re: /(?<!\S)@"([^"\n]+)"/g, label: m => `@${m[1]}`, cls: "qa-assignee" },
+    { re: /(?<!\S)@([\w.\-äöüÄÖÜß]+)\b/g, label: m => `@${m[1]}`, cls: "qa-assignee" },
     { re: /(?<!\S)!(?!\S)/, label: () => "flagged", cls: "qa-flag" },
     { re: /\b(today|tomorrow|yesterday|heute|morgen|gestern)\b/i,
       label: m => m[1].toLowerCase(), cls: "qa-date" },
@@ -109,12 +110,14 @@
   }
   input.addEventListener("input", () => { preview(); updateProjectHint(); });
 
-  // ----- Autocomplete for the +assignee and @tag tokens -----
+  // ----- Autocomplete for the @person and +tag tokens -----
   // A small dropdown appears while typing either token at the caret; picking
-  // an entry replaces the partial token with the whole one. Tags share the box
-  // because typing one blind is how they silently ended up unassigned: the
-  // parser only takes a tag that exists, and a name with spaces has to be
-  // written quoted (`@"Review AI Work"`) — the list writes that for you.
+  // an entry replaces the partial token with the whole one. `@` opens the same
+  // teammate list as an @-mention in a comment, because `@` means a person
+  // everywhere. Tags share the box because typing one blind is how they
+  // silently ended up unassigned: the parser only takes a tag that exists, and
+  // a name with spaces has to be written quoted (`+"Review AI Work"`) — the
+  // list writes that for you.
   // (`qa-assignee-ac` is also the comment @-mention box's class.)
   const acBox = document.createElement("div");
   acBox.className = "qa-assignee-ac d-none";
@@ -126,10 +129,11 @@
 
   const AC_SOURCES = {
     user: {
-      re: /(?:^|\s)(\+[\w.\-äöüÄÖÜß]*)$/,
+      // Either half of a quoted display name, or a bare word.
+      re: /(?:^|\s)(@"[^"\n]*|@[\w.\-äöüÄÖÜß]*)$/,
       url: q => `/tasks/assignees?q=${encodeURIComponent(q)}`,
       items: data => (data.users || []).map(u => ({
-        token: "+" + u.username,
+        token: "@" + u.username,
         html: '<i class="bi bi-person"></i> '
           + (u.display_name && u.display_name !== u.username
              ? `${escape(u.username)} <span class="text-muted">${escape(u.display_name)}</span>`
@@ -139,7 +143,7 @@
     },
     tag: {
       // Either half of a quoted name (spaces allowed inside) or a bare word.
-      re: /(?:^|\s)(@"[^"\n]*|@[\w\-äöüÄÖÜß]*)$/,
+      re: /(?:^|\s)(\+"[^"\n]*|\+[\w\-äöüÄÖÜß]*)$/,
       url: q => `/tasks/tag-names?q=${encodeURIComponent(q)}`,
       items: data => (data.tags || []).map(t => ({
         token: t.token,
@@ -158,7 +162,7 @@
       const m = before.match(src.re);
       if (!m) continue;
       const raw = m[1];
-      const query = raw.startsWith('@"') ? raw.slice(2) : raw.slice(1);
+      const query = /^[@+]"/.test(raw) ? raw.slice(2) : raw.slice(1);
       return { start: pos - raw.length, end: pos, query, kind };
     }
     return null;
@@ -286,6 +290,9 @@
     }
     if (warnings.unresolved_project) {
       extra += ` (project "${warnings.unresolved_project}" not found)`;
+    }
+    if (warnings.unresolved_assignee) {
+      extra += ` (person "${warnings.unresolved_assignee}" not found)`;
     }
     banner.textContent = `Added: ${task.title}${extra}`;
     document.body.appendChild(banner);

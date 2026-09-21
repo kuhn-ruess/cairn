@@ -368,7 +368,7 @@ def inbox_q(user):
 def assignable_users(actor) -> list:
     """Users the actor may assign tasks to: themselves plus the members of
     every team they participate in (deduped, actor first). Powers the
-    ``+name`` quick-add token and its autocomplete."""
+    ``@name`` quick-add token and its autocomplete."""
     out = [actor]
     seen = {str(actor.pk)}
     for team in teams_of(actor):
@@ -422,7 +422,7 @@ def build_assignee_index(candidates) -> dict:
 
 
 def resolve_assignable_user_by_name(actor, name):
-    """Resolve a ``+name`` token to an assignable user. Matches username or
+    """Resolve an ``@name`` token to an assignable user. Matches username or
     display name, case-insensitive: exact match first, then a unique prefix.
     Returns None when nothing matches or a prefix is ambiguous."""
     if not name:

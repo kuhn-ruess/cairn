@@ -9,8 +9,10 @@ a note passes what was marked in the rendered body.
   wherever it was marked (bullet, ``[x]`` box, heading hashes, quote marker) is
   stripped, so marking a rendered checklist works as well as marking raw
   Markdown. Each line still runs through :func:`parse_task_text`, so the
-  ``@tag #project p1 ! today`` tokens work — an inline ``#project`` wins over
-  the picked target for that one line.
+  ``@person +tag #project p1 ! today`` tokens work — ``@bastian`` on a note
+  line assigns the task and notifies him, exactly as ``@bastian`` in a comment
+  mentions him — and an inline ``#project`` wins over the picked target for
+  that one line.
 * :func:`create_note` — the text becomes a Markdown note, verbatim.
 
 Creating tasks is idempotent: a task with the same title already in the same

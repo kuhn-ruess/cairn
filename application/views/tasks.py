@@ -15,8 +15,8 @@ def _apply_smart_tokens(task: "Item", raw_title: str, user) -> None:
     """Merge Todoist-style tokens parsed out of ``raw_title`` into ``task``.
 
     Form fields the user filled explicitly win — the parser only fills
-    gaps. Recognised tokens (@tag, #project, pN, !, dates) are stripped
-    from the stored title.
+    gaps. Recognised tokens (@person, +tag, #project, pN, !, dates) are
+    stripped from the stored title.
     """
     from application.services.quick_parse import parse_task_text
 
@@ -44,12 +44,12 @@ def _apply_smart_tokens(task: "Item", raw_title: str, user) -> None:
         task.due_date = parsed.due_date
     if parsed.flagged:
         task.flagged = True
-    # +assignee fills the gap when the form didn't set one explicitly.
+    # @person fills the gap when the form didn't set one explicitly.
     if parsed.assignee and not task.assigned_to:
         task.assign_to(parsed.assignee, by_user=user)
-    # A tag typed into the title (@Buchhaltung) carries its auto-assign rule
+    # A tag typed into the title (+Buchhaltung) carries its auto-assign rule
     # like one picked in the inspector — filling the gap only, so an explicit
-    # +assignee or a picked assignee above still wins.
+    # @person or a picked assignee above still wins.
     if added and not task.assigned_to:
         from application.services.label_rules import apply_assignee_rule
         apply_assignee_rule(task, user, only_tags=added)
@@ -2077,7 +2077,7 @@ def delete(task_id):
 @tasks_bp.route("/tag-names")
 @login_required
 def tag_names():
-    """The user's tags for the ``@name`` quick-add autocomplete. Optional
+    """The user's tags for the ``+name`` quick-add autocomplete. Optional
     ``?q=`` filters by substring.
 
     Typing a tag name blind is how tags got assigned to nothing: the parser
@@ -2099,7 +2099,7 @@ def tag_names():
         out.append({
             "name": name,
             "color": tag.color or "",
-            "token": f'@"{name}"' if " " in name else f"@{name}",
+            "token": f'+"{name}"' if " " in name else f"+{name}",
         })
     out.sort(key=lambda t: t["name"].lower())
     return jsonify({"tags": out[:20]})
@@ -2107,7 +2107,7 @@ def tag_names():
 @tasks_bp.route("/assignees")
 @login_required
 def assignees():
-    """Assignable users for the ``+name`` quick-add autocomplete. Optional
+    """Assignable users for the ``@name`` quick-add autocomplete. Optional
     ``?q=`` prefix-filters by username / display name."""
     from flask import jsonify
     from application.services.permissions import assignable_users
@@ -2524,7 +2524,7 @@ def snooze(task_id):
 def plan_create():
     """Quick-add from the Plan timeline: create a task planned at a slot.
 
-    Body: ``text`` (supports @tag / #project / pN tokens), ``date=YYYY-MM-DD``,
+    Body: ``text`` (supports @person / +tag / #project / pN tokens), ``date=YYYY-MM-DD``,
     ``hour``, ``minute``, optional ``minutes`` (duration). Returns the new
     task so the client can drop a card in place.
     """
@@ -3754,8 +3754,8 @@ def subtasks(task_id):
             from application.services.quick_parse import parse_task_text
             user = current_user._get_current_object()
             # Magic words work here just like Todoist-style quick-add:
-            # ``today``/``heute`` & friends → due date, ``+name`` → assignee,
-            # ``@tag`` / ``p1``-``p4`` / ``!``. We deliberately IGNORE any
+            # ``today``/``heute`` & friends → due date, ``@name`` → assignee,
+            # ``+tag`` / ``p1``-``p4`` / ``!``. We deliberately IGNORE any
             # ``#project`` token (parsed.project) — a subtask must stay
             # parented to THIS task, not get yanked into another project.
             parsed = parse_task_text(raw, user)

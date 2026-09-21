@@ -458,16 +458,16 @@
     {{ form.title.label(class="form-label small text-uppercase text-muted") }}
     {% if inspector_inline %}
       {{ form.title(class="form-control form-control-lg",
-                     placeholder="What needs to happen?  e.g. ‘Call mom tomorrow @phone p1’") }}
+                     placeholder="What needs to happen?  e.g. ‘Call mom tomorrow +phone p1’") }}
     {% else %}
       {{ form.title(class="form-control form-control-lg",
-                     placeholder="What needs to happen?  e.g. ‘Call mom tomorrow @phone p1’",
+                     placeholder="What needs to happen?  e.g. ‘Call mom tomorrow +phone p1’",
                      autofocus="autofocus") }}
     {% endif %}
     {% if not task %}
       <div class="form-text small text-muted mt-1">
         Tokens get parsed automatically:
-        <code>@tag</code> · <code>#project</code> · <code>+assignee</code> ·
+        <code>@person</code> · <code>+tag</code> · <code>#project</code> ·
         <code>p1</code>…<code>p4</code> ·
         <code>!</code> · <code>today</code> / <code>tomorrow</code> / <code>monday</code>
       </div>

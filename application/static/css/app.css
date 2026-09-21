@@ -1387,7 +1387,7 @@ tr:hover .fav-star-hover,
 }
 .nav-fav-row:hover .nav-count { visibility: hidden; }
 
-/* +assignee autocomplete dropdown in the quick-add modal */
+/* @person / +tag autocomplete dropdown in the quick-add modal */
 .qa-assignee-ac {
   margin-top: .35rem;
   border: 1px solid var(--gv-bg3);

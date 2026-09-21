@@ -2,8 +2,10 @@
 
 Recognises a single line of free text and extracts task metadata:
 
-* ``@name``      → tag (case-insensitive match on the user's existing tags);
-  a tag whose name has spaces is written ``@"Review AI Work"``
+* ``@name``      → person (assignee — the same ``@name`` that mentions a
+  teammate in a comment); a name with spaces is written ``@"Bastian Kuhn"``
+* ``+name``      → tag (case-insensitive match on the user's existing tags);
+  a tag whose name has spaces is written ``+"Review AI Work"``
 * ``#name``      → project (case-insensitive match on the user's projects)
 * ``p1``…``p4``  → priority (Todoist convention — 1 highest, 4 lowest)
 * ``!``          → flag the task
@@ -33,11 +35,13 @@ WEEKDAYS = {
 }
 
 PRIORITY_RE = re.compile(r"(?<!\S)p([1-4])(?!\S)", re.IGNORECASE)
-# A tag is one word — or any name at all between quotes, which is the only
-# way to reach the many tags whose names have spaces ("Review AI Work").
-TAG_RE = re.compile(r'(?<!\S)@(?:"([^"\n]+)"|([A-Za-z0-9_\-äöüÄÖÜß]+)\b)')
+# ``@`` is a PERSON everywhere in Cairn — in a comment, in quick-add, and on a
+# line captured out of a note — and ``+`` is a tag. Either is one word, or any
+# name at all between quotes: that is the only way to reach a tag whose name has
+# spaces ("Review AI Work") or a person written by display name.
+TAG_RE = re.compile(r'(?<!\S)\+(?:"([^"\n]+)"|([A-Za-z0-9_\-äöüÄÖÜß]+)\b)')
 PROJECT_RE = re.compile(r"(?<!\S)#([A-Za-z0-9_\-äöüÄÖÜß]+)\b")
-ASSIGNEE_RE = re.compile(r"(?<!\S)\+([A-Za-z0-9._\-äöüÄÖÜß]+)\b")
+ASSIGNEE_RE = re.compile(r'(?<!\S)@(?:"([^"\n]+)"|([A-Za-z0-9._\-äöüÄÖÜß]+)\b)')
 FLAG_RE = re.compile(r"(?<!\S)!(?!\S)")
 TODAY_RE = re.compile(r"\b(today|heute)\b", re.IGNORECASE)
 TOMORROW_RE = re.compile(r"\b(tomorrow|morgen)\b", re.IGNORECASE)
@@ -131,11 +135,11 @@ def parse_task_text(text: str, user, default_project=None) -> ParsedTask:
             parsed.unresolved_project = name
         text = PROJECT_RE.sub(" ", text, count=1)
 
-    # Assignee — ``+name`` resolves to a user the actor may assign to.
+    # Assignee — ``@name`` resolves to a user the actor may assign to.
     am = ASSIGNEE_RE.search(text)
     if am:
         from application.services.permissions import resolve_assignable_user_by_name
-        name = am.group(1)
+        name = am.group(1) or am.group(2)
         assignee = resolve_assignable_user_by_name(user, name)
         if assignee:
             parsed.assignee = assignee
