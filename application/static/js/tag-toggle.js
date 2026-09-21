@@ -244,6 +244,11 @@
       }
     });
 
+    // Something outside the field changed the selection — posting a comment
+    // that drops a label (inspector.js). The <select> stays the source of
+    // truth, so all the token field has to do is draw it again.
+    sel.addEventListener("tags:external-change", render);
+
     field.appendChild(input);
     wrap.appendChild(field);
     wrap.appendChild(menu);

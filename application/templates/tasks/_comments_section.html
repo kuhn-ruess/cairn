@@ -61,6 +61,9 @@
         class="task-detail-comment-form mt-3">
     {{ comment_form.hidden_tag() }}
     {{ comment_form.body(class="form-control form-control-sm mb-2", rows="2", placeholder="Add a comment…") }}
+    {% with drop_prefix = 'section-drop' %}
+      {% include "tasks/_comment_drop_labels.html" %}
+    {% endwith %}
     <div class="d-flex align-items-center">
       <small class="text-muted me-auto">New comments are <strong>internal</strong> by default.</small>
       {{ comment_form.submit(class="btn btn-sm btn-primary") }}

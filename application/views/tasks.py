@@ -3138,6 +3138,26 @@ def _notify_mentions(task, body, *, by_user):
         notify_mention(recipient, by_user=by_user, task=task)
 
 
+def _drop_labels(task, names, user):
+    """Take the labels in ``names`` off ``task`` — WITHOUT saving; the caller's
+    own save carries it, so answering and handing the item back costs one write.
+
+    Returns the names actually removed. Matching is case-insensitive against
+    what the item carries, and a name it doesn't carry is simply ignored: the
+    list comes from checkboxes rendered from the item's own labels, and a stale
+    form (the label was already taken off elsewhere) must not be an error.
+    """
+    wanted = {n.strip().lower() for n in (names or []) if n and n.strip()}
+    if not wanted or not task.tags or not task.can_be_edited_by(user):
+        return []
+    kept, removed = [], []
+    for name in task.tags:
+        (removed if name.lower() in wanted else kept).append(name)
+    if removed:
+        task.tags = kept
+    return removed
+
+
 @tasks_bp.route("/<task_id>/comment", methods=["POST"])
 @login_required
 def comment(task_id):
@@ -3147,6 +3167,11 @@ def comment(task_id):
         abort(404)
     form = CommentForm()
     if form.validate_on_submit():
+        # Labels ticked in the comment box come off with the same submit —
+        # writing the answer and handing the task back is one gesture (the
+        # `Review AI Work` handshake is the case this exists for). Done before
+        # add_comment so both land in its single save.
+        removed = _drop_labels(task, request.form.getlist("remove_tags"), user)
         task.add_comment(user, form.body.data)
         _notify_mentions(task, form.body.data, by_user=user)
         if request.headers.get("X-Inspector-Request") == "1":
@@ -3163,9 +3188,17 @@ def comment(task_id):
                     "body_html": current_app.jinja_env.filters["markdown"](c.body),
                     "created_at": c.created_at.isoformat(),
                     "is_public": c.is_public,
+                    # So the panel can drop the chips and un-select the same
+                    # names in the label picker — an inspector save afterwards
+                    # would otherwise put the label straight back on.
+                    "removed_tags": removed,
+                    "tags": list(task.tags or []),
                 }
             )
-        flash("Comment posted.", "success")
+        if removed:
+            flash("Comment posted. Removed label(s): " + ", ".join(removed) + ".", "success")
+        else:
+            flash("Comment posted.", "success")
     # Stay where the comment was posted (task detail OR a project page).
     return redirect(request.referrer or url_for("tasks.detail", task_id=task_id))
 

@@ -606,6 +606,10 @@
       const csrf = document.querySelector('input[name="csrf_token"]');
       if (csrf) fd.append("csrf_token", csrf.value);
       fd.append("body", value);
+      // Labels ticked beside the box come off with the same request.
+      wrap
+        .querySelectorAll('input[name="remove_tags"]:checked')
+        .forEach((cb) => fd.append("remove_tags", cb.value));
       const resp = await fetch(wrap.dataset.action, {
         method: "POST",
         body: fd,
@@ -614,6 +618,7 @@
       if (!resp.ok) throw new Error("comment failed: " + resp.status);
       const data = await resp.json();
       appendCommentToList(data, wrap);
+      reflectRemovedLabels(data.removed_tags || [], wrap);
       textarea.value = "";
     } catch (err) {
       console.error(err);
@@ -664,6 +669,38 @@
     // Bump the badge counter.
     const counter = body.querySelector(".comments-block .badge");
     if (counter) counter.textContent = String(parseInt(counter.textContent, 10) + 1);
+  }
+
+  // A comment that took labels off leaves two things behind that still show
+  // the old truth: the chip offering the removal, and — the one that bites —
+  // the label picker above, whose <select> is the inspector form's source of
+  // truth. Left selected, the next Save would put the label straight back on.
+  function reflectRemovedLabels(names, wrap) {
+    if (!names.length) return;
+    const lower = names.map((n) => n.toLowerCase());
+    const row = wrap.querySelector(".comment-drop-labels");
+    if (row) {
+      row.querySelectorAll('input[name="remove_tags"]').forEach((cb) => {
+        if (lower.indexOf((cb.value || "").toLowerCase()) === -1) return;
+        const label = row.querySelector('label[for="' + cb.id + '"]');
+        if (label) label.remove();
+        cb.remove();
+      });
+      if (!row.querySelector('input[name="remove_tags"]')) row.remove();
+    }
+    const scope = wrap.closest(".inspector-form") || body || document;
+    scope.querySelectorAll("select[multiple][data-tag-toggle]").forEach((sel) => {
+      let touched = false;
+      Array.from(sel.options).forEach((o) => {
+        if (o.selected && lower.indexOf(o.value.toLowerCase()) !== -1) {
+          o.selected = false;
+          touched = true;
+        }
+      });
+      // tag-toggle.js draws its chips from the <select>; this is how something
+      // else says "I changed it, draw it again".
+      if (touched) sel.dispatchEvent(new Event("tags:external-change"));
+    });
   }
 
   function visibilityBadgeHtml(isPublic) {

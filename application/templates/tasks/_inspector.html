@@ -426,6 +426,9 @@
            data-action="{{ url_for('tasks.comment', task_id=task.pk) }}">
         <textarea name="comment_body" class="form-control form-control-sm" rows="2"
                   placeholder="Add a comment…"></textarea>
+        {% with item = task, drop_prefix = 'insp-drop' %}
+          {% include "tasks/_comment_drop_labels.html" %}
+        {% endwith %}
         <div class="d-flex align-items-center mt-1">
           <small class="text-muted">New comments are <strong>internal</strong> by default.</small>
           <button type="button" class="btn btn-sm btn-primary ms-auto comment-add-btn">

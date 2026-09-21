@@ -1,0 +1,23 @@
+{# Labels currently on ``item``, offered beside a comment box as "take this one
+   off when I post". Writing the answer and handing the item back is one
+   gesture, not two — see ``tasks.comment``, which reads ``remove_tags``.
+
+   Plain checkboxes on purpose: the task-detail and project comment forms POST
+   normally (so this works without JS), and the inspector's fetch-posted form
+   collects the checked ones. Expects ``item``; ``drop_prefix`` keeps the
+   label/checkbox ids unique when two comment boxes share a page. #}
+{% set _p = drop_prefix|default('drop') %}
+{% if item.tags %}
+  <div class="comment-drop-labels d-flex flex-wrap align-items-center gap-1 mb-2">
+    <span class="small text-muted me-1">Remove when posting:</span>
+    {% for tag_name in item.tags %}
+      {% set tg = current_user.tag_by_name(tag_name) %}
+      <input type="checkbox" class="btn-check" name="remove_tags" value="{{ tag_name }}"
+             id="{{ _p }}-{{ item.pk }}-{{ loop.index0 }}" autocomplete="off">
+      <label class="tag-chip comment-drop-label" for="{{ _p }}-{{ item.pk }}-{{ loop.index0 }}"
+             data-tag="{{ tag_name }}"
+             style="--tag-color: {{ tg.color if tg else '#6c757d' }};"
+             title="Take “{{ tag_name }}” off when this comment is posted">{{ tag_name }}</label>
+    {% endfor %}
+  </div>
+{% endif %}
