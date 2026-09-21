@@ -124,6 +124,34 @@ class BaseConfig:
     # what a deployment that only sets host/port/user expects.
     SMTP_SSL = ""
 
+    # ---- Who runs this instance (Impressum / Datenschutzerklärung) --------
+    # Cairn ships the TEXT of both legal pages, never an operator. Nothing is
+    # filled in here on purpose: an instance that hasn't been configured says
+    # "the operator of this instance has not provided an Impressum" instead of
+    # printing somebody else's name, address and VAT id. Set these via
+    # BKTODO_LEGAL_* in .env; see application/services/legal.py.
+    #
+    # NAME + ADDRESS + EMAIL are what make the pages render an identity at all
+    # (§ 5 DDG: name, a postal address, a fast electronic contact). The rest is
+    # printed only when set — a sole proprietor has no Registergericht, an
+    # operator outside Germany has no USt-IdNr.
+    #
+    # "|" separates lines in the multi-line values (an env var is one line).
+    LEGAL_OPERATOR_NAME = ""            # "Erika Mustermann"
+    LEGAL_OPERATOR_ADDITION = ""        # second line, e.g. "Beratung und Entwicklung"
+    LEGAL_OPERATOR_ADDRESS = ""         # "Musterstr. 1|12345 Musterstadt"
+    LEGAL_OPERATOR_EMAIL = ""
+    LEGAL_OPERATOR_PHONE = ""
+    LEGAL_OPERATOR_REPRESENTATIVE = ""  # Vertretungsberechtigte(r), e.g. a GmbH's Geschäftsführung
+    LEGAL_OPERATOR_REGISTER = ""        # "Amtsgericht München, HRB 12345"
+    LEGAL_OPERATOR_VAT_ID = ""          # USt-IdNr. gemäß § 27a UStG
+    LEGAL_OPERATOR_INSURANCE = ""       # Berufshaftpflicht, "|"-separated lines
+    # Named in the Datenschutzerklärung's hosting section, inserted into
+    # "Cairn wird bei … gehostet" — so it carries its own article, e.g.
+    # "der Hetzner Online GmbH (Gunzenhausen)". Unset: the section keeps the
+    # logfile paragraph and names no provider.
+    LEGAL_HOSTING_PROVIDER = ""
+
     # ---- Subscriptions ----
     # The whole commercial model — plans, trials, the free tier, and the
     # sign-up form that feeds it — is OFF unless a deployment says otherwise.

@@ -1,33 +1,53 @@
 {# Shared Impressum body — included for both the authenticated and the
-   anonymous layout block so the page renders in either state. #}
+   anonymous layout block so the page renders in either state.
+
+   Every identity field comes from ``operator`` (services/legal.py, fed by
+   BKTODO_LEGAL_*). Nothing about the operator is hardcoded here: an instance
+   that hasn't been configured prints the notice instead. The optional
+   sections are printed only when the operator set them — a sole proprietor
+   has no Registergericht, an operator outside Germany no USt-IdNr. #}
 <div style="max-width:760px;">
   <h1 class="h3 mb-4">Impressum</h1>
 
+{% if not operator.configured %}
+  {% include "legal/_not_configured.html" %}
+{% else %}
   <h2 class="h6 text-uppercase text-muted mt-4">Angaben gemäß § 5 DDG</h2>
   <div class="card mb-3"><div class="card-body">
-    Bastian Kuhn<br>
-    Beratung und Entwicklung<br>
-    Streitfeldstr. 22<br>
-    81673 München
+    {{ operator.name }}{% if operator.addition %}<br>
+    {{ operator.addition }}{% endif %}{% for line in operator.address %}<br>
+    {{ line }}{% endfor %}
   </div></div>
+
+  {% if operator.representative %}
+  <h2 class="h6 text-uppercase text-muted mt-4">Vertreten durch</h2>
+  <p>{{ operator.representative }}</p>
+  {% endif %}
+
+  {% if operator.register %}
+  <h2 class="h6 text-uppercase text-muted mt-4">Registereintrag</h2>
+  <p>{{ operator.register }}</p>
+  {% endif %}
 
   <h2 class="h6 text-uppercase text-muted mt-4">Kontakt</h2>
   <div class="card mb-3"><div class="card-body">
-    Telefon: 01607507827<br>
-    E-Mail: <a href="mailto:mail@bastian-kuhn.de">mail@bastian-kuhn.de</a>
+    {% if operator.phone %}Telefon: {{ operator.phone }}<br>{% endif %}
+    E-Mail: <a href="mailto:{{ operator.email }}">{{ operator.email }}</a>
   </div></div>
 
+  {% if operator.vat_id %}
   <h2 class="h6 text-uppercase text-muted mt-4">Umsatzsteuer-ID</h2>
   <p>Umsatzsteuer-Identifikationsnummer gemäß § 27 a Umsatzsteuergesetz:<br>
-  DE319059455</p>
+  {{ operator.vat_id }}</p>
+  {% endif %}
 
+  {% if operator.insurance %}
   <h2 class="h6 text-uppercase text-muted mt-4">Berufshaftpflichtversicherung</h2>
   <div class="card mb-3"><div class="card-body">
-    Markel Insurance SE<br>
-    Sophienstr. 26<br>
-    80333 München<br>
-    Geltungsraum der Versicherung: weltweit
+    {% for line in operator.insurance %}{{ line }}{% if not loop.last %}<br>{% endif %}
+    {% endfor %}
   </div></div>
+  {% endif %}
 
   <h2 class="h6 text-uppercase text-muted mt-4">Haftung für Inhalte</h2>
   <p class="text-muted">Als Diensteanbieter sind wir gemäß § 7 Abs. 1 DDG für eigene Inhalte auf
@@ -45,4 +65,5 @@
   <p class="text-muted">Die durch die Seitenbetreiber erstellten Inhalte und Werke auf diesen
   Seiten unterliegen dem deutschen Urheberrecht. Downloads und Kopien dieser Seite sind nur
   für den privaten, nicht kommerziellen Gebrauch gestattet.</p>
+{% endif %}
 </div>

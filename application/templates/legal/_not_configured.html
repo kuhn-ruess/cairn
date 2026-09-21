@@ -1,0 +1,15 @@
+{# Shown on Impressum and Datenschutz when this instance has no operator
+   configured. Cairn never falls back to the identity of whoever wrote it:
+   an unconfigured instance says that it is unconfigured. #}
+<div class="alert alert-warning" role="alert">
+  <p class="fw-semibold mb-2">Der Betreiber dieser Instanz hat keine Impressumsangaben hinterlegt.</p>
+  <p class="mb-2">Diese Cairn-Instanz wurde ohne Betreiberangaben in Betrieb genommen.
+  Cairn zeigt hier bewusst nichts an, statt die Angaben eines fremden Betreibers zu nennen.
+  Wer diese Instanz betreibt, ist hier daher nicht ersichtlich.</p>
+  <p class="mb-0 small">Hinweis für die Administration dieser Instanz:
+  die Betreiberangaben werden über <code>BKTODO_LEGAL_OPERATOR_*</code> in der
+  <code>.env</code> gesetzt.
+  {%- if operator.missing %} Es fehlen:
+  {% for key in operator.missing %}<code>{{ key }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+  {%- endif %} Danach die Anwendung neu starten.</p>
+</div>

@@ -90,6 +90,33 @@ All settings are overridable through `BKTODO_*` env vars:
 | `BKTODO_MONGO_USER` / `_PASSWORD` / `_AUTH_SOURCE` | empty |
 | `BKTODO_CONFIG` | `application.config.DevConfig` |
 
+### Impressum & Datenschutz (who runs your instance)
+
+Cairn ships the **text** of `/impressum` and `/datenschutz` — what the software
+stores, which cookies it sets, which third parties it talks to once you switch
+them on. It does **not** ship an operator. Until you fill these in, both pages
+print "Der Betreiber dieser Instanz hat keine Impressumsangaben hinterlegt"
+instead of somebody else's name and address, so an instance can never publish a
+legal identity that isn't yours.
+
+| Variable | | |
+|---|---|---|
+| `BKTODO_LEGAL_OPERATOR_NAME` | required | without it the pages show the notice |
+| `BKTODO_LEGAL_OPERATOR_ADDRESS` | required | `\|` separates lines: `Musterstr. 1\|12345 Musterstadt` |
+| `BKTODO_LEGAL_OPERATOR_EMAIL` | required | |
+| `BKTODO_LEGAL_OPERATOR_ADDITION` | optional | second line, e.g. a trade name |
+| `BKTODO_LEGAL_OPERATOR_PHONE` | optional | |
+| `BKTODO_LEGAL_OPERATOR_REPRESENTATIVE` | optional | Vertretungsberechtigte(r) |
+| `BKTODO_LEGAL_OPERATOR_REGISTER` | optional | `Amtsgericht München, HRB 12345` |
+| `BKTODO_LEGAL_OPERATOR_VAT_ID` | optional | USt-IdNr. |
+| `BKTODO_LEGAL_OPERATOR_INSURANCE` | optional | `\|`-separated lines |
+| `BKTODO_LEGAL_HOSTING_PROVIDER` | optional | named in the hosting section, carries its own article: `der Example Hosting GmbH (Musterstadt)` |
+
+Optional fields are simply left out of the page when unset. What the pages say
+beyond the identity is Cairn's own text — check that it matches how *you* run
+the instance (hosting, mail, which integrations you allow) before you rely on
+it; it is a starting point, not legal advice.
+
 ### Email
 
 Mail is **off** until `BKTODO_SMTP_HOST` is set — nothing is sent and nothing

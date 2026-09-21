@@ -18,19 +18,25 @@ def help_page():
 @login_required
 def about():
     from application import APP_VERSION
-    return render_template("about.html", app_version=APP_VERSION)
+    from application.services.legal import operator
+    return render_template("about.html", app_version=APP_VERSION,
+                           operator=operator())
 
 
 # Legal pages are intentionally public (no @login_required) — an Impressum
-# must be reachable without an account.
+# must be reachable without an account. Who the operator IS never comes from
+# the templates; ``services.legal.operator`` reads it from BKTODO_LEGAL_*, and
+# an instance that hasn't configured it renders the "no Impressum" notice.
 @dashboard_bp.route("/impressum")
 def impressum():
-    return render_template("legal/impressum.html")
+    from application.services.legal import operator
+    return render_template("legal/impressum.html", operator=operator())
 
 
 @dashboard_bp.route("/datenschutz")
 def datenschutz():
-    return render_template("legal/datenschutz.html")
+    from application.services.legal import operator
+    return render_template("legal/datenschutz.html", operator=operator())
 
 def _scope(user):
     from application.services import focus

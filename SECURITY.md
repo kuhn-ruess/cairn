@@ -5,8 +5,7 @@
 Please report security problems **privately** — not in a public issue, not in a
 pull request, and not on the tracker.
 
-Write to **mail@bastian-kuhn.de**, the contact published in Cairn's own
-Impressum. Put "Cairn security" in the subject so it is not read as ordinary
+Write to **mail@bastian-kuhn.de**, the address the maintainers read. Put "Cairn security" in the subject so it is not read as ordinary
 mail.
 
 Helpful in a report:
