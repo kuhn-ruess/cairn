@@ -281,3 +281,40 @@ Dockerfile            production image
 Dockerfile.local      dev image
 requirements.txt
 ```
+
+## License
+
+Cairn is free software under the **GNU Affero General Public License v3.0**
+(see [`LICENSE`](LICENSE) for the full text).
+
+In practice: run it for yourself, inside your company, on your own server, and
+modify it as much as you like — that costs nothing and asks nothing of you. The
+one obligation AGPL adds over the ordinary GPL is section 13: if you run a
+*modified* Cairn as a service other people can reach over a network, those
+users must be able to get your modified source. Using it privately, however
+heavily, is never a trigger.
+
+If that doesn't fit — an OEM integration, a closed fork, a hosted product built
+on Cairn — commercial licenses are available from Kuhn & Rueß GmbH.
+
+```
+Cairn — a GTD-style todo web application
+Copyright (C) 2026 Kuhn & Rueß GmbH
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+```
+
+Patches are welcome under the same license — see
+[`CONTRIBUTING.md`](CONTRIBUTING.md). Security reports go the private route in
+[`SECURITY.md`](SECURITY.md), not into an issue.
