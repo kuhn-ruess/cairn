@@ -187,6 +187,18 @@
       if (newMain && main) {
         main.innerHTML = newMain.innerHTML;
         main.querySelectorAll(".task-list, .tree-tasks").forEach(init);
+        // The task-detail page carries its inspector INSIDE <main>
+        // (#inline-inspector), so the swap above just replaced its form with
+        // raw server markup: the enhanced widgets (tag token field, searchable
+        // project select, section drag grips) were rendered by JS and are
+        // gone. Without this the label picker falls back to the bare
+        // <select multiple> after e.g. a quick-plan click. `inspector:loaded`
+        // is this app's "the inspector's markup is new, re-enhance it" signal;
+        // every listener is idempotent and guarded by a wired flag, so firing
+        // it on pages whose inspector lives outside <main> is a no-op.
+        if (main.querySelector(".inspector-form")) {
+          document.dispatchEvent(new Event("inspector:loaded"));
+        }
       }
     } catch (err) {
       console.error("refresh failed", err);
