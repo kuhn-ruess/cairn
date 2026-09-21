@@ -467,7 +467,11 @@ def announce(user, booking) -> None:
     user.add_notification(
         kind="booking",
         text=f"{who} booked {booking.duration_minutes} min on {stamp}",
-        link=url_for("settings.booking"),
+        # The appointment list, not the settings form: the bell is telling the
+        # host that something ARRIVED, and the answer to "who, when" is the
+        # list. Settings is where the page is configured, which is touched
+        # once — it was the target only because the feature started out there.
+        link=url_for("bookings.index"),
         icon="bi-calendar-check",
         actor=who,
     )

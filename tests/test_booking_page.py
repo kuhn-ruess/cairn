@@ -303,6 +303,23 @@ class BookingPageTests(unittest.TestCase):
         self.assertEqual(len(bell), 1)
         self.assertIn("Bob", bell[0].text)
 
+    def test_the_bell_points_at_the_appointments_not_at_the_settings_form(self):
+        """A new booking is news about an appointment, so the entry has to
+        land on the list that shows it. The settings page is where the
+        booking page is CONFIGURED — it was the target only because the
+        feature used to live there, and clicking the bell then answered a
+        question nobody had asked."""
+        self.save_page()
+        self.book(self.first_slot())
+        bell = [n for n in self.reload().notifications if n.kind == "booking"]
+        self.assertEqual(len(bell), 1)
+        with self.app.test_request_context():
+            from flask import url_for
+            self.assertEqual(bell[0].link, url_for("bookings.index"))
+        self.assertNotIn("/settings/", bell[0].link)
+        # And the link actually resolves for the host.
+        self.assertEqual(self.client.get(bell[0].link).status_code, 200)
+
     def test_a_booked_slot_disappears_from_the_next_visitor(self):
         self.save_page()
         start = self.first_slot()
