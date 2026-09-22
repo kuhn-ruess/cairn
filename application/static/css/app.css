@@ -369,16 +369,14 @@ body > .navbar {
   outline: 1px dashed var(--gv-yellow);
   opacity: .6;
 }
-/* Drop-merge candidate during hover dwell — subtle hint before the
-   row escalates to a full merge target. */
-.task-row.drop-merge-pending,
-.tree-task.drop-merge-pending {
-  background: rgba(131, 165, 152, .08);
-  outline: 1px dashed var(--gv-blue);
-  outline-offset: -2px;
-  border-radius: .25rem;
+/* Dragged to the right → the drop nests instead of reordering.
+   The dragged row steps in to show where it is going; the list is frozen at
+   this point, so nothing else moves under the cursor. */
+body.is-nesting .task-row.drag-ghost,
+body.is-nesting .tree-task.drag-ghost {
+  margin-left: 28px;
 }
-/* Hovering a task during a drag → drop-on-task = nest under it as a sub-task. */
+/* The row the dragged task will go under. */
 .task-row.drop-merge-target,
 .tree-task.drop-merge-target {
   background: rgba(131, 165, 152, .22) !important;

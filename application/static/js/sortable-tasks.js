@@ -15,101 +15,78 @@
     return el ? el.value : "";
   }
 
-  // Drop ON a row vs. drop BETWEEN rows is decided by WHERE IN THE ROW the
-  // pointer is: its middle band nests the dragged task under that row, its top
-  // and bottom edges are the ordinary reorder. Geometry, not timing — the drop
-  // acts on the row the pointer is actually inside at mouse-up.
+  // ---- Nest-on-drop: drag RIGHT ---------------------------------------
   //
-  // It has to be geometry. Sortable slides rows around under the cursor as you
-  // drag, so "the row I hovered last" is not the row you are pointing at, and
-  // it fires one more onMove on mouse-up which used to wipe the armed target —
-  // the hint said "Drop as sub-task" and the drop still only reordered. The
-  // band also FREEZES the list while you are inside it (onMove returns false):
-  // without that, crossing the middle is exactly what makes the target jump
-  // above or below, so there is nothing left to drop onto.
+  // Nesting cannot be signalled by hovering a row, and that is not a tuning
+  // problem — it is what SortableJS is. While you drag, it makes room for the
+  // dragged row and keeps it under the cursor: a pointer trace through a real
+  // drag hits the DRAGGED row on 23 of 24 samples, never the one being aimed
+  // at. The row you think you are "on" has already moved aside, so there is no
+  // pixel that means "onto this one", however the band around it is measured.
+  // Two earlier attempts (dwell over a row, then middle-of-the-row band) both
+  // died on this, which is what "er schnappt davor oder darunter aber nie
+  // darauf" was.
   //
-  // ``DWELL_MS`` now only delays the HIGHLIGHT, so dragging past a row doesn't
-  // flash it. It never gates the drop.
-  const NEST_BAND = 0.5;     // middle 50% of a row nests
-  const DWELL_MS = 250;      // before the band lights up
+  // So the intent is horizontal, the one axis the reorder does not use: move
+  // the pointer right of where the drag started and the list FREEZES — onMove
+  // returns false, nothing shuffles any more — and the drop nests the dragged
+  // task under the row it is now sitting below, which is the row the highlight
+  // names. Move back left and it is an ordinary reorder
+  // again, unchanged. No timing anywhere: it is on or off, and it is painted.
+  const NEST_SHIFT_PX = 48;   // how far right before a drag becomes a nest
   let dragSource = null;
   let mergeTarget = null;
-  // The row the pointer is inside the nest band of. THIS is what a drop acts
-  // on — ``mergeTarget`` is only what is painted.
-  let bandRow = null;
-  let pendingMergeRow = null;
-  let dwellTimer = null;
+  let dragStartX = null;
+  let nestMode = false;
   function clearMergeTarget() {
     if (mergeTarget) mergeTarget.classList.remove("drop-merge-target");
     mergeTarget = null;
   }
-  function cancelDwell() {
-    if (dwellTimer) { clearTimeout(dwellTimer); dwellTimer = null; }
-    if (pendingMergeRow) pendingMergeRow.classList.remove("drop-merge-pending");
-    pendingMergeRow = null;
-  }
   function setMergeTarget(row) {
     if (mergeTarget === row) return;
     clearMergeTarget();
+    if (!row) return;
     row.classList.add("drop-merge-target");
     mergeTarget = row;
   }
-  function startDwell(row) {
-    if (pendingMergeRow === row || mergeTarget === row) return;
-    cancelDwell();
-    pendingMergeRow = row;
-    row.classList.add("drop-merge-pending");
-    dwellTimer = setTimeout(() => {
-      if (pendingMergeRow) pendingMergeRow.classList.remove("drop-merge-pending");
-      if (pendingMergeRow) setMergeTarget(pendingMergeRow);
-      pendingMergeRow = null;
-      dwellTimer = null;
-    }, DWELL_MS);
-  }
-  // Is the pointer inside the row's nest band, i.e. aimed at the row itself
-  // rather than at the gap above or below it?
-  function inNestBand(rect, y) {
-    if (!rect || typeof y !== "number") return false;
-    const height = rect.bottom - rect.top;
-    if (height <= 0) return false;
-    const edge = height * (1 - NEST_BAND) / 2;
-    return y >= rect.top + edge && y <= rect.bottom - edge;
-  }
-  // The row the pointer is aiming at, or null. Read off the raw pointer rather
-  // than Sortable's ``onMove``: that hook fires only when SORTABLE thinks a
-  // swap is due, which is not the same question — hold the pointer still over
-  // a row and it never fires at all, so the hint never appeared and the target
-  // was whatever row happened to be under the cursor the last time it did.
-  function rowUnderPointer(x, y) {
-    const el = document.elementFromPoint(x, y);
-    const row = el && el.closest("[data-task-id]");
-    if (!row || !row.matches(".task-row, .tree-task")) return null;
-    // Never the dragged row itself — nor Sortable's fallback clone of it,
-    // which carries the same id and follows the finger right under the point
-    // we are asking about.
-    if (dragSource && row.dataset.taskId === dragSource.dataset.taskId) return null;
-    if (!inNestBand(row.getBoundingClientRect(), y)) return null;
+  // What the dragged row would become a sub-task of: the nearest task row
+  // above it, where it is sitting right now. Read off the DOM, not off the
+  // pointer, so the reflow cannot lie about it.
+  function nestTargetFor(row) {
+    if (!row || !row.dataset.taskId) return null;
     // A bucket that would re-file the task owns the drop (see rebucketsTask).
-    if (rebucketsTask(dragSource, row.closest(".task-list, .tree-tasks"))) return null;
-    return row;
+    if (rebucketsTask(row, row.closest(".task-list, .tree-tasks"))) return null;
+    let prev = row.previousElementSibling;
+    while (prev) {
+      if (prev.dataset && prev.dataset.taskId
+          && prev.matches(".task-row, .tree-task")
+          && prev.dataset.taskId !== row.dataset.taskId) {
+        return prev;
+      }
+      prev = prev.previousElementSibling;
+    }
+    return null;
+  }
+  function setNestMode(on) {
+    on = !!on && !!dragSource;
+    if (on === nestMode) return;
+    nestMode = on;
+    document.body.classList.toggle("is-nesting", on);
+    setMergeTarget(on ? nestTargetFor(dragSource) : null);
   }
   function trackPointer(ev) {
     if (!dragSource) return;
     const touch = ev.touches && ev.touches[0];
     const x = touch ? touch.clientX : ev.clientX;
-    const y = touch ? touch.clientY : ev.clientY;
-    if (typeof x !== "number" || typeof y !== "number") return;
-    const row = rowUnderPointer(x, y);
-    if (row !== bandRow) {
-      clearMergeTarget();
-      cancelDwell();
-      bandRow = row;
-    }
-    if (row) startDwell(row);
+    if (typeof x !== "number") return;
+    if (dragStartX === null) dragStartX = x;
+    setNestMode(x - dragStartX >= NEST_SHIFT_PX);
+    // While frozen the list cannot reshuffle, but the very first samples can
+    // still arrive before Sortable settles — keep the painted row honest.
+    if (nestMode) setMergeTarget(nestTargetFor(dragSource));
   }
   // Capture, so this runs before Sortable's own document listeners decide
-  // anything. ``dragover`` keeps ticking while the pointer stands still, which
-  // is what makes the hint show up without wiggling the mouse.
+  // anything.
   ["dragover", "pointermove", "touchmove"].forEach((name) => {
     document.addEventListener(name, trackPointer, { capture: true, passive: true });
   });
@@ -158,18 +135,15 @@
       onStart: (ev) => {
         document.body.classList.add("is-dragging");
         dragSource = ev.item;
-        bandRow = null;
+        dragStartX = null;
+        nestMode = false;
+        document.body.classList.remove("is-nesting");
         clearMergeTarget();
-        cancelDwell();
       },
-      // Aim at the middle of another task row and the drop nests the dragged
-      // task under it as a sub-task; aim at a row's top or bottom edge and it
-      // is the ordinary reorder. No modifier key, no timer to beat.
-      //
-      // We also use this hook to mark the current drop-target
-      // (project sidebar entry, sp-row, …) — Sortable fires onMove on
-      // the SOURCE container, so the destination doesn't get its own
-      // hover state otherwise.
+      // We use this hook to mark the current drop-target (project sidebar
+      // entry, sp-row, …) — Sortable fires onMove on the SOURCE container, so
+      // the destination doesn't get its own hover state otherwise — and to
+      // hold the list still once the drag has become a nest.
       onMove: (ev) => {
         // ---- Drop-target highlighting ----
         document.querySelectorAll(".is-drag-over")
@@ -178,25 +152,23 @@
         if (to && (to.matches(".ps-drop-target") || to.matches(".sp-row[data-sp-id]"))) {
           to.classList.add("is-drag-over");
         }
-        // Hold the list still while the pointer is aiming at a row. Sortable
-        // would otherwise slide that very row out from under the pointer the
-        // moment its middle was crossed — which is what "you can't drop onto
-        // it, it jumps above or below" was. Leave the band and the reorder
-        // resumes.
-        return !bandRow;
+        // Nesting: freeze, but only once a row is actually named. Dragged
+        // right with nothing above to go under (top of the list, or a bucket
+        // that would re-file the task) it stays an ordinary reorder rather
+        // than a drag that silently does nothing.
+        return !(nestMode && mergeTarget);
       },
       onEnd: (ev) => {
         document.body.classList.remove("is-dragging");
+        document.body.classList.remove("is-nesting");
         document.querySelectorAll(".is-drag-over")
           .forEach((el) => el.classList.remove("is-drag-over"));
-        // The row the pointer ended up inside, not the one that happens to be
-        // painted: Sortable fires a last onMove on mouse-up, and reading the
-        // highlight here is how the drop used to be lost.
-        const target = bandRow;
+        // Exactly the row that was painted — the drop does what it showed.
+        const target = nestMode ? mergeTarget : null;
         const source = dragSource;
         clearMergeTarget();
-        cancelDwell();
-        bandRow = null;
+        nestMode = false;
+        dragStartX = null;
         dragSource = null;
         // Where the destination bucket IS the intent of the drop (Today grouped
         // by priority, a task dragged out of Completed), re-bucket the task and
@@ -205,8 +177,8 @@
         if (!destAttrBucket && target && source && target !== source
             && target.dataset.taskId && source.dataset.taskId
             && target.dataset.taskId !== source.dataset.taskId) {
-          // Dropped ON a task row → nest source under it as a sub-task (the
-          // target stays a task; it is not turned into a project).
+          // Nest source under the target as a sub-task (the target stays a
+          // task; it is not turned into a project).
           mergeTasks(source, target);
           return;
         }
