@@ -378,7 +378,7 @@ body > .navbar {
   outline-offset: -2px;
   border-radius: .25rem;
 }
-/* Hovering a task during a drag → drop-on-task = create a project. */
+/* Hovering a task during a drag → drop-on-task = nest under it as a sub-task. */
 .task-row.drop-merge-target,
 .tree-task.drop-merge-target {
   background: rgba(131, 165, 152, .22) !important;
@@ -389,7 +389,7 @@ body > .navbar {
 }
 .task-row.drop-merge-target::after,
 .tree-task.drop-merge-target::after {
-  content: "Drop to group";
+  content: "Drop as sub-task";
   position: absolute;
   right: .5rem; top: 50%;
   transform: translateY(-50%);

@@ -51,6 +51,28 @@
       dwellTimer = null;
     }, DWELL_MS);
   }
+  // Is the destination container's status/priority the POINT of this drop?
+  // Only then must dwell-to-merge keep its hands off it (see onEnd): a merge
+  // moves the task's parent and nothing else, so it would leave the row in the
+  // bucket it came from and read as a drop that snapped back.
+  //
+  // "Carries a data-target-status" is not the same question. The project list
+  // is built out of status buckets — its ordinary open list is rendered with
+  // ``target_status = "open"`` — and that bucket re-buckets nothing: the server
+  // reads "open" as *make it actionable*, which reopens a done/dropped task and
+  // leaves every already-open one alone. Answering the first question instead of
+  // this one is what stopped the project list from ever nesting a task.
+  function rebucketsTask(row, to) {
+    if (!to || !to.dataset) return false;
+    // Today grouped by priority. The row carries no priority to compare
+    // against, so the bucket always counts as the intent.
+    if (to.dataset.targetPriority !== undefined) return true;
+    const want = to.dataset.targetStatus;
+    if (want === undefined) return false;
+    const have = (row && row.dataset && row.dataset.taskStatus) || "";
+    if (want === "open") return have === "done" || have === "dropped";
+    return want !== have;
+  }
 
   function init(el) {
     if (el.dataset.sortableInit) return;
@@ -103,12 +125,10 @@
         const overTask = related && related.dataset
           && related.dataset.taskId
           && !(dragSource && related === dragSource);
-        // Don't arm the merge highlight inside attribute buckets (priority /
-        // status) — dropping there re-buckets the task, it never merges, so a
-        // "will merge" hint would be a lie (see onEnd).
-        const destAttrBucket = ev.to && ev.to.dataset
-          && (ev.to.dataset.targetPriority !== undefined
-              || ev.to.dataset.targetStatus !== undefined);
+        // Don't arm the merge highlight where the drop re-buckets the task
+        // (priority / status) — it never merges there, so a "will merge" hint
+        // would be a lie (see onEnd).
+        const destAttrBucket = rebucketsTask(ev.dragged || dragSource, ev.to);
         if (!overTask || destAttrBucket) {
           cancelDwell();
           clearMergeTarget();
@@ -129,14 +149,10 @@
         clearMergeTarget();
         cancelDwell();
         dragSource = null;
-        // In an attribute-grouped list (Today grouped by priority / status),
-        // the destination bucket IS the intent of the drop — re-bucket the
-        // task, never hijack it as a dwell-to-merge. A merge only changes the
-        // task's parent, not its priority/status, so it would leave the task
-        // in its original bucket and look like the drop "snapped back".
-        const destAttrBucket = !!(ev.to && ev.to.dataset
-          && (ev.to.dataset.targetPriority !== undefined
-              || ev.to.dataset.targetStatus !== undefined));
+        // Where the destination bucket IS the intent of the drop (Today grouped
+        // by priority, a task dragged out of Completed), re-bucket the task and
+        // never hijack it as a dwell-to-merge.
+        const destAttrBucket = rebucketsTask(ev.item, ev.to);
         if (!destAttrBucket && target && source && target !== source
             && target.dataset.taskId && source.dataset.taskId
             && target.dataset.taskId !== source.dataset.taskId) {
