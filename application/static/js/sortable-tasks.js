@@ -15,13 +15,28 @@
     return el ? el.value : "";
   }
 
-  // Drag-merge state: when the cursor lingers over the centre of
-  // another task row during a task drag for ``DWELL_MS``, that row
-  // becomes a merge target. A short pass-through doesn't trigger merge
-  // so reordering stays unaffected.
-  const DWELL_MS = 450;
+  // Drop ON a row vs. drop BETWEEN rows is decided by WHERE IN THE ROW the
+  // pointer is: its middle band nests the dragged task under that row, its top
+  // and bottom edges are the ordinary reorder. Geometry, not timing — the drop
+  // acts on the row the pointer is actually inside at mouse-up.
+  //
+  // It has to be geometry. Sortable slides rows around under the cursor as you
+  // drag, so "the row I hovered last" is not the row you are pointing at, and
+  // it fires one more onMove on mouse-up which used to wipe the armed target —
+  // the hint said "Drop as sub-task" and the drop still only reordered. The
+  // band also FREEZES the list while you are inside it (onMove returns false):
+  // without that, crossing the middle is exactly what makes the target jump
+  // above or below, so there is nothing left to drop onto.
+  //
+  // ``DWELL_MS`` now only delays the HIGHLIGHT, so dragging past a row doesn't
+  // flash it. It never gates the drop.
+  const NEST_BAND = 0.5;     // middle 50% of a row nests
+  const DWELL_MS = 250;      // before the band lights up
   let dragSource = null;
   let mergeTarget = null;
+  // The row the pointer is inside the nest band of. THIS is what a drop acts
+  // on — ``mergeTarget`` is only what is painted.
+  let bandRow = null;
   let pendingMergeRow = null;
   let dwellTimer = null;
   function clearMergeTarget() {
@@ -51,8 +66,55 @@
       dwellTimer = null;
     }, DWELL_MS);
   }
+  // Is the pointer inside the row's nest band, i.e. aimed at the row itself
+  // rather than at the gap above or below it?
+  function inNestBand(rect, y) {
+    if (!rect || typeof y !== "number") return false;
+    const height = rect.bottom - rect.top;
+    if (height <= 0) return false;
+    const edge = height * (1 - NEST_BAND) / 2;
+    return y >= rect.top + edge && y <= rect.bottom - edge;
+  }
+  // The row the pointer is aiming at, or null. Read off the raw pointer rather
+  // than Sortable's ``onMove``: that hook fires only when SORTABLE thinks a
+  // swap is due, which is not the same question — hold the pointer still over
+  // a row and it never fires at all, so the hint never appeared and the target
+  // was whatever row happened to be under the cursor the last time it did.
+  function rowUnderPointer(x, y) {
+    const el = document.elementFromPoint(x, y);
+    const row = el && el.closest("[data-task-id]");
+    if (!row || !row.matches(".task-row, .tree-task")) return null;
+    // Never the dragged row itself — nor Sortable's fallback clone of it,
+    // which carries the same id and follows the finger right under the point
+    // we are asking about.
+    if (dragSource && row.dataset.taskId === dragSource.dataset.taskId) return null;
+    if (!inNestBand(row.getBoundingClientRect(), y)) return null;
+    // A bucket that would re-file the task owns the drop (see rebucketsTask).
+    if (rebucketsTask(dragSource, row.closest(".task-list, .tree-tasks"))) return null;
+    return row;
+  }
+  function trackPointer(ev) {
+    if (!dragSource) return;
+    const touch = ev.touches && ev.touches[0];
+    const x = touch ? touch.clientX : ev.clientX;
+    const y = touch ? touch.clientY : ev.clientY;
+    if (typeof x !== "number" || typeof y !== "number") return;
+    const row = rowUnderPointer(x, y);
+    if (row !== bandRow) {
+      clearMergeTarget();
+      cancelDwell();
+      bandRow = row;
+    }
+    if (row) startDwell(row);
+  }
+  // Capture, so this runs before Sortable's own document listeners decide
+  // anything. ``dragover`` keeps ticking while the pointer stands still, which
+  // is what makes the hint show up without wiggling the mouse.
+  ["dragover", "pointermove", "touchmove"].forEach((name) => {
+    document.addEventListener(name, trackPointer, { capture: true, passive: true });
+  });
   // Is the destination container's status/priority the POINT of this drop?
-  // Only then must dwell-to-merge keep its hands off it (see onEnd): a merge
+  // Only then must the nest gesture keep its hands off it (see onEnd): nesting
   // moves the task's parent and nothing else, so it would leave the row in the
   // bucket it came from and read as a drop that snapped back.
   //
@@ -96,19 +158,19 @@
       onStart: (ev) => {
         document.body.classList.add("is-dragging");
         dragSource = ev.item;
+        bandRow = null;
         clearMergeTarget();
         cancelDwell();
       },
-      // Merge is dwell-based: lingering over a task row for DWELL_MS arms
-      // it as a merge target (drop = nest the dragged task under it as a
-      // sub-task). A quick pass-through just reorders, so plain drag =
-      // reorder and a deliberate hover-then-drop = nest, no modifier key.
+      // Aim at the middle of another task row and the drop nests the dragged
+      // task under it as a sub-task; aim at a row's top or bottom edge and it
+      // is the ordinary reorder. No modifier key, no timer to beat.
       //
       // We also use this hook to mark the current drop-target
       // (project sidebar entry, sp-row, …) — Sortable fires onMove on
       // the SOURCE container, so the destination doesn't get its own
       // hover state otherwise.
-      onMove: (ev, original) => {
+      onMove: (ev) => {
         // ---- Drop-target highlighting ----
         document.querySelectorAll(".is-drag-over")
           .forEach((el) => el.classList.remove("is-drag-over"));
@@ -116,47 +178,34 @@
         if (to && (to.matches(".ps-drop-target") || to.matches(".sp-row[data-sp-id]"))) {
           to.classList.add("is-drag-over");
         }
-        // ---- Dwell-to-merge ----
-        // Linger over another task row for DWELL_MS and it becomes a merge
-        // target: dropping then nests the dragged task as its sub-task. A
-        // quick pass-through just reorders, so both gestures coexist without
-        // needing an ALT modifier.
-        const related = ev.related;
-        const overTask = related && related.dataset
-          && related.dataset.taskId
-          && !(dragSource && related === dragSource);
-        // Don't arm the merge highlight where the drop re-buckets the task
-        // (priority / status) — it never merges there, so a "will merge" hint
-        // would be a lie (see onEnd).
-        const destAttrBucket = rebucketsTask(ev.dragged || dragSource, ev.to);
-        if (!overTask || destAttrBucket) {
-          cancelDwell();
-          clearMergeTarget();
-          return true;
-        }
-        // Moved onto a different row than the armed one → disarm + re-dwell,
-        // so a drop only merges while actually hovering the dwelled row.
-        if (mergeTarget && mergeTarget !== related) clearMergeTarget();
-        startDwell(related);
-        return true;
+        // Hold the list still while the pointer is aiming at a row. Sortable
+        // would otherwise slide that very row out from under the pointer the
+        // moment its middle was crossed — which is what "you can't drop onto
+        // it, it jumps above or below" was. Leave the band and the reorder
+        // resumes.
+        return !bandRow;
       },
       onEnd: (ev) => {
         document.body.classList.remove("is-dragging");
         document.querySelectorAll(".is-drag-over")
           .forEach((el) => el.classList.remove("is-drag-over"));
-        const target = mergeTarget;
+        // The row the pointer ended up inside, not the one that happens to be
+        // painted: Sortable fires a last onMove on mouse-up, and reading the
+        // highlight here is how the drop used to be lost.
+        const target = bandRow;
         const source = dragSource;
         clearMergeTarget();
         cancelDwell();
+        bandRow = null;
         dragSource = null;
         // Where the destination bucket IS the intent of the drop (Today grouped
         // by priority, a task dragged out of Completed), re-bucket the task and
-        // never hijack it as a dwell-to-merge.
+        // never hijack the drop as a nest.
         const destAttrBucket = rebucketsTask(ev.item, ev.to);
         if (!destAttrBucket && target && source && target !== source
             && target.dataset.taskId && source.dataset.taskId
             && target.dataset.taskId !== source.dataset.taskId) {
-          // Dwelled onto a task row → nest source as its sub-task (the
+          // Dropped ON a task row → nest source under it as a sub-task (the
           // target stays a task; it is not turned into a project).
           mergeTasks(source, target);
           return;
