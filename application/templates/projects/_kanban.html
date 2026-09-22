@@ -1,4 +1,5 @@
 {# Kanban view: one column per section, plus the root project itself. #}
+{% import "tasks/_tag_macros.html" as labels with context %}
 <div class="kanban-board">
   {% macro kanban_column(col_id, name, icon_cls, tasks, is_root=False) %}
     <div class="kanban-column" data-target-project="{{ col_id }}">
@@ -29,12 +30,7 @@
               {{ t.title }}
             </a>
             <div class="kanban-card-meta">
-              {% for tag_name in t.tags %}
-                {% set tg = current_user.tag_by_name(tag_name) %}
-                <span class="tag-chip" style="--tag-color: {{ tg.color if tg else '#6c757d' }};">
-                  {% if tg and tg.is_context %}@{% endif %}{{ tag_name }}
-                </span>
-              {% endfor %}
+              {{ labels.tag_chips(t) }}
               {% if t.due_date %}
                 <span class="{{ 'overdue' if t.due_date < now_utc() else '' }}">
                   <i class="bi bi-calendar-event"></i> {{ t.due_date|relativedate }}

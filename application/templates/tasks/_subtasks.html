@@ -1,5 +1,6 @@
 {# Sub-tasks of a task. The parent stays a task (no project conversion).
    Self-contained AJAX widget: add + toggle re-render this partial. #}
+{% import "tasks/_tag_macros.html" as labels with context %}
 {% set subs = task.child_tasks()|list %}
 {% set _done = subs|selectattr('status', 'in', ['done', 'completed'])|list|length %}
 <div class="task-subtasks" data-refresh-url="{{ url_for('tasks.subtasks', task_id=task.pk) }}" data-collapsible>
@@ -31,12 +32,7 @@
            data-qe-due="{{ s.due_date|dtlocalinput }}"
            data-qe-defer="{{ s.defer_date|dtlocalinput }}"
            data-qe-tags='{{ (s.tags or [])|tojson }}'>{{ s.title }}</a>
-        {% for tag_name in (s.tags or []) %}
-          {% set tg = current_user.tag_by_name(tag_name) %}
-          <span class="tag-chip" style="--tag-color: {{ tg.color if tg else '#6c757d' }};">
-            {% if tg and tg.is_context %}@{% endif %}{{ tag_name }}
-          </span>
-        {% endfor %}
+        {{ labels.tag_chips(s) }}
         <span class="ms-auto d-flex align-items-center gap-2">
           {% if s.due_date %}
             <span class="small {{ 'text-danger' if s.due_date < now_utc() else 'text-muted' }}" title="Due">

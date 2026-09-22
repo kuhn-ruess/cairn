@@ -1,6 +1,7 @@
 {% extends "layout/base.html" %}
 {% set page_project_sidebar = true %}
 {% import "favorites_macros.html" as fav with context %}
+{% import "tasks/_tag_macros.html" as labels with context %}
 {% block title %}{{ project.name }} · Cairn{% endblock %}
 
 {# Render sub-project rows that belong under ``container_pk``. They live
@@ -62,12 +63,7 @@
                   <i class="bi bi-arrow-down-up" title="sequential"></i>
                 {% endif %}
               </span>
-              {% for tag_name in sp.tags %}
-                {% set t = current_user.tag_by_name(tag_name) %}
-                <span class="tag-chip" style="--tag-color: {{ t.color if t else '#6c757d' }};">
-                  {% if t and t.is_context %}@{% endif %}{{ tag_name }}
-                </span>
-              {% endfor %}
+              {{ labels.tag_chips(sp) }}
               {% if sp.due_date %}
                 <span class="{{ 'overdue' if sp.due_date < now_utc() else '' }}">
                   <i class="bi bi-calendar-event"></i> {{ sp.due_date|relativedate }}

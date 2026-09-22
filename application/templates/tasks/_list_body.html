@@ -5,6 +5,7 @@
 {% set _vk = view_key|default(none) %}
 {% import "favorites_macros.html" as fav with context %}
 {% import "scratchpad/_ref_macro.html" as pad with context %}
+{% import "tasks/_tag_macros.html" as labels with context %}
 {# Linked-note counts for the per-task note button. Reuse what the view already
    computed (Today), else batch once for this list (one indexed query — never
    per row). #}
@@ -118,12 +119,7 @@
               {% endif %}
             {% endif %}
             {% if current_user.show_field('tags', view_key=_vk) %}
-              {% for tag_name in task.tags %}
-                {% set t = current_user.tag_by_name(tag_name) %}
-                <span class="tag-chip" style="--tag-color: {{ t.color if t else '#6c757d' }};">
-                  {% if t and t.is_context %}@{% endif %}{{ tag_name }}
-                </span>
-              {% endfor %}
+              {{ labels.tag_chips(task) }}
             {% endif %}
             {% if task.due_date and current_user.show_field('due_date', view_key=_vk) %}
               <span class="{{ 'overdue' if task.due_date < now_utc() else '' }}">

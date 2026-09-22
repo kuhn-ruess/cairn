@@ -3197,6 +3197,34 @@ def _drop_labels(task, names, user):
     return removed
 
 
+@tasks_bp.route("/<task_id>/tags/remove", methods=["POST"])
+@login_required
+def remove_tag(task_id):
+    """Take ONE label off an item, from the list it is showing in.
+
+    The list is where you notice a label is wrong, and opening the inspector to
+    drop one is a detour for a one-click thought. Same helper the comment box
+    uses, so "which labels does this actually carry" is answered in one place:
+    matching is case-insensitive and a name the item no longer carries is a
+    no-op, not an error — a list can be seconds stale, and clicking the same ×
+    twice (or on a row another tab already cleaned up) must not be a 400.
+
+    Answers JSON to the in-place caller and redirects back for a plain POST, so
+    the control still works with JavaScript off.
+    """
+    from flask import jsonify
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_edited_by(user):
+        abort(404)
+    removed = _drop_labels(task, [request.form.get("tag") or ""], user)
+    if removed:
+        task.save()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True, "removed": removed, "tags": list(task.tags or [])})
+    return redirect(request.referrer or url_for("tasks.detail", task_id=task_id))
+
+
 @tasks_bp.route("/<task_id>/comment", methods=["POST"])
 @login_required
 def comment(task_id):
