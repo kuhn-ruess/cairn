@@ -585,6 +585,50 @@ def _nest_subtasks(roots, collapsed_pks, show_completed):
     return out
 
 
+def _thread_subtasks(tasks, user):
+    """Order ``tasks`` parents-before-children, each with a ``_depth``.
+
+    In memory only — every task in a flattened view is already loaded, so a
+    sub-task files under its parent when that parent is in the same list and
+    counts as a root when it isn't. Nothing is collapsed and nothing hides: a
+    flattened view promises that every descendant is on the page, so this only
+    decides WHERE a row sits and how far it is indented.
+
+    Anything the walk never reaches (a parent chain that loops) is appended at
+    depth 0 rather than dropped — a task vanishing from its own project's list
+    is a far worse failure than one that reads as a root.
+    """
+    by_pk = {t.pk: t for t in tasks}
+    children: dict = {}
+    roots: list = []
+    for t in tasks:
+        home = t.home_for(user)
+        parent_pk = home.pk if home is not None else None
+        if parent_pk in by_pk:
+            children.setdefault(parent_pk, []).append(t)
+        else:
+            roots.append(t)
+    out: list = []
+    seen: set = set()
+
+    def _dfs(task, depth):
+        if task.pk in seen:
+            return
+        seen.add(task.pk)
+        task._depth = depth
+        out.append(task)
+        for c in children.get(task.pk, []):
+            _dfs(c, depth + 1)
+
+    for r in roots:
+        _dfs(r, 0)
+    for t in tasks:
+        if t.pk not in seen:
+            t._depth = 0
+            out.append(t)
+    return out
+
+
 def _raw_ref_pk(doc, field="parent"):
     """The referenced pk WITHOUT dereferencing — reading ``doc.parent`` would
     fire a query per document."""
@@ -878,14 +922,28 @@ def detail(project_id):
     sequential = project.project_type == "sequential" and not project.show_blocked_tasks
 
     if flatten:
-        # Flat / criterion grouping. Every descendant task is a single
-        # depth-0 row, gathered into one bucket and split only by the
-        # chosen criterion (or a flat list for "none"). No section headers,
-        # no sub-project rows — the sub-project a task lives in shows only
-        # as the badge on its row, so nothing hides inside a sub-project.
-        # Sub-task nesting is dropped too: flat is really flat.
+        # Flat / criterion grouping. Every descendant task is a single row,
+        # gathered into one bucket and split only by the chosen criterion (or
+        # a flat list for "none"). No section headers, no sub-project rows —
+        # the sub-project a task lives in shows only as the badge on its row,
+        # so nothing hides inside a sub-project.
+        #
+        # A CRITERION owns the order: grouped by due date, priority, status or
+        # tag, a sub-task can land in a different group from its parent, so
+        # there is no place to draw the tree and those rows stay flat — they
+        # name their parent in the breadcrumb instead (see the crumb walk
+        # below). "Flat" has no criterion, though; its only order is
+        # sort_order, and scattering the sub-tasks through it bought nothing.
+        # There the tree survives: parents before children, indented. Dropping
+        # it is what made a task you had just nested read as an ordinary row.
+        if grouping == "none":
+            all_tasks = _thread_subtasks(all_tasks, user)
+        else:
+            for t in all_tasks:
+                t._depth = 0
+        # No chevrons and nothing hidden either way — a flattened view has
+        # promised every descendant is on the page.
         for t in all_tasks:
-            t._depth = 0
             t._has_children = False
             t._collapsed = False
         flat_bucket = _bucket_by_section(all_tasks, [])[None]
@@ -900,6 +958,7 @@ def detail(project_id):
         else:  # "none"
             flat_bucket["open_groups"] = None
 
+        crumb_tasks = grouping != "none"
         # Full ABSOLUTE container path per task so a flattened row shows
         # exactly where the task lives — the whole "Folder / Project / Sub A /
         # Sub B" chain, not just the immediate parent. Resolved in-memory: one
@@ -933,10 +992,19 @@ def detail(project_id):
                 node = node_by_pk.get(cur_pk)
                 if node is None:
                     break
+                # Task ancestors go in the crumb only where the indent
+                # cannot say it: grouped by a criterion a sub-task is a row
+                # like any other, and "DRV / Logwatch Wrapper" is then the one
+                # thing left that says whose sub-task it is. Under "Flat" the
+                # tree is drawn, so repeating the chain per row is noise.
+                # Only a CONTAINER can be the badge's link target either way —
+                # a task has no list page to open.
                 if node.kind in ("project", "section", "folder"):
                     crumbs.append(node.name)
                     if nearest is None:
                         nearest = node
+                elif crumb_tasks:
+                    crumbs.append(node.name)
                 cur = node.parent
             crumbs.reverse()
             # Attach to the task object (like _depth / _collapsed) so it rides

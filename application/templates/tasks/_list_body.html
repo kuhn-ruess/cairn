@@ -37,7 +37,10 @@
                    {{ 'blocked' if task.is_blocked() else '' }}
                    {{ 'subtask' if _depth > 0 else '' }}
                    {% if task.priority and current_user.show_field('priority', view_key=_vk) %}task-priority-{{ task.priority }}{% endif %}"
-           {% if _depth > 0 %}style="padding-left: {{ _depth * 28 }}px;"{% endif %}
+           {# Depth is DATA; how wide a level is belongs to the stylesheet, so
+              it can shrink on a narrow screen. Capped so a deep chain still
+              leaves room for the title. #}
+           {% if _depth > 0 %}style="--indent-level: {{ [_depth, 8]|min }};"{% endif %}
            data-task-id="{{ task.pk }}" data-task-status="{{ task.status }}"
            {% if task._followup_only|default(false) %}data-followup-only="1"{% endif %}
            {% if task.assigned_to_id %}data-assigned-to-id="{{ task.assigned_to_id }}"{% endif %}>

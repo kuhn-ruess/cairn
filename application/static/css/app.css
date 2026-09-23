@@ -374,7 +374,8 @@ body > .navbar {
    this point, so nothing else moves under the cursor. */
 body.is-nesting .task-row.drag-ghost,
 body.is-nesting .tree-task.drag-ghost {
-  margin-left: 28px;
+  /* Composes with a sub-task row's own indent instead of overwriting it. */
+  margin-left: calc(var(--indent-level, 0) * var(--task-indent-step) + 28px);
 }
 /* The row the dragged task will go under. */
 .task-row.drop-merge-target,
@@ -524,10 +525,21 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
 }
 .task-row.blocked .task-title { color: var(--gv-fg4); }
 .task-row.blocked:hover { opacity: .85; }
-/* Sub-task rows — indented so the nesting reads at a glance; no left
-   accent rail (removed as visual clutter). */
+/* Sub-task rows. The indent is the tree view's idiom, not a second one: step
+   in by the depth and hang a dashed rail off the left edge, exactly what
+   ``.tree-tasks`` does per level — one level in is then unmistakable without
+   having to compare the row to its neighbours.
+
+   The step is a variable so it can shrink where the width is dear; the row
+   carries only ``--indent-level``. Indent with MARGIN, because a border sits
+   outside the padding and the rail has to land at the indent, not at the far
+   left of the row. */
+:root { --task-indent-step: 26px; }
+@media (max-width: 767.98px) { :root { --task-indent-step: 14px; } }
 .task-row.subtask {
-  margin-left: 2px;
+  margin-left: calc(var(--indent-level, 0) * var(--task-indent-step));
+  border-left: 1px dashed var(--gv-bg3);
+  padding-left: .5rem;
 }
 .task-row.subtask .task-title { color: var(--gv-fg3); }
 /* Collapse chevron — small, muted, only visible on rows that have
