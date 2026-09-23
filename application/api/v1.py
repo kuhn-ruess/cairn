@@ -546,6 +546,11 @@ def add_comment(task_id):
     if not body:
         return _bad_request("body is required")
     task.add_comment(user, body)
+    # Same notifications a comment written in the app fires — an answer posted
+    # by an agent has to reach its reader the same way one typed into the form
+    # does.
+    from application.services.notifications import notify_new_comment
+    notify_new_comment(task, body, by_user=user)
     return jsonify(ser_task(task)), 201
 
 @api_v1_bp.post("/tasks/<task_id>/tags")
@@ -1675,12 +1680,17 @@ def revoke_token(token_id):
 def list_notifications():
     """The caller's own bell entries, newest first.
 
-    This is the one feed that carries both halves of "somebody addressed me" —
-    an assignment (``Item.assign_to``) and an ``@name`` in a comment
-    (``views.tasks._notify_mentions``) — which is what a poller outside the app
-    needs; a mention alone never puts the task in ``_scope()``. ``unread=true``
-    narrows it to what nobody has claimed yet, and ``read`` is the claim (see
-    POST /notifications/read)."""
+    This is the one feed that carries every way somebody addresses you — an
+    assignment (``Item.assign_to``), an ``@name`` in a comment, and a comment
+    on a task you are the assignee, delegator or owner of
+    (``services.notifications.notify_new_comment``) — which is what a poller
+    outside the app needs; none of those alone puts the task in ``_scope()``.
+    ``unread=true`` narrows it to what nobody has claimed yet, and ``read`` is
+    the claim (see POST /notifications/read).
+
+    A client that filters by ``kind`` must ASK for ``comment``: the filter is
+    an allow-list, so an existing poller on ``assigned,mention`` keeps the feed
+    it had until it opts in."""
     user = g.current_user
     rows = list(reversed(user.notifications or []))   # stored oldest-last
     if request.args.get("unread") == "true":

@@ -59,14 +59,16 @@ def build_openapi_spec() -> dict:
                     "type": "object",
                     "description": ("One navbar-bell entry. Fired from user-facing "
                                     "choke points only (assignment, mention, "
-                                    "completion, hand-back, team invite) — never "
-                                    "from an import or a background sync."),
+                                    "a comment on a task you are the assignee, "
+                                    "delegator or owner of, completion, hand-back, "
+                                    "team invite) — never from an import or a "
+                                    "background sync."),
                     "properties": {
                         "id": {"type": "string",
                                "description": "Pass to /notifications/read."},
                         "kind": {"type": "string",
                                  "enum": ["assigned", "unassigned", "completed",
-                                          "mention", "team_invite"]},
+                                          "mention", "comment", "team_invite"]},
                         "text": {"type": "string"},
                         "actor": {"type": "string",
                                   "description": "Display name of whoever triggered it."},
@@ -1680,15 +1682,20 @@ def build_openapi_spec() -> dict:
                 "get": {
                     "summary": "The caller's bell entries (assignments, mentions, …)",
                     "tags": ["notifications"],
-                    "description": ("The one feed that carries both being assigned a "
-                                    "task and being @-mentioned in a comment on one. "
-                                    "Newest first. Poll with `unread=true` and claim "
-                                    "what you take via POST /notifications/read."),
+                    "description": ("The one feed that carries being assigned a task, "
+                                    "being @-mentioned in a comment, and a comment on "
+                                    "a task you are the assignee, delegator or owner "
+                                    "of. Newest first. Poll with `unread=true` and "
+                                    "claim what you take via POST /notifications/read."),
                     "parameters": [
                         {"name": "unread", "in": "query",
                          "schema": {"type": "string", "enum": ["true"]}},
                         {"name": "kind", "in": "query",
-                         "description": "Comma-separated filter: assigned, unassigned, completed, mention, team_invite.",
+                         "description": ("Comma-separated ALLOW-LIST: assigned, "
+                                         "unassigned, completed, mention, comment, "
+                                         "team_invite. A poller already asking for "
+                                         "assigned,mention keeps that feed until it "
+                                         "adds comment."),
                          "schema": {"type": "string"}},
                         {"name": "limit", "in": "query",
                          "schema": {"type": "integer", "default": 50, "maximum": 200}},

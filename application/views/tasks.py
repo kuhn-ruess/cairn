@@ -1,5 +1,4 @@
 """Item views — perspectives, CRUD, comments, assignments."""
-import re
 from datetime import datetime, timedelta, timezone
 
 from flask import (
@@ -3155,28 +3154,6 @@ def bulk():
         flash("Nothing selected.", "warning")
     return redirect(request.referrer or url_for("dashboard.home"))
 
-_MENTION_RE = re.compile(r"@([\w.\-]+)")
-
-
-def _notify_mentions(task, body, *, by_user):
-    """Fire an in-app notification for every ``@name`` in a comment that
-    resolves to a teammate. Best-effort and scoped to assignable users, so a
-    stray ``@`` or an email address never notifies a stranger. Done here in the
-    view (not ``Item.add_comment``) so imported/system comments aren't scanned —
-    matching the notifications module's "user-facing choke points only" design."""
-    if not body:
-        return
-    from application.services.permissions import resolve_assignable_user_by_name
-    from application.services.notifications import notify_mention
-    notified = {str(by_user.pk)}  # never notify yourself
-    for token in dict.fromkeys(m.lower() for m in _MENTION_RE.findall(body)):
-        recipient = resolve_assignable_user_by_name(by_user, token)
-        if recipient is None or str(recipient.pk) in notified:
-            continue
-        notified.add(str(recipient.pk))
-        notify_mention(recipient, by_user=by_user, task=task)
-
-
 def _drop_labels(task, names, user):
     """Take the labels in ``names`` off ``task`` — WITHOUT saving; the caller's
     own save carries it, so answering and handing the item back costs one write.
@@ -3240,7 +3217,10 @@ def comment(task_id):
         # add_comment so both land in its single save.
         removed = _drop_labels(task, request.form.getlist("remove_tags"), user)
         task.add_comment(user, form.body.data)
-        _notify_mentions(task, form.body.data, by_user=user)
+        # Mentions AND the task's own cast — one call so this path and the API
+        # cannot drift into notifying different people.
+        from application.services.notifications import notify_new_comment
+        notify_new_comment(task, form.body.data, by_user=user)
         if request.headers.get("X-Inspector-Request") == "1":
             from flask import jsonify
             c = task.comments[-1]

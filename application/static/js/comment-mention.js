@@ -3,7 +3,7 @@
  * Typing "@" in a comment textarea pops a dropdown of teammates (the same
  * assignable-users set behind the +name quick-add token, served by
  * /tasks/assignees). Picking one inserts "@username". On submit the server
- * (tasks._notify_mentions) resolves each @name to a teammate and fires an
+ * (services.notifications.notify_mentions) resolves each @name to a teammate and fires an
  * in-app notification.
  *
  * Document-level delegated + a single floating dropdown appended to <body>, so

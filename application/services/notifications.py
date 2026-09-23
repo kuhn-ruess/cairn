@@ -7,12 +7,19 @@ save them. Fired from explicit, user-facing choke points only:
 - ``Item.complete``   → tell the delegator their delegate finished it (notify_completed)
 - team invite of an existing account → tell the invitee  (notify_team_invite)
 - ``@name`` in a comment → tell the mentioned teammate  (notify_mention)
+- a comment posted by a person → tell the task's own cast  (notify_commented)
 
 A notification must never break the action that triggered it, so every push
 is best-effort (failures are swallowed). ``url_for`` is used for links, which
 needs an app context — present on every request path these fire from.
 """
+import re
+
 from flask import url_for
+
+# ``@name`` in a comment body. Resolved against assignable users only, so a
+# stray ``@`` or an email address never notifies a stranger.
+_MENTION_RE = re.compile(r"@([\w.\-]+)")
 
 
 def _task_link(task) -> str:
@@ -122,3 +129,79 @@ def notify_team_invite(recipient, *, team, inviter, link) -> None:
         icon="bi-people",
         actor=str(inviter),
     )
+
+
+def notify_mentions(task, body, *, by_user) -> set:
+    """Fire a mention notification for every ``@name`` in a comment body that
+    resolves to a teammate, and return the pks told.
+
+    Scoped to assignable users, so a stray ``@`` or an email address never
+    notifies a stranger. Only ever called from the two places a PERSON writes
+    a comment — an imported thread is never scanned, matching this module's
+    "user-facing choke points only" rule.
+    """
+    if not body or by_user is None:
+        return set()
+    from application.services.permissions import resolve_assignable_user_by_name
+    told = {str(by_user.pk)}          # never notify yourself
+    for token in dict.fromkeys(m.lower() for m in _MENTION_RE.findall(body)):
+        recipient = resolve_assignable_user_by_name(by_user, token)
+        if recipient is None or str(recipient.pk) in told:
+            continue
+        told.add(str(recipient.pk))
+        notify_mention(recipient, by_user=by_user, task=task)
+    return told
+
+
+def notify_commented(task, *, by_user, skip=()) -> None:
+    """Somebody commented on ``task`` — tell the people the task already names.
+
+    Deliberately the task's own cast and not everyone who ever wrote in the
+    thread: the ASSIGNEE (an answer is usually to them — this is the leg that
+    was missing, so a reply to a delegated task sat unread for a day), whoever
+    DELEGATED it (``assigned_by``: the other end of that conversation, the half
+    ``notify_completed`` already covers), and the OWNER (on a task nobody was
+    delegated, a comment otherwise reaches nobody at all).
+
+    ``skip`` carries pks already told another way — being @-mentioned in this
+    very comment is one notification, not two — and the author is never told
+    about their own comment.
+    """
+    if by_user is None:
+        return
+    told = {str(by_user.pk)} | {str(pk) for pk in (skip or ()) if pk}
+    for recipient in (task.assigned_to, task.assigned_by, task.owner):
+        if recipient is None:
+            continue
+        key = str(recipient.pk)
+        if key in told:
+            continue
+        told.add(key)
+        _push(
+            recipient,
+            kind="comment",
+            text=f"{by_user} commented on “{task.title}”",
+            link=_task_link(task),
+            icon="bi-chat-left-text",
+            actor=str(by_user),
+            item_id=task.pk,
+        )
+
+
+def notify_new_comment(task, body, *, by_user) -> None:
+    """Everything a freshly posted comment owes people, in one call.
+
+    Both places a person can write one — the comment form and
+    ``POST /api/v1/tasks/<id>/comments`` — go through here, so the two cannot
+    drift into notifying different sets. Mentions first, because whoever was
+    named by hand gets the more specific entry and is then skipped by the
+    general one.
+
+    A comment mirrored in from an external system never reaches here: those
+    are appended straight to ``Item.comments`` by the importers, not through
+    ``add_comment``, and have no app user to notify on behalf of anyway.
+    """
+    if by_user is None:
+        return
+    mentioned = notify_mentions(task, body, by_user=by_user)
+    notify_commented(task, by_user=by_user, skip=mentioned)

@@ -28,7 +28,8 @@ def _utcnow():
 class Notification(EmbeddedDocument):
     # Stable id so the mark-read endpoint can target a single entry.
     pk_ref = ObjectIdField(default=lambda: ObjectId())
-    kind = StringField()              # assigned | unassigned | completed | mention | team_invite
+    kind = StringField()              # assigned | unassigned | completed
+                                      # | mention | comment | team_invite
     text = StringField()              # human-readable message
     link = StringField()              # where clicking the entry navigates
     icon = StringField(default="bi-bell")   # Bootstrap-icon class
