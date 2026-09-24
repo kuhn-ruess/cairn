@@ -17,6 +17,7 @@ def _render_project_inspector(project, user, *, just_saved=False):
     form.kind.data = _kind_of(project)
     form.notes_folder.data = str(project.notes_folder.pk) if project.notes_folder else ""
     form.time_project.data = str(project.time_project.pk) if project.time_project else ""
+    form.customer.data = str(project.customer.pk) if project.customer else ""
     return render_template(
         "projects/_inspector.html",
         form=form,
@@ -73,6 +74,9 @@ def _populate_choices(form: ProjectForm, user: User, current: Item | None = None
     form.time_project.choices = [("", "— none —")] + (
         [(p["id"], f"{p['customer']} › {p['name']}") for p in pickable_projects(user)]
         if has_team(user) else [])
+    from application.services.customers import customer_choices
+    form.customer.choices = [("", "— none —")] + (
+        customer_choices(user) if has_team(user) else [])
 
 def _apply(form: ProjectForm, project: Item) -> None:
     from application.services.tz import attach_user_tz
@@ -108,6 +112,19 @@ def _apply(form: ProjectForm, project: Item) -> None:
         from application.services.timetracking import project_for_user
         project.time_project = (project_for_user(user, form.time_project.data)
                                 if form.time_project.data else None)
+    if hasattr(form, "customer"):
+        from application.services.customers import customer_for_user
+        project.customer = (customer_for_user(user, form.customer.data)
+                            if form.customer.data else None)
+    # One truth, enforced here rather than hoped for: a billing project belongs
+    # to exactly one customer, so binding one *says* whose work this is. Letting
+    # the two fields disagree is how a folder comes to claim Acme while its
+    # hours invoice to Globex — so the binding wins and the customer follows it.
+    if getattr(project, "time_project", None):
+        try:
+            project.customer = project.time_project.customer
+        except Exception:      # a project whose customer is gone binds nothing
+            project.customer = None
     # Placement and sharing belong to the OWNER alone. The route that calls
     # this only checks ``can_be_edited_by``, which — since it is an alias of
     # ``can_be_viewed_by`` — is true for every member of the project and every
@@ -1494,6 +1511,7 @@ def edit(project_id):
         form.kind.data = _kind_of(project)
         form.notes_folder.data = str(project.notes_folder.pk) if project.notes_folder else ""
         form.time_project.data = str(project.time_project.pk) if project.time_project else ""
+        form.customer.data = str(project.customer.pk) if project.customer else ""
     if form.validate_on_submit():
         _apply(form, project)
         project.save()

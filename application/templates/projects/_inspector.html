@@ -149,11 +149,26 @@
     <div class="form-label small text-uppercase text-muted mb-2">
       <i class="bi bi-link-45deg"></i> Links
     </div>
+    {% if form.customer.choices|length > 1 %}
+      {{ form.customer.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.customer(class="form-select form-select-sm",
+                       **{"data-searchable-select": "1",
+                          "data-searchable-placeholder": "Search customers…"}) }}
+      <div class="form-text">
+        Whose work this is — inherited by everything inside, and what Today
+        groups by.
+        {% if project and project.customer %}
+          <a href="{{ url_for('timetracking.customer_detail', cid=project.customer.pk) }}">Open customer</a>
+        {% endif %}
+      </div>
+    {% endif %}
+
     {% if form.time_project.choices|length > 1 %}
-      {{ form.time_project.label(class="form-label small text-uppercase text-muted") }}
+      {{ form.time_project.label(class="form-label small text-uppercase text-muted mt-3") }}
       {{ form.time_project(class="form-select form-select-sm") }}
       <div class="form-text">
-        Time logged on tasks in here bills to this project.
+        Time logged on tasks in here bills to this project — and picking one
+        sets the customer above, because a billing project has exactly one.
         {% if project and project.time_project %}
           <a href="{{ url_for('timetracking.day') }}">Track time</a>
         {% endif %}

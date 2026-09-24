@@ -286,6 +286,13 @@
         </li>
         {% endif %}
         {% if current_user.team or current_user.is_team_admin %}
+        {# Customers are one concept for the whole app, so they are reachable
+           like any other list and not only from inside the time module. Same
+           page — there is only one customer list. #}
+        <li class="nav-fav-row d-flex align-items-center">
+          <a class="nav-link py-1 flex-grow-1" href="{{ url_for('timetracking.index') }}"><i class="bi bi-person-vcard"></i> Customers</a>
+          {{ fav.star("org:customers", "fav-star-hover") }}
+        </li>
         <li class="nav-fav-row d-flex align-items-center">
           <a class="nav-link py-1 flex-grow-1" href="{{ url_for('timetracking.day') }}"><i class="bi bi-stopwatch"></i> Time tracking</a>
           {{ fav.star("org:timetracking", "fav-star-hover") }}

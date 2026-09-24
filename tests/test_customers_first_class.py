@@ -1,0 +1,585 @@
+"""Customers as one concept for the whole app — and billing a meeting.
+
+Run with ``python -m unittest discover tests``. Needs a MongoDB (``TestConfig``
+points at ``bktodo_test``); skipped when there isn't one.
+
+Four things are pinned here, and each one is a decision rather than an
+implementation detail.
+
+**There is one customer entity.** ``Customer`` — the record the billing module
+already had — is what a folder, a project and a meeting are filed under. A
+folder either names it (``Item.customer``) or is bound to one of its billing
+projects, and either way everything inside inherits it. The two can never
+disagree: binding a billing project stamps that project's customer on the
+container, so "the folder says Acme while its hours invoice to Globex" is not a
+state the app can reach.
+
+**A domain match is allowed to be silent, never wrong.** An appointment booked
+from ``anna@acme.de`` is Acme's. A free-mail address is never matched, and
+neither is a domain two customers claim — both leave the field empty for
+somebody to fill, because a guess here surfaces as a wrong invoice.
+
+**Nothing bills itself.** Taking a booking writes no time. The time is logged
+from the list, one press at a time, exactly as on a task — which is also why a
+cancelled, moved or never-held meeting needs no special state.
+
+**A meeting that ran long is billed long.** The duration in the panel is what
+gets booked, and the correction sticks to the appointment
+(``Booking.actual_minutes``) so the list keeps saying so afterwards.
+"""
+import unittest
+from datetime import datetime, timedelta, timezone
+
+try:
+    from mongoengine import connect, disconnect
+    from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
+except ImportError:  # pragma: no cover - no mongoengine installed
+    connect = None
+
+
+@unittest.skipIf(connect is None, "mongoengine not installed")
+class _Base(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        from application import create_app
+        disconnect(alias="default")
+        try:
+            cls.app = create_app("application.config.TestConfig")
+            with cls.app.app_context():
+                from application.models.user import User
+                User.objects.first()  # forces a real round trip
+        except (ServerSelectionTimeoutError, PyMongoError) as exc:
+            raise unittest.SkipTest(f"no MongoDB for the test database: {exc}")
+
+    @classmethod
+    def tearDownClass(cls):
+        with cls.app.app_context():
+            cls._wipe()
+        disconnect(alias="default")
+
+    @staticmethod
+    def _wipe():
+        from application.models.booking import Booking
+        from application.models.item import Item
+        from application.models.team import Team
+        from application.models.timetracking import (
+            Customer, TimeBucket, TimeTrackingProject,
+        )
+        from application.models.user import User
+        Booking.objects.delete()
+        TimeBucket.objects.delete()
+        Item.all_objects.delete()
+        TimeTrackingProject.objects.delete()
+        Customer.objects.delete()
+        Team.objects.delete()
+        User.objects.delete()
+
+    def _team_user(self, username="cu-test"):
+        """A team admin with a team — customers only exist inside one."""
+        from application.models.team import Team
+        from application.models.user import User
+        user = User(username=username, email=f"{username}@test.invalid",
+                    password_hash="x", level="team_admin").save()
+        team = Team(name="Kuhn IT", admin=user, admins=[user]).save()
+        user.team = team
+        user.save()
+        return user, team
+
+    def _login(self, user):
+        self.client = self.app.test_client()
+        with self.client.session_transaction() as sess:
+            sess["_user_id"] = str(user.pk)
+            sess["_fresh"] = True
+
+
+class DomainParsingTests(unittest.TestCase):
+    """Pure: no database, no app."""
+
+    def test_a_bare_domain_is_lowercased_and_stripped(self):
+        from application.services.customers import normalise_domain
+        self.assertEqual(normalise_domain("  @Acme.DE "), "acme.de")
+
+    def test_a_whole_address_pasted_in_still_yields_the_domain(self):
+        """Half the rows would otherwise read ``anna@acme.de`` and match
+        nothing, for ever, without saying so."""
+        from application.services.customers import normalise_domain
+        self.assertEqual(normalise_domain("Anna@Acme.de"), "acme.de")
+
+    def test_something_that_is_not_a_domain_is_dropped(self):
+        from application.services.customers import normalise_domain
+        for junk in ("", "acme", "acme de", "acme.de/x", "@"):
+            self.assertEqual(normalise_domain(junk), "", junk)
+
+    def test_the_field_takes_commas_spaces_and_newlines(self):
+        from application.services.customers import parse_domains
+        self.assertEqual(
+            parse_domains("acme.de, ACME.de\nacme-group.com ; x"),
+            ["acme.de", "acme-group.com"])
+
+    def test_domain_of_needs_an_at_sign(self):
+        from application.services.customers import domain_of
+        self.assertEqual(domain_of("anna@acme.de"), "acme.de")
+        self.assertEqual(domain_of("acme.de"), "")
+
+
+class DomainMatchTests(_Base):
+
+    def setUp(self):
+        from application.models.timetracking import Customer
+        with self.app.app_context():
+            self._wipe()
+            self.user, self.team = self._team_user()
+            self.acme = Customer(team=self.team, name="Acme GmbH",
+                                 email_domains=["acme.de"]).save()
+
+    def _match(self, email):
+        with self.app.app_context():
+            from application.services.customers import customer_for_email
+            return customer_for_email(email, [self.team])
+
+    def test_the_domain_names_the_customer(self):
+        self.assertEqual(self._match("anna@acme.de").name, "Acme GmbH")
+
+    def test_the_match_ignores_case(self):
+        self.assertEqual(self._match("Anna@ACME.De").name, "Acme GmbH")
+
+    def test_an_unknown_domain_matches_nothing(self):
+        self.assertIsNone(self._match("anna@globex.com"))
+
+    def test_a_subdomain_is_not_the_domain(self):
+        """``mail.acme.de`` may well be somebody else entirely. A match that
+        guesses at the hierarchy is the kind that ends up on an invoice."""
+        self.assertIsNone(self._match("anna@mail.acme.de"))
+
+    def test_a_freemail_domain_never_matches_even_when_typed_in(self):
+        """One gmail.com row would otherwise adopt every stranger who books."""
+        from application.models.timetracking import Customer
+        with self.app.app_context():
+            Customer.objects(pk=self.acme.pk).update_one(
+                set__email_domains=["gmail.com"])
+        self.assertIsNone(self._match("anna@gmail.com"))
+
+    def test_two_customers_claiming_one_domain_match_nothing(self):
+        from application.models.timetracking import Customer
+        with self.app.app_context():
+            Customer(team=self.team, name="Acme Nord",
+                     email_domains=["acme.de"]).save()
+        self.assertIsNone(self._match("anna@acme.de"))
+
+    def test_an_archived_customer_is_out_of_the_match(self):
+        from application.models.timetracking import Customer
+        with self.app.app_context():
+            Customer.objects(pk=self.acme.pk).update_one(set__archived=True)
+        self.assertIsNone(self._match("anna@acme.de"))
+
+    def test_another_teams_customer_is_never_matched(self):
+        with self.app.app_context():
+            from application.services.customers import customer_for_email
+            self.assertIsNone(customer_for_email("anna@acme.de", []))
+
+    def test_the_customer_page_saves_and_flags_the_domains(self):
+        self._login(self.user)
+        resp = self.client.post(
+            f"/time/customers/{self.acme.pk}/edit",
+            data={"name": "Acme GmbH", "team": str(self.team.pk),
+                  "email_domains": "ACME.de, gmail.com"},
+            follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        from application.models.timetracking import Customer
+        with self.app.app_context():
+            fresh = Customer.objects(pk=self.acme.pk).first()
+        self.assertEqual(fresh.email_domains, ["acme.de", "gmail.com"])
+        # And the page says which of them will never fire, rather than leaving
+        # it to be discovered on a wrong invoice.
+        html = self.client.get(
+            f"/time/customers/{self.acme.pk}?team={self.team.pk}"
+        ).get_data(as_text=True)
+        self.assertIn("Never matched (free mail)", html)
+
+
+class ContainerCustomerTests(_Base):
+
+    def setUp(self):
+        from application.models.item import Item
+        from application.models.timetracking import Customer, TimeTrackingProject
+        with self.app.app_context():
+            self._wipe()
+            self.user, self.team = self._team_user("cu-cont")
+            self.acme = Customer(team=self.team, name="Acme GmbH").save()
+            self.globex = Customer(team=self.team, name="Globex").save()
+            self.acme_billing = TimeTrackingProject(
+                team=self.team, customer=self.acme, name="Wartung").save()
+            self.folder = Item(owner=self.user, kind="folder",
+                               title="Kunden").save()
+            self.project = Item(owner=self.user, kind="project", title="Relaunch",
+                                project_type="parallel", parent=self.folder).save()
+            self.task = Item(owner=self.user, kind="task", title="Cache leeren",
+                             parent=self.project).save()
+        self._login(self.user)
+
+    def _labels(self):
+        from application.models.item import Item
+        from application.services.containers import customer_labels
+        with self.app.app_context():
+            return customer_labels(list(Item.objects(pk=self.task.pk)))
+
+    def _reload(self, item):
+        from application.models.item import Item
+        with self.app.app_context():
+            return Item.objects(pk=item.pk).first()
+
+    def test_a_customer_named_on_a_folder_reaches_the_task_below(self):
+        from application.models.item import Item
+        with self.app.app_context():
+            Item.objects(pk=self.folder.pk).update_one(set__customer=self.acme)
+        self.assertEqual(self._labels()[str(self.task.pk)], "Acme GmbH")
+
+    def test_the_nearer_container_wins(self):
+        from application.models.item import Item
+        with self.app.app_context():
+            Item.objects(pk=self.folder.pk).update_one(set__customer=self.acme)
+            Item.objects(pk=self.project.pk).update_one(set__customer=self.globex)
+        self.assertEqual(self._labels()[str(self.task.pk)], "Globex")
+
+    def test_a_billing_binding_still_answers_it(self):
+        """The old route in — a folder bound to a billing project — is
+        unchanged. There is no migration and nothing to re-enter."""
+        from application.models.item import Item
+        with self.app.app_context():
+            Item.objects(pk=self.folder.pk).update_one(
+                set__time_project=self.acme_billing)
+        self.assertEqual(self._labels()[str(self.task.pk)], "Acme GmbH")
+
+    def test_an_archived_customer_groups_nothing(self):
+        from application.models.item import Item
+        from application.models.timetracking import Customer
+        with self.app.app_context():
+            Item.objects(pk=self.folder.pk).update_one(set__customer=self.acme)
+            Customer.objects(pk=self.acme.pk).update_one(set__archived=True)
+        self.assertEqual(self._labels(), {})
+
+    def test_nothing_bound_means_no_customer(self):
+        self.assertEqual(self._labels(), {})
+
+    # -- the inspector, and the one rule that keeps it honest ---------------
+
+    def _save(self, item, **over):
+        data = {"name": item.title, "kind": item.kind, "parent": "",
+                "note": "", "color": "", "status": "active",
+                "project_type": "parallel", "customer": "", "time_project": "",
+                "notes_folder": ""}
+        data.update(over)
+        return self.client.post(f"/projects/{item.pk}/edit?inspector=1",
+                                data=data, headers={"X-Inspector-Request": "1"})
+
+    def test_the_inspector_names_a_customer(self):
+        resp = self._save(self.folder, customer=str(self.acme.pk))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._reload(self.folder).customer, self.acme)
+
+    def test_a_billing_project_stamps_its_own_customer(self):
+        """One truth. Picking Acme's billing project says whose work this is,
+        so the customer follows it instead of being a second field to keep in
+        step by hand."""
+        self._save(self.folder, time_project=str(self.acme_billing.pk))
+        self.assertEqual(self._reload(self.folder).customer, self.acme)
+
+    def test_the_binding_wins_over_a_contradicting_pick(self):
+        """Globex named on a folder whose hours invoice to Acme is exactly the
+        drift this field is not allowed to have."""
+        self._save(self.folder, customer=str(self.globex.pk),
+                   time_project=str(self.acme_billing.pk))
+        self.assertEqual(self._reload(self.folder).customer, self.acme)
+
+    def test_a_stranger_s_customer_cannot_be_bound(self):
+        from application.models.team import Team
+        from application.models.timetracking import Customer
+        from application.models.user import User
+        with self.app.app_context():
+            other = User(username="cu-other", email="cuo@test.invalid",
+                         password_hash="x", level="team_admin").save()
+            their_team = Team(name="Somebody Else", admin=other,
+                              admins=[other]).save()
+            theirs = Customer(team=their_team, name="Not mine").save()
+        self._save(self.folder, customer=str(theirs.pk))
+        self.assertIsNone(self._reload(self.folder).customer)
+
+    def test_the_sidebar_reaches_the_customers(self):
+        """Customers are one concept for the whole app, so they are a row in the
+        sidebar and not a page you have to enter the time module to find."""
+        html = self.client.get("/").get_data(as_text=True)
+        self.assertIn("org:customers", html)          # the favourite star
+        self.assertIn("bi-person-vcard", html)        # the row's icon
+        self.assertIn("Customers", html)
+
+
+class BookingCustomerTests(_Base):
+    """Taking a booking files it — and books nothing."""
+
+    def setUp(self):
+        from application.models.timetracking import Customer
+        with self.app.app_context():
+            self._wipe()
+            self.user, self.team = self._team_user("cu-book")
+            self.acme = Customer(team=self.team, name="Acme GmbH",
+                                 email_domains=["acme.de"]).save()
+
+    def _confirm(self, email):
+        """The real ``confirm`` path with the calendar and the slot check
+        stubbed — what is under test is the filing around them."""
+        from application.services import booking as svc
+        from application.models.booking import BookingHour
+
+        start = (datetime.now(timezone.utc) + timedelta(days=1)).replace(
+            hour=9, minute=0, second=0, microsecond=0)
+        page = self.user.booking
+        page.enabled = True
+        page.slug = "cu-book"
+        page.durations = [30]
+        page.hours = [BookingHour(weekday=d) for d in range(7)]
+        with self.app.app_context():
+            self.user.save()
+            slots, write, meet = svc.slots_for, svc._write_event, svc._attach_meeting
+            svc.slots_for = lambda user, duration, now=None, busy=None: [start]
+            svc._write_event = lambda user, page, booking: None
+            svc._attach_meeting = lambda user, page, booking, guest_link="": None
+            try:
+                return svc.confirm(self.user, start=start, duration_minutes=30,
+                                   name="Anna", email=email, note="")
+            finally:
+                svc.slots_for, svc._write_event = slots, write
+                svc._attach_meeting = meet
+
+    def test_a_booking_is_filed_by_the_domain_it_came_from(self):
+        booking = self._confirm("anna@acme.de")
+        from application.models.booking import Booking
+        with self.app.app_context():
+            fresh = Booking.objects(pk=booking.pk).first()
+        self.assertEqual(fresh.customer, self.acme)
+
+    def test_a_freemail_booking_waits_to_be_assigned(self):
+        booking = self._confirm("anna@gmail.com")
+        from application.models.booking import Booking
+        with self.app.app_context():
+            self.assertIsNone(Booking.objects(pk=booking.pk).first().customer)
+
+    def test_taking_a_booking_books_no_time(self):
+        """The whole point: billing is a decision somebody takes from the
+        list, so a meeting that never happens needs no unwinding."""
+        self._confirm("anna@acme.de")
+        from application.models.timetracking import TimeBucket
+        with self.app.app_context():
+            self.assertEqual(TimeBucket.objects.count(), 0)
+
+
+class BillAMeetingTests(_Base):
+
+    def setUp(self):
+        from application.models.booking import Booking, BookingHour
+        from application.models.timetracking import Customer, TimeTrackingProject
+        with self.app.app_context():
+            self._wipe()
+            self.user, self.team = self._team_user("cu-bill")
+            self.user.booking.enabled = True
+            self.user.booking.slug = "cu-bill"
+            self.user.booking.hours = [BookingHour(weekday=d) for d in range(5)]
+            self.user.save()
+            self.acme = Customer(team=self.team, name="Acme GmbH",
+                                 email_domains=["acme.de"]).save()
+            self.calls = TimeTrackingProject(team=self.team, customer=self.acme,
+                                             name="Calls", intake=True,
+                                             hourly_rate_cents=12000).save()
+            TimeTrackingProject(team=self.team, customer=self.acme,
+                                name="Wartung").save()
+            now = datetime.now(timezone.utc)
+            self.past = Booking(owner=self.user,
+                                start=now - timedelta(days=1, hours=2),
+                                end=now - timedelta(days=1, hours=1),
+                                duration_minutes=30, name="Anna",
+                                email="anna@acme.de",
+                                customer=self.acme).save()
+            self.soon = Booking(owner=self.user, start=now + timedelta(days=2),
+                                end=now + timedelta(days=2, minutes=30),
+                                duration_minutes=30, name="Bob",
+                                email="bob@globex.com").save()
+        self._login(self.user)
+
+    def _entries(self):
+        from application.models.timetracking import TimeBucket
+        with self.app.app_context():
+            out = []
+            for b in TimeBucket.objects:
+                out.extend(e for e in b.entries if e.status == "active")
+            return out
+
+    def _reload(self, booking):
+        from application.models.booking import Booking
+        with self.app.app_context():
+            return Booking.objects(pk=booking.pk).first()
+
+    # -- the list ----------------------------------------------------------
+
+    def test_the_list_shows_what_is_past_as_well(self):
+        """A meeting is billed after it happened, so the list has to hold it."""
+        html = self.client.get("/bookings/").get_data(as_text=True)
+        self.assertIn("Past appointments", html)
+        self.assertIn("Anna", html)
+        self.assertIn("Bill this meeting", html)
+
+    def test_the_list_preselects_the_customer_s_intake_project(self):
+        html = self.client.get("/bookings/").get_data(as_text=True)
+        self.assertIn(f'value="{self.calls.pk}" selected', html)
+
+    def test_a_meeting_with_no_customer_preselects_nothing(self):
+        """Bob booked from a free-mail address, so nobody claims him. The
+        picker must not helpfully offer Acme's project — that is the one
+        mistake that reaches an invoice."""
+        html = self.client.get("/bookings/").get_data(as_text=True)
+        self.assertIn("— pick a project —", html)
+
+    def test_a_customer_without_a_billing_project_preselects_nothing(self):
+        """Same rule one step further in: knowing whose meeting it is, and
+        having nowhere to book it, is not a reason to offer somebody else's."""
+        from application.models.timetracking import Customer
+        with self.app.app_context():
+            globex = Customer(team=self.team, name="Globex").save()
+        self.client.post(f"/bookings/{self.soon.pk}/customer",
+                         data={"customer_id": str(globex.pk)})
+        from application.services.timetracking import booking_default_project_id
+        with self.app.app_context():
+            self.assertEqual(
+                booking_default_project_id(self.user, self._reload(self.soon)), "")
+
+    # -- billing it --------------------------------------------------------
+
+    def test_logging_the_booked_duration(self):
+        resp = self.client.post(f"/bookings/{self.past.pk}/time",
+                                data={"project_id": str(self.calls.pk),
+                                      "duration": "30", "billable": "1"},
+                                follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        entries = self._entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].minutes, 30)
+        self.assertEqual(entries[0].source_kind, "booking")
+        self.assertEqual(entries[0].source_item_id, str(self.past.pk))
+        # Nothing was "corrected" — it took as long as it was booked for.
+        self.assertIsNone(self._reload(self.past).actual_minutes)
+
+    def test_a_meeting_that_ran_long_is_billed_long_and_says_so(self):
+        self.client.post(f"/bookings/{self.past.pk}/time",
+                         data={"project_id": str(self.calls.pk),
+                               "duration": "50", "billable": "1"})
+        self.assertEqual(self._entries()[0].minutes, 50)
+        fresh = self._reload(self.past)
+        self.assertEqual(fresh.actual_minutes, 50)
+        self.assertEqual(fresh.billed_minutes, 50)
+        html = self.client.get("/bookings/").get_data(as_text=True)
+        self.assertIn("booked 30m", html)
+
+    def test_the_entry_lands_on_the_day_the_meeting_was(self):
+        self.client.post(f"/bookings/{self.past.pk}/time",
+                         data={"project_id": str(self.calls.pk),
+                               "duration": "30"})
+        from application.services.tz import user_zone
+        with self.app.app_context():
+            want = self.past.start.astimezone(user_zone(self.user)).date()
+        self.assertEqual(self._entries()[0].spent_on.date(), want)
+
+    def test_un_ticking_billable_books_it_non_billable(self):
+        self.client.post(f"/bookings/{self.past.pk}/time",
+                         data={"project_id": str(self.calls.pk),
+                               "duration": "30"})
+        self.assertFalse(self._entries()[0].billable)
+
+    def test_without_a_project_nothing_is_booked(self):
+        resp = self.client.post(f"/bookings/{self.past.pk}/time",
+                                data={"duration": "30"},
+                                follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._entries(), [])
+
+    def test_without_a_duration_nothing_is_booked(self):
+        self.client.post(f"/bookings/{self.past.pk}/time",
+                         data={"project_id": str(self.calls.pk), "duration": ""},
+                         follow_redirects=True)
+        self.assertEqual(self._entries(), [])
+
+    def test_a_stranger_s_billing_project_is_refused(self):
+        from application.models.team import Team
+        from application.models.timetracking import Customer, TimeTrackingProject
+        from application.models.user import User
+        with self.app.app_context():
+            other = User(username="cu-bo", email="cubo@test.invalid",
+                         password_hash="x", level="team_admin").save()
+            their_team = Team(name="Else", admin=other, admins=[other]).save()
+            their_cust = Customer(team=their_team, name="Not mine").save()
+            theirs = TimeTrackingProject(team=their_team, customer=their_cust,
+                                         name="Nope").save()
+        self.client.post(f"/bookings/{self.past.pk}/time",
+                         data={"project_id": str(theirs.pk), "duration": "30"})
+        self.assertEqual(self._entries(), [])
+
+    def test_somebody_elses_booking_is_a_404(self):
+        from application.models.booking import Booking
+        from application.models.user import User
+        with self.app.app_context():
+            other = User(username="cu-b2", email="cub2@test.invalid",
+                         password_hash="x", level="premium").save()
+            now = datetime.now(timezone.utc)
+            theirs = Booking(owner=other, start=now - timedelta(days=1),
+                             end=now - timedelta(days=1) + timedelta(minutes=30),
+                             duration_minutes=30, name="Nicht meins").save()
+        resp = self.client.post(f"/bookings/{theirs.pk}/time",
+                                data={"project_id": str(self.calls.pk),
+                                      "duration": "30"})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_an_entry_can_be_taken_back(self):
+        self.client.post(f"/bookings/{self.past.pk}/time",
+                         data={"project_id": str(self.calls.pk),
+                               "duration": "30"})
+        from application.models.timetracking import TimeBucket
+        with self.app.app_context():
+            bucket = TimeBucket.objects.first()
+            entry_id = bucket.entries[0].entry_id
+        resp = self.client.post(
+            f"/bookings/{self.past.pk}/time/{bucket.pk}/{entry_id}/cancel",
+            follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._entries(), [])
+
+    # -- filing it by hand -------------------------------------------------
+
+    def test_a_customer_can_be_set_and_cleared_from_the_list(self):
+        resp = self.client.post(f"/bookings/{self.soon.pk}/customer",
+                                data={"customer_id": str(self.acme.pk)},
+                                follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._reload(self.soon).customer, self.acme)
+        self.client.post(f"/bookings/{self.soon.pk}/customer",
+                         data={"customer_id": ""}, follow_redirects=True)
+        self.assertIsNone(self._reload(self.soon).customer)
+
+    def test_a_row_comes_back_on_its_own_for_a_fetch(self):
+        """The list swaps the one row it acted on — no navigation, so Back
+        doesn't walk through every appointment you touched."""
+        resp = self.client.post(f"/bookings/{self.soon.pk}/customer",
+                                data={"customer_id": str(self.acme.pk)},
+                                headers={"X-Requested-With": "fetch"})
+        self.assertEqual(resp.status_code, 200)
+        html = resp.get_data(as_text=True)
+        self.assertIn(f'data-booking-row="{self.soon.pk}"', html)
+        self.assertNotIn("<html", html)
+
+    def test_the_customer_page_lists_the_meeting(self):
+        html = self.client.get(
+            f"/time/customers/{self.acme.pk}?team={self.team.pk}"
+        ).get_data(as_text=True)
+        self.assertIn("Meetings", html)
+        self.assertIn("Anna", html)
+
+
+if __name__ == "__main__":
+    unittest.main()

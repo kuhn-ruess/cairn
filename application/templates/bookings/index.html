@@ -30,54 +30,35 @@
   {% if upcoming %}
     <ul class="list-group list-group-flush">
       {% for b in upcoming %}
-        <li class="list-group-item d-flex align-items-center gap-3">
-          <div class="me-auto">
-            <div class="fw-semibold">{{ b.name }} · {{ b.duration_minutes }} min</div>
-            <div class="small text-muted">
-              {{ b.start|localdt }}
-              {% if b.email %}· {{ b.email }}{% endif %}
-              {% if b.guest_timezone %}· {{ b.guest_timezone }}{% endif %}
-              {% if b.event_error %}
-                · <span class="text-danger" title="{{ b.event_error }}">not written to the calendar</span>
-              {% endif %}
-              {% if b.meeting_error %}
-                · <span class="text-danger" title="{{ b.meeting_error }}">no meeting link</span>
-              {% endif %}
-            </div>
-            {% if b.meeting_url %}
-              <div class="small">
-                <i class="bi bi-camera-video text-muted"></i>
-                <a href="{{ b.meeting_url }}" target="_blank" rel="noopener">{{ b.meeting_url }}</a>
-                {% if b.meeting_provider == 'guest' %}
-                  <span class="text-muted">· their link</span>
-                {% endif %}
-              </div>
-            {% endif %}
-            {% if b.note %}<div class="small">{{ b.note }}</div>{% endif %}
-          </div>
-          {# Calling one off: the calendar entry goes, the slot comes back,
-             and the guest is told unless the box is cleared — which is what
-             a test booking of your own wants. #}
-          <form method="post" class="text-end flex-shrink-0"
-                action="{{ url_for('bookings.cancel', booking_id=b.id) }}"
-                onsubmit="return confirm('Cancel this appointment?');">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            {% if b.email %}
-              <div class="form-check form-check-inline small me-1">
-                <input class="form-check-input" type="checkbox" value="1"
-                       name="notify" id="notify-{{ b.id }}" checked>
-                <label class="form-check-label text-muted" for="notify-{{ b.id }}">
-                  Tell them
-                </label>
-              </div>
-            {% endif %}
-            <button class="btn btn-sm btn-outline-danger">Cancel</button>
-          </form>
-        </li>
+        {% with tt = tts.get(b.pk|string) %}
+          {% include "bookings/_row.html" %}
+        {% endwith %}
       {% endfor %}
     </ul>
   {% else %}
     <div class="card-body text-muted small">Nothing booked yet.</div>
   {% endif %}
 </div>
+
+{# The half you bill from. Not a separate page: deciding what a call was worth
+   happens right after it happened, in the same list it was booked into. #}
+<div class="card mt-3">
+  <div class="card-header py-2 d-flex align-items-center gap-2">
+    <h2 class="h6 mb-0">Past appointments</h2>
+    <span class="small text-muted ms-auto">last {{ past_days }} days</span>
+  </div>
+  {% if past %}
+    <ul class="list-group list-group-flush">
+      {% for b in past %}
+        {% with tt = tts.get(b.pk|string) %}
+          {% include "bookings/_row.html" %}
+        {% endwith %}
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="card-body text-muted small">Nothing yet.</div>
+  {% endif %}
+</div>
+
+<script src="{{ asset('js/booking-bill.js') }}"></script>
 {% endblock %}

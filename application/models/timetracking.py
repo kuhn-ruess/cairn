@@ -53,7 +53,10 @@ def _utcnow() -> datetime:
 class Customer(Document):
     """A billing customer. Belongs to exactly one team. Groups projects."""
 
-    meta = {"collection": "tt_customers", "indexes": ["team"]}
+    meta = {"collection": "tt_customers",
+            # The domain index is what makes "whose booking is this" one
+            # indexed lookup instead of a scan of the team's customers.
+            "indexes": ["team", ("team", "email_domains")]}
 
     team = ReferenceField("Team", required=True)
     name = StringField(required=True, max_length=200)
@@ -70,6 +73,14 @@ class Customer(Document):
     # ``external_id`` stays the one an importer stamps when it creates the
     # record.
     external_ids = ListField(StringField(max_length=100))
+
+    # The mail domains this customer's people write from — ``acme.de``,
+    # ``acme-group.com``. What an inbound appointment is matched on: somebody
+    # booking a call as ``anna@acme.de`` is Acme's, and nobody should have to
+    # say so by hand (services/customers.py). Stored lowercase and without the
+    # ``@``. A *free-mail* domain is never matched on, whatever is typed here —
+    # one gmail.com row would otherwise adopt every stranger who ever books.
+    email_domains = ListField(StringField(max_length=190))
 
     def knows_key(self, key: str) -> bool:
         return bool(key) and (self.external_id == key

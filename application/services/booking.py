@@ -365,10 +365,35 @@ def confirm(user, *, start: datetime, duration_minutes: int, name: str,
         booking.delete()
         raise BookingError("That time was just taken — please pick another.")
 
+    _attach_customer(user, booking)
+
     # Before the event, so the calendar entry can carry the link.
     _attach_meeting(user, page, booking, guest_link=meeting_url)
     _write_event(user, page, booking)
     return booking
+
+
+def _attach_customer(user, booking) -> None:
+    """File the appointment under the customer whose mail domain it came from.
+
+    Whose call this is, answered by the one thing the form already carries. It
+    is a *filing* decision, not a billing one: nothing is booked into the time
+    sheet here, and nothing ever is without somebody saying so from the list —
+    which is why a cancelled or moved appointment needs no unwinding.
+
+    Never allowed to break a booking: the visitor has their slot either way, and
+    an unassigned appointment is one dropdown in the list."""
+    from application.services.customers import customer_for_email
+
+    try:
+        from application.services.timetracking import user_teams
+        cust = customer_for_email(booking.email, user_teams(user))
+    except Exception:
+        return
+    if cust is None:
+        return
+    booking.customer = cust
+    booking.save()
 
 
 def _attach_meeting(user, page, booking, guest_link: str = "") -> None:

@@ -94,6 +94,27 @@
           <textarea name="billing_note" rows="3" class="form-control form-control-sm mb-2"
                     placeholder="Purchase order number, cost centre, who to address the invoice to…">{{ customer.billing_note or '' }}</textarea>
 
+          {# What an inbound appointment is matched on. One indexed lookup on
+             the domain the guest booked with — nobody has to say "this call was
+             for Acme". #}
+          <label class="form-label small text-muted mb-0">Mail domains</label>
+          <input type="text" name="email_domains"
+                 value="{{ (customer.email_domains or [])|join(', ') }}"
+                 class="form-control form-control-sm mb-1"
+                 placeholder="acme.de, acme-group.com">
+          <div class="form-text small mb-2">
+            A call booked from an address at one of these is filed under this
+            customer automatically. Free-mail domains are never matched on — two
+            customers claiming the same domain aren't either, and then the
+            booking simply waits to be assigned by hand.
+            {% if freemail %}
+              <span class="text-warning d-block mt-1">
+                <i class="bi bi-exclamation-triangle"></i>
+                Never matched (free mail): {{ freemail|sort|join(', ') }}
+              </span>
+            {% endif %}
+          </div>
+
           <label class="form-label small text-muted mb-0">Internal note</label>
           <input type="text" name="note" value="{{ customer.note or '' }}"
                  class="form-control form-control-sm mb-2">
@@ -190,6 +211,63 @@
       </form>
     </li>
   {% endif %}
+</ul>
+
+{# The rest of Cairn, filed under this customer. A customer is not a line on an
+   invoice any more — it is what a folder, a project and a meeting belong to —
+   so the page has to be able to answer "what is theirs". #}
+<h2 class="h6 mt-4 mb-2"><i class="bi bi-diagram-3"></i> Projects &amp; folders</h2>
+<ul class="list-group" style="max-width: 720px;">
+  {% if not bound %}
+    <li class="list-group-item small text-muted">
+      Nothing filed under this customer yet — name them in a folder's or
+      project's inspector (Links → Customer) and everything inside inherits it.
+    </li>
+  {% endif %}
+  {% for it in bound %}
+    {% set info = bound_info.get(it.pk|string, {}) %}
+    <li class="list-group-item d-flex align-items-center gap-2 py-2">
+      <i class="bi {{ 'bi-folder2-open' if it.kind == 'folder' else 'bi-collection' }} text-muted"></i>
+      <a class="text-decoration-none me-auto"
+         href="{{ url_for('projects.detail', project_id=it.pk) }}">{{ info.path or it.title }}</a>
+      {% if it.customer %}
+        <span class="badge text-bg-light text-muted" title="Named on this container">direct</span>
+      {% else %}
+        <span class="badge text-bg-light text-muted" title="Via its billing project">via billing</span>
+      {% endif %}
+      {% if not info.shared and info.owner %}
+        <span class="small text-muted" title="In a private area">{{ info.owner }}</span>
+      {% endif %}
+    </li>
+  {% endfor %}
+</ul>
+
+<h2 class="h6 mt-4 mb-2"><i class="bi bi-calendar-check"></i> Meetings</h2>
+<ul class="list-group" style="max-width: 720px;">
+  {% if not meetings %}
+    <li class="list-group-item small text-muted">
+      No appointments filed under this customer. Add a mail domain above and the
+      next call booked from it lands here.
+    </li>
+  {% endif %}
+  {% for b in meetings %}
+    <li class="list-group-item d-flex align-items-center gap-2 py-2">
+      <span class="me-auto">
+        <span class="{% if b.start >= now %}fw-semibold{% endif %}">{{ b.start|localdt }}</span>
+        <span class="small text-muted">· {{ b.name or b.email }}</span>
+      </span>
+      <span class="small">
+        {{ b.billed_minutes|duration }}
+        {% if b.actual_minutes and b.actual_minutes != b.duration_minutes %}
+          <span class="text-muted" title="Booked for {{ b.duration_minutes|duration }}">(corrected)</span>
+        {% endif %}
+      </span>
+    </li>
+  {% endfor %}
+  <li class="list-group-item bg-body-tertiary small">
+    <a href="{{ url_for('bookings.index') }}">All appointments</a> — a meeting is
+    billed from that list, one at a time, never automatically.
+  </li>
 </ul>
 
 {% if can_file and merge_targets %}

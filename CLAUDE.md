@@ -458,9 +458,39 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   forgotten. The mail is a per-row checkbox, cleared for a test booking of
   your own. Neither a calendar that won't answer nor a missing SMTP stops
   the cancellation; both are warnings to the host.
+  **A meeting is billed from that list and nowhere else.** Taking a booking
+  writes no time — it only files the appointment under a customer (see
+  `services/customers.py`). The time is logged per appointment from
+  `/bookings` (`bookings.log_time`, one entry through the ordinary
+  `add_entry` with `source_kind="booking"`), which is why a call that was
+  moved, shortened or never held needs no state of its own: nothing was
+  booked on the strength of the appointment existing. The duration in that
+  panel is what gets billed and is meant to be corrected; a correction sticks
+  to the appointment (`Booking.actual_minutes`) so the list keeps saying so.
+  The panel is the inspector's time section in miniature — same picker, same
+  entry rows, same cancel — and every action swaps its ONE row in place
+  (`bookings/_row.html` + `static/js/booking-bill.js`), so Back doesn't walk
+  through every appointment you touched. The picker shows a blank option when
+  nothing resolved, because offering another customer's project is the one
+  mistake here that reaches an invoice.
   `BookingPage` is embedded on
   `User` (the slug lookup already loads the document), `Booking` is a real
   Document for the reasons above
+- `customers.py` — **there is exactly one customer entity in Cairn**, and it is
+  `Customer` (the billing module's). Nothing duplicates it: a folder/project
+  names it (`Item.customer`, inherited by the whole subtree) or is bound to one
+  of its billing projects, and an appointment names it (`Booking.customer`).
+  The two on one container cannot drift, because binding a `time_project`
+  **stamps that project's customer onto the container** (`views.projects._apply`)
+  — so "the folder says Acme while its hours invoice to Globex" is not a
+  reachable state, and `services.containers.customer_labels` only has to prefer
+  the explicit field. A booking is filed from the guest's **mail domain**
+  (`Customer.email_domains`, indexed on `(team, email_domains)`); a **free-mail**
+  domain never matches whatever is typed in, and a domain **two** customers
+  claim doesn't either — both leave the field empty for the list, because a
+  guess here surfaces as a wrong invoice. Reachable from the sidebar
+  (`Customers` → `timetracking.index`), which is the same page the time module
+  manages — one customer list, not two
 - `todoist_import.py` — Todoist API ingest used by the CLI command
 - `zammad_billing.py` — where Zammad's time lands (one entry per ticket, day and agent: the day's bookings are summed into a single entry whose `external_ids` list the bookings it covers, so a re-sync updates the total instead of adding the parts beside it): customers auto-created from Zammad organisations (`external_id="zammad:org:<id>"`, one `intake` project per customer) and the team-level agent roster (`Team.zammad_agents`) that maps Zammad agents to Cairn accounts; assigning one re-attributes the time already booked
 - `cleanup.py` — per-user indexed bulk-delete of completed tasks past retention

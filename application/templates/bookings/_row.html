@@ -1,0 +1,176 @@
+{# One appointment in the list — and everything that can be done to it.
+
+   Re-rendered server-side and swapped in place after every action
+   (booking-bill.js), so the page never navigates and Back stays clean.
+
+   The billing half is deliberately the inspector's time section in miniature:
+   the same customer/project picker, the same duration field, the same entry
+   rows with the same cancel. A meeting is billed here or not at all — nothing
+   in Cairn books an appointment by itself. #}
+{% import "timetracking/_capture_macros.html" as cap %}
+{% set is_past = b.start < now %}
+<li class="list-group-item" data-booking-row="{{ b.pk }}">
+  <div class="d-flex align-items-start gap-3">
+    <div class="me-auto">
+      <div class="fw-semibold">
+        {{ b.name or b.email or 'Appointment' }} ·
+        {{ b.billed_minutes|duration }}
+        {% if b.actual_minutes and b.actual_minutes != b.duration_minutes %}
+          <span class="badge text-bg-light text-muted"
+                title="Booked for {{ b.duration_minutes|duration }}">
+            booked {{ b.duration_minutes|duration }}</span>
+        {% endif %}
+      </div>
+      <div class="small text-muted">
+        {{ b.start|localdt }}
+        {% if b.email %}· {{ b.email }}{% endif %}
+        {% if b.guest_timezone %}· {{ b.guest_timezone }}{% endif %}
+        {% if b.event_error %}
+          · <span class="text-danger" title="{{ b.event_error }}">not written to the calendar</span>
+        {% endif %}
+        {% if b.meeting_error %}
+          · <span class="text-danger" title="{{ b.meeting_error }}">no meeting link</span>
+        {% endif %}
+      </div>
+      {% if b.meeting_url %}
+        <div class="small">
+          <i class="bi bi-camera-video text-muted"></i>
+          <a href="{{ b.meeting_url }}" target="_blank" rel="noopener">{{ b.meeting_url }}</a>
+          {% if b.meeting_provider == 'guest' %}
+            <span class="text-muted">· their link</span>
+          {% endif %}
+        </div>
+      {% endif %}
+      {% if b.note %}<div class="small">{{ b.note }}</div>{% endif %}
+      <div class="small mt-1">
+        {% if b.customer %}
+          <a class="badge text-bg-light text-muted text-decoration-none"
+             href="{{ url_for('timetracking.customer_detail', cid=b.customer.pk) }}"
+             title="Whose meeting this is">
+            <i class="bi bi-person-vcard"></i> {{ b.customer.name }}</a>
+        {% elif customers %}
+          <span class="badge text-bg-light text-muted" title="Nobody's domain claimed this address">
+            <i class="bi bi-person-vcard"></i> no customer</span>
+        {% endif %}
+        {% if tt and tt.total_minutes %}
+          <span class="badge tt-chip" title="Already booked into the time sheet">
+            <i class="bi bi-stopwatch"></i> {{ tt.total_minutes|duration }} billed</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Calling one off: the calendar entry goes, the slot comes back,
+       and the guest is told unless the box is cleared — which is what
+       a test booking of your own wants. Past appointments are not offered it:
+       there is no slot to give back and no news to send. #}
+    {% if not is_past %}
+      <form method="post" class="text-end flex-shrink-0"
+            action="{{ url_for('bookings.cancel', booking_id=b.id) }}"
+            onsubmit="return confirm('Cancel this appointment?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if b.email %}
+          <div class="form-check form-check-inline small me-1">
+            <input class="form-check-input" type="checkbox" value="1"
+                   name="notify" id="notify-{{ b.id }}" checked>
+            <label class="form-check-label text-muted" for="notify-{{ b.id }}">
+              Tell them
+            </label>
+          </div>
+        {% endif %}
+        <button class="btn btn-sm btn-outline-danger">Cancel</button>
+      </form>
+    {% endif %}
+  </div>
+
+  {% if tt %}
+    <details class="booking-bill mt-2" {% if panel_open %}open{% endif %}>
+      <summary class="small text-muted" style="cursor:pointer;">
+        <i class="bi bi-receipt"></i> Bill this meeting
+      </summary>
+
+      {# Who it is for. Set automatically from the mail domain when the booking
+         came in; this is where a guess is corrected or a missing one filled. #}
+      {% if customers %}
+        <form method="post" class="d-flex gap-2 align-items-center flex-wrap mt-2"
+              data-booking-form
+              action="{{ url_for('bookings.set_customer', booking_id=b.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="small text-muted mb-0">Customer</label>
+          {# A plain select on purpose: this row is replaced after every action,
+             and a wrapper that only wires itself on page load would be gone. #}
+          <select name="customer_id" class="form-select form-select-sm"
+                  style="max-width: 16rem;" data-booking-customer>
+            <option value="">— none —</option>
+            {% for cid, cname in customers %}
+              <option value="{{ cid }}"
+                      {% if b.customer and b.customer.pk|string == cid %}selected{% endif %}>{{ cname }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-sm btn-outline-secondary">Set</button>
+        </form>
+      {% endif %}
+
+      {% if not tt.projects %}
+        <p class="small text-muted mt-2 mb-0">
+          No billing projects yet —
+          <a href="{{ url_for('timetracking.index') }}">create a customer and a project</a> first.
+        </p>
+      {% else %}
+        {# What was already booked for this meeting. Press Log twice and there
+           are two entries — same as a task, so the record is visible here. #}
+        {% if tt.entries %}
+          <ul class="time-list list-unstyled mt-2 mb-2">
+            {% for e in tt.entries %}
+              <li class="time-row py-1 border-bottom d-flex align-items-center gap-2 flex-wrap">
+                <strong>{{ e.minutes|duration }}</strong>
+                <span class="small text-muted">{{ e.spent_on|date }}</span>
+                <span class="small text-muted">· {{ e.customer }} › {{ e.project_name }}</span>
+                {% if not e.billable %}
+                  <span class="badge tt-chip-warn" title="Non-billable">n/b</span>
+                {% endif %}
+                {% if e.locked %}
+                  <span class="ms-auto text-muted small" title="Billed — locked">
+                    <i class="bi bi-lock"></i></span>
+                {% else %}
+                  <form method="post" class="ms-auto m-0" data-booking-form
+                        action="{{ url_for('bookings.cancel_time', booking_id=b.id,
+                                           bucket_id=e.bucket_id, entry_id=e.entry_id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-link btn-sm p-0 text-muted"
+                            title="Remove this entry"><i class="bi bi-x-lg"></i></button>
+                  </form>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+
+        {# The duration is pre-filled with what was booked and is meant to be
+           changed: a half-hour call that ran fifty minutes is billed as fifty,
+           and the correction sticks to the appointment. #}
+        <form method="post" class="d-flex gap-2 flex-wrap align-items-center mt-2"
+              data-booking-form
+              action="{{ url_for('bookings.log_time', booking_id=b.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {{ cap.project_select(tt.projects, tt.default_project_id,
+                                name="project_id", blank="— pick a project —") }}
+          <input type="text" name="duration" autocomplete="off"
+                 class="form-control form-control-sm" style="max-width: 6.5rem;"
+                 value="{{ b.billed_minutes }}"
+                 title="What it actually took — 90 · 1:30 · 1h30m">
+          <input type="text" name="note" maxlength="200" autocomplete="off"
+                 class="form-control form-control-sm" style="max-width: 18rem;"
+                 placeholder="Note (optional)">
+          <label class="form-check form-check-inline m-0 small" title="Billable">
+            <input type="checkbox" class="form-check-input" name="billable"
+                   value="1" checked> billable
+          </label>
+          <button class="btn btn-sm btn-outline-primary">Log</button>
+        </form>
+        <div class="form-text small">
+          Booked on {{ b.start|localdt }} — the day the meeting happened.
+        </div>
+      {% endif %}
+    </details>
+  {% endif %}
+</li>

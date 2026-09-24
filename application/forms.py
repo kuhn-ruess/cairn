@@ -205,6 +205,11 @@ class ProjectForm(FlaskForm):
     # Cross-module links. Both are inherited by everything below this container:
     # time logged on a task inside it bills to ``time_project``, and the notes
     # button on those tasks jumps into ``notes_folder``.
+    # Whose work this is. Inherited by everything below, like the two links
+    # under it. A billing project belongs to exactly one customer, so picking
+    # one below *is* naming the customer — the save path keeps the two in step
+    # rather than letting them drift (views.projects._apply).
+    customer = SelectField("Customer", choices=[], validators=[Optional()])
     time_project = SelectField("Billing project (time tracking)", choices=[],
                                validators=[Optional()])
     notes_folder = SelectField("Notes folder", choices=[], validators=[Optional()])

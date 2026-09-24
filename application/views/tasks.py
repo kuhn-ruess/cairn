@@ -1531,14 +1531,14 @@ def _group_rail(entries, mode):
 
 
 def _group_by_customer(items):
-    """Group Today's work by the CUSTOMER its subtree bills to.
+    """Group Today's work by the CUSTOMER its subtree belongs to.
 
-    There is no customer field on a project: a folder/project is bound to a
-    billing project (``Item.time_project``) and that belongs to a customer, so
-    the customer is inherited down the subtree exactly as the billing project
-    is. Anything whose tree carries no binding lands in one bucket at the end —
-    for a personal account that is everything, which is why the Today toolbar
-    only offers this grouping to somebody on a team.
+    A folder/project either names its customer (``Item.customer``) or is bound
+    to a billing project whose customer that is — either way the answer is
+    inherited down the subtree (``services.containers.customer_labels``).
+    Anything whose tree says nothing lands in one bucket at the end — for a
+    personal account that is everything, which is why the Today toolbar only
+    offers this grouping to somebody on a team.
 
     ``target_project_id`` is ``None`` for every bucket: a customer is not a
     place, so dropping a task on one may reorder but must never reparent.

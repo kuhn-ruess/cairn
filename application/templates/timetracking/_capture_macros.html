@@ -4,7 +4,16 @@
    time-entries.js can ask for exactly the right fields the moment a project is
    picked — no round trip, and the same markup works in both places. #}
 
-{%- macro project_select(projects, selected, cls="") -%}
+{# ``name`` is for the places that submit a plain form instead of letting
+   time-entries.js read the select — the bookings list does. Left empty
+   everywhere else, so the JS-driven capture bars are unchanged.
+
+   ``blank`` puts an empty option in front when nothing is preselected, so the
+   browser does not helpfully select the first project in the list. The bookings
+   list needs it: a meeting whose customer has no billing project would
+   otherwise arrive offering ANOTHER customer's project, which is the one
+   mistake that reaches an invoice. #}
+{%- macro project_select(projects, selected, cls="", name="", blank="") -%}
   {# "Kunde › Projekt" in the option itself, not just as an <optgroup> label:
      a closed select shows only the option, and while you are booking, *which
      customer* is the half you must not get wrong. The list is already sorted
@@ -24,7 +33,11 @@
       {%- endfor -%}
     </button>
     <select class="form-select form-select-sm time-add-project"
+            {% if name %}name="{{ name }}"{% endif %}
             title="Customer and billing project">
+      {% if blank and not selected %}
+        <option value="" selected data-mode="duration" data-fields="[]">{{ blank }}</option>
+      {% endif %}
       {% for p in projects %}
         <option value="{{ p.id }}" {% if p.id == selected %}selected{% endif %}
                 data-mode="{{ p.mode }}"

@@ -23,6 +23,8 @@ ORGANIZE_ITEMS = {
     # pointing at the customer list instead of the day sheet is a different
     # page, not a shorter path to the same one.
     "timetracking": {"label": "Time tracking", "icon": "bi-stopwatch", "endpoint": "timetracking.day"},
+    "customers": {"label": "Customers", "icon": "bi-person-vcard", "endpoint": "timetracking.index"},
+    "bookings": {"label": "Bookings", "icon": "bi-calendar-check", "endpoint": "bookings.index"},
     "habits": {"label": "Habits", "icon": "bi-arrow-repeat", "endpoint": "habits.index"},
     "templates": {"label": "Templates", "icon": "bi-files", "endpoint": "templates.index"},
     "review": {"label": "Review", "icon": "bi-arrow-clockwise", "endpoint": "review.index"},

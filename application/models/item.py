@@ -494,6 +494,18 @@ class Item(Document):
     # ref so the dependency points one way (timetracking → item, never back).
     time_project = ReferenceField("TimeTrackingProject")
 
+    # Whose work this is. A folder/project names its customer directly and the
+    # whole subtree below inherits it — the same climb ``time_project`` gets
+    # (application.services.customers.resolve_customer,
+    # application.services.containers.customer_labels).
+    #
+    # It cannot drift from the billing binding, because it is not allowed to:
+    # a container bound to a ``time_project`` takes that project's customer on
+    # save (views.projects._apply). So there is one truth — "Acme" — reachable
+    # either by naming the customer on a folder that bills nowhere, or by
+    # binding the folder to one of Acme's billing projects.
+    customer = ReferenceField("Customer")
+
     # Notes link. On a project/folder this points at a folder in the *notes*
     # tree (``kind="folder"``, ``folder_domain="notes"``), so everything below
     # gets a one-click jump into its notes — tasks inherit it by climbing

@@ -598,6 +598,70 @@ def task_time_context(user, item):
     }
 
 
+def booking_default_project_id(user, booking, *, projects=None, entries=None) -> str:
+    """Which billing project a meeting should be billed to, preselected.
+
+    In order: where this very appointment already booked → the customer's
+    ``intake`` project → that customer's only / first project. And then it
+    STOPS: unlike a task, a booking that knows its customer must never fall back
+    to "wherever you logged last", because that silently offers a different
+    client's project for a call you are about to invoice. Without a customer it
+    behaves like a task and takes the usual default.
+    """
+    teams = user_teams(user)
+    if not teams:
+        return ""
+    ids = {p["id"] for p in projects} if projects is not None else None
+
+    def offered(pid: str) -> bool:
+        return bool(pid) and (ids is None or pid in ids)
+
+    booked = ((entries[0]["project_id"] if entries else "")
+              if entries is not None else last_entry_project_id(user, booking))
+    if offered(booked):
+        return booked
+    cust = None
+    try:
+        cust = booking.customer
+    except Exception:
+        cust = None
+    if cust is None:
+        return default_project_id(user, projects=projects)
+    if cust.archived:
+        return ""
+    rows = list(TimeTrackingProject.objects(customer=cust, archived__ne=True)
+                .only("id", "name", "intake").order_by("+name"))
+    for p in rows:
+        if p.intake and offered(str(p.id)):
+            return str(p.id)
+    return str(rows[0].id) if rows and offered(str(rows[0].id)) else ""
+
+
+def booking_time_context(user, booking):
+    """What the bookings list needs to bill one appointment, or ``None``.
+
+    ``None`` only for a user without a team — there is no billing without one.
+    Shaped like ``task_time_context`` on purpose: the same picker, the same
+    entry rows, the same cancel action, so the panel in the list is the
+    inspector's time section and not a second way of doing this.
+    """
+    if not has_team(user):
+        return None
+    rows = item_entries(user, booking)
+    projects = pickable_projects(user, limit=PICKER_SHORTLIST)
+    preselect = booking_default_project_id(user, booking, entries=rows)
+    if preselect and not any(p["id"] == preselect for p in projects):
+        # The right answer must be IN the shortlist or the form would quietly
+        # bill somewhere else — same rule as ``pickable_projects(keep=…)``.
+        projects = pickable_projects(user, limit=PICKER_SHORTLIST, keep=preselect)
+    return {
+        "projects": projects,
+        "default_project_id": preselect,
+        "total_minutes": sum(r["minutes"] or 0 for r in rows),
+        "entries": rows,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Report: scope, period presets, aggregation (all deref-free over the buckets)
 # ---------------------------------------------------------------------------

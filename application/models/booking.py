@@ -176,6 +176,22 @@ class Booking(Document):
     meeting_provider = StringField(default="")   # "link" | "teams"
     meeting_error = StringField(default="")
 
+    # Whose appointment this is. Filled when the booking is taken, from the
+    # mail DOMAIN the guest booked with (services/customers.py) — a call from
+    # ``anna@acme.de`` is Acme's without anybody saying so. Left empty when no
+    # customer claims the domain, when two do, or when it is a free-mail
+    # address; the list is where it is then picked by hand.
+    #
+    # Deliberately NOT a billing project: a meeting that was never held is
+    # never billed, so nothing is booked until somebody says so from the list.
+    customer = ReferenceField("Customer")
+
+    # What the meeting actually took, when that differed from what was booked.
+    # A half-hour call that ran fifty minutes is billed as fifty, and this is
+    # where the correction is kept, so the list shows it afterwards instead of
+    # only the invoice knowing. ``None`` = it took as long as it was booked for.
+    actual_minutes = IntField(min_value=1)
+
     # Where the event landed, so it stays traceable from the Cairn side.
     calendar_id = StringField(default="")   # ExternalCalendar.pk_ref
     event_id = StringField(default="")
@@ -183,6 +199,11 @@ class Booking(Document):
 
     created_at = DateTimeField(default=_utcnow)
     pk_ref = ObjectIdField(default=lambda: ObjectId())
+
+    @property
+    def billed_minutes(self) -> int:
+        """How long this meeting is to be billed for — corrected if corrected."""
+        return int(self.actual_minutes or self.duration_minutes or 0)
 
     def __str__(self) -> str:
         return f"{self.name} {self.start:%Y-%m-%d %H:%M}"

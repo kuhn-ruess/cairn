@@ -12,7 +12,7 @@ from flask_login import current_user, login_required
 from mongoengine import Q
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 from application.models.item import Item
@@ -1835,6 +1835,31 @@ def customer_detail(cid):
     merge_targets = sorted(
         ({"id": str(o.id), "label": _label(o)} for o in others),
         key=lambda r: r["label"].lower())
+
+    # What in the rest of Cairn points at this customer. A customer is not a
+    # billing record with a name on it any more: it is the thing folders,
+    # projects and meetings are filed under, so the page has to say which.
+    from application.services.containers import describe_containers
+    bound = list(Item.objects(Q(customer=c.id)
+                              | Q(time_project__in=[p.id for p in projects]),
+                              kind__in=["project", "folder"])
+                 .only("id", "title", "kind", "parent", "owner", "shared_teams",
+                       "time_project", "customer"))
+    bound_info = describe_containers(bound, team=team)
+    bound.sort(key=lambda i: (bound_info.get(str(i.pk), {}).get("path") or "").lower())
+
+    # Meetings booked by this customer's people. Upcoming first, then the recent
+    # past — which is the half you bill from, so it belongs on the page rather
+    # than only in the bookings list.
+    from application.models.booking import Booking
+    now = datetime.now(timezone.utc)
+    booked = list(Booking.objects(customer=c.id).order_by("-start").limit(50))
+    meetings = sorted((b for b in booked if b.start >= now),
+                      key=lambda b: b.start) + \
+        sorted((b for b in booked if b.start < now),
+               key=lambda b: b.start, reverse=True)
+
+    from application.services.customers import is_freemail
     return render_template(
         "timetracking/customer.html", team=team, all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user), can_file=can_bill(user, team),
@@ -1842,6 +1867,11 @@ def customer_detail(cid):
         customer=c, projects=projects,
         minutes_by_project=minutes_by_project,
         merge_targets=merge_targets,
+        bound=bound, bound_info=bound_info,
+        meetings=meetings, now=now,
+        # Named so the page can say which of the typed domains will never be
+        # matched on, instead of leaving it to be discovered on a wrong invoice.
+        freemail={d for d in (c.email_domains or []) if is_freemail(d)},
         total_minutes=sum(minutes_by_project.values()))
 
 
@@ -1875,6 +1905,13 @@ def customer_edit(cid):
             c.payment_terms_days = max(0, int(raw)) if raw else None
         except ValueError:
             c.payment_terms_days = None
+    # The mail domains that identify this customer's people — what an inbound
+    # appointment is matched on. Parsed rather than stored as typed (commas,
+    # spaces, a whole address pasted in), because a domain that never matches
+    # is a field that silently does nothing.
+    if "email_domains" in request.form:
+        from application.services.customers import parse_domains
+        c.email_domains = parse_domains(request.form.get("email_domains"))
     # The key an importer recognises this customer by. Editable on purpose:
     # moving a Zammad organisation's key onto the customer you already had is
     # what stops the import from re-creating its own every sync.

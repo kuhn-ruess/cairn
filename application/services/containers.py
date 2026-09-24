@@ -275,12 +275,14 @@ def container_paths(items):
 def customer_labels(items):
     """``{str(item.pk): customer name}`` for every task that resolves to one.
 
-    A GTD subtree is bound to a billing project on its folder/project
-    (``Item.time_project``) and a billing project belongs to a customer, so
-    "whose work is this" is already answerable — indirectly. This is that
-    answer, for a whole list at once: the nearest ancestor carrying a binding
-    wins, exactly like ``services.timetracking.resolve_time_project``, and a
-    task that resolves to nothing is simply absent from the result.
+    Two ways a subtree says whose work it is, and the nearest ancestor carrying
+    either one wins: the container names its **customer** outright
+    (``Item.customer``), or it is bound to a **billing project**
+    (``Item.time_project``) whose customer that is. On one container the two
+    cannot disagree — binding a billing project stamps its customer on the
+    container (``views.projects._apply``) — so this only has to prefer the
+    explicit field and stop. A task that resolves to nothing is simply absent
+    from the result.
 
     Batched on purpose. ``resolve_time_project`` walks one item's parents and
     dereferences a reference per level, which is fine for one task and is a
@@ -306,11 +308,12 @@ def customer_labels(items):
         missing = [pk for pk in frontier if str(pk) not in known]
         if not missing:
             break
-        # ``no_dereference`` keeps ``time_project`` a raw DBRef: the whole point
-        # is to collect the ids and resolve them in one query, not per level.
+        # ``no_dereference`` keeps ``customer``/``time_project`` raw DBRefs: the
+        # whole point is to collect the ids and resolve them in one query, not
+        # per level.
         parents = list(Item.all_objects(pk__in=missing)
                        .no_dereference()
-                       .only("pk", "kind", "parent", "time_project"))
+                       .only("pk", "kind", "parent", "time_project", "customer"))
         if not parents:
             break
         for p in parents:
@@ -319,8 +322,11 @@ def customer_labels(items):
         depth += 1
 
     # --- the binding each task inherits ---
+    # Either a customer named outright, or a billing project standing in for
+    # one. Both are collected as ids and resolved in one query each below.
+    direct = {}    # str(task pk) -> str(Customer pk)
     binding = {}   # str(task pk) -> str(TimeTrackingProject pk)
-    tp_ids = set()
+    cust_ids, tp_ids = set(), set()
     for it in items:
         node = known.get(str(_ref_pk(it._data.get("parent")) or ""))
         seen, steps = set(), 0
@@ -331,6 +337,11 @@ def customer_labels(items):
             # A binding belongs on a folder/project, never on a task — same rule
             # ``resolve_time_project`` states and for the same reason.
             if node.kind != "task":
+                cid = _ref_pk(node._data.get("customer"))
+                if cid:
+                    direct[str(it.pk)] = str(cid)
+                    cust_ids.add(cid)
+                    break
                 tp = _ref_pk(node._data.get("time_project"))
                 if tp:
                     binding[str(it.pk)] = str(tp)
@@ -338,23 +349,33 @@ def customer_labels(items):
                     break
             node = known.get(str(_ref_pk(node._data.get("parent")) or ""))
             steps += 1
-    if not tp_ids:
+    if not tp_ids and not cust_ids:
         return {}
 
     from application.models.timetracking import Customer, TimeTrackingProject
     projects = list(TimeTrackingProject.objects(pk__in=list(tp_ids))
-                    .no_dereference().only("pk", "customer", "archived"))
-    cust_ids = {_ref_pk(p._data.get("customer")) for p in projects if not p.archived}
+                    .no_dereference().only("pk", "customer", "archived")) \
+        if tp_ids else []
+    for p in projects:
+        if not p.archived:
+            cid = _ref_pk(p._data.get("customer"))
+            if cid:
+                cust_ids.add(cid)
     cust_ids.discard(None)
     if not cust_ids:
         return {}
+    # Archived customers drop out here, as they do from every picker: a name
+    # that is out of circulation is not a grouping anybody is working in.
     names = {str(c.pk): c.name
-             for c in Customer.objects(pk__in=list(cust_ids)).only("pk", "name")}
+             for c in Customer.objects(pk__in=list(cust_ids), archived__ne=True)
+             .only("pk", "name")}
     cust_of_project = {str(p.pk): names.get(str(_ref_pk(p._data.get("customer"))), "")
                        for p in projects if not p.archived}
-    return {pk: cust_of_project[tp]
-            for pk, tp in binding.items()
-            if cust_of_project.get(tp)}
+    out = {pk: names[cid] for pk, cid in direct.items() if names.get(cid)}
+    out.update({pk: cust_of_project[tp]
+                for pk, tp in binding.items()
+                if cust_of_project.get(tp)})
+    return out
 
 
 def _ref_pk(ref):
