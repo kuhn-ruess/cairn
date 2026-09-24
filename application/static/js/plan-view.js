@@ -246,7 +246,10 @@
       dragId = null; dragEl = null;
       cardToRail(el, overBacklog);
       relayoutColumns(c);
-      postForm(`/tasks/${id}/unschedule`, {})
+      // Pass the day: the pill stays ON this day without a time, which is
+      // what the rail shows. Clearing the date outright took the task off the
+      // plate, so the pill was gone again after the next render.
+      postForm(`/tasks/${id}/unschedule`, { date: c.DATE })
         .then((r) => { if (!r.ok) throw new Error(r.status); })
         .catch(() => window.location.reload());
     }
@@ -371,9 +374,15 @@
       const r = await postForm("/tasks/auto-plan", body);
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { alert("Auto-plan failed (" + r.status + ")"); btn.disabled = false; btn.innerHTML = orig; return; }
-      sessionStorage.setItem("plan_toast", j.skipped
-        ? `Planned ${j.planned}, ${j.skipped} didn't fit before the day ends.`
-        : `Planned ${j.planned} task(s).`);
+      // What didn't fit is NOT gone — it sits in Unplanned. Say that, and say
+      // plainly when there was no day left to plan into at all.
+      let msg = `Planned ${j.planned} task(s).`;
+      if (j.day_over) {
+        msg = `Nothing re-planned — the working day (${j.window}) is over.`;
+      } else if (j.skipped) {
+        msg = `Planned ${j.planned}; ${j.skipped} left in Unplanned (no room before the day ends).`;
+      }
+      sessionStorage.setItem("plan_toast", msg);
       window.location.reload();
     } catch (e) { alert("Auto-plan failed (network)."); btn.disabled = false; btn.innerHTML = orig; }
   }

@@ -2485,12 +2485,22 @@ def set_next(task_id):
         ``minutes=<int>``  also set ``estimated_minutes`` (5..1440, clamped),
                            so "next, and it's about an hour" is one click
         ``off=1``          drop the mark — back to ``open``
+        ``clear_plan=1``   also take the task off the day it was planned for
 
     Taking the mark off only ever touches a task that actually carries it: a
     row is drawn from a list that may be a refresh behind, and a stale click
     must not quietly pull a ``waiting`` task out of its status. The duration is
     deliberately NOT cleared on the way out — how long something takes is a
     property of the task, not of it being next.
+
+    ``clear_plan`` is what the Plan view's "Back to Next" control sends for a
+    task the day ran out on: a day that is over is exactly what made the plan
+    date stale, so "back into the next list" drops it rather than leaving the
+    task parked on yesterday. The ordinary NEXT arrow does not send it — a task
+    planned for today and also marked next keeps its slot. A future DEFER date
+    is still left alone here, and still holds a next-action back: that question
+    is open with the user, and answering it inside this flag would answer it
+    everywhere.
     """
     from flask import jsonify
     user = current_user._get_current_object()
@@ -2509,6 +2519,7 @@ def set_next(task_id):
             return jsonify({"error": "minutes must be an integer"}), 400
 
     off = (request.form.get("off") or "").strip() in ("1", "true", "yes", "on")
+    clear_plan = (request.form.get("clear_plan") or "").strip() in ("1", "true", "yes", "on")
     if off:
         if task.status == "next":
             task.status = "open"
@@ -2516,15 +2527,21 @@ def set_next(task_id):
         task.status = "next"
     if minutes is not None:
         task.estimated_minutes = minutes
+    plan_cleared = clear_plan and task.plan_date is not None
+    if plan_cleared:
+        task.plan_date = None
     task.save()
     # A duration change is what the mirrored calendar event's length is made
-    # of, so the same write-back the resize handle triggers applies here.
-    warnings = _writeback_calendar(task, user) or [] if minutes is not None else []
+    # of, so the same write-back the resize handle triggers applies here — and
+    # a dropped plan date has to take the mirrored plan event with it.
+    warnings = _writeback_calendar(task, user) or [] \
+        if (minutes is not None or plan_cleared) else []
     return jsonify({
         "ok": True,
         "status": task.status,
         "is_next": task.status == "next",
         "estimated_minutes": task.estimated_minutes,
+        "plan_cleared": plan_cleared,
         "warnings": warnings,
     })
 
@@ -2532,14 +2549,31 @@ def set_next(task_id):
 @tasks_bp.route("/<task_id>/unschedule", methods=["POST"])
 @login_required
 def unschedule(task_id):
-    """Clear a task's ``plan_date`` (drag it off the Plan timeline back into
-    the backlog). Removes the mirrored plan event from Google too."""
+    """Take a task's time-of-day away (drag it off the Plan timeline back into
+    the Unplanned rail). Removes the mirrored plan event from Google too.
+
+    With ``date=YYYY-MM-DD`` the task STAYS on that day, without a time — the
+    day's midnight, the same value carry-over writes. That is what the rail
+    shows, and it is why the pill survives a reload: a task with no plan date,
+    no due date and no flag is not part of any day, so clearing the date
+    outright made the pill vanish the next time the page was drawn.
+    Without a date the plan date is cleared (off the day entirely).
+    """
     from flask import jsonify
+    from datetime import datetime as _dt, time as _t
     user = current_user._get_current_object()
     task = Item.objects(pk=task_id).first()
     if not task or not task.can_be_edited_by(user):
         abort(404)
-    task.plan_date = None
+    raw = (request.form.get("date") or "").strip()
+    keep_on = None
+    if raw:
+        try:
+            keep_on = _dt.combine(_dt.fromisoformat(raw).date(), _t(0, 0)) \
+                .replace(tzinfo=resolve_tz(user))
+        except ValueError:
+            return jsonify({"error": "invalid date"}), 400
+    task.plan_date = keep_on
     task.save()
     warnings = _writeback_calendar(task, user) or []
     return jsonify({"ok": True, "warnings": warnings})
@@ -2826,6 +2860,15 @@ def auto_plan():
     time-of-day are placed, around existing calendar events and tasks that
     are already timed. Each placed task gets ``plan_date`` set + Google
     write-back. Returns ``{ok, planned, skipped, warnings}``.
+
+    **Nothing ever drops out of the view.** Two rules make that true, because
+    a planner that hides work is worse than one that plans badly:
+
+    * once the working day is over there is no window left, so the call is a
+      no-op and answers ``day_over`` instead of re-packing a day into nothing;
+    * a task that does not fit keeps its place on the DAY (midnight, i.e. no
+      time-of-day) and shows up in the Unplanned rail — it never has its
+      ``plan_date`` cleared, which used to take it off the plate entirely.
     """
     from flask import jsonify
     from datetime import datetime as _dt, time as _t
@@ -2851,6 +2894,16 @@ def auto_plan():
         window_end = _dt.combine(d, _t(end_h, 0)).replace(tzinfo=tz)
     if is_today:
         window_start = max(window_start, _snap_up(now.astimezone(tz)))
+
+    # There is no day left to pack into: after the working hours are over
+    # ``window_start`` (= now) has run past ``window_end``, nothing can fit,
+    # and a re-pack would strip every task's time for no gain. Do nothing and
+    # say so — this is what took the whole day off the view when "Re-pack" was
+    # pressed at 19:00 with hours ending at 18:00.
+    if window_start >= window_end:
+        return jsonify({"ok": True, "planned": 0, "skipped": 0, "day_over": True,
+                        "window": f"{start_h:02d}:00–{min(end_h, 24):02d}:00",
+                        "warnings": []})
 
     # Day's calendar events (same opt-in calendars as the Today view).
     day_start = _dt.combine(d, _t(0, 0)).replace(tzinfo=tz)
@@ -2905,9 +2958,16 @@ def auto_plan():
     for c, start in zip(cands, starts):
         task = c["obj"]
         if start is None:
-            # In repack, a task that no longer fits is pushed back to the backlog.
-            if mode == "repack" and task.plan_date is not None:
-                task.plan_date = None
+            # A re-pack loses the task's time — but it must NOT lose the task.
+            # Clearing ``plan_date`` took it off the day altogether, and a task
+            # that is neither planned, due nor flagged matches nothing in
+            # ``_plan_day_tasks``, so it silently disappeared from the planner.
+            # The day's midnight is "on this day, no time yet" (what carry-over
+            # writes too), which puts it in the Unplanned rail where an
+            # unplaced task belongs.
+            cur = _as_tz(task.plan_date, tz)
+            if mode == "repack" and cur and (cur.hour or cur.minute):
+                task.plan_date = day_start
                 task.save()
                 warnings.extend(_writeback_calendar(task, user) or [])
             skipped += 1

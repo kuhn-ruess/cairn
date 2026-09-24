@@ -2884,6 +2884,24 @@ body.ps-resizing * {
 .plan-ico.plan-complete:hover {
   background: var(--gv-green); color: var(--gv-bg0); transform: scale(1.1);
 }
+/* "Back to Next" — an unfinished task the day ran out on goes back into Next
+   actions and loses its plan date. A muted action like the note button beside
+   it: the check chip is the primary move on a card, this is the other answer. */
+.plan-back-next {
+  flex: 0 0 auto; border: 0; background: transparent; padding: 0 .2rem;
+  cursor: pointer; line-height: 1; font-size: .85rem; opacity: .55;
+  color: var(--bs-secondary-color, #6c757d);
+  display: inline-flex; align-items: center;
+  transition: opacity .12s ease, color .12s ease;
+}
+.plan-back-next:hover { opacity: 1; color: var(--gv-aqua); }
+/* On a TIMELINE card the note button is pinned to the top-right corner
+   (today.html), so this one is pinned beside it instead of landing under it.
+   Scoped to the lane on purpose: a rail pill carries ``plan-card-task`` too,
+   is not positioned, and an absolute button there flies off the pill. */
+.plan-lane .plan-card-task .plan-back-next {
+  position: absolute; top: 2px; right: 26px;
+}
 /* completed task stays on the timeline, struck through + dimmed */
 .plan-card.is-done { opacity: .62; filter: grayscale(.4); cursor: default; }
 .plan-card.is-done .plan-card-title { text-decoration: line-through; }

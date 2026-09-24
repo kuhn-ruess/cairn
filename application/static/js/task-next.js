@@ -56,13 +56,14 @@
   }
 
   /* POST the change. ``off`` takes the mark off, ``minutes`` sets the estimate
-   * alongside marking it next. Returns a promise so the keyboard path can
-   * share it. */
-  async function post(taskId, { off = false, minutes = null } = {}) {
+   * alongside marking it next, ``clearPlan`` also takes the task off the day
+   * it was planned for. Returns a promise so the keyboard path can share it. */
+  async function post(taskId, { off = false, minutes = null, clearPlan = false } = {}) {
     const fd = new FormData();
     fd.append("csrf_token", csrfToken());
     if (off) fd.append("off", "1");
     if (minutes) fd.append("minutes", String(minutes));
+    if (clearPlan) fd.append("clear_plan", "1");
     try {
       const resp = await fetch(`/tasks/${taskId}/next`, {
         method: "POST",
@@ -106,6 +107,26 @@
     closeMenu(btn);
     post(btn.dataset.taskId, { minutes: btn.dataset.minutes });
   });
+
+  /* "Back to Next" on the Plan view: the day ran out on this task, so mark it
+   * next AND take the stale plan date off it — one click, the same endpoint.
+   *
+   * CAPTURE phase on purpose. The button sits inside a card/pill that is itself
+   * an inspector trigger (`[data-inspector-url]`), and inspector.js listens on
+   * `document` too — `stopPropagation()` while bubbling does not stop another
+   * listener on the SAME node, so the panel would fly open on every click.
+   * Catching the click on the way down does stop it; it is the same trick the
+   * note button beside it uses (event-notes.js). */
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest && ev.target.closest(".task-next-back");
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (btn.dataset.busy === "1") return;
+    btn.dataset.busy = "1";
+    closeMenu(btn);
+    post(btn.dataset.taskId, { clearPlan: true });
+  }, true);
 
   /* What the ``n`` key calls (shortcuts.js). Reads the row's own arrow so the
    * key and the click can never disagree about which way the toggle goes; a row
