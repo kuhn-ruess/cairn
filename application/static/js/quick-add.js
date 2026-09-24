@@ -232,6 +232,9 @@
       // …and this one on the last, rather than one short of it.
       ev.preventDefault(); acIndex = (acIndex <= 0 ? acItems.length : acIndex) - 1; renderAc();
     } else if (ev.key === "Enter" || ev.key === "Tab") {
+      // ⌘/Ctrl+Enter is "add the task" and is never a completion, even with an
+      // entry highlighted — it is the one key that has to work from every field.
+      if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { hideAc(); return; }
       // Only once an entry is actually highlighted. Otherwise Enter submits the
       // task and Tab moves on, which is what the user pressed them for.
       if (acIndex < 0) return;
@@ -249,10 +252,35 @@
   input.addEventListener("blur", () => setTimeout(hideAc, 120));
 
   // ----- Submit -----
+  // The title field finishes the dialog on plain Enter, because it is a
+  // single-line input in a form that has a submit button — the browser does
+  // that, not us. Nothing BELOW it does: the note is a textarea where Enter is
+  // a newline (and has to stay one), and a `datetime-local` or a `<select>`
+  // keep Enter for themselves. So once the caret had left the first field the
+  // only way to add the task was the mouse — the button sits 40 tab stops past
+  // the note, behind three date pickers with seven stops each.
+  //
+  // **⌘/Ctrl+Enter adds the task from anywhere in the dialog.** Same key as the
+  // inspector's task form (`inspector.js`) and the note editors, so there is
+  // one "save this from the keyboard" chord in the app rather than three.
+  let submitting = false;
+  form.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter" || ev.isComposing) return;
+    if (!(ev.metaKey || ev.ctrlKey)) return;
+    ev.preventDefault();
+    if (typeof form.requestSubmit === "function") form.requestSubmit();
+    else form.dispatchEvent(new Event("submit", { cancelable: true }));
+  });
+
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const text = input.value.trim();
-    if (!text) return;
+    // An empty title is not an error worth a banner, but it must put the caret
+    // back where the text goes — otherwise ⌘+Enter from the note field looks
+    // like nothing happened at all.
+    if (!text) { input.focus(); return; }
+    if (submitting) return;
+    submitting = true;
     const submitBtn = form.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
     try {
@@ -292,6 +320,7 @@
     } catch (err) {
       showError(`Network error: ${err.message}`);
     } finally {
+      submitting = false;
       submitBtn.disabled = false;
     }
   });

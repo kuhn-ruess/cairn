@@ -408,17 +408,23 @@
               <input type="file" multiple class="d-none pending-attachments-input">
             </label>
           </div>
+          {# The ±date chips are mouse shortcuts for what the field beside them
+             also takes typed, so they are OUT of the tab order (tabindex="-1"):
+             fifteen of them plus three date pickers put the "Add task" button
+             forty-one tab stops away from the title, which is why the dialog
+             read as impossible to finish from the keyboard. ⌘/Ctrl+Enter is the
+             answer to that; this just keeps Tab walkable as well. #}
           <div class="row g-2 mt-1">
             <div class="col">
               <label for="quickAddDefer" class="form-label small text-muted mb-1">Defer</label>
               <input type="datetime-local" id="quickAddDefer" name="defer_date"
                      class="form-control form-control-sm">
               <div class="quick-date-row btn-group btn-group-sm mt-1">
-                <button type="button" class="btn btn-outline-secondary" data-quick-date="quickAddDefer" data-set="today">Today</button>
-                <button type="button" class="btn btn-outline-secondary" data-quick-date="quickAddDefer" data-set="add-day" title="Add a day">+1d</button>
-                <button type="button" class="btn btn-outline-secondary" data-quick-date="quickAddDefer" data-set="add-week" title="Add a week">+1w</button>
-                <button type="button" class="btn btn-outline-secondary" data-quick-date="quickAddDefer" data-set="add-month" title="Add a month">+1m</button>
-                <button type="button" class="btn btn-outline-secondary" data-quick-date="quickAddDefer" data-set="clear">×</button>
+                <button type="button" tabindex="-1" class="btn btn-outline-secondary" data-quick-date="quickAddDefer" data-set="today">Today</button>
+                <button type="button" tabindex="-1" class="btn btn-outline-secondary" data-quick-date="quickAddDefer" data-set="add-day" title="Add a day">+1d</button>
+                <button type="button" tabindex="-1" class="btn btn-outline-secondary" data-quick-date="quickAddDefer" data-set="add-week" title="Add a week">+1w</button>
+                <button type="button" tabindex="-1" class="btn btn-outline-secondary" data-quick-date="quickAddDefer" data-set="add-month" title="Add a month">+1m</button>
+                <button type="button" tabindex="-1" class="btn btn-outline-secondary" data-quick-date="quickAddDefer" data-set="clear">×</button>
               </div>
             </div>
             <div class="col">
@@ -426,11 +432,11 @@
               <input type="datetime-local" id="quickAddDue" name="due_date"
                      class="form-control form-control-sm">
               <div class="quick-date-row btn-group btn-group-sm mt-1">
-                <button type="button" class="btn btn-outline-secondary" data-quick-date="quickAddDue" data-set="today">Today</button>
-                <button type="button" class="btn btn-outline-secondary" data-quick-date="quickAddDue" data-set="add-day" title="Add a day">+1d</button>
-                <button type="button" class="btn btn-outline-secondary" data-quick-date="quickAddDue" data-set="add-week" title="Add a week">+1w</button>
-                <button type="button" class="btn btn-outline-secondary" data-quick-date="quickAddDue" data-set="add-month" title="Add a month">+1m</button>
-                <button type="button" class="btn btn-outline-secondary" data-quick-date="quickAddDue" data-set="clear">×</button>
+                <button type="button" tabindex="-1" class="btn btn-outline-secondary" data-quick-date="quickAddDue" data-set="today">Today</button>
+                <button type="button" tabindex="-1" class="btn btn-outline-secondary" data-quick-date="quickAddDue" data-set="add-day" title="Add a day">+1d</button>
+                <button type="button" tabindex="-1" class="btn btn-outline-secondary" data-quick-date="quickAddDue" data-set="add-week" title="Add a week">+1w</button>
+                <button type="button" tabindex="-1" class="btn btn-outline-secondary" data-quick-date="quickAddDue" data-set="add-month" title="Add a month">+1m</button>
+                <button type="button" tabindex="-1" class="btn btn-outline-secondary" data-quick-date="quickAddDue" data-set="clear">×</button>
               </div>
             </div>
             <div class="col">
@@ -438,11 +444,11 @@
               <input type="datetime-local" id="quickAddPlan" name="plan_date"
                      class="form-control form-control-sm">
               <div class="quick-date-row btn-group btn-group-sm mt-1">
-                <button type="button" class="btn btn-outline-secondary" data-quick-date="quickAddPlan" data-set="today">Today</button>
-                <button type="button" class="btn btn-outline-secondary" data-quick-date="quickAddPlan" data-set="add-day" title="Add a day">+1d</button>
-                <button type="button" class="btn btn-outline-secondary" data-quick-date="quickAddPlan" data-set="add-week" title="Add a week">+1w</button>
-                <button type="button" class="btn btn-outline-secondary" data-quick-date="quickAddPlan" data-set="add-month" title="Add a month">+1m</button>
-                <button type="button" class="btn btn-outline-secondary" data-quick-date="quickAddPlan" data-set="clear">×</button>
+                <button type="button" tabindex="-1" class="btn btn-outline-secondary" data-quick-date="quickAddPlan" data-set="today">Today</button>
+                <button type="button" tabindex="-1" class="btn btn-outline-secondary" data-quick-date="quickAddPlan" data-set="add-day" title="Add a day">+1d</button>
+                <button type="button" tabindex="-1" class="btn btn-outline-secondary" data-quick-date="quickAddPlan" data-set="add-week" title="Add a week">+1w</button>
+                <button type="button" tabindex="-1" class="btn btn-outline-secondary" data-quick-date="quickAddPlan" data-set="add-month" title="Add a month">+1m</button>
+                <button type="button" tabindex="-1" class="btn btn-outline-secondary" data-quick-date="quickAddPlan" data-set="clear">×</button>
               </div>
             </div>
           </div>
@@ -465,6 +471,12 @@
             <code>!</code> flag · <code>today</code> / <code>tomorrow</code> /
             <code>monday</code> / <code>in 3 days</code> / <code>2025-12-31</code>
           </div>
+          <div class="quick-add-hint mt-1 small text-muted">
+            <i class="bi bi-keyboard"></i>
+            <kbd>Enter</kbd> in the title adds the task ·
+            <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Enter</kbd> adds it from any field ·
+            <kbd>Esc</kbd> cancels
+          </div>
         </div>
         <div class="modal-footer py-2 px-3">
           <div class="form-check me-auto">
@@ -476,7 +488,8 @@
           <button type="button" class="btn btn-sm btn-link text-muted" data-bs-dismiss="modal">
             Cancel
           </button>
-          <button type="submit" class="btn btn-sm btn-primary">Add task</button>
+          <button type="submit" class="btn btn-sm btn-primary"
+                  title="Add task (⌘/Ctrl+Enter)">Add task</button>
         </div>
       </form>
     </div>
@@ -496,6 +509,7 @@
             <h3 class="h6 mb-2 text-muted">Actions</h3>
             <dl class="row mb-0">
               <dt class="col-4"><kbd>q</kbd></dt><dd class="col-8">Quick add task</dd>
+              <dt class="col-4"><kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Enter</kbd></dt><dd class="col-8">Add the task from any field of the quick-add dialog (plain <kbd>Enter</kbd> in its title field does it too)</dd>
               <dt class="col-4"><kbd>p</kbd></dt><dd class="col-8">Jump to project / task</dd>
               <dt class="col-4"><kbd>/</kbd></dt><dd class="col-8">Focus search</dd>
               <dt class="col-4"><kbd>↑</kbd> <kbd>↓</kbd></dt><dd class="col-8">Move cursor through tasks / sidebar</dd>
