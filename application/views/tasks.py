@@ -377,7 +377,21 @@ def _apply_tags(task: Item, user: User, raw_names) -> bool:
     return task.assigned_to != before
 
 
-def _apply_form(form: TaskForm, task: Item, user: User) -> None:
+# What ``tasks/process_inbox.html`` actually renders. That triage form is a
+# TRIMMED inspector, so its POST is indistinguishable from one sent by a user
+# who hid half their sections — and every field it leaves out would arrive as
+# an empty default and be written over the task. That is how filing a task in
+# the inbox run unassigned it (visibility is owner-OR-assignee, so the assignee
+# then got 404s), and cleared its estimate, location, repeat rule and
+# follow-up. See tests/test_process_inbox_filing.py.
+PROCESS_INBOX_FIELDS = frozenset({
+    "title", "note", "project", "status", "priority", "flagged",
+    "defer_date", "due_date", "plan_date", "tags",
+})
+
+
+def _apply_form(form: TaskForm, task: Item, user: User, *,
+                fields: frozenset | None = None) -> None:
     from application.services.tz import attach_user_tz
     from application.services.inspector_layout import hidden_sections
     # The inspector only renders the sections the user kept visible, so a
@@ -388,6 +402,17 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     # can't tell the two apart: a visible-but-unchecked box is absent too.
     # So skip by section instead. ``title`` is pinned and always rendered.
     hidden = hidden_sections(user)
+
+    def shown(section: str, *names: str) -> bool:
+        """Did this POST actually carry ``names``? The section has to be one the
+        user kept — AND, for a caller whose template is not the inspector, one
+        of the fields that template renders (``fields``). A section is not the
+        unit there: the triage form shows the priority but not the estimate,
+        the project but not the assignee."""
+        if section in hidden:
+            return False
+        return fields is None or all(n in fields for n in names)
+
     # The assignee the picker was rendered with. A tag's auto-assign rule
     # fires below, while the submitted select still carries the value from
     # before — so an untouched picker must not write that stale value back.
@@ -395,25 +420,32 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     tag_assigned = False
 
     task.title = form.title.data
-    if "note" not in hidden:
+    if shown("note", "note"):
         task.note = form.note.data or ""
-    if "status_project" not in hidden:
+    if shown("status_project", "status"):
         task.status = form.status.data
+    if shown("status_project", "flagged"):
         task.flagged = form.flagged.data
+    if shown("status_project", "is_internal"):
         task.is_internal = form.is_internal.data
-    if "priority_estimate" not in hidden:
+    if shown("priority_estimate", "priority"):
         task.priority = int(form.priority.data) if form.priority.data else None
+    if shown("priority_estimate", "estimated_minutes"):
         task.estimated_minutes = form.estimated_minutes.data
-    if "dates" not in hidden:
-        # ``datetime-local`` inputs come in as naive wall-clock values in the
-        # user's local time — attach their tz so mongoengine doesn't treat
-        # them as UTC and shift everything by the user's offset.
+    # ``datetime-local`` inputs come in as naive wall-clock values in the
+    # user's local time — attach their tz so mongoengine doesn't treat
+    # them as UTC and shift everything by the user's offset.
+    if shown("dates", "defer_date"):
         task.defer_date = attach_user_tz(form.defer_date.data, user)
+    if shown("dates", "due_date"):
         task.due_date = attach_user_tz(form.due_date.data, user)
+    if shown("dates", "plan_date"):
         task.plan_date = attach_user_tz(form.plan_date.data, user)
+    if shown("dates", "start_date", "end_date"):
         task.start_date = attach_user_tz(form.start_date.data, user)
         task.end_date = attach_user_tz(form.end_date.data, user)
-    if "review" not in hidden:
+    if shown("review", "waiting_on", "followup_at", "followup_every_days",
+             "review_interval_days"):
         task.waiting_on = (form.waiting_on.data or "").strip()
         # Takes the defer date with it, when the defer date isn't saying
         # something else (Item.set_followup).
@@ -421,9 +453,10 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
         task.followup_every_days = form.followup_every_days.data
         # Blank → None → inherit the project's review cadence; a number overrides.
         task.review_interval_days = form.review_interval_days.data
-    if "location" not in hidden:
+    if shown("location", "location"):
         task.location = (form.location.data or "").strip()
-    if "repeat" not in hidden:
+    if shown("repeat", "repeat_every_days", "repeat_unit",
+             "repeat_from_completion", "repeat_weekdays", "repeat_monthday"):
         task.repeat_every_days = form.repeat_every_days.data
         task.repeat_unit = form.repeat_unit.data or "day"
         task.repeat_from_completion = form.repeat_from_completion.data
@@ -446,7 +479,7 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
     # out to a project happens via drag/move, not this form.
     parent_is_task = (task.parent is not None
                       and getattr(task.parent, "kind", None) == "task")
-    if "status_project" not in hidden:
+    if shown("status_project", "project"):
         if not parent_is_task:
             from application.services.permissions import resolve_visible_item
             _dest = resolve_visible_item(user, form.project.data) if form.project.data else None
@@ -457,6 +490,7 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
             except ValueError:
                 # Tampered POST picking a project the assignee doesn't own → Inbox.
                 task.set_home_for(user, None)
+    if shown("status_project", "tags"):
         tag_assigned = _apply_tags(task, user, form.tags.data)
 
     # Owner (Jira-style, separate from the assignee). Only an existing task has
@@ -502,9 +536,10 @@ def _apply_form(form: TaskForm, task: Item, user: User) -> None:
             # Silently ignore non-shareable pks — the select choices are
             # already filtered, so reaching this branch with a bad id means
             # someone tampered with the POST.
-    elif "assigned_to" not in hidden:
-        # Empty select = explicit unassign, but only when the user can actually
-        # see the picker — a hidden section must not silently unassign.
+    elif shown("assigned_to", "assigned_to"):
+        # Empty select = explicit unassign, but only when the picker was
+        # actually rendered — a section the user hid, or a form that simply
+        # doesn't show the field, must not silently unassign.
         task.assign_to(None)
 
 # ---------- perspectives ----------
@@ -580,7 +615,9 @@ def process_inbox_save(task_id):
     # the one we just handled — captured before save so it's stable even if the
     # task leaves the inbox (e.g. the user filed it under a project).
     cursor = task.created_at
-    _apply_form(form, task, user)
+    # The triage template renders a subset of the inspector's fields; say which,
+    # so the absent ones are left alone instead of cleared (PROCESS_INBOX_FIELDS).
+    _apply_form(form, task, user, fields=PROCESS_INBOX_FIELDS)
     _apply_smart_tokens(task, form.title.data, user)
     task.save()
     _writeback_calendar(task, user)
