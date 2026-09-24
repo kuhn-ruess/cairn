@@ -236,14 +236,23 @@ def _fallback_tz() -> str:
 
 def _event_body(title: str, when: datetime, all_day: bool, description: str,
                 duration_minutes: int = 30, timezone: str | None = None,
-                location: str = "") -> dict:
+                location: str = "", alarm_minutes: int = 0) -> dict:
     """The Google event. ``location`` is where a meeting link BELONGS: that
     is the field every calendar turns into a join button, on the phone's lock
     screen too. In the description it is a line of text somebody has to find
-    and copy."""
+    and copy.
+
+    ``alarm_minutes`` is Google's spelling of a VALARM: an override replacing
+    the calendar's default, because a planned block's reminder is the user's
+    setting in Cairn (``services/reminders.py``) and not whatever that calendar
+    happens to do to every entry. ``0`` leaves the default alone."""
     body = {"summary": title, "description": description or ""}
     if location:
         body["location"] = location
+    if alarm_minutes > 0:
+        body["reminders"] = {"useDefault": False,
+                             "overrides": [{"method": "popup",
+                                            "minutes": int(alarm_minutes)}]}
     if all_day:
         date = when.date().isoformat()
         body["start"] = {"date": date}
@@ -266,12 +275,12 @@ def google_create_event(calendar, user, *, title: str, when: datetime,
                         all_day: bool = True, description: str = "",
                         duration_minutes: int = 30,
                         timezone: str | None = None,
-                        location: str = "") -> dict:
+                        location: str = "", alarm_minutes: int = 0) -> dict:
     """Push a task to a Google calendar as a single all-day or timed event."""
     token = _ensure_google_access_token(calendar, user)
     cal_id = calendar.calendar_id or "primary"
     body = _event_body(title, when, all_day, description, duration_minutes,
-                       timezone, location)
+                       timezone, location, alarm_minutes)
     url = f"{GOOGLE_API_URL}/calendars/{urllib.parse.quote(cal_id)}/events"
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST")
@@ -289,12 +298,12 @@ def google_patch_event(calendar, user, event_id: str, *, title: str, when: datet
                        all_day: bool = True, description: str = "",
                        duration_minutes: int = 30,
                        timezone: str | None = None,
-                       location: str = "") -> dict:
+                       location: str = "", alarm_minutes: int = 0) -> dict:
     """Replace an existing event's title/time. PUT keeps the same id."""
     token = _ensure_google_access_token(calendar, user)
     cal_id = calendar.calendar_id or "primary"
     body = _event_body(title, when, all_day, description, duration_minutes,
-                       timezone, location)
+                       timezone, location, alarm_minutes)
     url = (f"{GOOGLE_API_URL}/calendars/{urllib.parse.quote(cal_id)}"
            f"/events/{urllib.parse.quote(event_id)}")
     data = json.dumps(body).encode("utf-8")
@@ -991,7 +1000,8 @@ def _fetch_caldav(calendar, user, since: datetime, until: datetime) -> list[Cale
 
 def _caldav_event_ics(uid: str, title: str, when: datetime, all_day: bool,
                       description: str, duration_minutes: int,
-                      tz_name: str | None, location: str = "") -> str:
+                      tz_name: str | None, location: str = "",
+                      alarm_minutes: int = 0) -> str:
     from icalendar import Calendar as ICalendar, Event as IEvent
     cal = ICalendar()
     cal.add("prodid", "-//Cairn//Calendar//EN")
@@ -1015,6 +1025,10 @@ def _caldav_event_ics(uid: str, title: str, when: datetime, all_day: bool,
         ev.add("dtend", w + timedelta(minutes=max(duration_minutes, 5)))
     ev.add("dtstamp", datetime.now(timezone.utc))
     ev.add("last-modified", datetime.now(timezone.utc))
+    # The planned block's reminder, relative to DTSTART so it follows the event
+    # if it is dragged elsewhere in the calendar. ``0`` adds nothing at all.
+    from application.services.reminders import add_alarm
+    add_alarm(ev, alarm_minutes, title or "Reminder")
     cal.add_component(ev)
     return cal.to_ical().decode("utf-8")
 
@@ -1023,13 +1037,13 @@ def caldav_create_event(calendar, user, *, title: str, when: datetime,
                         all_day: bool = True, description: str = "",
                         duration_minutes: int = 30,
                         timezone: str | None = None,
-                        location: str = "") -> dict:
+                        location: str = "", alarm_minutes: int = 0) -> dict:
     """Create an event by PUTting a fresh ``<uid>.ics`` resource. Returns
     ``{"id": uid}`` so the caller stores the UID like a Google event id."""
     import uuid
     uid = f"cairn-{uuid.uuid4().hex}"
     ics = _caldav_event_ics(uid, title, when, all_day, description,
-                            duration_minutes, timezone, location)
+                            duration_minutes, timezone, location, alarm_minutes)
     _caldav_request("PUT", _caldav_href(calendar, uid), calendar=calendar, user=user,
                     body=ics, headers={"Content-Type": "text/calendar; charset=utf-8",
                                        "If-None-Match": "*"})
@@ -1040,10 +1054,10 @@ def caldav_patch_event(calendar, user, event_id: str, *, title: str, when: datet
                        all_day: bool = True, description: str = "",
                        duration_minutes: int = 30,
                        timezone: str | None = None,
-                       location: str = "") -> dict:
+                       location: str = "", alarm_minutes: int = 0) -> dict:
     """Update an event by re-PUTting its ``<uid>.ics`` (same UID = replace)."""
     ics = _caldav_event_ics(event_id, title, when, all_day, description,
-                            duration_minutes, timezone, location)
+                            duration_minutes, timezone, location, alarm_minutes)
     _caldav_request("PUT", _caldav_href(calendar, event_id), calendar=calendar, user=user,
                     body=ics, headers={"Content-Type": "text/calendar; charset=utf-8"})
     return {"id": event_id}

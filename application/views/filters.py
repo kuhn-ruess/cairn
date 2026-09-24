@@ -297,6 +297,40 @@ def register_filters(app):
             from application.views.notes import notes_tree_for_sidebar
             return notes_tree_for_sidebar(current_user._get_current_object())
 
+        def _task_colors(items):
+            """``{str(pk): {"color", "label"}}`` for a list of tasks — the row
+            colour derived from its project or its customer.
+
+            A Jinja global rather than a view variable because ``_list_body`` is
+            included from a dozen templates and the swatch belongs to the ROW,
+            not to one page. Asked once per rendered list and cached on
+            ``flask.g`` per item, so a page that includes the same list twice
+            (and a group-by-project page, which includes one per group) resolves
+            each task exactly once. ``User.color_by == "none"`` short-circuits
+            before any query."""
+            if not current_user.is_authenticated:
+                return {}
+            mode = getattr(current_user, "color_by", "project") or "project"
+            if mode == "none":
+                return {}
+            from flask import g as _g
+            items = [i for i in (items or []) if getattr(i, "pk", None)]
+            if not items:
+                return {}
+            cache = getattr(_g, "_row_colors", None)
+            if cache is None:
+                cache = _g._row_colors = {}
+            fresh = [i for i in items if str(i.pk) not in cache]
+            if fresh:
+                from application.services.colors import row_colors
+                resolved = row_colors(fresh, mode)
+                # Absent means "resolves to nothing" and is cached as such —
+                # otherwise every include would re-ask for the same Inbox tasks.
+                for i in fresh:
+                    cache[str(i.pk)] = resolved.get(str(i.pk))
+            return {str(i.pk): cache[str(i.pk)]
+                    for i in items if cache.get(str(i.pk))}
+
         def _can_view_container(item):
             """True if the current user may open ``item`` — a task's parent
             project/folder/section, given either as an Item or as a pk
@@ -393,6 +427,7 @@ def register_filters(app):
             "item_icon": _item_icon,
             "item_storage": lambda item: item.storage_info(),
             "task_note_counts_for": lambda items: Item.note_counts_for(items),
+            "task_colors": _task_colors,
             "can_view_container": _can_view_container,
             "inspector_section_order": inspector_section_order,
             "inspector_section_labels": inspector_section_labels,

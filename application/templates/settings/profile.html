@@ -103,6 +103,29 @@
         <span class="text-muted small">(leave empty for no break)</span>
       </div>
 
+      <div class="d-flex align-items-center gap-2 mt-3 flex-wrap">
+        <label class="form-label mb-0 small" for="reminder-lead">
+          <i class="bi bi-alarm"></i> Remind me before a planned block
+        </label>
+        <select id="reminder-lead" name="reminder_lead_min"
+                class="form-select form-select-sm" style="max-width: 11rem;">
+          {% for _m in reminder_lead_choices %}
+            <option value="{{ _m }}"
+              {{ 'selected' if (current_user.reminder_lead_min or 0) == _m else '' }}>
+              {% if _m == 0 %}No reminder{% else %}{{ _m }} minutes before{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <p class="text-muted small mt-2 mb-0" style="max-width: 640px;">
+        Delivered by your calendar, not by Cairn: every planned task Cairn hands
+        to a calendar carries an alarm — the CalDAV lists in Apple Reminders, the
+        read-only <em>Cairn (Kalender)</em> feed below, and the
+        <strong>Plan:</strong> events written back to Google/CalDAV. Only a plan
+        date with a <em>time</em> on it gets one — a task planned “for Thursday”
+        would otherwise ring at ten to midnight on Wednesday.
+      </p>
+
       <hr class="my-3">
       <h2 class="h6 mb-2"><i class="bi bi-crosshair"></i> Focus on login</h2>
       <div class="form-check">
@@ -235,6 +258,29 @@
 
   <div class="card mb-4" style="max-width: 720px;">
     <div class="card-body">
+      <h2 class="h6 mb-2"><i class="bi bi-palette"></i> Colour rows by</h2>
+      <p class="text-muted small mb-2">
+        Gives every task a small swatch of the work it belongs to, in lists and
+        on the Plan timeline. A project’s own colour (project inspector) is
+        used when it has one, inherited from the nearest folder that does;
+        otherwise the colour is derived from the project, so it is stable
+        without anybody picking anything.
+      </p>
+      <select name="color_by" class="form-select form-select-sm mb-3"
+              style="max-width: 16rem;">
+        {% for _v, _lbl in [('none', 'Nothing — no swatches'),
+                            ('project', 'Project / folder'),
+                            ('customer', 'Customer')] %}
+          {% if _v != 'customer' or current_user.team or current_user.is_team_admin %}
+            <option value="{{ _v }}"
+              {{ 'selected' if (current_user.color_by or 'project') == _v else '' }}>
+              {{ _lbl }}
+            </option>
+          {% endif %}
+        {% endfor %}
+      </select>
+
+      <hr class="my-3">
       <h2 class="h6 mb-2"><i class="bi bi-list-task"></i> Task row display</h2>
       <p class="text-muted small mb-3">
         Pick which bits of metadata show up next to each task in lists.

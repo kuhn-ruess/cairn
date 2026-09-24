@@ -215,11 +215,25 @@ def describe_containers(items, team=None):
 def container_paths(items):
     """``{str(item.pk): "Folder / Sub / Project"}`` — where each task is filed.
 
-    The owning project or folder, with its full breadcrumb, for a whole list in
-    a handful of queries: ancestors level by level, no dereference per row. A
-    section is walked past (it is inline structure, not a place), and a task
-    filed nowhere is absent from the result — the caller decides what "Inbox"
-    is called.
+    The label half of :func:`container_accents`; see there for the walk.
+    """
+    return {pk: info["label"] for pk, info in container_accents(items).items()}
+
+
+def container_accents(items):
+    """``{str(item.pk): {"pk", "label", "color"}}`` — the container a task is
+    filed in, its breadcrumb, and the colour that applies to it.
+
+    The owning project or folder, for a whole list in a handful of queries:
+    ancestors level by level, no dereference per row. A section is walked past
+    (it is inline structure, not a place), and a task filed nowhere is absent
+    from the result — the caller decides what "Inbox" is called.
+
+    ``color`` is **inherited**: the nearest ancestor carrying one wins, so a
+    colour set on the "Acme" folder covers every project under it — the same
+    climb ``customer_labels`` makes for the customer itself. ``""`` when nobody
+    up the chain ever picked one; deriving a colour from that is
+    ``services.colors``' business, not this one's.
     """
     items = list(items or [])
     if not items:
@@ -234,7 +248,7 @@ def container_paths(items):
             break
         parents = list(Item.all_objects(pk__in=missing)
                        .no_dereference()
-                       .only("pk", "title", "kind", "parent"))
+                       .only("pk", "title", "kind", "parent", "color"))
         if not parents:
             break
         for p in parents:
@@ -263,12 +277,24 @@ def container_paths(items):
             steps += 1
         return " / ".join(reversed(parts))
 
+    def color_of(node):
+        """The nearest colour up the chain, starting at the container itself."""
+        seen, steps = set(), 0
+        while node is not None and steps < 20 and str(node.pk) not in seen:
+            seen.add(str(node.pk))
+            if (node._data.get("color") or "").strip():
+                return node._data["color"].strip()
+            node = known.get(str(_ref_pk(node._data.get("parent")) or ""))
+            steps += 1
+        return ""
+
     out = {}
     for it in items:
         node = known.get(str(_ref_pk(it._data.get("parent")) or ""))
         home = owning(node)
         if home is not None:
-            out[str(it.pk)] = path_of(home)
+            out[str(it.pk)] = {"pk": str(home.pk), "label": path_of(home),
+                               "color": color_of(home)}
     return out
 
 

@@ -6,6 +6,13 @@
    Interactions (drag to reschedule, resize, "Plan my day") are wired by the
    inline plan-view JS in today.html. #}
 {% from "tasks/_event_note_macros.html" import event_note_btn, task_note_btn %}
+{# Row colours for everything on this page in ONE resolve: the timed task cards
+   and both rails. ``task_colors`` caches per item, so asking for the union here
+   costs the same as asking three times and keeps the three shapes in step. #}
+{% set _plan_tasks = (plan_data.timed | selectattr('kind', 'equalto', 'task') | map(attribute='obj') | list)
+                   + (plan_data.backlog | map(attribute='obj') | list)
+                   + (plan_data.next_pool | map(attribute='obj') | list) %}
+{% set _rc = task_colors(_plan_tasks) %}
 {% set range0 = plan_data.range_start_min %}
 {% set span = plan_data.range_end_min - range0 %}
 {% set h0 = range0 // 60 %}
@@ -133,13 +140,15 @@
               {% if it.obj.uid %}{{ event_note_btn(it.obj, event_note_counts.get(it.obj.uid, 0)) }}{% endif %}
             </div>
           {% else %}
-            <div class="plan-card plan-card-task{% if it.done %} is-done{% endif %}{% if is_current and not it.done %} plan-card-current{% endif %}{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
+            {% set _c = _rc.get(it.obj.pk|string) %}
+            <div class="plan-card plan-card-task{% if it.done %} is-done{% endif %}{% if is_current and not it.done %} plan-card-current{% endif %}{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}{% if _c %} has-row-color{% endif %}"
                  draggable="{{ 'false' if it.done else 'true' }}"
                  data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
                  data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
                  data-inspector-title="{{ it.obj.title }}"
+                 {% if _c %}title="{{ _c.label }}"{% endif %}
                  style="--top: {{ smin - range0 }}; --dur: {{ it.duration_min }};
-                        --col: {{ it.col }}; --cols: {{ it.cols }};">
+                        --col: {{ it.col }}; --cols: {{ it.cols }};{% if _c %} --dot: {{ _c.color }};{% endif %}">
               <button type="button" class="plan-ico plan-ico-task plan-complete"
                       title="{{ 'Reopen' if it.done else 'Mark done' }}">
                 <i class="bi {{ 'bi-check-circle-fill text-success' if it.done else 'bi-check2' }}"></i>
@@ -176,12 +185,14 @@
      Both are split into sections by ``plan_data.grouping`` (project / customer
      / none) — when you pick work together, what it belongs to is the thing you
      need to see, and the flat list of forty pills does not say it. #}
-  {% macro rail_pill(it, extra_class='', back_to_next=false) %}
-    <div class="plan-rail-item plan-card-task {{ extra_class }}{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
+  {% macro rail_pill(it, extra_class='', back_to_next=false, colors={}) %}
+    {% set _c = colors.get(it.obj.pk|string) %}
+    <div class="plan-rail-item plan-card-task {{ extra_class }}{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}{% if _c %} has-row-color{% endif %}"
          draggable="true"
          data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
          data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
-         data-inspector-title="{{ it.obj.title }}">
+         data-inspector-title="{{ it.obj.title }}"
+         {% if _c %}style="--dot: {{ _c.color }};" title="{{ _c.label }}"{% endif %}>
       {# Complete directly instead of planning. stopPropagation so the click
          doesn't hit the pill's inspector-open handler (which would also
          preventDefault the submit); draggable=false so it doesn't drag. #}
@@ -211,7 +222,7 @@
 
   {# One section per group. An ungrouped rail comes through as a single section
      with no label, so there is exactly one code path here. #}
-  {% macro rail_sections(groups, extra_class='', back_to_next=false) %}
+  {% macro rail_sections(groups, extra_class='', back_to_next=false, colors={}) %}
     {% for label, icon, entries in groups %}
       {% if label %}
         <div class="plan-rail-group">
@@ -219,10 +230,10 @@
             <i class="bi {{ icon }}"></i> {{ label }}
             <span class="plan-rail-count">{{ entries|length }}</span>
           </div>
-          {% for it in entries %}{{ rail_pill(it, extra_class, back_to_next) }}{% endfor %}
+          {% for it in entries %}{{ rail_pill(it, extra_class, back_to_next, colors) }}{% endfor %}
         </div>
       {% else %}
-        {% for it in entries %}{{ rail_pill(it, extra_class, back_to_next) }}{% endfor %}
+        {% for it in entries %}{{ rail_pill(it, extra_class, back_to_next, colors) }}{% endfor %}
       {% endif %}
     {% endfor %}
   {% endmacro %}
@@ -234,7 +245,7 @@
       </h2>
       <div class="plan-rail-hint">Drag a card here to unschedule it</div>
       {% if plan_data.backlog %}
-        {{ rail_sections(plan_data.backlog_groups, back_to_next=true) }}
+        {{ rail_sections(plan_data.backlog_groups, back_to_next=true, colors=_rc) }}
       {% else %}
         <p class="text-muted small mb-0">Everything for this day has a time. 🎉</p>
       {% endif %}
@@ -245,7 +256,7 @@
         <h2 class="plan-rail-head">
           <i class="bi bi-arrow-right-circle"></i> Next actions <span class="plan-rail-count">{{ plan_data.next_pool|length }}</span>
         </h2>
-        {{ rail_sections(plan_data.next_groups, 'plan-next-item') }}
+        {{ rail_sections(plan_data.next_groups, 'plan-next-item', colors=_rc) }}
       </div>
     {% endif %}
   </div>

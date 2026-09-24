@@ -245,6 +245,18 @@ def profile():
             user.plan_buffer_min = max(0, min(120, int(request.form.get("plan_buffer_min") or 0)))
         except ValueError:
             user.plan_buffer_min = 0
+        # Reminder for a planned block — one lead time, ``0`` = off (the
+        # select's first option). Anything the form can't produce falls back to
+        # the default rather than silently switching reminders off.
+        from application.services.reminders import DEFAULT_LEAD_MIN, LEAD_CHOICES
+        try:
+            lead = int(request.form.get("reminder_lead_min", DEFAULT_LEAD_MIN))
+        except (TypeError, ValueError):
+            lead = DEFAULT_LEAD_MIN
+        user.reminder_lead_min = lead if lead in LEAD_CHOICES else DEFAULT_LEAD_MIN
+        # What a row's colour swatch is derived from (services/colors.py).
+        cby = (request.form.get("color_by") or "project").strip()
+        user.color_by = cby if cby in ("none", "project", "customer") else "project"
         ls = _minutes_of_day(request.form.get("plan_lunch_start"))
         le = _minutes_of_day(request.form.get("plan_lunch_end"))
         # start == end (or end < start, or either one empty) → no lunch break.
@@ -286,11 +298,13 @@ def profile():
     from flask import session as flask_session
     fresh_token = flask_session.pop("new_api_token", None)
     fresh_token_name = flask_session.pop("new_api_token_name", None)
+    from application.services.reminders import LEAD_CHOICES
     return render_template(
         "settings/profile.html",
         timezones=all_tzs,
         server_default=current_app.config.get("DEFAULT_TZ") or "UTC",
         task_row_fields=TASK_ROW_FIELDS,
+        reminder_lead_choices=LEAD_CHOICES,
         fresh_token=fresh_token,
         fresh_token_name=fresh_token_name,
     )

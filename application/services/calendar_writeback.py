@@ -96,7 +96,7 @@ def sync_task_to_calendar(task, user) -> list[str]:
     id_dirty = False
 
     def _reconcile(kind: str, field_id_attr: str, when, enabled: bool,
-                   title_prefix: str):
+                   title_prefix: str, alarm: int = 0):
         nonlocal id_dirty
         if not enabled:
             return
@@ -108,13 +108,13 @@ def sync_task_to_calendar(task, user) -> list[str]:
                              title=title, when=when, all_day=False,
                              description=_describe(task),
                              duration_minutes=duration,
-                             timezone=tz)
+                             timezone=tz, alarm_minutes=alarm)
             elif when and not event_id:
                 created = create_event(cal, user,
                                        title=title, when=when, all_day=False,
                                        description=_describe(task),
                                        duration_minutes=duration,
-                                       timezone=tz)
+                                       timezone=tz, alarm_minutes=alarm)
                 setattr(task, field_id_attr, created.get("id") or "")
                 id_dirty = True
             elif not when and event_id:
@@ -127,10 +127,15 @@ def sync_task_to_calendar(task, user) -> list[str]:
                         task.pk, kind, exc)
             warnings.append(f"{kind.capitalize()} date sync failed: {exc}")
 
+    # The reminder rides on the PLAN event only, and the patch carries it too —
+    # otherwise a lead time changed in Settings would only reach blocks planned
+    # afterwards. A due event is a deadline marker; see services/reminders.py.
+    from application.services.reminders import alarm_minutes_for
     _reconcile("due", "gcal_due_event_id", task.due_date,
                user.calendar_write_due, title_prefix="Due:")
     _reconcile("plan", "gcal_plan_event_id", task.plan_date,
-               user.calendar_write_plan, title_prefix="Plan:")
+               user.calendar_write_plan, title_prefix="Plan:",
+               alarm=alarm_minutes_for(task, user))
 
     if id_dirty:
         task.save()

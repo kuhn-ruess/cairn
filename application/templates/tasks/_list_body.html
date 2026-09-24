@@ -6,10 +6,14 @@
 {% import "favorites_macros.html" as fav with context %}
 {% import "scratchpad/_ref_macro.html" as pad with context %}
 {% import "tasks/_tag_macros.html" as labels with context %}
+{% import "tasks/_color_macros.html" as rowcolor with context %}
 {# Linked-note counts for the per-task note button. Reuse what the view already
    computed (Today), else batch once for this list (one indexed query — never
    per row). #}
 {% set _tnc = task_note_counts if task_note_counts is defined else task_note_counts_for(tasks) %}
+{# Row colours (project / customer) for this list — one batched resolve, cached
+   per item on flask.g, empty dict when the user switched swatches off. #}
+{% set _rc = task_colors(tasks) %}
 <div class="task-list {% if not tasks %}is-empty{% endif %}"
      data-bulk-scope="tasks"
      {% if target_project_id is defined and target_project_id is not none %}data-target-project="{{ target_project_id }}"{% endif %}
@@ -65,6 +69,7 @@
           </form>
         </div>
         <div class="task-main">
+          {{ rowcolor.color_dot(_rc.get(task.pk|string)) }}
           <a class="task-title text-decoration-none text-body"
              href="{{ url_for('tasks.detail', task_id=task.pk) }}">
             {% if task.flagged and current_user.show_field('flag', view_key=_vk) %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}

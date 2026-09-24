@@ -23,6 +23,12 @@ Mapping (``Item`` ⇄ ``VTODO``):
   tags↔CATEGORIES,
   status: done→COMPLETED, dropped→CANCELLED, else NEEDS-ACTION.
 
+A task planned for a time carries a **VALARM** so the client alerts before the
+block starts — the whole of Cairn's reminder story, since it owns no
+time-triggered dispatcher. One lead time per user, on the plan date only; the
+rules live in ``services/reminders.py``. Nothing is read back: an alarm a client
+edits is ignored on the way in and re-asserted on the next export.
+
 A task that is **parked is not delivered at all**: deferred into the future, or
 sitting in one of the model's ``BLOCKED_STATUS`` states (waiting, waiting for a
 reply, someday). Its own value counts and so does an ancestor's — deferring or
@@ -51,6 +57,7 @@ from icalendar import Calendar, Event, Todo
 from application import limiter
 from application.models.item import BLOCKED_STATUS, Item
 from application.models.user import User
+from application.services import reminders
 
 caldav_bp = Blueprint("caldav", __name__)
 
@@ -496,6 +503,19 @@ def _todo_ics(item, user):
         todo.add("status", "NEEDS-ACTION")
     if item.tags:
         todo.add("categories", list(item.tags))
+    # A reminder for the planned BLOCK (services/reminders.py). The trigger is
+    # ABSOLUTE: a VTODO's relative trigger is ambiguous — RELATED=START means
+    # DTSTART and RELATED=END means DUE, this VTODO can carry both, and clients
+    # disagree about which one a bare ``TRIGGER:-PT10M`` anchors to. An instant
+    # cannot be misread. ``alarm_minutes_for`` only answers for a timed
+    # ``plan_date``, which is exactly the DUE emitted above.
+    # In UTC, not in the user's zone: RFC 5545 requires an absolute trigger to
+    # be a UTC DATE-TIME, and unlike DUE nobody ever displays it — so the reason
+    # DUE goes out as local wall-clock (see ``_local``) does not apply here.
+    lead = reminders.alarm_minutes_for(item, user)
+    if lead and due_for_ics:
+        reminders.add_alarm(todo, lead, item.title or "Reminder",
+                            at=_aware(due_for_ics))
     cal.add_component(todo)
     return cal.to_ical().decode("utf-8")
 
@@ -653,7 +673,7 @@ def _find_event(user, name):
         return None
 
 
-def _event_ics(item, source):
+def _event_ics(item, source, user=None):
     cal = Calendar()
     cal.add("prodid", "-//Cairn//CalDAV//EN")
     cal.add("version", "2.0")
@@ -667,6 +687,14 @@ def _event_ics(item, source):
     ev.add("dtend", start + timedelta(minutes=30))
     ev.add("dtstamp", _aware(item.updated_at or _utcnow()))
     ev.add("last-modified", _aware(item.updated_at or _utcnow()))
+    # The reminder for a planned block (services/reminders.py). Only when this
+    # feed is showing PLAN dates — on a due-dated feed the event is a deadline
+    # marker, and an alert ten minutes before one is noise, not a nudge. The
+    # trigger is relative here: a VEVENT has exactly one start, so the alarm
+    # follows the block when a client moves it.
+    if source == "plan":
+        reminders.add_alarm(ev, reminders.alarm_minutes_for(item, user),
+                            item.title or "Reminder")
     cal.add_component(ev)
     return cal.to_ical().decode("utf-8")
 
@@ -899,9 +927,9 @@ def _report(user, colid, tasks):
                          for t in tasks])
 
 
-def _event_data_response(href, item, source):
+def _event_data_response(href, item, source, user=None):
     props = (f'<D:getetag>{escape(_etag(item))}</D:getetag>'
-             f'<C:calendar-data>{escape(_event_ics(item, source))}</C:calendar-data>')
+             f'<C:calendar-data>{escape(_event_ics(item, source, user))}</C:calendar-data>')
     return _ok(href, props)
 
 
@@ -916,10 +944,11 @@ def _report_calendar(user, tasks, source):
             href = (href_el.text or "").strip()
             item = _find_event(user, href.rstrip("/").split("/")[-1])
             if item is not None:
-                responses.append(_event_data_response(href, item, source))
+                responses.append(_event_data_response(href, item, source, user))
         return _multistatus(responses)
     return _multistatus([
-        _event_data_response(_resource_href(user, _CALENDAR, _event_uid(t)), t, source)
+        _event_data_response(_resource_href(user, _CALENDAR, _event_uid(t)), t,
+                             source, user)
         for t in tasks])
 
 
@@ -947,7 +976,7 @@ def resource(username, colid, name):
             item = _find_event(user, name)
             if item is None:
                 abort(404)
-            resp = Response(_event_ics(item, _calendar_source(user)),
+            resp = Response(_event_ics(item, _calendar_source(user), user),
                             mimetype="text/calendar; charset=utf-8")
             resp.headers["ETag"] = _etag(item)
             return resp

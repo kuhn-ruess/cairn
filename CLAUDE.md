@@ -502,6 +502,32 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   manages — one customer list, not two
 - `todoist_import.py` — Todoist API ingest used by the CLI command
 - `zammad_billing.py` — where Zammad's time lands (one entry per ticket, day and agent: the day's bookings are summed into a single entry whose `external_ids` list the bookings it covers, so a re-sync updates the total instead of adding the parts beside it): customers auto-created from Zammad organisations (`external_id="zammad:org:<id>"`, one `intake` project per customer) and the team-level agent roster (`Team.zammad_agents`) that maps Zammad agents to Cairn accounts; assigning one re-attributes the time already booked
+- `reminders.py` — **the whole of Cairn's reminder story**, because it owns no
+  time-triggered dispatcher: a planned block leaves the app as iCalendar with a
+  `VALARM`, and the device that already wakes the user for meetings does the
+  alerting. One setting (`User.reminder_lead_min`, 10 minutes, `0` = off) and
+  three carriers — the CalDAV `VTODO` (absolute trigger: a VTODO has both a
+  DTSTART and a DUE and clients disagree which end a relative one hangs off; it
+  goes out in UTC with `VALUE=DATE-TIME`, because TRIGGER's default value type is
+  DURATION), the read-only `VEVENT` feed when it is showing plan dates, and the
+  write-back event pushed to Google/CalDAV (`reminders.overrides` on Google's
+  side). It rides on `plan_date` and never on `due_date`, skips a plan date at
+  local **midnight** (which the whole app reads as "this day" — an alarm there
+  rings at 23:50 the evening before) and skips a closed task. The booking `.ics`
+  deliberately carries none: the guest's calendar has its own default
+- `colors.py` — **a row's colour, derived from the work it belongs to**
+  (`User.color_by`: `none` / `project` / `customer`). `Item.color` was settable
+  on a project and rendered nowhere; this reads it, **inherited** from the
+  nearest ancestor that has one, and derives a stable colour from the
+  container's id where nobody ever picked one (`hashlib`, never the salted
+  built-in `hash()`, which would repaint the app on every restart). Customer
+  mode keys on the name `containers.customer_labels` already resolves. The
+  palette is gruvbox's NEUTRAL set, which reads on a light surface as well as
+  the app's dark one, and the colour is never text: a **dot** before the title
+  in a dense list, a **wash** across a plan card, which leaves the card's left
+  border to the PRIORITY. Rendered through the `task_colors(tasks)` Jinja global
+  (`views/filters.py`, batched + cached per item on `flask.g`) so the row
+  partial can ask for it inside a loop
 - `cleanup.py` — per-user indexed bulk-delete of completed tasks past retention
 - `notes_sync.py` / `webdav.py` — **Cairn's link syntaxes are translated in
   the mirrored file** (`LinkMap`): `[[Title]]`, `((block-id))` and

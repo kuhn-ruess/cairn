@@ -518,6 +518,29 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
 .task-row.task-priority-1 .bi-circle { color: var(--gv-red-br); }
 .task-row.task-priority-2 .bi-circle { color: var(--gv-orange-br); }
 .task-row.task-priority-3 .bi-circle { color: var(--gv-yellow-br); }
+/* ---- Colour by project / customer (services/colors.py) -------------------
+   A swatch of the work the row belongs to, carried on ``--dot``. In a dense
+   list it is a DOT, not a left-edge bar: the bar idiom was tried for priority
+   and for NEXT and read as clutter down a long list (see above), and it would
+   also collide with the sub-task indent rail, which owns the left edge.
+   The dot sits at the start of the title column, so a column of them lines up
+   and the eye can run down it.
+   The colour never becomes text and never becomes the whole background: what
+   has to hold in both a dark and a light surface is only swatch-against-
+   surface, which a mid-tone hue does either way. */
+.item-dot {
+  display: inline-block;
+  width: .52rem;
+  height: .52rem;
+  border-radius: 50%;
+  margin-right: .38rem;
+  background: var(--dot, var(--gv-gray));
+  /* A colour on its own background needs an edge or it dissolves into a
+     similarly-toned surface; this one is the surface, at 45% over the hue. */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dot) 45%, transparent);
+  vertical-align: middle;
+  flex: 0 0 auto;
+}
 /* Blocked rows = deferred or sitting behind an earlier sibling in a
    sequential project. Show them, but dim them so the user knows. */
 .task-row.blocked {
@@ -2802,6 +2825,26 @@ body.ps-resizing * {
 }
 .plan-card-task:hover .plan-card-resize::after { background: var(--gv-fg4); }
 .plan-track.is-drop-over .plan-lane { pointer-events: none; }
+/* A plan card / rail pill is the row, and it has the room for more than a dot:
+   the surface takes a wash of the project's colour. The LEFT BORDER stays
+   ``--c`` — the priority — so a card can say "urgent" on its edge and "whose
+   work" across its face without either giving way. Kept low (under a quarter)
+   because the title sits on top of it. */
+.plan-card-task.has-row-color {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--dot) 36%, var(--gv-bg2)),
+    color-mix(in srgb, var(--dot) 20%, var(--gv-bg1)));
+  /* Three sides, never ``border-color``: the fourth is the priority. */
+  border-top-color: color-mix(in srgb, var(--dot) 45%, transparent);
+  border-right-color: color-mix(in srgb, var(--dot) 45%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--dot) 45%, transparent);
+}
+.plan-rail-item.has-row-color {
+  background: color-mix(in srgb, var(--dot) 24%, var(--gv-bg2));
+}
+.plan-rail-item.plan-next-item.has-row-color {
+  background: color-mix(in srgb, var(--dot) 20%, var(--gv-bg1));
+}
 .plan-prio-1 { --c: var(--gv-red); }
 .plan-prio-2 { --c: var(--gv-orange); }
 .plan-prio-3 { --c: var(--gv-yellow); }

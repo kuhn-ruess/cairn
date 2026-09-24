@@ -1,0 +1,14 @@
+{# The project/customer colour, as markup.
+
+   ``entry`` is what ``task_colors(tasks)`` returned for this row
+   (``{"color", "label"}``) or nothing at all — a task that resolves to no
+   project and no customer gets no swatch, rather than a grey one that would
+   read as a colour nobody recognises.
+
+   The colour travels as ``--dot`` so the stylesheet decides what is done with
+   it: a dot in a dense list, a wash under a plan card (where the card IS the
+   row and has the room). It never lands on ``--c``, which on a plan card is the
+   PRIORITY — two meanings on one pixel and both lose. #}
+{% macro color_dot(entry) -%}
+{%- if entry and entry.color %}<span class="item-dot" style="--dot: {{ entry.color }};" title="{{ entry.label }}"></span>{% endif -%}
+{%- endmacro %}

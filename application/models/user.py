@@ -323,6 +323,18 @@ class User(UserMixin, Document):
     # grouped — it is chronological, which is the whole point of it.
     plan_grouping = StringField(default="none",
                                 choices=("none", "project", "customer"))
+    # Reminder for a planned block, as minutes before it starts. 10 by default,
+    # ``0`` = no reminder — one control is both the lead time and the off
+    # switch. It is delivered as a VALARM in every calendar export of a planned
+    # task, never by a dispatcher of our own; see services/reminders.py for the
+    # three places and why it rides on ``plan_date`` alone.
+    reminder_lead_min = IntField(default=10, min_value=0, max_value=1440)
+    # What a task row's colour swatch is derived from: ``none`` (off), the
+    # owning ``project``/folder, or the ``customer`` the subtree bills to.
+    # See services/colors.py — the colour is a hint beside the row, and never
+    # touches the priority circle, the NEXT chip or a calendar colour.
+    color_by = StringField(default="project",
+                           choices=("none", "project", "customer"))
     # Buffer (minutes) auto-plan keeps between consecutive tasks.
     plan_buffer_min = IntField(default=0, min_value=0, max_value=120)
     # Lunch break kept free by auto-plan, as minutes since midnight (12:30 is
