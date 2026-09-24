@@ -11,11 +11,28 @@ project, so it used to be invisible to the entire review: not in the queue, not
 pulled in by its own interval, and not in the Inbox either (that is
 ``parent=None``). So the review asks the folders as well; a folder without
 direct tasks stays out, it is a pure organiser.
+
+**An EMPTY container is not a review unit.** A project or folder with no open
+task anywhere below it has nothing to walk through, so it is left out of the
+queue (and therefore out of the review sidebar, which is filtered by it) unless
+the user asks for it: "Show empty" on the review index, remembered per user in
+``User.review_show_empty`` — the same shape as the project list's "Show
+deferred".
+
+Two things that decision needs stating:
+
+- "Empty" is counted over the **whole subtree**, not the direct children, which
+  is what makes the nesting work: a folder holding nothing but empty folders
+  counts 0 along with them and they all drop out together, while a container
+  stays as soon as anything anywhere below it is still open.
+- Only OPEN tasks count. A project whose tasks are all done or dropped reads as
+  empty and goes — which is exactly what the toggle is there to bring back.
 """
 from datetime import datetime, timezone
 
 from flask import (
-    Blueprint, abort, flash, redirect, render_template, session, url_for,
+    Blueprint, abort, flash, redirect, render_template, request, session,
+    url_for,
 )
 from flask_login import current_user, login_required
 from mongoengine import Q
@@ -95,12 +112,79 @@ def _due_task_pks(user, now, folder_pks=frozenset()):
     return due_pks, pulled
 
 
-def _review_queue(user, now):
-    """Active projects needing review, in **project-tree order** (same order as
-    the sidebar) so "next" walks straight down the tree instead of jumping
-    around by date. A project is in the queue if it's due by its own clock,
-    never reviewed, or holds an independently-due task."""
-    from application.views.projects import project_tree_for_sidebar
+def count_open_below(unit_pks, parent_of, open_task_pks):
+    """``{pk: n}`` — how many of ``open_task_pks`` sit anywhere below each unit.
+
+    Pure: ``parent_of`` maps a pk to its parent's pk (containers AND open
+    tasks, so a sub-task walks home through its parent task), missing = root.
+    Every task walks its whole ancestor chain, so a container's count is the
+    sum of everything under it and the nested case needs no second pass: a
+    folder whose only content is empty folders ends up at 0 like they do.
+    ``seen`` guards a parent cycle, same as ``_review_unit``.
+    """
+    counts = {pk: 0 for pk in unit_pks}
+    for t in open_task_pks:
+        pk, seen = parent_of.get(t), {t}
+        while pk is not None and pk not in seen:
+            seen.add(pk)
+            if pk in counts:
+                counts[pk] += 1
+            pk = parent_of.get(pk)
+    return counts
+
+
+def _open_counts_for_units(units):
+    """``{pk: open tasks anywhere below}`` for each unit — 0 means empty.
+
+    Cost: one query per tree level below the units (not per unit, and never one
+    per row), plus nothing else — the parent chain is read out of the raw
+    reference, so no document is dereferenced. A done/dropped task is not
+    followed, so an open sub-task hanging under a finished one doesn't count;
+    that matches ``_collect_open_tasks``, which the review page renders.
+    """
+    unit_pks = [u.pk for u in units]
+    if not unit_pks:
+        return {}
+    parent_of: dict = {}
+    open_task_pks: list = []
+    seen = set(unit_pks)
+    frontier = list(unit_pks)
+    while frontier:
+        kids = list(Item.objects(parent__in=frontier)
+                    .only("pk", "parent", "kind", "status"))
+        frontier = []
+        for c in kids:
+            if c.pk in seen:
+                continue
+            if c.kind == "task" and c.status in ("done", "dropped"):
+                continue
+            seen.add(c.pk)
+            # Read the parent out of the reference instead of dereferencing it.
+            raw = c._data.get("parent")
+            parent_of[c.pk] = getattr(raw, "id", None) or getattr(raw, "pk", None)
+            frontier.append(c.pk)
+            if c.kind == "task":
+                open_task_pks.append(c.pk)
+    return count_open_below(unit_pks, parent_of, open_task_pks)
+
+
+def _drop_empty(user, units):
+    """Stamp ``_open_below`` on every unit and drop the empty ones — unless the
+    user deliberately switched them on (``User.review_show_empty``)."""
+    counts = _open_counts_for_units(units)
+    for u in units:
+        u._open_below = counts.get(u.pk, 0)
+    if getattr(user, "review_show_empty", False):
+        return units
+    return [u for u in units if u._open_below]
+
+
+def _candidate_units(user, now):
+    """``{pk: Item}`` of the projects/folders whose review cadence is up —
+    unordered, and before the empty ones are dropped.
+
+    The queue and the sidebar badge both go through here so the two can't
+    disagree about what is due."""
     # Due by the clock: next_review_at has passed. mark_reviewed keeps this
     # field accurate, so a just-reviewed project (next_review_at in the future,
     # or None when its interval is 0) is excluded here immediately.
@@ -127,29 +211,33 @@ def _review_queue(user, now):
     if missing:
         for p in Item.objects(pk__in=missing, status="active"):
             candidates[p.pk] = p
+    return candidates
+
+
+def _review_queue(user, now):
+    """Active projects needing review, in **project-tree order** (same order as
+    the sidebar) so "next" walks straight down the tree instead of jumping
+    around by date. A project is in the queue if it's due by its own clock,
+    never reviewed, or holds an independently-due task — and if it isn't empty
+    (see the module docstring). Each returned item carries ``_open_below``, the
+    open-task count the queue row prints."""
+    from application.views.projects import project_tree_for_sidebar
+    candidates = _candidate_units(user, now)
     # Walk the sidebar tree and keep the due projects in that order.
     ordered = []
     for _depth, p in project_tree_for_sidebar(user):
         if p.pk in candidates:
             ordered.append(candidates.pop(p.pk))
     ordered.extend(candidates.values())  # any not in the tree (defensive)
-    return ordered
+    return _drop_empty(user, ordered)
 
 
 def review_due_count(user, now):
-    """Cheap count of projects needing review — for the sidebar badge. Mirrors
-    _review_queue minus the (rare) override-task pull and tree ordering."""
-    fq = _focus_q(user)
-    n = Item.objects(fq, owner=user, kind="project", status="active",
-                     next_review_at__lte=now).count()
-    for p in Item.objects(fq, owner=user, kind="project", status="active",
-                          next_review_at=None, last_reviewed_at=None):
-        if p.effective_review_interval():
-            n += 1
-    for f in _task_folders(user, fq).values():
-        if f.is_review_due(now):
-            n += 1
-    return n
+    """Count of projects needing review — for the sidebar badge. Same
+    candidates and the same empty-container rule as the queue (a badge that
+    counts what the page then doesn't list is a bug report), minus the tree
+    ordering the badge has no use for."""
+    return len(_drop_empty(user, list(_candidate_units(user, now).values())))
 
 
 def _next_project(user, now, current_pk, skipped):
@@ -220,27 +308,40 @@ def index():
     now = datetime.now(timezone.utc)
     # Visiting the index starts a fresh review pass — forget earlier skips.
     session.pop(_SKIP_KEY, None)
+    # The deliberate opt-in for empty containers: ``?show_empty=0/1`` flips it
+    # and persists it on the user, like the project list's "Show deferred".
+    se = request.args.get("show_empty")
+    if se is not None and bool(user.review_show_empty) != (se == "1"):
+        user.review_show_empty = (se == "1")
+        user.save()
+    show_empty = bool(user.review_show_empty)
     queue = _review_queue(user, now)
     due_task_pks, _ = _due_task_pks(user, now, set(_task_folders(user, _focus_q(user))))
-    # Open-action + due-task counts per project for the list rows.
-    open_counts: dict = {}
+    # Open-action count per row — the whole subtree, the same number the empty
+    # rule is decided on, so a listed row never reads "0 open".
+    open_counts = {p.pk: p._open_below for p in queue}
     due_counts: dict = {}
-    if queue:
-        qpks = [p.pk for p in queue]
-        for t in Item.objects(owner=user, kind="task", parent__in=qpks,
-                              status__nin=["done", "dropped"]).only("pk", "parent"):
-            open_counts[t.parent.pk] = open_counts.get(t.parent.pk, 0) + 1
-            if t.pk in due_task_pks:
-                due_counts[t.parent.pk] = due_counts.get(t.parent.pk, 0) + 1
-    upcoming = (Item.objects(_focus_q(user), owner=user, kind="project",
-                             status="active", next_review_at__gt=now)
-                .order_by("+next_review_at").limit(10))
+    if queue and due_task_pks:
+        for t in Item.objects(owner=user, kind="task", parent__in=[p.pk for p in queue],
+                              pk__in=list(due_task_pks)).only("pk", "parent"):
+            raw = t._data.get("parent")
+            pk = getattr(raw, "id", None) or getattr(raw, "pk", None)
+            due_counts[pk] = due_counts.get(pk, 0) + 1
+    upcoming = list(Item.objects(_focus_q(user), owner=user, kind="project",
+                                 status="active", next_review_at__gt=now)
+                    .order_by("+next_review_at").limit(25))
+    # Same rule for the preview list — an empty project is no more interesting
+    # here than in the queue. Fetched wider than shown so the cut still fills it.
+    if not show_empty:
+        ucounts = _open_counts_for_units(upcoming)
+        upcoming = [p for p in upcoming if ucounts.get(p.pk)]
     return render_template(
         "review/index.html",
         queue=queue,
         open_counts=open_counts,
         due_counts=due_counts,
-        upcoming=upcoming,
+        upcoming=upcoming[:10],
+        show_empty=show_empty,
         affected_pks=[str(p.pk) for p in queue],
     )
 

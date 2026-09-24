@@ -296,6 +296,10 @@ class User(UserMixin, Document):
     # OmniFocus-style availability: deferred projects (defer_date in the
     # future) are hidden from the project list + sidebar unless this is on.
     show_deferred_projects = BooleanField(default=False)
+    # Weekly review: a project/folder with no open task anywhere below it has
+    # nothing to review and stays out of the queue unless this is on. Toggled
+    # from the review index ("Show empty"). See views/review.py.
+    review_show_empty = BooleanField(default=False)
     # OmniFocus-style "Focus": when set to an Item.pk (folder/project/section),
     # the whole app only shows tasks beneath that item. "" = no focus.
     # See application/services/focus.py.

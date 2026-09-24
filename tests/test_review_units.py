@@ -12,7 +12,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from application.models.item import DEFAULT_REVIEW_INTERVAL_DAYS, Item
-from application.views.review import _review_unit
+from application.views.review import _review_unit, count_open_below
 
 NOW = datetime(2026, 9, 9, 12, 0, tzinfo=timezone.utc)
 
@@ -122,6 +122,52 @@ class EffectiveIntervalTest(unittest.TestCase):
         self.assertFalse(folder.is_review_due(NOW))
         folder.last_reviewed_at = NOW - timedelta(days=8)
         self.assertTrue(folder.is_review_due(NOW))
+
+
+class OpenCountsBelowTest(unittest.TestCase):
+    """What "empty" means for the review queue: no open task ANYWHERE below.
+
+    ``count_open_below`` is pure over ``{pk: parent_pk}`` + the open task pks,
+    which is the whole reason the nested case is testable without a database.
+    """
+
+    def test_a_project_with_one_open_task(self):
+        # task 2 in project 1
+        counts = count_open_below([1], {2: 1}, [2])
+        self.assertEqual(counts, {1: 1})
+
+    def test_a_project_with_nothing_is_empty(self):
+        self.assertEqual(count_open_below([1], {}, []), {1: 0})
+
+    def test_a_task_in_a_section_counts_for_the_project(self):
+        # project 1 → section 2 → task 3
+        self.assertEqual(count_open_below([1], {2: 1, 3: 2}, [3]), {1: 1})
+
+    def test_a_sub_task_counts_through_its_parent_task(self):
+        # project 1 → task 2 → task 3
+        self.assertEqual(count_open_below([1], {2: 1, 3: 2}, [2, 3]), {1: 2})
+
+    def test_nested_empty_folders_are_all_empty(self):
+        # folder 1 → folder 2 → folder 3, no task anywhere: the parent goes
+        # with its children instead of staying behind with nothing under it.
+        parent_of = {2: 1, 3: 2}
+        self.assertEqual(count_open_below([1, 2, 3], parent_of, []),
+                         {1: 0, 2: 0, 3: 0})
+
+    def test_one_open_task_keeps_the_whole_chain(self):
+        # folder 1 → folder 2 → project 3 → task 4
+        parent_of = {2: 1, 3: 2, 4: 3}
+        self.assertEqual(count_open_below([1, 2, 3], parent_of, [4]),
+                         {1: 1, 2: 1, 3: 1})
+
+    def test_a_sibling_branch_stays_empty(self):
+        # folder 1 → {project 2 (task 4), folder 3 (nothing)}
+        parent_of = {2: 1, 3: 1, 4: 2}
+        self.assertEqual(count_open_below([1, 2, 3], parent_of, [4]),
+                         {1: 1, 2: 1, 3: 0})
+
+    def test_cycle_terminates(self):
+        self.assertEqual(count_open_below([1], {1: 2, 2: 1, 3: 1}, [3]), {1: 1})
 
 
 class FolderBlocksNothingTest(unittest.TestCase):

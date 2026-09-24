@@ -6,11 +6,19 @@
 <div class="review-banner">
   <span class="review-mode-label"><i class="bi bi-arrow-clockwise"></i> Review</span>
   <span class="review-progress">{{ queue|length }} item{{ '' if queue|length == 1 else 's' }} due</span>
-  {% if queue %}
-    <a class="ms-auto btn btn-sm btn-primary" href="{{ url_for('review.project_review', project_id=queue[0].pk) }}">
-      <i class="bi bi-play-fill"></i> Start review
+  <div class="ms-auto d-flex align-items-center gap-2">
+    <a href="{{ url_for('review.index', show_empty=(0 if show_empty else 1)) }}"
+       class="btn btn-sm {{ 'btn-secondary' if show_empty else 'btn-outline-secondary' }}"
+       title="{{ 'Hide projects and folders with nothing open in them' if show_empty else 'Also review projects and folders with no open task anywhere below them' }}">
+      <i class="bi bi-inbox"></i>
+      {{ 'Hide empty' if show_empty else 'Show empty' }}
     </a>
-  {% endif %}
+    {% if queue %}
+      <a class="btn btn-sm btn-primary" href="{{ url_for('review.project_review', project_id=queue[0].pk) }}">
+        <i class="bi bi-play-fill"></i> Start review
+      </a>
+    {% endif %}
+  </div>
 </div>
 
 <div class="mb-3">
@@ -20,7 +28,9 @@
 
 <h2 class="h6 text-muted mt-4">Due for review ({{ queue|length }})</h2>
 {% if not queue %}
-  <p class="text-muted">All caught up. Nicely done.</p>
+  <p class="text-muted">All caught up. Nicely done.
+    {% if not show_empty %}<span class="small">Projects and folders with nothing open in them are hidden — “Show empty” lists them.</span>{% endif %}
+  </p>
 {% endif %}
 
 <div class="list-group review-queue mb-4">
@@ -36,7 +46,7 @@
         <span class="d-block small text-muted">
           {% if p.last_reviewed_at %}last reviewed {{ p.last_reviewed_at|relativedate }}{% else %}never reviewed{% endif %}
           · every {{ p.effective_review_interval() or '—' }}d
-          · {{ open_counts.get(p.pk, 0) }} open
+          · <span title="Open tasks anywhere below this one">{{ open_counts.get(p.pk, 0) }} open</span>
         </span>
       </span>
       {% if due_n %}
