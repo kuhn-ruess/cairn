@@ -337,8 +337,14 @@
     applyPlanToday();
     if (pending && window.PendingAttachments) window.PendingAttachments.clear(pending);
     previewEl.classList.add("d-none");
-    setTimeout(() => input.focus(), 50);
   });
+
+  // Focus belongs in ``shown``, not ``show``: Bootstrap's focus trap calls
+  // ``.focus()`` on the modal element itself at the end of the fade, so
+  // anything focused earlier (a timeout inside ``show.bs.modal``) loses the
+  // caret again and the user types into nothing. ``shown.bs.modal`` fires
+  // right after that, which is the first moment the input can keep it.
+  modalEl.addEventListener("shown.bs.modal", () => input.focus());
 
   // `q` shortcut from anywhere (not in inputs).
   document.addEventListener("keydown", (ev) => {
