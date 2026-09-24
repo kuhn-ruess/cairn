@@ -365,6 +365,88 @@ class ContainerCustomerTests(_Base):
         self.assertEqual(self._reload(self.folder).customer, self.acme)
 
 
+class OneBindingOneDoorTests(_Base):
+    """A binding is made in one place: the container's own inspector.
+
+    The billing project's page used to ask the same question from the other end
+    — a card headed "Where its time comes from", with its own picker and an
+    unlink button — for the very same ``Item.time_project`` the folder sets as
+    its *Billing project*. One link asked from both ends reads as two
+    mechanisms, and the reverse picker was the weaker of the two: it offered
+    only the viewer's own containers, said nothing about a container that
+    already billed somewhere else, and re-stamped its customer on the way. The
+    page now reads the binding back and points at where it is set.
+
+    The LIST is not redundant and stays: it is the only place that shows every
+    container feeding a billing project, colleagues' and private ones included.
+    """
+
+    def setUp(self):
+        from application.models.item import Item
+        from application.models.timetracking import Customer, TimeTrackingProject
+        with self.app.app_context():
+            self._wipe()
+            self.user, self.team = self._team_user("cu-door")
+            self.acme = Customer(team=self.team, name="Acme GmbH").save()
+            self.billing = TimeTrackingProject(
+                team=self.team, customer=self.acme, name="Wartung").save()
+            self.folder = Item(owner=self.user, kind="folder",
+                               title="Acme Relaunch",
+                               time_project=self.billing).save()
+        self._login(self.user)
+
+    def _page(self):
+        resp = self.client.get(f"/time/projects/{self.billing.pk}"
+                               f"?team={self.team.pk}")
+        self.assertEqual(resp.status_code, 200)
+        return resp.get_data(as_text=True)
+
+    def test_the_page_still_says_what_books_here(self):
+        html = self._page()
+        self.assertIn("What books here", html)
+        self.assertIn("Acme Relaunch", html)
+
+    def test_it_no_longer_offers_a_picker_of_its_own(self):
+        html = self._page()
+        self.assertNotIn("Link a folder / project", html)
+        self.assertNotIn("/time/link", html)
+
+    def test_the_row_goes_through_to_where_the_binding_is_set(self):
+        """Read-only is only half an answer — the page has to say where the
+        answer is given."""
+        self.assertIn(f"/projects/{self.folder.pk}", self._page())
+
+    def test_a_colleagues_private_container_is_named_but_not_linked(self):
+        """It is listed (that is the point of the list), but the viewer cannot
+        open it, and a link that 404s is worse than plain text."""
+        from application.models.item import Item
+        from application.models.user import User
+        with self.app.app_context():
+            other = User(username="cu-door2", email="cud2@test.invalid",
+                         password_hash="x", level="premium").save()
+            hidden = Item(owner=other, kind="folder", title="Privat",
+                          time_project=self.billing).save()
+        html = self._page()
+        self.assertIn("Privat", html)
+        self.assertNotIn(f"/projects/{hidden.pk}", html)
+
+    def test_with_nothing_bound_the_page_says_where_to_go(self):
+        from application.models.item import Item
+        with self.app.app_context():
+            Item.objects(pk=self.folder.pk).update_one(unset__time_project=True)
+        self.assertIn("Nothing books here yet", self._page())
+
+    def test_the_binding_itself_is_untouched(self):
+        """Only the second door closed: a task below the folder still bills
+        here without anyone picking a project."""
+        from application.models.item import Item
+        from application.services.timetracking import resolve_time_project
+        with self.app.app_context():
+            task = Item(owner=self.user, kind="task", title="Cache leeren",
+                        parent=self.folder).save()
+            self.assertEqual(resolve_time_project(task), self.billing)
+
+
 class CustomerPickerTests(_Base):
     """One company, one row. A picker that offers the same name twice with
     nothing to choose between them is how a folder ends up under the wrong

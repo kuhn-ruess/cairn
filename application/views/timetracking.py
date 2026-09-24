@@ -2047,7 +2047,7 @@ def project_detail(pid):
     """One billing project on its own page — everything that used to be a
     <details> on the management list, where it was rendered for every project
     whether or not anyone opened it."""
-    from application.services.containers import container_choices, describe_containers
+    from application.services.containers import describe_containers
     from application.services.timetracking import budget_status, team_consumption
     from application.services.tz import user_zone
 
@@ -2057,6 +2057,16 @@ def project_detail(pid):
 
     linked = list(Item.objects(time_project=p, kind__in=["project", "folder"]).only(
         "id", "title", "kind", "parent", "owner", "shared_teams", "time_project"))
+    link_info = describe_containers(linked, team=team)
+    # Which of those rows the viewer may walk into — the binding is changed on
+    # the container itself, and a colleague's private folder is named here but
+    # not opened. Read off the raw reference rather than ``it.owner``, which
+    # would be a dereference per row for one link.
+    uid = str(user.pk)
+    link_open = {str(i.pk) for i in linked
+                 if str(getattr(i._data.get("owner"), "pk", "")
+                        or getattr(i._data.get("owner"), "id", "")) == uid
+                 or link_info.get(str(i.pk), {}).get("shared")}
     today = datetime.now(user_zone(user)).date()
     consumption = team_consumption(team, f"{today.year:04d}-{today.month:02d}")
     move_targets = sorted(
@@ -2090,8 +2100,7 @@ def project_detail(pid):
         # header reports the month, moving or purging takes everything.
         logged=consumption.get(str(p.id), {}).get("month_minutes", 0),
         logged_total=consumption.get(str(p.id), {}).get("minutes", 0),
-        links=linked, link_info=describe_containers(linked, team=team),
-        linkable=container_choices(user, selectable_kinds=("project", "folder")),
+        links=linked, link_info=link_info, link_open=link_open,
         members=_member_choices(team) if can_bill(user, team) else [],
         move_targets=move_targets)
 
@@ -2306,7 +2315,14 @@ def link_item():
 
     Tasks below the linked container inherit the billing project automatically
     (see services.timetracking.resolve_time_project). GET is not a form — it
-    only exists so the URL isn't a dead end when someone lands on it."""
+    only exists so the URL isn't a dead end when someone lands on it.
+
+    **No page posts here any more.** The binding is set on the container, in its
+    own inspector (Customer + Billing project); the billing project's page used
+    to ask the same question from the other end, which read as a second
+    mechanism for one link. Kept because it is one of the paths
+    ``Item._follow_billing_customer`` exists for and is pinned by a test — and
+    because putting the button back is then a template change, not a rewrite."""
     team = _team()
     user = current_user._get_current_object()
     if request.method == "GET":
