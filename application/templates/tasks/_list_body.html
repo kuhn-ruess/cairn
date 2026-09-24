@@ -77,7 +77,10 @@
           </a>
           {{ fav.star("item:" ~ task.pk, "fav-star-hover") }}
           {% if task.status == 'next' and current_user.show_field('next_chip', view_key=_vk) %}
-            <span class="next-chip" title="Next action">NEXT</span>
+            {# The estimate rides on the chip: it is the one place a duration set
+               with one click from the row can be read back without opening the
+               inspector. #}
+            <span class="next-chip" title="Next action{% if task.estimated_minutes %} · about {{ task.estimated_minutes }} minutes{% endif %}">NEXT{% if task.estimated_minutes %} · {{ task.estimated_minutes }}m{% endif %}</span>
           {% endif %}
           {% if task.checklist|length >= 2 %}
             <span class="badge text-bg-light text-muted ms-1"
@@ -270,6 +273,46 @@
               <i class="bi {{ 'bi-flag-fill text-warning' if task.flagged else 'bi-flag' }}"></i>
             </button>
           </form>
+          {# One-click NEXT. The arrow itself toggles the mark (also the ``n``
+             key on the row under the cursor); the caret opens the durations, and
+             picking one marks the task next AND sets the estimate in the same
+             gesture — the status select in the inspector is nine entries long
+             and this is the pick that gets made twenty times a day. A task
+             already marked keeps its arrow visible; an unmarked one shows it on
+             hover like the other row actions. #}
+          {% if task.kind == 'task' and not _done %}
+            {% set _is_next = task.status == 'next' %}
+            <div class="dropdown d-inline task-next-group">
+              <button type="button"
+                      class="btn btn-sm btn-link p-0 task-next-toggle{{ '' if _is_next else ' task-row-hover-action' }}"
+                      data-task-id="{{ task.pk }}" data-next="{{ '1' if _is_next else '0' }}"
+                      title="{{ 'Take the NEXT mark off (n)' if _is_next else 'Mark as next action (n)' }}">
+                <i class="bi {{ 'bi-arrow-right-circle-fill text-info' if _is_next else 'bi-arrow-right-circle' }}"></i>
+              </button>
+              <button type="button"
+                      class="btn btn-sm btn-link p-0 task-next-caret task-row-hover-action"
+                      data-bs-toggle="dropdown" title="Next with a duration">
+                <i class="bi bi-caret-down-fill"></i>
+              </button>
+              <div class="dropdown-menu dropdown-menu-end p-2" style="min-width: 190px;">
+                <div class="small text-muted mb-1">Next, and it takes…</div>
+                <div class="d-flex flex-wrap gap-1">
+                  {% for _m, _lbl in [(15, '15m'), (30, '30m'), (45, '45m'),
+                                      (60, '1h'), (90, '1½h'), (120, '2h'), (240, '4h')] %}
+                    <button type="button"
+                            class="btn btn-sm {{ 'btn-info' if task.estimated_minutes == _m else 'btn-light' }} task-next-dur"
+                            data-task-id="{{ task.pk }}" data-minutes="{{ _m }}">{{ _lbl }}</button>
+                  {% endfor %}
+                </div>
+                {% if _is_next %}
+                  <button type="button" class="btn btn-sm btn-link p-0 mt-2 task-next-toggle"
+                          data-task-id="{{ task.pk }}" data-next="1">
+                    <i class="bi bi-x-circle"></i> Remove NEXT
+                  </button>
+                {% endif %}
+              </div>
+            </div>
+          {% endif %}
           {% if _vk == 'today' and is_today_now|default(false) and task.kind == 'task' and not _done %}
             {# Snooze a Today task to a preset time. "Hide" defers it (drops out
                and resurfaces later); "Reschedule" moves its plan date instead. #}

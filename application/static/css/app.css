@@ -1648,6 +1648,21 @@ tr:hover .task-row-hover-action { opacity: 1; }
   color: var(--gv-yellow-br);
 }
 
+/* One-click NEXT on a task row: the arrow toggles the mark, the caret opens the
+   durations. The caret is deliberately tiny and sits tight against the arrow so
+   the two read as one control rather than two more icons in the action strip. */
+.task-next-group { display: inline-flex; align-items: center; }
+.task-next-toggle { color: var(--gv-fg4); line-height: 1; }
+.task-next-toggle:hover { color: var(--gv-aqua-br); }
+.task-next-caret {
+  color: var(--gv-fg4); line-height: 1; font-size: .6rem;
+  margin-left: -.1rem;
+}
+.task-next-caret:hover { color: var(--gv-aqua-br); }
+/* The menu is opened from a row that is itself a drag handle and a link — keep
+   the picker's own buttons compact so seven of them fit on two lines. */
+.task-next-group .dropdown-menu .task-next-dur { min-width: 3rem; font-size: .75rem; }
+
 /* ============= Kanban view ============= */
 .kanban-board {
   display: flex;

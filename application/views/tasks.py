@@ -2343,6 +2343,62 @@ def duration(task_id):
     return jsonify({"ok": True, "estimated_minutes": minutes, "warnings": warnings})
 
 
+@tasks_bp.route("/<task_id>/next", methods=["POST"])
+@login_required
+def set_next(task_id):
+    """One-click Next: put the next-action mark on a task, or take it off.
+
+    Picking work together used to mean opening the inspector and hunting for
+    the right entry in a nine-value status select — which is the slow part, not
+    the decision. This is the whole gesture in one POST:
+
+        ``minutes=<int>``  also set ``estimated_minutes`` (5..1440, clamped),
+                           so "next, and it's about an hour" is one click
+        ``off=1``          drop the mark — back to ``open``
+
+    Taking the mark off only ever touches a task that actually carries it: a
+    row is drawn from a list that may be a refresh behind, and a stale click
+    must not quietly pull a ``waiting`` task out of its status. The duration is
+    deliberately NOT cleared on the way out — how long something takes is a
+    property of the task, not of it being next.
+    """
+    from flask import jsonify
+    user = current_user._get_current_object()
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_edited_by(user):
+        abort(404)
+    if task.kind != "task":
+        return jsonify({"error": "not a task"}), 400
+
+    minutes = None
+    raw = (request.form.get("minutes") or "").strip()
+    if raw:
+        try:
+            minutes = max(5, min(1440, int(raw)))
+        except ValueError:
+            return jsonify({"error": "minutes must be an integer"}), 400
+
+    off = (request.form.get("off") or "").strip() in ("1", "true", "yes", "on")
+    if off:
+        if task.status == "next":
+            task.status = "open"
+    else:
+        task.status = "next"
+    if minutes is not None:
+        task.estimated_minutes = minutes
+    task.save()
+    # A duration change is what the mirrored calendar event's length is made
+    # of, so the same write-back the resize handle triggers applies here.
+    warnings = _writeback_calendar(task, user) or [] if minutes is not None else []
+    return jsonify({
+        "ok": True,
+        "status": task.status,
+        "is_next": task.status == "next",
+        "estimated_minutes": task.estimated_minutes,
+        "warnings": warnings,
+    })
+
+
 @tasks_bp.route("/<task_id>/unschedule", methods=["POST"])
 @login_required
 def unschedule(task_id):

@@ -1,5 +1,6 @@
 /* Global Todoist-style keyboard shortcuts.
  *
+ *   n        — mark the cursor task as next action / take the mark off
  *   q        — quick add (wired in quick-add.js)
  *   p        — command bar / quick jump (wired in quickjump.js)
  *   g then i — Inbox
@@ -196,6 +197,18 @@
       if (typeof window.bktodoOpenMoveTaskModal === "function") {
         e.preventDefault();
         window.bktodoOpenMoveTaskModal(tid, row);
+      }
+      return;
+    }
+
+    if (e.key === "n" || e.key === "N") {
+      // Flip the NEXT mark on the row at the cursor. Picking work together is
+      // the gesture this whole cursor exists for, and it should cost one key.
+      const row = currentRow();
+      if (!row) return;
+      if (typeof window.bktodoToggleNext === "function"
+          && window.bktodoToggleNext(row)) {
+        e.preventDefault();
       }
       return;
     }
