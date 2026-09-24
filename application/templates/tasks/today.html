@@ -12,6 +12,9 @@
 {% set page_affected_pks = _ns.pks %}
 {% block title %}{{ title }} · Cairn{% endblock %}
 
+{# "Customer" only appears for somebody on a team: a customer is inherited from
+   the billing project a folder is bound to, and without a team there are none —
+   the button would put every task under "No customer". #}
 {% set grouping_options = [
   ('none',     'List',        'bi-list-ul'),
   ('status',   'Status',      'bi-tag-fill'),
@@ -19,7 +22,8 @@
   ('tag',      'Tag',         'bi-tag'),
   ('project',  'Project',     'bi-collection'),
   ('due',      'Due date',    'bi-calendar-event'),
-] %}
+] + ([('customer', 'Customer', 'bi-building')]
+     if (current_user.team or current_user.is_team_admin) else []) %}
 
 {% block content %}
 {# Today-only placement of the note button on calendar pills / plan cards.

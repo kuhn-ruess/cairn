@@ -34,8 +34,24 @@
       · click an empty slot to add ·
       <a href="{{ url_for('settings.profile') }}">change hours</a>
     </span>
+    {# How the rails are split. Customer is only offered on a team: without one
+       there are no billing projects, so every task would land in "No customer"
+       and the button would be a lie. #}
+    <div class="btn-group btn-group-sm ms-auto" role="group" aria-label="Group the rails">
+      {% for _v, _lbl, _ico in [('none', 'Flat', 'bi-list-ul'),
+                                ('project', 'Project', 'bi-folder'),
+                                ('customer', 'Customer', 'bi-building')] %}
+        {% if _v != 'customer' or current_user.team or current_user.is_team_admin %}
+          <a class="btn btn-sm {% if plan_data.grouping == _v %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}"
+             href="?date={{ plan_data.date }}&view=plan&pgroup={{ _v }}"
+             title="Group Unplanned + Next actions by {{ _lbl|lower }}">
+            <i class="bi {{ _ico }}"></i> {{ _lbl }}
+          </a>
+        {% endif %}
+      {% endfor %}
+    </div>
     {% if plan_data.backlog %}
-      <span class="badge text-bg-secondary ms-auto">
+      <span class="badge text-bg-secondary">
         {{ plan_data.backlog|length }} unplanned
       </span>
     {% endif %}
@@ -145,37 +161,62 @@
 
   {# Draggable rails. "Unplanned" = today's tasks without a time (these are
      what "Plan my day" auto-fills). "Next" = other next-actions you can pull
-     in by hand — never auto-planned. Drag any pill onto the track. #}
+     in by hand — never auto-planned. Drag any pill onto the track.
+     Both are split into sections by ``plan_data.grouping`` (project / customer
+     / none) — when you pick work together, what it belongs to is the thing you
+     need to see, and the flat list of forty pills does not say it. #}
+  {% macro rail_pill(it, extra_class='') %}
+    <div class="plan-rail-item plan-card-task {{ extra_class }}{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
+         draggable="true"
+         data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
+         data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
+         data-inspector-title="{{ it.obj.title }}">
+      {# Complete directly instead of planning. stopPropagation so the click
+         doesn't hit the pill's inspector-open handler (which would also
+         preventDefault the submit); draggable=false so it doesn't drag. #}
+      <form method="post" action="{{ url_for('tasks.complete', task_id=it.obj.pk) }}"
+            class="m-0 plan-rail-check" data-task-complete-form
+            draggable="false" onclick="event.stopPropagation()">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-link p-0" type="submit" title="Complete this task" draggable="false">
+          <i class="bi bi-circle"></i>
+        </button>
+      </form>
+      <i class="bi bi-grip-vertical plan-grip"></i>
+      <a class="plan-rail-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
+      <span class="plan-rail-dur">{{ it.duration_min }}m</span>
+    </div>
+  {% endmacro %}
+
+  {# One section per group. An ungrouped rail comes through as a single section
+     with no label, so there is exactly one code path here. #}
+  {% macro rail_sections(groups, extra_class='') %}
+    {% for label, icon, entries in groups %}
+      {% if label %}
+        <div class="plan-rail-group">
+          <div class="plan-rail-group-head">
+            <i class="bi {{ icon }}"></i> {{ label }}
+            <span class="plan-rail-count">{{ entries|length }}</span>
+          </div>
+          {% for it in entries %}{{ rail_pill(it, extra_class) }}{% endfor %}
+        </div>
+      {% else %}
+        {% for it in entries %}{{ rail_pill(it, extra_class) }}{% endfor %}
+      {% endif %}
+    {% endfor %}
+  {% endmacro %}
+
   <div class="plan-rails mt-3">
     <div class="plan-rail" id="plan-backlog">
       <h2 class="plan-rail-head">
         <i class="bi bi-inbox"></i> Unplanned <span class="plan-rail-count">{{ plan_data.backlog|length }}</span>
       </h2>
       <div class="plan-rail-hint">Drag a card here to unschedule it</div>
-      {% for it in plan_data.backlog %}
-        <div class="plan-rail-item plan-card-task{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
-             draggable="true"
-             data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
-             data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
-             data-inspector-title="{{ it.obj.title }}">
-          {# Complete directly instead of planning. stopPropagation so the click
-             doesn't hit the pill's inspector-open handler (which would also
-             preventDefault the submit); draggable=false so it doesn't drag. #}
-          <form method="post" action="{{ url_for('tasks.complete', task_id=it.obj.pk) }}"
-                class="m-0 plan-rail-check" data-task-complete-form
-                draggable="false" onclick="event.stopPropagation()">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-link p-0" type="submit" title="Complete this task" draggable="false">
-              <i class="bi bi-circle"></i>
-            </button>
-          </form>
-          <i class="bi bi-grip-vertical plan-grip"></i>
-          <a class="plan-rail-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
-          <span class="plan-rail-dur">{{ it.duration_min }}m</span>
-        </div>
+      {% if plan_data.backlog %}
+        {{ rail_sections(plan_data.backlog_groups) }}
       {% else %}
         <p class="text-muted small mb-0">Everything for this day has a time. 🎉</p>
-      {% endfor %}
+      {% endif %}
     </div>
 
     {% if plan_data.next_pool %}
@@ -183,25 +224,7 @@
         <h2 class="plan-rail-head">
           <i class="bi bi-arrow-right-circle"></i> Next actions <span class="plan-rail-count">{{ plan_data.next_pool|length }}</span>
         </h2>
-        {% for it in plan_data.next_pool %}
-          <div class="plan-rail-item plan-card-task plan-next-item{% if it.obj.priority %} plan-prio-{{ it.obj.priority }}{% endif %}"
-               draggable="true"
-               data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
-               data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
-               data-inspector-title="{{ it.obj.title }}">
-            <form method="post" action="{{ url_for('tasks.complete', task_id=it.obj.pk) }}"
-                  class="m-0 plan-rail-check" data-task-complete-form
-                  draggable="false" onclick="event.stopPropagation()">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="btn btn-link p-0" type="submit" title="Complete this task" draggable="false">
-                <i class="bi bi-circle"></i>
-              </button>
-            </form>
-            <i class="bi bi-grip-vertical plan-grip"></i>
-            <a class="plan-rail-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
-            <span class="plan-rail-dur">{{ it.duration_min }}m</span>
-          </div>
-        {% endfor %}
+        {{ rail_sections(plan_data.next_groups, 'plan-next-item') }}
       </div>
     {% endif %}
   </div>

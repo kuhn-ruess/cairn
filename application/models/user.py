@@ -312,6 +312,13 @@ class User(UserMixin, Document):
     # auto-scheduling only fills free slots between these two hours.
     plan_day_start = IntField(default=9, min_value=0, max_value=23)
     plan_day_end = IntField(default=18, min_value=1, max_value=24)
+    # How the Plan view's Unplanned / Next-actions rails are split up:
+    # ``none`` is one flat list, ``project`` groups by the owning project or
+    # folder, ``customer`` by the customer the subtree bills to (see
+    # services.containers.customer_labels). The timeline itself is never
+    # grouped — it is chronological, which is the whole point of it.
+    plan_grouping = StringField(default="none",
+                                choices=("none", "project", "customer"))
     # Buffer (minutes) auto-plan keeps between consecutive tasks.
     plan_buffer_min = IntField(default=0, min_value=0, max_value=120)
     # Lunch break kept free by auto-plan, as minutes since midnight (12:30 is

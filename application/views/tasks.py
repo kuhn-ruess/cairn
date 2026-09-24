@@ -975,7 +975,8 @@ def today():
 
     # Grouping — same options as the project detail view; persisted on the user.
     grouping = (request.args.get("group") or user.today_grouping or "project").strip()
-    if grouping not in ("none", "status", "priority", "tag", "due", "project"):
+    if grouping not in ("none", "status", "priority", "tag", "due", "project",
+                        "customer"):
         grouping = "project"
     if grouping != user.today_grouping:
         user.today_grouping = grouping
@@ -1003,6 +1004,8 @@ def today():
 
     if grouping == "project":
         groups = _group_by_project(filtered, projects_with_dates)
+    elif grouping == "customer":
+        groups = _group_by_customer(_merge_unique(filtered, projects_with_dates))
     elif grouping == "none":
         merged = _merge_unique(filtered, projects_with_dates)
         groups = [("Today", "bi-calendar-day", merged, None)] if merged else []
@@ -1364,11 +1367,22 @@ def today():
                 status__nin=["done", "dropped", "someday"],
                 plan_date__ne=None, plan_date__lt=day_start_local,
             ).count()
+        # How the rails are split up. Persisted like the view mode itself, so
+        # the planner comes back the way it was left.
+        pgroup = (request.args.get("pgroup") or user.plan_grouping or "none").strip()
+        if pgroup not in ("none", "project", "customer"):
+            pgroup = "none"
+        if pgroup != user.plan_grouping:
+            user.plan_grouping = pgroup
+            user.save()
         plan_data = {
             "timed": timed,
             "allday": cls["allday"],
             "backlog": cls["backlog"],
             "next_pool": next_pool,
+            "grouping": pgroup,
+            "backlog_groups": _group_rail(cls["backlog"], pgroup),
+            "next_groups": _group_rail(next_pool, pgroup),
             "due_markers": due_markers,
             "carryover_count": carryover_count,
             "range_start_min": lo_min,
@@ -1477,6 +1491,76 @@ def _group_by_project(tasks, extra_projects=()):
     if inbox:
         groups.append(("Inbox", "bi-inbox", inbox, None))
     return groups
+
+def _group_rail(entries, mode):
+    """Split a Plan-view rail's pills into sections.
+
+    Returns ``[(label, icon, [entry])]``. ``mode="none"`` gives one unlabelled
+    section, so the template renders exactly one shape either way. The bucket
+    for pills that resolve to nothing ("Inbox" / "No customer") goes last.
+
+    Only the RAILS are grouped. The timeline stays chronological — a day
+    planner sorted by customer is not a plan, it is a list.
+    """
+    entries = list(entries or [])
+    if mode not in ("project", "customer") or not entries:
+        return [(None, None, entries)]
+    objs = [e["obj"] for e in entries]
+    if mode == "customer":
+        from application.services.containers import customer_labels
+        labels = customer_labels(objs)
+        icon, fallback = "bi-building", "No customer"
+    else:
+        from application.services.containers import container_paths
+        labels = container_paths(objs)
+        icon, fallback = "bi-folder", "Inbox"
+    buckets: dict = {}
+    rest: list = []
+    for e in entries:
+        name = labels.get(str(e["obj"].pk))
+        if name:
+            buckets.setdefault(name, []).append(e)
+        else:
+            rest.append(e)
+    groups = [(name, icon, lst)
+              for name, lst in sorted(buckets.items(), key=lambda kv: kv[0].lower())]
+    if rest:
+        groups.append((fallback, "bi-inbox" if mode == "project" else "bi-dash-circle",
+                       rest))
+    return groups
+
+
+def _group_by_customer(items):
+    """Group Today's work by the CUSTOMER its subtree bills to.
+
+    There is no customer field on a project: a folder/project is bound to a
+    billing project (``Item.time_project``) and that belongs to a customer, so
+    the customer is inherited down the subtree exactly as the billing project
+    is. Anything whose tree carries no binding lands in one bucket at the end —
+    for a personal account that is everything, which is why the Today toolbar
+    only offers this grouping to somebody on a team.
+
+    ``target_project_id`` is ``None`` for every bucket: a customer is not a
+    place, so dropping a task on one may reorder but must never reparent.
+    """
+    from application.services.containers import customer_labels
+    items = list(items)
+    labels = customer_labels(items)
+    by_customer: dict = {}
+    unbilled: list = []
+    for it in items:
+        name = labels.get(str(it.pk))
+        if name:
+            by_customer.setdefault(name, []).append(it)
+        else:
+            unbilled.append(it)
+    groups = [(name, "bi-building", lst, None)
+              for name, lst in sorted(by_customer.items(),
+                                      key=lambda kv: kv[0].lower())]
+    if unbilled:
+        groups.append(("No customer", "bi-dash-circle", unbilled, None))
+    return groups
+
 
 @tasks_bp.route("/next")
 @login_required

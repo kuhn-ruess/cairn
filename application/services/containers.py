@@ -210,3 +210,158 @@ def describe_containers(items, team=None):
             "shared": shared,
         }
     return described
+
+
+def container_paths(items):
+    """``{str(item.pk): "Folder / Sub / Project"}`` — where each task is filed.
+
+    The owning project or folder, with its full breadcrumb, for a whole list in
+    a handful of queries: ancestors level by level, no dereference per row. A
+    section is walked past (it is inline structure, not a place), and a task
+    filed nowhere is absent from the result — the caller decides what "Inbox"
+    is called.
+    """
+    items = list(items or [])
+    if not items:
+        return {}
+
+    known = {}
+    frontier = [pk for pk in (_ref_pk(i._data.get("parent")) for i in items) if pk]
+    depth = 0
+    while frontier and depth < 20:
+        missing = [pk for pk in frontier if str(pk) not in known]
+        if not missing:
+            break
+        parents = list(Item.all_objects(pk__in=missing)
+                       .no_dereference()
+                       .only("pk", "title", "kind", "parent"))
+        if not parents:
+            break
+        for p in parents:
+            known[str(p.pk)] = p
+        frontier = [pk for pk in (_ref_pk(p._data.get("parent")) for p in parents) if pk]
+        depth += 1
+
+    def owning(node):
+        """Climb to the nearest project/folder (past sections and sub-tasks)."""
+        seen, steps = set(), 0
+        while node is not None and steps < 20 and str(node.pk) not in seen:
+            seen.add(str(node.pk))
+            if node.kind in ("project", "folder"):
+                return node
+            node = known.get(str(_ref_pk(node._data.get("parent")) or ""))
+            steps += 1
+        return None
+
+    def path_of(node):
+        parts, seen, steps = [], set(), 0
+        while node is not None and steps < 20 and str(node.pk) not in seen:
+            seen.add(str(node.pk))
+            if node.kind in ("project", "folder"):
+                parts.append(node.name)
+            node = known.get(str(_ref_pk(node._data.get("parent")) or ""))
+            steps += 1
+        return " / ".join(reversed(parts))
+
+    out = {}
+    for it in items:
+        node = known.get(str(_ref_pk(it._data.get("parent")) or ""))
+        home = owning(node)
+        if home is not None:
+            out[str(it.pk)] = path_of(home)
+    return out
+
+
+def customer_labels(items):
+    """``{str(item.pk): customer name}`` for every task that resolves to one.
+
+    A GTD subtree is bound to a billing project on its folder/project
+    (``Item.time_project``) and a billing project belongs to a customer, so
+    "whose work is this" is already answerable — indirectly. This is that
+    answer, for a whole list at once: the nearest ancestor carrying a binding
+    wins, exactly like ``services.timetracking.resolve_time_project``, and a
+    task that resolves to nothing is simply absent from the result.
+
+    Batched on purpose. ``resolve_time_project`` walks one item's parents and
+    dereferences a reference per level, which is fine for one task and is a
+    query storm down a list — so ancestors are fetched level by level (one
+    query per depth, the pattern ``describe_containers`` uses) and the billing
+    projects and customers in one ``$in`` each. Four or five queries for any
+    number of tasks.
+    """
+    items = list(items or [])
+    if not items:
+        return {}
+
+    # --- ancestors, level by level (never a deref per row) ---
+    known = {}
+    frontier = []
+    for it in items:
+        praw = it._data.get("parent")
+        pid = _ref_pk(praw)
+        if pid:
+            frontier.append(pid)
+    depth = 0
+    while frontier and depth < 20:
+        missing = [pk for pk in frontier if str(pk) not in known]
+        if not missing:
+            break
+        # ``no_dereference`` keeps ``time_project`` a raw DBRef: the whole point
+        # is to collect the ids and resolve them in one query, not per level.
+        parents = list(Item.all_objects(pk__in=missing)
+                       .no_dereference()
+                       .only("pk", "kind", "parent", "time_project"))
+        if not parents:
+            break
+        for p in parents:
+            known[str(p.pk)] = p
+        frontier = [pk for pk in (_ref_pk(p._data.get("parent")) for p in parents) if pk]
+        depth += 1
+
+    # --- the binding each task inherits ---
+    binding = {}   # str(task pk) -> str(TimeTrackingProject pk)
+    tp_ids = set()
+    for it in items:
+        node = known.get(str(_ref_pk(it._data.get("parent")) or ""))
+        seen, steps = set(), 0
+        while node is not None and steps < 20:
+            if str(node.pk) in seen:
+                break
+            seen.add(str(node.pk))
+            # A binding belongs on a folder/project, never on a task — same rule
+            # ``resolve_time_project`` states and for the same reason.
+            if node.kind != "task":
+                tp = _ref_pk(node._data.get("time_project"))
+                if tp:
+                    binding[str(it.pk)] = str(tp)
+                    tp_ids.add(tp)
+                    break
+            node = known.get(str(_ref_pk(node._data.get("parent")) or ""))
+            steps += 1
+    if not tp_ids:
+        return {}
+
+    from application.models.timetracking import Customer, TimeTrackingProject
+    projects = list(TimeTrackingProject.objects(pk__in=list(tp_ids))
+                    .no_dereference().only("pk", "customer", "archived"))
+    cust_ids = {_ref_pk(p._data.get("customer")) for p in projects if not p.archived}
+    cust_ids.discard(None)
+    if not cust_ids:
+        return {}
+    names = {str(c.pk): c.name
+             for c in Customer.objects(pk__in=list(cust_ids)).only("pk", "name")}
+    cust_of_project = {str(p.pk): names.get(str(_ref_pk(p._data.get("customer"))), "")
+                       for p in projects if not p.archived}
+    return {pk: cust_of_project[tp]
+            for pk, tp in binding.items()
+            if cust_of_project.get(tp)}
+
+
+def _ref_pk(ref):
+    """The id behind a reference field, dereferenced or not.
+
+    A loaded document answers ``.pk``, a raw ``DBRef`` answers ``.id``; both
+    mean the same thing and neither may trigger a query here."""
+    if ref is None:
+        return None
+    return getattr(ref, "pk", None) or getattr(ref, "id", None)
