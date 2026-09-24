@@ -1537,8 +1537,17 @@ tr:hover .fav-star-hover,
   padding: .35rem .6rem;
   font-size: .9rem;
 }
-.qa-ac-item:hover,
-.qa-ac-item.active { background: var(--gv-bg2); }
+/* No `:hover` here on purpose. This list pops open under the caret while the
+   user is typing, which puts it under a mouse pointer that never moved — the
+   row below it lit up "already selected" the moment `@` was typed, in the same
+   colour as the keyboard cursor, so two rows looked picked at once. The
+   keyboard cursor (`.active`, set only by ↓/↑) is the one and only mark; a
+   click still works through the mousedown handler. */
+.qa-ac-item { cursor: pointer; }
+.qa-ac-item.active {
+  background: var(--gv-bg2);
+  box-shadow: inset 2px 0 0 var(--gv-yellow-br);
+}
 .qa-ac-item .bi { color: var(--gv-fg4); margin-right: .35rem; }
 .quick-add-hint code {
   background: var(--gv-bg1);
