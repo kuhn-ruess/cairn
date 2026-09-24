@@ -313,6 +313,171 @@ class ContainerCustomerTests(_Base):
         self.assertIn("bi-person-vcard", html)        # the row's icon
         self.assertIn("Customers", html)
 
+    # -- a binding is never a customer you have to enter a second time -------
+
+    def test_a_binding_made_anywhere_else_still_names_the_customer(self):
+        """The inspector is one of four places that bind a billing project —
+        the link button on the project's page, filing unassigned time and the
+        Zammad import are the others, and none of them knew about the customer.
+        The rule lives on the way into the database instead."""
+        from application.models.item import Item
+        with self.app.app_context():
+            folder = Item.objects(pk=self.folder.pk).first()
+            folder.time_project = self.acme_billing
+            folder.save()
+        self.assertEqual(self._reload(self.folder).customer, self.acme)
+
+    def test_the_link_button_names_the_customer_too(self):
+        """``/time/link`` — the same binding, made from the billing project's
+        own page."""
+        resp = self.client.post(
+            "/time/link",
+            data={"item_id": str(self.folder.pk), "team": str(self.team.pk),
+                  "project_id": str(self.acme_billing.pk)},
+            follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._reload(self.folder).customer, self.acme)
+
+    def test_a_container_bound_before_the_field_existed_shows_its_customer(self):
+        """What the report was about: a folder that already bills to Acme opened
+        with an empty Customer picker, asking for an answer it was carrying all
+        along. Nothing is saved to get there and no backfill runs — the picker
+        stands on the binding."""
+        from application.models.item import Item
+        with self.app.app_context():
+            # update_one, so the container is exactly what a pre-existing one
+            # looks like: a binding and no customer.
+            Item.objects(pk=self.folder.pk).update_one(
+                set__time_project=self.acme_billing, unset__customer=True)
+            self.assertIsNone(Item.objects(pk=self.folder.pk).first().customer)
+        html = self.client.get(f"/projects/{self.folder.pk}/edit?inspector=1",
+                               headers={"X-Inspector-Request": "1"}
+                               ).get_data(as_text=True)
+        self.assertIn(f'<option selected value="{self.acme.pk}">', html)
+
+    def test_opening_and_saving_that_container_writes_it_down(self):
+        from application.models.item import Item
+        with self.app.app_context():
+            Item.objects(pk=self.folder.pk).update_one(
+                set__time_project=self.acme_billing, unset__customer=True)
+        self._save(self.folder, time_project=str(self.acme_billing.pk),
+                   customer=str(self.acme.pk))
+        self.assertEqual(self._reload(self.folder).customer, self.acme)
+
+
+class CustomerPickerTests(_Base):
+    """One company, one row. A picker that offers the same name twice with
+    nothing to choose between them is how a folder ends up under the wrong
+    team's client — and the customer list is the one list in the app that
+    reaches across teams."""
+
+    def setUp(self):
+        with self.app.app_context():
+            self._wipe()
+            self.user, self.team = self._team_user("cu-pick")
+
+    def _choices(self):
+        with self.app.app_context():
+            from application.services.customers import customer_choices
+            from application.models.user import User
+            return customer_choices(User.objects(pk=self.user.pk).first())
+
+    def test_one_team_offers_plain_names(self):
+        from application.models.timetracking import Customer
+        with self.app.app_context():
+            Customer(team=self.team, name="Acme GmbH").save()
+            Customer(team=self.team, name="Globex").save()
+        self.assertEqual([lbl for _, lbl in self._choices()],
+                         ["Acme GmbH", "Globex"])
+
+    def test_the_same_client_in_two_teams_is_told_apart(self):
+        from application.models.team import Team
+        from application.models.timetracking import Customer
+        with self.app.app_context():
+            second = Team(name="Zweites Team", admin=self.user,
+                          admins=[self.user]).save()
+            Customer(team=self.team, name="Acme GmbH").save()
+            Customer(team=second, name="Acme GmbH").save()
+            Customer(team=second, name="Globex").save()
+        labels = [lbl for _, lbl in self._choices()]
+        self.assertEqual(sorted(labels),
+                         sorted(["Acme GmbH · Kuhn IT", "Acme GmbH · Zweites Team",
+                                 "Globex"]))
+
+    def test_every_customer_is_offered_exactly_once(self):
+        from application.models.team import Team
+        from application.models.timetracking import Customer
+        with self.app.app_context():
+            second = Team(name="Zweites Team", admin=self.user,
+                          admins=[self.user]).save()
+            a = Customer(team=self.team, name="Acme GmbH").save()
+            b = Customer(team=second, name="Acme GmbH").save()
+        ids = [cid for cid, _ in self._choices()]
+        self.assertEqual(sorted(ids), sorted([str(a.pk), str(b.pk)]))
+
+    def test_an_archived_customer_is_not_offered(self):
+        from application.models.timetracking import Customer
+        with self.app.app_context():
+            Customer(team=self.team, name="Acme GmbH", archived=True).save()
+        self.assertEqual(self._choices(), [])
+
+    def test_the_billing_project_picker_is_told_apart_the_same_way(self):
+        """The same list, one level down: "Acme › Support" twice is the row
+        that books the hours to the wrong team."""
+        from application.models.team import Team
+        from application.models.timetracking import Customer, TimeTrackingProject
+        from application.models.user import User
+        with self.app.app_context():
+            second = Team(name="Zweites Team", admin=self.user,
+                          admins=[self.user]).save()
+            for team in (self.team, second):
+                cust = Customer(team=team, name="Acme GmbH").save()
+                TimeTrackingProject(team=team, customer=cust,
+                                    name="Support").save()
+            from application.services.timetracking import pickable_projects
+            rows = pickable_projects(User.objects(pk=self.user.pk).first())
+        labels = sorted(f"{r['customer']} › {r['name']}" for r in rows)
+        self.assertEqual(labels, ["Acme GmbH · Kuhn IT › Support",
+                                  "Acme GmbH · Zweites Team › Support"])
+
+    def test_one_team_keeps_the_billing_labels_plain(self):
+        from application.models.timetracking import Customer, TimeTrackingProject
+        from application.models.user import User
+        with self.app.app_context():
+            cust = Customer(team=self.team, name="Acme GmbH").save()
+            TimeTrackingProject(team=self.team, customer=cust,
+                                name="Support").save()
+            from application.services.timetracking import pickable_projects
+            rows = pickable_projects(User.objects(pk=self.user.pk).first())
+        self.assertEqual([r["customer"] for r in rows], ["Acme GmbH"])
+
+
+class MergeLeavesNothingDanglingTests(_Base):
+    """Merging the duplicate away must take everything pointing at it along —
+    a folder filed under it, and a meeting booked by its people."""
+
+    def test_a_merge_re_points_folders_and_meetings(self):
+        from datetime import datetime, timedelta, timezone
+        from application.models.booking import Booking
+        from application.models.item import Item
+        from application.models.timetracking import Customer
+        with self.app.app_context():
+            self._wipe()
+            user, team = self._team_user("cu-merge")
+            keep = Customer(team=team, name="Acme GmbH").save()
+            dupe = Customer(team=team, name="Acme GmbH (alt)").save()
+            folder = Item(owner=user, kind="folder", title="Acme",
+                          customer=dupe).save()
+            start = datetime.now(timezone.utc) - timedelta(days=1)
+            booking = Booking(owner=user, name="Anna", email="anna@acme.de",
+                              start=start, end=start + timedelta(minutes=30),
+                              duration_minutes=30, customer=dupe).save()
+            from application.services.timetracking import merge_customers
+            merge_customers(dupe, keep)
+            self.assertEqual(Item.objects(pk=folder.pk).first().customer, keep)
+            self.assertEqual(Booking.objects(pk=booking.pk).first().customer, keep)
+            self.assertIsNone(Customer.objects(pk=dupe.pk).first())
+
 
 class BookingCustomerTests(_Base):
     """Taking a booking files it — and books nothing."""

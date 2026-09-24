@@ -280,8 +280,8 @@ def customer_labels(items):
     (``Item.customer``), or it is bound to a **billing project**
     (``Item.time_project``) whose customer that is. On one container the two
     cannot disagree — binding a billing project stamps its customer on the
-    container (``views.projects._apply``) — so this only has to prefer the
-    explicit field and stop. A task that resolves to nothing is simply absent
+    container (``Item._follow_billing_customer``) — so this only has to prefer
+    the explicit field and stop. A task that resolves to nothing is simply absent
     from the result.
 
     Batched on purpose. ``resolve_time_project`` walks one item's parents and

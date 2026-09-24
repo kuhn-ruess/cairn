@@ -501,9 +501,10 @@ class Item(Document):
     #
     # It cannot drift from the billing binding, because it is not allowed to:
     # a container bound to a ``time_project`` takes that project's customer on
-    # save (views.projects._apply). So there is one truth — "Acme" — reachable
-    # either by naming the customer on a folder that bills nowhere, or by
-    # binding the folder to one of Acme's billing projects.
+    # save (``_follow_billing_customer``, whatever set the binding). So there
+    # is one truth — "Acme" — reachable either by naming the customer on a
+    # folder that bills nowhere, or by binding the folder to one of Acme's
+    # billing projects.
     customer = ReferenceField("Customer")
 
     # Notes link. On a project/folder this points at a folder in the *notes*
@@ -576,8 +577,42 @@ class Item(Document):
             self.note_files = kept_files
         return removed
 
+    def _follow_billing_customer(self) -> None:
+        """A bound container's customer IS its billing project's customer.
+
+        Here rather than in the form that happened to be open, because the
+        binding is set from four places — the inspector, the link button on a
+        billing project's page, filing unassigned time, the Zammad import — and
+        only one of them went through a save path that knew about the customer.
+        A folder bound to Acme's project therefore *says* Acme, whoever bound
+        it; "the folder says Acme while its hours invoice to Globex" stays
+        unreachable, and picking a customer by hand on a bound container is a
+        contradiction the binding wins.
+
+        An ARCHIVED billing project says nothing, the same rule
+        ``resolve_time_project`` and ``customer_labels`` follow: it is out of
+        circulation, so it neither answers "whose work is this" nor overwrites
+        an answer given by hand.
+
+        Only when one of the two fields was actually touched, so an ordinary
+        save costs no dereference."""
+        if self._data.get("time_project") is None:
+            return
+        touched = (["time_project"] if self.id is None
+                   else self._get_changed_fields())
+        if "time_project" not in touched and "customer" not in touched:
+            return
+        try:
+            tp = self.time_project
+            if tp.archived or tp.customer.archived:
+                return
+            self.customer = tp.customer
+        except Exception:      # a binding whose project or customer is gone
+            pass
+
     def save(self, *args, **kwargs):
         self.updated_at = _utcnow()
+        self._follow_billing_customer()
         # Reclaim space from inline images/files whose link was removed from the
         # note/comments. Guarded to the saves that actually change that text so
         # it never scans on unrelated writes; the grace window inside protects a

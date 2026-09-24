@@ -6,6 +6,7 @@ and the design rationale.
 """
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timezone
 
 from application.models.item import Item
@@ -361,6 +362,24 @@ def parse_duration(raw: str):
     return None
 
 
+def qualified_name(name: str, ambiguous: set, team_name: str) -> str:
+    """``"Acme GmbH"`` → ``"Acme GmbH · Kuhn IT"`` when the name is not unique.
+
+    Shared by the pickers that reach across teams. The team is added only where
+    it decides something — a suffix on every row would be noise on the 99% that
+    are unambiguous. ``ambiguous`` holds trimmed, case-folded names —
+    ``ambiguous_names`` builds it."""
+    return (f"{name} · {team_name}"
+            if team_name and (name or "").strip().casefold() in ambiguous
+            else name)
+
+
+def ambiguous_names(names) -> set:
+    """The trimmed, case-folded names that occur more than once."""
+    seen = Counter((n or "").strip().casefold() for n in names)
+    return {n for n, count in seen.items() if count > 1}
+
+
 def pickable_projects(user, *, limit: int | None = None, query: str = "",
                      keep: str = "") -> list[dict]:
     """Billing projects the user may log to, flat + deref-free.
@@ -395,11 +414,19 @@ def pickable_projects(user, *, limit: int | None = None, query: str = "",
         id__in=list({r["customer"] for r in raw})).only("id", "name", "archived")
         if not c.archived}
     raw = [r for r in raw if r["customer"] in names]
+    # A customer belongs to one team, so somebody in two teams that both
+    # invoice "Acme" gets two rows reading "Acme › Support" with nothing to
+    # choose between them — which is what a picker must never offer, because
+    # the wrong one of two identical rows books the hours to the other team.
+    # Only a name that actually appears twice carries its team.
+    team_names = {str(t.pk): t.name for t in teams}
+    twice = ambiguous_names(names.values())
     rows = [{
         "id": str(r["_id"]),
         "name": r.get("name", ""),
         "customer_id": str(r["customer"]),
-        "customer": names.get(r["customer"], "—"),
+        "customer": qualified_name(names.get(r["customer"], "—"), twice,
+                                   team_names.get(str(r["team"]), "")),
         "team_id": str(r["team"]),
         "hourly_rate_cents": r.get("hourly_rate_cents"),
         "mode": r.get("time_mode") or "duration",
@@ -1727,6 +1754,15 @@ def merge_customers(source, target, *, fold_projects: bool = True) -> dict:
         if not getattr(target, field, None) and getattr(source, field, None):
             setattr(target, field, getattr(source, field))
     target.save()
+    # What points at the record about to disappear. A folder filed under the
+    # duplicate, and a meeting booked by its people, mean the same client as
+    # everything else that just moved — left behind they would dereference to
+    # nothing, which reads as "no customer" on a folder that plainly has one.
+    out["relinked"] += Item.all_objects(customer=source.id).update(
+        set__customer=target.id)
+    from application.models.booking import Booking
+    out["relinked"] += Booking.objects(customer=source.id).update(
+        set__customer=target.id)
     source.delete()
     return out
 

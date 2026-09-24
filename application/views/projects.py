@@ -6,6 +6,18 @@ from flask import Blueprint, abort, current_app, flash, redirect, render_templat
 def _is_inspector():
     return request.args.get("inspector") == "1" or request.headers.get("X-Inspector-Request") == "1"
 
+def _customer_value(project) -> str:
+    """What the Customer picker stands on when the form opens.
+
+    The customer named on the container, or — when it is bound to a billing
+    project — that project's customer. A container bound long before the field
+    existed is not a container with no customer: it has been saying Acme all
+    along through its binding, and opening the form must not ask for the answer
+    a second time (``services.customers.container_customer``)."""
+    from application.services.customers import container_customer
+    cust = container_customer(project)
+    return str(cust.pk) if cust is not None else ""
+
 def _render_project_inspector(project, user, *, just_saved=False):
     from application.services.tz import localise_form_dates
     form = ProjectForm(obj=project)
@@ -17,7 +29,7 @@ def _render_project_inspector(project, user, *, just_saved=False):
     form.kind.data = _kind_of(project)
     form.notes_folder.data = str(project.notes_folder.pk) if project.notes_folder else ""
     form.time_project.data = str(project.time_project.pk) if project.time_project else ""
-    form.customer.data = str(project.customer.pk) if project.customer else ""
+    form.customer.data = _customer_value(project)
     return render_template(
         "projects/_inspector.html",
         form=form,
@@ -116,15 +128,10 @@ def _apply(form: ProjectForm, project: Item) -> None:
         from application.services.customers import customer_for_user
         project.customer = (customer_for_user(user, form.customer.data)
                             if form.customer.data else None)
-    # One truth, enforced here rather than hoped for: a billing project belongs
-    # to exactly one customer, so binding one *says* whose work this is. Letting
-    # the two fields disagree is how a folder comes to claim Acme while its
-    # hours invoice to Globex — so the binding wins and the customer follows it.
-    if getattr(project, "time_project", None):
-        try:
-            project.customer = project.time_project.customer
-        except Exception:      # a project whose customer is gone binds nothing
-            project.customer = None
+    # One truth — a billing project belongs to exactly one customer, so binding
+    # one *says* whose work this is — but it is enforced on the way into the
+    # database (``Item._follow_billing_customer``), not here: this form is only
+    # one of the four places that set the binding.
     # Placement and sharing belong to the OWNER alone. The route that calls
     # this only checks ``can_be_edited_by``, which — since it is an alias of
     # ``can_be_viewed_by`` — is true for every member of the project and every
@@ -1511,7 +1518,7 @@ def edit(project_id):
         form.kind.data = _kind_of(project)
         form.notes_folder.data = str(project.notes_folder.pk) if project.notes_folder else ""
         form.time_project.data = str(project.time_project.pk) if project.time_project else ""
-        form.customer.data = str(project.customer.pk) if project.customer else ""
+        form.customer.data = _customer_value(project)
     if form.validate_on_submit():
         _apply(form, project)
         project.save()

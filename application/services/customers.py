@@ -137,23 +137,71 @@ def resolve_customer(item):
     return None
 
 
+def container_customer(item):
+    """The customer a folder/project itself answers with, or ``None``.
+
+    The one named on it, else the one its billing project belongs to — the
+    container's OWN answer, with no climb (that is ``resolve_customer``). A
+    container bound to a billing project needs no second act of naming: it
+    already says whose work it is, and this is what the picker shows for it
+    before anybody presses save.
+
+    Archived is not an answer, on either side — the same rule the rest of the
+    module keeps.
+    """
+    if item is None:
+        return None
+    try:
+        cust = item.customer
+        if cust is not None:
+            return None if cust.archived else cust
+    except Exception:          # a customer that was merged or deleted away
+        return None
+    try:
+        tp = item.time_project
+        if tp is None or tp.archived or tp.customer.archived:
+            return None
+        return tp.customer
+    except Exception:
+        return None
+
+
 def customer_choices(user):
     """``[(id, "Acme GmbH"), …]`` — every customer the user may name, sorted.
 
     Across *all* the teams they participate in, because the folder they are
     editing may well be filed for a colleague's team. Archived customers are
     left out: they are out of the pickers everywhere else too.
+
+    That reach is also the one way this list can offer the same company twice:
+    a customer belongs to exactly one team, so somebody in two teams that both
+    invoice Acme gets two rows called "Acme GmbH" with nothing to choose
+    between them. A name that appears twice therefore carries its team — the
+    same rule the merge page follows, and for the same reason: picking the
+    wrong one of two identical rows is a mistake that reaches an invoice.
     """
     from application.models.timetracking import Customer
-    from application.services.timetracking import user_teams
+    from application.services.timetracking import (
+        ambiguous_names, qualified_name, user_teams,
+    )
 
     teams = user_teams(user)
     if not teams:
         return []
+    team_names = {str(t.pk): t.name for t in teams}
     rows = sorted(Customer.objects(team__in=teams, archived__ne=True)
-                  .only("pk", "name"),
+                  .no_dereference().only("pk", "name", "team"),
                   key=lambda c: (c.name or "").lower())
-    return [(str(c.pk), c.name) for c in rows]
+    if len(team_names) < 2:
+        return [(str(c.pk), c.name) for c in rows]
+    twice = ambiguous_names(c.name for c in rows)
+    out = []
+    for c in rows:
+        ref = c._data.get("team")
+        out.append((str(c.pk),
+                    qualified_name(c.name, twice,
+                               team_names.get(str(getattr(ref, "id", ref)), ""))))
+    return out
 
 
 def customer_for_user(user, customer_id: str):

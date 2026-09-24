@@ -481,10 +481,19 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   names it (`Item.customer`, inherited by the whole subtree) or is bound to one
   of its billing projects, and an appointment names it (`Booking.customer`).
   The two on one container cannot drift, because binding a `time_project`
-  **stamps that project's customer onto the container** (`views.projects._apply`)
-  — so "the folder says Acme while its hours invoice to Globex" is not a
-  reachable state, and `services.containers.customer_labels` only has to prefer
-  the explicit field. A booking is filed from the guest's **mail domain**
+  **stamps that project's customer onto the container** — on the way into the
+  database (`Item._follow_billing_customer`), not in whichever form was open,
+  because the binding is also set from `/time/link`, from filing unassigned
+  time and by the Zammad import. So "the folder says Acme while its hours
+  invoice to Globex" is not a reachable state, and
+  `services.containers.customer_labels` only has to prefer the explicit field.
+  A container bound *before* the field existed needs no backfill either: the
+  picker stands on `container_customer()` — the customer named on it, else its
+  billing project's — so the form never asks for an answer the container is
+  already carrying. The two pickers that reach across **teams**
+  (`customer_choices`, `pickable_projects`) qualify a name that is not unique
+  with its team (`qualified_name`): two rows reading "Acme GmbH" with nothing
+  to choose between them is how work gets filed under the other team's client. A booking is filed from the guest's **mail domain**
   (`Customer.email_domains`, indexed on `(team, email_domains)`); a **free-mail**
   domain never matches whatever is typed in, and a domain **two** customers
   claim doesn't either — both leave the field empty for the list, because a

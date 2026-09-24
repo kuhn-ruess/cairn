@@ -214,15 +214,43 @@ class CustomerGroupingTests(_Base):
         self.assertEqual(labels.get(str(self.billed.pk)), "Acme GmbH")
         self.assertNotIn(str(self.unbilled.pk), labels)
 
-    def test_an_archived_billing_project_names_no_customer(self):
-        """Same rule ``resolve_time_project`` states: an archived project is not
-        an answer, so the task reads as unbilled rather than as the customer's."""
+    def test_archiving_the_billing_project_leaves_the_customer_named(self):
+        """Binding the folder said "this is Acme's" — archiving the project it
+        bills to retires a way of INVOICING, not the client. The name goes when
+        the CUSTOMER is archived, which is the next test."""
         from application.models.item import Item
         from application.models.timetracking import TimeTrackingProject
         from application.services.containers import customer_labels
         with self.app.app_context():
             TimeTrackingProject.objects.update(set__archived=True)
             labels = customer_labels(list(Item.objects(pk=self.billed.pk)))
+        self.assertEqual(labels.get(str(self.billed.pk)), "Acme GmbH")
+
+    def test_an_archived_customer_names_nobody(self):
+        from application.models.item import Item
+        from application.models.timetracking import Customer
+        from application.services.containers import customer_labels
+        with self.app.app_context():
+            Customer.objects.update(set__archived=True)
+            labels = customer_labels(list(Item.objects(pk=self.billed.pk)))
+        self.assertEqual(labels, {})
+
+    def test_a_binding_made_to_an_archived_project_names_nobody(self):
+        """The other half of the rule: a project already out of circulation is
+        not an answer, so binding to one names no customer at all."""
+        from application.models.item import Item
+        from application.models.timetracking import Customer, TimeTrackingProject
+        from application.services.containers import customer_labels
+        with self.app.app_context():
+            old = Customer(team=self.team, name="Globex").save()
+            dead = TimeTrackingProject(team=self.team, customer=old,
+                                       name="Alt", archived=True).save()
+            folder = Item(owner=self.user, kind="folder", title="Alt",
+                          time_project=dead).save()
+            task = Item(owner=self.user, kind="task", title="X",
+                        parent=folder).save()
+            self.assertIsNone(Item.objects(pk=folder.pk).first().customer)
+            labels = customer_labels(list(Item.objects(pk=task.pk)))
         self.assertEqual(labels, {})
 
     def test_the_path_is_resolved_for_the_whole_list_at_once(self):
