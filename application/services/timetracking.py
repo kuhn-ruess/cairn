@@ -381,7 +381,7 @@ def ambiguous_names(names) -> set:
 
 
 def pickable_projects(user, *, limit: int | None = None, query: str = "",
-                     keep: str = "") -> list[dict]:
+                     keep: str = "", customer: str = "") -> list[dict]:
     """Billing projects the user may log to, flat + deref-free.
 
     Two queries total (projects ``as_pymongo`` + one customer-name lookup), so
@@ -397,7 +397,14 @@ def pickable_projects(user, *, limit: int | None = None, query: str = "",
     ``views.timetracking.project_search``).
 
     ``query`` filters by customer or project name, case-insensitively, on every
-    word — "acme web" finds "Acme › Website"."""
+    word — "acme web" finds "Acme › Website".
+
+    ``customer`` narrows the list to ONE customer's projects — what a container
+    that already names its customer may bind (``services.customers.
+    billing_choices``). ``keep`` survives that filter too: a project already
+    bound must stay on offer even when it belongs to somebody else, because
+    dropping it out of the picker is how a binding that carries hours
+    disappears on the next save."""
     teams = user_teams(user)
     if not teams:
         return []
@@ -440,6 +447,9 @@ def pickable_projects(user, *, limit: int | None = None, query: str = "",
     } for r in raw]
     rows.sort(key=lambda r: (r["customer"].lower(), r["name"].lower()))
 
+    if customer:
+        rows = [r for r in rows
+                if r["customer_id"] == customer or r["id"] == keep]
     if query:
         words = query.lower().split()
         rows = [r for r in rows

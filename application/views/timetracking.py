@@ -439,6 +439,32 @@ def project_search():
          "mode": r["mode"], "fields": r["fields"]} for r in rows]})
 
 
+@timetracking_bp.route("/projects/for-customer")
+@login_required
+@team_required
+def projects_for_customer():
+    """The Billing-project picker's options for one customer — the same list the
+    project inspector renders, asked for again when the Customer dropdown
+    changes.
+
+    It exists so the scope is decided in ONE place: the form that comes back on
+    a save and the list the browser swaps in mid-edit are both
+    ``services.customers.billing_choices``, so the pair the user ends up with
+    always validates. ``?customer=`` empty means no customer chosen, which is
+    the whole list, exactly as the form renders it then."""
+    from application.services.customers import billing_choices
+
+    user = current_user._get_current_object()
+    scope = billing_choices(user,
+                            customer_id=(request.args.get("customer") or "").strip(),
+                            bound_id=(request.args.get("bound") or "").strip())
+    return jsonify({
+        "projects": [{"id": pid, "label": label} for pid, label in scope["choices"]],
+        "out_of_scope": scope["out_of_scope"],
+        "empty": scope["empty"],
+    })
+
+
 @timetracking_bp.route("/log/<task_id>", methods=["POST"])
 @login_required
 @team_required

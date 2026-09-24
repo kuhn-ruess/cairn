@@ -153,7 +153,8 @@
       {{ form.customer.label(class="form-label small text-uppercase text-muted") }}
       {{ form.customer(class="form-select form-select-sm",
                        **{"data-searchable-select": "1",
-                          "data-searchable-placeholder": "Search customers…"}) }}
+                          "data-searchable-placeholder": "Search customers…",
+                          "data-billing-scope-customer": "1"}) }}
       <div class="form-text">
         Whose work this is — inherited by everything inside, and what Today
         groups by.
@@ -163,12 +164,33 @@
       </div>
     {% endif %}
 
-    {% if form.time_project.choices|length > 1 %}
+    {# The field still renders when the chosen customer has no billing project
+       of their own: a picker that vanishes is not an answer, and the line under
+       it is where the way out is named. #}
+    {% if form.time_project.choices|length > 1 or form.time_project.scope_empty %}
       {{ form.time_project.label(class="form-label small text-uppercase text-muted mt-3") }}
-      {{ form.time_project(class="form-select form-select-sm") }}
-      <div class="form-text">
-        Time logged on tasks in here bills to this project — and picking one
-        sets the customer above, because a billing project has exactly one.
+      {{ form.time_project(class="form-select form-select-sm",
+                           **{"data-billing-scope": "1"}) }}
+      <div class="form-text" data-billing-scope-note>
+        {% if form.time_project.scope_empty %}
+          {{ form.time_project.scope_customer_name }} has no billing project yet —
+          <a href="{{ url_for('timetracking.customer_detail', cid=form.time_project.scope_customer_id) }}">create one</a>,
+          or clear the customer above to bill this somewhere else.
+        {% elif form.time_project.scope_customer_name %}
+          Only {{ form.time_project.scope_customer_name }}'s projects are offered,
+          because a billing project belongs to exactly one customer. Clear the
+          customer above to see every project again.
+        {% else %}
+          Time logged on tasks in here bills to this project — and picking one
+          sets the customer above, because a billing project has exactly one.
+        {% endif %}
+        {% if form.time_project.data and form.time_project.data in form.time_project.scope_out_of_scope %}
+          <span class="text-warning d-block">
+            The project bound here bills to another customer. It is kept rather
+            than dropped — it carries logged hours — and a binding names the
+            customer, so clear it to file this under someone else.
+          </span>
+        {% endif %}
         {% if project and project.time_project %}
           <a href="{{ url_for('timetracking.day') }}">Track time</a>
         {% endif %}

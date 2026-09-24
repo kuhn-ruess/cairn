@@ -493,7 +493,20 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   already carrying. The two pickers that reach across **teams**
   (`customer_choices`, `pickable_projects`) qualify a name that is not unique
   with its team (`qualified_name`): two rows reading "Acme GmbH" with nothing
-  to choose between them is how work gets filed under the other team's client. A booking is filed from the guest's **mail domain**
+  to choose between them is how work gets filed under the other team's client.
+  **A named customer scopes the Billing-project picker** (`billing_choices`):
+  one customer owns a billing project, so once a container says whose work it
+  is, the picker is a *hard* filter on that customer — the escape hatch is
+  clearing the Customer field, not a loophole in the list. Two rows survive it
+  on purpose: the project already **bound** (marked "— other customer", never
+  dropped — it carries hours, and a binding that vanished from the options
+  would unbind itself on the next save; the contradiction still resolves the
+  documented way, the binding names the customer), and nothing at all when the
+  customer has **no** billing project — which the form then says, with a link to
+  where one is made, because an empty dropdown reads like a list that failed to
+  load. `/time/projects/for-customer` serves the same list to
+  `billing-scope.js` when the dropdown changes mid-edit, so the list the
+  browser swaps in is the list the save validates against. A booking is filed from the guest's **mail domain**
   (`Customer.email_domains`, indexed on `(team, email_domains)`); a **free-mail**
   domain never matches whatever is typed in, and a domain **two** customers
   claim doesn't either — both leave the field empty for the list, because a

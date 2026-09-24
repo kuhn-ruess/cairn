@@ -33,10 +33,16 @@
         o.style.display = matches ? "" : "none";
         if (matches && !firstVisible) firstVisible = o;
       }
-      if (q && firstVisible && !sel.multiple) {
+      if (q && firstVisible && !sel.multiple && sel.value !== firstVisible.value) {
         // Highlight the first match without forcing it (don't commit
         // until the user clicks or presses Enter).
         sel.value = firstVisible.value;
+        // …but the value HAS changed, so anything that follows this field has
+        // to hear about it: typing three letters is how a customer is picked
+        // out of a long list, and a dependent picker that only updates on a
+        // mouse click is a dependent picker that looks broken (see
+        // billing-scope.js).
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
       }
     }
 

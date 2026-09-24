@@ -22,7 +22,6 @@ def _render_project_inspector(project, user, *, just_saved=False):
     from application.services.tz import localise_form_dates
     form = ProjectForm(obj=project)
     localise_form_dates(form, user)
-    _populate_choices(form, user, project)
     form.parent.data = str(project.parent.pk) if project.parent else ""
     form.members.data = [str(m.pk) for m in (project.members or [])]
     form.shared_teams.data = [str(t.pk) for t in (project.shared_teams or [])]
@@ -30,6 +29,10 @@ def _render_project_inspector(project, user, *, just_saved=False):
     form.notes_folder.data = str(project.notes_folder.pk) if project.notes_folder else ""
     form.time_project.data = str(project.time_project.pk) if project.time_project else ""
     form.customer.data = _customer_value(project)
+    # Last, because the Billing-project picker is scoped by the customer the
+    # form shows — which, after a save, is the one the binding stamped on and
+    # not whatever was posted.
+    _populate_choices(form, user, project)
     return render_template(
         "projects/_inspector.html",
         form=form,
@@ -82,13 +85,36 @@ def _populate_choices(form: ProjectForm, user: User, current: Item | None = None
     # Cross-module links (both optional, both inherited by the whole subtree).
     from application.services.containers import notes_folder_choices
     form.notes_folder.choices = [("", "— none —")] + notes_folder_choices(user)
-    from application.services.timetracking import has_team, pickable_projects
-    form.time_project.choices = [("", "— none —")] + (
-        [(p["id"], f"{p['customer']} › {p['name']}") for p in pickable_projects(user)]
-        if has_team(user) else [])
-    from application.services.customers import customer_choices
+    from application.services.timetracking import has_team
+    from application.services.customers import billing_choices, customer_choices
     form.customer.choices = [("", "— none —")] + (
         customer_choices(user) if has_team(user) else [])
+    # The Billing-project picker is scoped by **the customer this very form is
+    # about to show** — which is why it reads ``customer.data`` rather than the
+    # container or the request. Every caller has already put the answer there:
+    # the posted id while a save is being validated (so a customer and a project
+    # chosen in ONE sitting validate together), the container's own answer
+    # otherwise, binding included (``_customer_value``). Taking the request
+    # instead would scope a just-saved form by what was posted, which after
+    # ``_follow_billing_customer`` is not what it ends up showing.
+    raw = form.customer.data
+    cust_id = raw if (has_team(user) and isinstance(raw, str)) else ""
+    # Off the raw reference, not through a dereference: the id is all that is
+    # needed, and a binding whose project was deleted must not raise here.
+    bound_ref = current._data.get("time_project") if current is not None else None
+    bound_id = str(getattr(bound_ref, "id", bound_ref)) if bound_ref is not None else ""
+    scope = (billing_choices(user, customer_id=cust_id, bound_id=bound_id)
+             if has_team(user) else
+             {"choices": [], "out_of_scope": [], "empty": False})
+    form.time_project.choices = [("", "— none —")] + scope["choices"]
+    # Carried on the field so all three render paths (create, edit, the
+    # inspector re-render) hand the template the same answer without each
+    # building its own context entry.
+    form.time_project.scope_empty = scope["empty"]
+    form.time_project.scope_customer_name = (
+        dict(form.customer.choices).get(cust_id, "") if cust_id else "")
+    form.time_project.scope_out_of_scope = scope["out_of_scope"]
+    form.time_project.scope_customer_id = cust_id
 
 def _apply(form: ProjectForm, project: Item) -> None:
     from application.services.tz import attach_user_tz
@@ -1503,7 +1529,6 @@ def edit(project_id):
     if not project.can_be_edited_by(user):
         abort(403)
     form = ProjectForm(obj=project)
-    _populate_choices(form, user, project)
     if form.is_submitted() is False:
         from application.services.tz import localise_form_dates
         localise_form_dates(form, user)
@@ -1519,6 +1544,10 @@ def edit(project_id):
         form.notes_folder.data = str(project.notes_folder.pk) if project.notes_folder else ""
         form.time_project.data = str(project.time_project.pk) if project.time_project else ""
         form.customer.data = _customer_value(project)
+    # After the block above, because the Billing-project picker is scoped by
+    # ``customer.data`` — the container's own answer on a GET, the posted one
+    # while a save is validated.
+    _populate_choices(form, user, project)
     if form.validate_on_submit():
         _apply(form, project)
         project.save()

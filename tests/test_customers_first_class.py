@@ -287,7 +287,15 @@ class ContainerCustomerTests(_Base):
 
     def test_the_binding_wins_over_a_contradicting_pick(self):
         """Globex named on a folder whose hours invoice to Acme is exactly the
-        drift this field is not allowed to have."""
+        drift this field is not allowed to have.
+
+        The picker no longer OFFERS that pair (see ``BillingScopeTests``), but
+        the one row it still lets through is the project already bound — it
+        carries hours — and then the binding is what names the customer."""
+        from application.models.item import Item
+        with self.app.app_context():
+            Item.objects(pk=self.folder.pk).update_one(
+                set__time_project=self.acme_billing)
         self._save(self.folder, customer=str(self.globex.pk),
                    time_project=str(self.acme_billing.pk))
         self.assertEqual(self._reload(self.folder).customer, self.acme)
@@ -532,6 +540,180 @@ class CustomerPickerTests(_Base):
             from application.services.timetracking import pickable_projects
             rows = pickable_projects(User.objects(pk=self.user.pk).first())
         self.assertEqual([r["customer"] for r in rows], ["Acme GmbH"])
+
+
+class BillingScopeTests(_Base):
+    """A chosen customer scopes the Billing-project picker.
+
+    A billing project belongs to exactly one customer, so once a container says
+    whose work it is, every other client's projects are noise in that dropdown —
+    and worse than noise: binding one of them is the drift the stamping exists
+    to keep unreachable. So it is a **hard** filter, and the escape hatch is the
+    Customer field one line above rather than a loophole in the picker.
+
+    Three things have to hold, and each is a decision:
+
+    * **No customer chosen → everything, as before.** The filter narrows, it
+      never becomes a requirement.
+    * **A project already bound is never filtered away**, even when it belongs
+      to somebody else. It carries logged hours and a whole subtree bills
+      through it; dropping it out of the options would unbind it on the next
+      save. It is listed, marked as another customer's, and the binding then
+      still wins on the way into the database.
+    * **A customer with no billing project says so.** An empty dropdown reads
+      like a list that failed to load, so the field stays on the page and names
+      where a project is created.
+    """
+
+    def setUp(self):
+        from application.models.item import Item
+        from application.models.timetracking import Customer, TimeTrackingProject
+        with self.app.app_context():
+            self._wipe()
+            self.user, self.team = self._team_user("cu-scope")
+            self.acme = Customer(team=self.team, name="Acme GmbH").save()
+            self.globex = Customer(team=self.team, name="Globex").save()
+            self.leer = Customer(team=self.team, name="Ohne Projekt").save()
+            self.acme_billing = TimeTrackingProject(
+                team=self.team, customer=self.acme, name="Wartung").save()
+            self.globex_billing = TimeTrackingProject(
+                team=self.team, customer=self.globex, name="Relaunch").save()
+            self.folder = Item(owner=self.user, kind="folder",
+                               title="Kunden").save()
+        self._login(self.user)
+
+    def _scope(self, customer_id="", bound_id=""):
+        from application.models.user import User
+        from application.services.customers import billing_choices
+        with self.app.app_context():
+            return billing_choices(User.objects(pk=self.user.pk).first(),
+                                   customer_id=customer_id, bound_id=bound_id)
+
+    def _inspector_html(self):
+        return self.client.get(f"/projects/{self.folder.pk}/edit?inspector=1",
+                               headers={"X-Inspector-Request": "1"}
+                               ).get_data(as_text=True)
+
+    def _save(self, **over):
+        data = {"name": self.folder.title, "kind": "folder", "parent": "",
+                "note": "", "color": "", "status": "active",
+                "project_type": "parallel", "customer": "", "time_project": "",
+                "notes_folder": ""}
+        data.update(over)
+        return self.client.post(f"/projects/{self.folder.pk}/edit?inspector=1",
+                                data=data, headers={"X-Inspector-Request": "1"})
+
+    def _reload(self):
+        from application.models.item import Item
+        with self.app.app_context():
+            return Item.objects(pk=self.folder.pk).first()
+
+    # -- the filter ---------------------------------------------------------
+
+    def test_a_chosen_customer_narrows_the_picker(self):
+        scope = self._scope(customer_id=str(self.acme.pk))
+        self.assertEqual([lbl for _, lbl in scope["choices"]],
+                         ["Acme GmbH › Wartung"])
+        self.assertEqual(scope["out_of_scope"], [])
+        self.assertFalse(scope["empty"])
+
+    def test_no_customer_chosen_still_offers_everything(self):
+        """The one case that must not change: a container that names nobody
+        bills wherever it likes, exactly as before this existed."""
+        scope = self._scope()
+        self.assertEqual(sorted(lbl for _, lbl in scope["choices"]),
+                         ["Acme GmbH › Wartung", "Globex › Relaunch"])
+        self.assertFalse(scope["empty"])
+
+    def test_the_inspector_offers_only_that_customers_projects(self):
+        from application.models.item import Item
+        with self.app.app_context():
+            Item.objects(pk=self.folder.pk).update_one(set__customer=self.acme)
+        html = self._inspector_html()
+        self.assertIn("Acme GmbH › Wartung", html)
+        self.assertNotIn("Globex › Relaunch", html)
+
+    def test_a_project_of_another_customer_cannot_be_posted(self):
+        """The filter has teeth: the pair the picker refuses to offer is the
+        pair the save refuses to take, so a stale page cannot bind around it."""
+        resp = self._save(customer=str(self.globex.pk),
+                          time_project=str(self.acme_billing.pk))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(self._reload().time_project)
+
+    # -- the binding already there ------------------------------------------
+
+    def test_a_bound_project_of_another_customer_is_kept_and_marked(self):
+        scope = self._scope(customer_id=str(self.globex.pk),
+                            bound_id=str(self.acme_billing.pk))
+        labels = [lbl for _, lbl in scope["choices"]]
+        self.assertIn("Acme GmbH › Wartung — other customer", labels)
+        self.assertIn("Globex › Relaunch", labels)
+        self.assertEqual(scope["out_of_scope"], [str(self.acme_billing.pk)])
+        self.assertFalse(scope["empty"])
+
+    def test_saving_an_out_of_scope_binding_never_drops_it(self):
+        """A binding carries logged hours and a whole subtree bills through it.
+        Naming another customer on top of it is a contradiction — and the answer
+        is the documented one (the binding wins), not a silent unbind."""
+        from application.models.item import Item
+        with self.app.app_context():
+            Item.objects(pk=self.folder.pk).update_one(
+                set__time_project=self.acme_billing)
+        resp = self._save(customer=str(self.globex.pk),
+                          time_project=str(self.acme_billing.pk))
+        self.assertEqual(resp.status_code, 200)
+        fresh = self._reload()
+        self.assertEqual(fresh.time_project, self.acme_billing)
+        self.assertEqual(fresh.customer, self.acme)
+
+    def test_the_bound_project_is_still_in_the_form_it_opens_with(self):
+        """Nothing is out of scope on open — the stamp keeps the two in step —
+        but the option has to be there, or an untouched save would unbind it."""
+        from application.models.item import Item
+        with self.app.app_context():
+            Item.objects(pk=self.folder.pk).update_one(
+                set__time_project=self.acme_billing)
+        html = self._inspector_html()
+        self.assertIn(f'<option selected value="{self.acme_billing.pk}">', html)
+
+    # -- the dead end, named ------------------------------------------------
+
+    def test_a_customer_without_billing_projects_reports_it(self):
+        scope = self._scope(customer_id=str(self.leer.pk))
+        self.assertEqual(scope["choices"], [])
+        self.assertTrue(scope["empty"])
+
+    def test_the_form_says_so_and_offers_the_way_out(self):
+        """An empty dropdown is a dead end. The field stays on the page, names
+        the customer and links to where a billing project is made."""
+        from application.models.item import Item
+        with self.app.app_context():
+            Item.objects(pk=self.folder.pk).update_one(set__customer=self.leer)
+        html = self._inspector_html()
+        self.assertIn("has no billing project yet", html)
+        self.assertIn(f"/time/customers/{self.leer.pk}", html)
+
+    # -- the same list, asked for mid-edit ----------------------------------
+
+    def test_the_endpoint_answers_with_exactly_the_forms_list(self):
+        """The dropdown is rebuilt from this while the form is open, so it has
+        to be the same answer the save will validate against."""
+        resp = self.client.get(
+            f"/time/projects/for-customer?customer={self.acme.pk}"
+            f"&bound={self.globex_billing.pk}")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual([p["label"] for p in data["projects"]],
+                         ["Acme GmbH › Wartung",
+                          "Globex › Relaunch — other customer"])
+        self.assertEqual(data["out_of_scope"], [str(self.globex_billing.pk)])
+        self.assertFalse(data["empty"])
+
+    def test_the_endpoint_without_a_customer_is_the_whole_list(self):
+        data = self.client.get("/time/projects/for-customer").get_json()
+        self.assertEqual(sorted(p["label"] for p in data["projects"]),
+                         ["Acme GmbH › Wartung", "Globex › Relaunch"])
 
 
 class MergeLeavesNothingDanglingTests(_Base):

@@ -220,3 +220,52 @@ def customer_for_user(user, customer_id: str):
     if not teams:
         return None
     return Customer.objects(pk=oid, team__in=teams).first()
+
+
+# What an out-of-scope row says about itself in the Billing-project picker.
+# It is the one row the filter below is allowed to let through, so it has to
+# name the customer it actually bills to.
+OUT_OF_SCOPE_SUFFIX = " — other customer"
+
+
+def billing_choices(user, *, customer_id: str = "", bound_id: str = "") -> dict:
+    """The Billing-project picker's options for one container.
+
+    ``{"choices": [(id, label), …], "out_of_scope": [id, …], "empty": bool}``.
+
+    **A chosen customer scopes the picker.** A billing project belongs to
+    exactly one customer, so once a container says whose work it is there is
+    nothing to gain from offering the other 40 clients' projects — and one
+    thing to lose, since binding Acme's project onto a folder filed for Globex
+    is precisely the drift ``Item._follow_billing_customer`` exists to keep
+    unreachable. It is therefore a **hard** filter and not a default: the
+    escape hatch is the Customer field one line above, because clearing it
+    brings every project back (``customer_id`` empty → the whole list, exactly
+    as before this existed).
+
+    **The project already bound is never filtered away.** It is listed with
+    ``OUT_OF_SCOPE_SUFFIX`` and reported in ``out_of_scope`` so the form can say
+    so. A binding carries logged hours and is inherited by a whole subtree;
+    silently dropping it out of the options would unbind it on the next save,
+    which is a worse answer than a row that admits it bills elsewhere. Whether
+    the contradiction is then resolved in the customer's favour or the
+    binding's is not decided here — the binding wins, on the way into the
+    database, as it always has.
+
+    **``empty`` is the dead end named.** A customer with no billing project at
+    all would leave a picker holding "— none —" and nothing else, which reads
+    like a list that failed to load. The flag lets the form say which customer
+    has none and where one is created.
+    """
+    from application.services.timetracking import pickable_projects
+
+    rows = pickable_projects(user, customer=customer_id, keep=bound_id)
+    choices, out_of_scope = [], []
+    for r in rows:
+        label = f"{r['customer']} › {r['name']}"
+        if customer_id and r["customer_id"] != customer_id:
+            label += OUT_OF_SCOPE_SUFFIX
+            out_of_scope.append(r["id"])
+        choices.append((r["id"], label))
+    return {"choices": choices, "out_of_scope": out_of_scope,
+            "empty": bool(customer_id) and len(out_of_scope) == len(choices)}
