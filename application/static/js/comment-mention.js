@@ -8,6 +8,11 @@
  *
  * Document-level delegated + a single floating dropdown appended to <body>, so
  * it keeps working after the inspector body or <main> is swapped out.
+ *
+ * Nothing is highlighted until the user arrows into the list — same rule, same
+ * box (`qa-assignee-ac`) and same reason as the quick-add token dropdown, see
+ * quick-add.js: Enter already means "post the comment" here, and a pre-selected
+ * first row spends it on a teammate nobody picked.
  */
 (function () {
   // Both comment boxes: the inspector's (name="comment_body") and the full
@@ -86,7 +91,7 @@
       if (!resp.ok || mine !== seq) return;
       const data = await resp.json();
       items = data.users || [];
-      index = items.length ? 0 : -1;
+      index = -1;
       render();
     } catch (e) { hide(); }
   }
@@ -116,10 +121,15 @@
     if (box.classList.contains("d-none") || !items.length) return;
     if (!commentTextarea(ev.target)) return;
     if (ev.key === "ArrowDown") {
+      // From -1 ("nothing highlighted") this lands on the first entry…
       ev.preventDefault(); index = (index + 1) % items.length; render();
     } else if (ev.key === "ArrowUp") {
-      ev.preventDefault(); index = (index - 1 + items.length) % items.length; render();
+      // …and this one on the last, rather than one short of it.
+      ev.preventDefault(); index = (index <= 0 ? items.length : index) - 1; render();
     } else if (ev.key === "Enter" || ev.key === "Tab") {
+      // Only with an entry actually highlighted — otherwise this handler sits on
+      // the capture phase and would eat the comment form's own Enter.
+      if (index < 0) return;
       ev.preventDefault(); ev.stopPropagation(); apply(index);
     } else if (ev.key === "Escape") {
       ev.preventDefault(); ev.stopPropagation(); hide();

@@ -119,6 +119,18 @@
   // a name with spaces has to be written quoted (`+"Review AI Work"`) — the
   // list writes that for you.
   // (`qa-assignee-ac` is also the comment @-mention box's class.)
+  //
+  // **Nothing in the list is highlighted until the user arrows into it.** This
+  // box completes a token inside a sentence the user is writing, and the two
+  // keys that would take the highlighted entry — Enter and Tab — already mean
+  // "create the task" and "leave the field" in this input. A pre-selected first
+  // row makes Enter hand over a tag or a person that was never picked, and it
+  // does it silently, because `+cair` is also perfectly good text on its own.
+  // A command bar is the other case and keeps its pre-selection: quickjump
+  // (`quickjump.js`), the `/` menu and the `[[ ]]` completion open BECAUSE a
+  // list was asked for, and there Enter can mean nothing else. So: `acIndex`
+  // stays -1 until ↓/↑ moves it, and while it is -1 the dropdown handles no
+  // key the field wanted for itself.
   const acBox = document.createElement("div");
   acBox.className = "qa-assignee-ac d-none";
   (previewEl.parentNode || modalEl).insertBefore(acBox, previewEl);
@@ -192,7 +204,7 @@
       const resp = await fetch(src.url(tok.query), { credentials: "same-origin" });
       if (!resp.ok || seq !== acSeq) return;
       acItems = src.items(await resp.json());
-      acIndex = acItems.length ? 0 : -1;
+      acIndex = -1;
       renderAc();
     } catch (e) { hideAc(); }
   }
@@ -214,10 +226,15 @@
   input.addEventListener("keydown", (ev) => {
     if (acBox.classList.contains("d-none") || !acItems.length) return;
     if (ev.key === "ArrowDown") {
+      // From "nothing highlighted" (-1) this lands on the first entry.
       ev.preventDefault(); acIndex = (acIndex + 1) % acItems.length; renderAc();
     } else if (ev.key === "ArrowUp") {
-      ev.preventDefault(); acIndex = (acIndex - 1 + acItems.length) % acItems.length; renderAc();
+      // …and this one on the last, rather than one short of it.
+      ev.preventDefault(); acIndex = (acIndex <= 0 ? acItems.length : acIndex) - 1; renderAc();
     } else if (ev.key === "Enter" || ev.key === "Tab") {
+      // Only once an entry is actually highlighted. Otherwise Enter submits the
+      // task and Tab moves on, which is what the user pressed them for.
+      if (acIndex < 0) return;
       ev.preventDefault(); ev.stopPropagation(); applyAc(acIndex);
     } else if (ev.key === "Escape") {
       hideAc();
