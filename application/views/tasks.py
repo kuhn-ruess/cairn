@@ -823,19 +823,28 @@ def _assign_columns(items):
     return items
 
 
-def _next_actions_pool(user, now, seen_pks, limit=50):
+def _next_actions_pool(user, now, seen_pks, limit=None):
     """Actionable ``status="next"`` tasks not already on the day.
 
-    Shared by the Plan timeline and the single-day List view: a bounded,
+    Shared by the Plan timeline and the single-day List view: a
     prefetch-warmed slice of the user's next-actions (owned or assigned to
     them), minus anything already shown (``seen_pks``) and anything blocked
     by an incomplete dependency/parent. Returns the same pill dicts the
     templates expect (``obj`` / ``title`` / ``duration_min``).
+
+    **The rail is not capped.** It used to stop at 50 pills behind a
+    200-document query window, which silently left next-actions off the page —
+    and the rail's own counter then reported the truncated number, so nothing
+    said work had been held back. A next-action nobody can see is one that
+    doesn't get done, and there is no load argument for the ceiling either:
+    ``/tasks/next`` already renders the same set unbounded off the same
+    ``owner+status`` / ``assigned_to+status`` index. ``limit`` stays for a
+    caller that genuinely wants a preview.
     """
     candidates = list(
         Item.objects(_scope(user), kind="task", status="next")
         .filter(Q(assigned_to=None) | Q(assigned_to=user))
-        .order_by("+sort_order", "+due_date").limit(200)
+        .order_by("+sort_order", "+due_date")
     )
     _prefetch_refs(candidates)
     pool = []
@@ -844,7 +853,7 @@ def _next_actions_pool(user, now, seen_pks, limit=50):
             continue
         pool.append({"obj": t, "title": t.title,
                      "duration_min": t.estimated_minutes or 30})
-        if len(pool) >= limit:
+        if limit is not None and len(pool) >= limit:
             break
     return pool
 
