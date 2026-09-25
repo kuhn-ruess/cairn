@@ -121,6 +121,22 @@ class SigilMeaningTests(unittest.TestCase):
         p = _parse("call +PHONE", self.user)
         self.assertEqual(p.tags, ["phone"])
 
+    def test_a_tag_name_may_hold_a_colon(self):
+        """The bug: ``+AI:local`` was cut at the colon — the task came out
+        tagged "AI" with ``:local`` still in the title."""
+        self.user.tags.append(_Tag("AI:local"))
+        p = _parse("run the model +AI:local", self.user)
+        self.assertEqual(p.tags, ["AI:local"])
+        self.assertEqual(p.unresolved_tags, [])
+        self.assertEqual(p.title, "run the model")
+
+    def test_a_colon_that_ends_the_token_is_not_part_of_the_tag(self):
+        """A colon only joins two halves of a name; one followed by a space
+        punctuates the sentence and stays out of the tag."""
+        p = _parse("+phone: ring the bank", self.user)
+        self.assertEqual(p.tags, ["phone"])
+        self.assertEqual(p.title, ": ring the bank")
+
 
 class ProjectTokenTests(unittest.TestCase):
     """``#`` is untouched by the swap — it still means the project."""

@@ -53,7 +53,9 @@
   const PREVIEW_PATTERNS = [
     { re: /(?<!\S)p([1-4])(?!\S)/i, label: m => `P${m[1]}`, cls: "qa-prio" },
     { re: /(?<!\S)\+"([^"\n]+)"/g, label: m => `+${m[1]}`, cls: "qa-tag" },
-    { re: /(?<!\S)\+([\w\-äöüÄÖÜß]+)\b/g, label: m => `+${m[1]}`, cls: "qa-tag" },
+    // A colon INSIDE the name belongs to the tag (`+AI:local`) — same rule as
+    // `quick_parse.TAG_RE`, which is the parse that counts.
+    { re: /(?<!\S)\+([\w\-äöüÄÖÜß]+(?::[\w\-äöüÄÖÜß]+)*)\b/g, label: m => `+${m[1]}`, cls: "qa-tag" },
     { re: /(?<!\S)#([\w\-äöüÄÖÜß]+)\b/g, label: m => `#${m[1]}`, cls: "qa-project" },
     { re: /(?<!\S)@"([^"\n]+)"/g, label: m => `@${m[1]}`, cls: "qa-assignee" },
     { re: /(?<!\S)@([\w.\-äöüÄÖÜß]+)\b/g, label: m => `@${m[1]}`, cls: "qa-assignee" },
@@ -154,8 +156,9 @@
       })),
     },
     tag: {
-      // Either half of a quoted name (spaces allowed inside) or a bare word.
-      re: /(?:^|\s)(\+"[^"\n]*|\+[\w\-äöüÄÖÜß]*)$/,
+      // Either half of a quoted name, or a bare word — colons included, so the
+      // list keeps answering while `+AI:local` is being typed.
+      re: /(?:^|\s)(\+"[^"\n]*|\+[\w\-äöüÄÖÜß:]*)$/,
       url: q => `/tasks/tag-names?q=${encodeURIComponent(q)}`,
       items: data => (data.tags || []).map(t => ({
         token: t.token,

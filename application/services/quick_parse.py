@@ -39,7 +39,13 @@ PRIORITY_RE = re.compile(r"(?<!\S)p([1-4])(?!\S)", re.IGNORECASE)
 # line captured out of a note — and ``+`` is a tag. Either is one word, or any
 # name at all between quotes: that is the only way to reach a tag whose name has
 # spaces ("Review AI Work") or a person written by display name.
-TAG_RE = re.compile(r'(?<!\S)\+(?:"([^"\n]+)"|([A-Za-z0-9_\-äöüÄÖÜß]+)\b)')
+# A bare tag name may carry a colon INSIDE it (``+AI:local``) — a namespaced tag
+# is a common shape and the token used to be cut at the colon, so ``+AI:local``
+# came out as the tag "AI" with ``:local`` left sitting in the title. The colon
+# only counts when another name character follows it, so a ``+tag`` that merely
+# ends a clause (``+phone: ring him back``) still stops at the word.
+_TAG_WORD = r"[A-Za-z0-9_\-äöüÄÖÜß]+(?::[A-Za-z0-9_\-äöüÄÖÜß]+)*"
+TAG_RE = re.compile(r'(?<!\S)\+(?:"([^"\n]+)"|(' + _TAG_WORD + r')\b)')
 PROJECT_RE = re.compile(r"(?<!\S)#([A-Za-z0-9_\-äöüÄÖÜß]+)\b")
 ASSIGNEE_RE = re.compile(r'(?<!\S)@(?:"([^"\n]+)"|([A-Za-z0-9._\-äöüÄÖÜß]+)\b)')
 FLAG_RE = re.compile(r"(?<!\S)!(?!\S)")
