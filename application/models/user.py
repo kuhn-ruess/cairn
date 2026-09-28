@@ -469,6 +469,18 @@ class User(UserMixin, Document):
         """The bell badge: tasks with something unread, not raw entries."""
         return sum(1 for r in self.notification_feed if r.unread)
 
+    @property
+    def notification_etag(self) -> str:
+        """A fingerprint of the bell: which entries exist and which are read.
+
+        The page carries it and the bell's poll sends it back, so a poll with
+        nothing new is answered 304 without rendering the list again.
+        """
+        h = hashlib.sha1()
+        for n in self.notifications or []:
+            h.update(f"{n.pk_ref}:{int(bool(n.read))};".encode())
+        return h.hexdigest()[:16]
+
     def prune_notifications(self) -> bool:
         """Drop READ notifications older than ``NOTIFICATION_KEEP_DAYS``.
 

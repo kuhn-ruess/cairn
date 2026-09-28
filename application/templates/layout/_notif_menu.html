@@ -1,0 +1,43 @@
+{# The bell's dropdown body: rendered into base.html on every page and again
+   by notifications.bell, which the bell's poll swaps in (notifications.js).
+   _feed is passed in by base.html; the endpoint lets it compute its own. #}
+{% set _feed = _feed if _feed is defined else current_user.notification_feed %}
+<div class="d-flex align-items-center justify-content-between px-3 py-2">
+  <span class="fw-semibold small">Notifications</span>
+  {% if current_user.notifications %}
+    <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none"
+            id="notifMarkAll">Mark all read</button>
+  {% endif %}
+</div>
+<div class="dropdown-divider my-0"></div>
+{% for row in _feed %}
+  {% set n = row.n %}
+  {# Every row carries its ids and both styling states, so opening one
+     restyles it in place — going through a batch has to leave a mark
+     where you got to, not restyle the whole list at once. The ids
+     include the older entries this row hides, so they go read with it. #}
+  <a class="dropdown-item d-flex gap-2 py-2 notif-item{% if row.unread %} notif-unread bg-body-tertiary{% endif %}"
+     href="{{ n.link or '#' }}" data-notif-ids="{{ row.ids | join(' ') }}"
+     style="white-space: normal;">
+    <i class="bi {{ n.icon or 'bi-bell' }} mt-1 {{ 'text-primary' if row.unread else 'text-muted' }}"></i>
+    <span class="flex-grow-1 lh-sm">
+      <span class="d-block small{% if row.unread %} fw-semibold{% endif %}">{{ n.text }}</span>
+      <span class="d-block text-muted" style="font-size:.72rem;">{{ n.created_at | timeago }}</span>
+    </span>
+    {# The dot is what says "new" at a glance — the row tint alone is
+       too quiet to read as a state, and it is all a read row loses. #}
+    <span class="badge bg-primary rounded-circle p-1 mt-1 align-self-start notif-dot"
+          title="Unread"{% if not row.unread %} hidden{% endif %}>
+      <span class="visually-hidden">Unread</span></span>
+  </a>
+{% else %}
+  <div class="px-3 py-4 text-muted small text-center">You're all caught up.</div>
+{% endfor %}
+{% if current_user.notifications %}
+  <div class="dropdown-divider my-0"></div>
+  <div class="px-3 py-2 text-muted" style="font-size:.72rem;">
+    Opening one marks it read. Read notifications are removed after
+    {{ current_user.NOTIFICATION_KEEP_DAYS }} days.
+  </div>
+{% endif %}
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
