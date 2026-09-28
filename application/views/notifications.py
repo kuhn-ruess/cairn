@@ -15,9 +15,11 @@ notifications_bp = Blueprint("notifications", __name__, url_prefix="/notificatio
 def mark_read():
     """Mark notifications read. With no ``ids`` form field, marks all read
     ("Mark all read"); the bell otherwise sends the single id of the row that
-    was opened. Returns the new unread count."""
+    was opened (plus the older entries that row hides — see
+    ``User.notification_feed``). Returns the new unread count in rows, the way
+    the badge counts."""
     user = current_user._get_current_object()
     ids = request.form.getlist("ids") or None
     if user.mark_notifications_read(ids):
         user.save()
-    return jsonify({"ok": True, "unread": user.unread_notification_count})
+    return jsonify({"ok": True, "unread": user.unread_notification_row_count})

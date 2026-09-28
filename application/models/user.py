@@ -54,6 +54,18 @@ class ApiToken(EmbeddedDocument):
         self.last_used_at = _utcnow()
 
 
+class NotificationRow:
+    """One row of the bell: the newest entry about an item, plus the ids of
+    every entry it hides (see ``User.notification_feed``)."""
+
+    __slots__ = ("n", "ids", "unread")
+
+    def __init__(self, n):
+        self.n = n
+        self.ids = []
+        self.unread = False
+
+
 class User(UserMixin, Document):
     meta = {
         "collection": "users",
@@ -422,6 +434,33 @@ class User(UserMixin, Document):
     @property
     def unread_notification_count(self) -> int:
         return sum(1 for n in (self.notifications or []) if not n.read)
+
+    @property
+    def notification_feed(self) -> list:
+        """The bell's list: one row per task, unread rows first.
+
+        Several notifications about the same item (assigned, then three
+        comments) collapse into the newest one, and the row carries every id
+        it stands for, so opening it marks the hidden older ones read too. A
+        row is unread while any of its entries is. Entries without an item
+        (a team invite) stay one row each. Within each half the order is
+        newest first. The API keeps serving the raw, per-entry list.
+        """
+        groups, order = {}, []
+        for n in reversed(self.notifications or []):   # stored oldest-last
+            key = str(n.item_id) if n.item_id else f"n:{n.pk_ref}"
+            row = groups.get(key)
+            if row is None:
+                row = groups[key] = NotificationRow(n)
+                order.append(row)
+            row.ids.append(str(n.pk_ref))
+            row.unread = row.unread or not n.read
+        return sorted(order, key=lambda r: not r.unread)   # stable
+
+    @property
+    def unread_notification_row_count(self) -> int:
+        """The bell badge: tasks with something unread, not raw entries."""
+        return sum(1 for r in self.notification_feed if r.unread)
 
     def prune_notifications(self) -> bool:
         """Drop READ notifications older than ``NOTIFICATION_KEEP_DAYS``.

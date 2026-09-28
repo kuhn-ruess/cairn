@@ -117,8 +117,11 @@
     {# Notification bell — renders from the embedded list already on
        current_user, so no extra query. Opening it marks NOTHING read: a
        notification is read when you open it, so the list still answers
-       "which of these have I been through" on the next visit. #}
-    {% set _unread = current_user.unread_notification_count %}
+       "which of these have I been through" on the next visit. The list is
+       User.notification_feed: one row per task (the newest entry), unread
+       rows first; the badge counts rows, not raw entries. #}
+    {% set _feed = current_user.notification_feed %}
+    {% set _unread = _feed | selectattr('unread') | list | length %}
     <div class="dropdown me-2" id="notifBell"
          data-mark-read-url="{{ url_for('notifications.mark_read') }}">
       <button class="btn btn-sm btn-outline-secondary position-relative"
@@ -138,22 +141,24 @@
           {% endif %}
         </div>
         <div class="dropdown-divider my-0"></div>
-        {% for n in current_user.notifications|reverse %}
-          {# Every row carries its id and both styling states, so opening one
+        {% for row in _feed %}
+          {% set n = row.n %}
+          {# Every row carries its ids and both styling states, so opening one
              restyles it in place — going through a batch has to leave a mark
-             where you got to, not restyle the whole list at once. #}
-          <a class="dropdown-item d-flex gap-2 py-2 notif-item{% if not n.read %} notif-unread bg-body-tertiary{% endif %}"
-             href="{{ n.link or '#' }}" data-notif-id="{{ n.pk_ref }}"
+             where you got to, not restyle the whole list at once. The ids
+             include the older entries this row hides, so they go read with it. #}
+          <a class="dropdown-item d-flex gap-2 py-2 notif-item{% if row.unread %} notif-unread bg-body-tertiary{% endif %}"
+             href="{{ n.link or '#' }}" data-notif-ids="{{ row.ids | join(' ') }}"
              style="white-space: normal;">
-            <i class="bi {{ n.icon or 'bi-bell' }} mt-1 {{ 'text-primary' if not n.read else 'text-muted' }}"></i>
+            <i class="bi {{ n.icon or 'bi-bell' }} mt-1 {{ 'text-primary' if row.unread else 'text-muted' }}"></i>
             <span class="flex-grow-1 lh-sm">
-              <span class="d-block small{% if not n.read %} fw-semibold{% endif %}">{{ n.text }}</span>
+              <span class="d-block small{% if row.unread %} fw-semibold{% endif %}">{{ n.text }}</span>
               <span class="d-block text-muted" style="font-size:.72rem;">{{ n.created_at | timeago }}</span>
             </span>
             {# The dot is what says "new" at a glance — the row tint alone is
                too quiet to read as a state, and it is all a read row loses. #}
             <span class="badge bg-primary rounded-circle p-1 mt-1 align-self-start notif-dot"
-                  title="Unread"{% if n.read %} hidden{% endif %}>
+                  title="Unread"{% if not row.unread %} hidden{% endif %}>
               <span class="visually-hidden">Unread</span></span>
           </a>
         {% else %}

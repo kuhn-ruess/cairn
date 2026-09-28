@@ -71,7 +71,9 @@
 
     restyle(row);
     setBadge(unreadRows().length);
-    const done = post([row.dataset.notifId]);
+    // A row stands for every entry about its task; the older ones it hides
+    // go read with it, or they would linger unread where nobody can see them.
+    const done = post(row.dataset.notifIds.split(" ").filter(Boolean));
     ev.preventDefault();
     if (href === "#") return;
     // Follow the link only once the row is actually marked read: the target
