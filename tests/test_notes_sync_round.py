@@ -67,7 +67,14 @@ class FakeDav:
             raise DavError(f"GET {path}: HTTP 404", 404)
         return self.files[path]
 
-    def write(self, path, data, content_type="application/octet-stream"):
+    def write(self, path, data, content_type="application/octet-stream", *,
+              if_match="", if_none_match=False):
+        from application.services.webdav import DavError
+        # The two preconditions, as a real server answers them.
+        if if_match and (path not in self.files or self._tag(path) != if_match):
+            raise DavError(f"PUT {path}: HTTP 412", 412)
+        if if_none_match and path in self.files:
+            raise DavError(f"PUT {path}: HTTP 412", 412)
         self.makedirs(path.rsplit("/", 1)[0] if "/" in path else "")
         self.files[path] = data
         self.writes.append(path)

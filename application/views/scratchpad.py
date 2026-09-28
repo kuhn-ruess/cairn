@@ -27,7 +27,7 @@ scratchpad_bp = Blueprint("scratchpad", __name__, url_prefix="/scratchpad")
 @login_required
 def index():
     return render_template("scratchpad/index.html",
-                           **_pad_context(current_user._get_current_object()))
+                           **_pad_context(_fresh_pad_user()))
 
 
 @scratchpad_bp.route("/frame")
@@ -35,8 +35,29 @@ def index():
 def frame():
     """The pad as its own little document, for the floating window's iframe."""
     return render_template("scratchpad/frame.html", compact=True,
-                           **_pad_context(current_user._get_current_object()))
+                           **_pad_context(_fresh_pad_user()))
 
+
+def _fresh_pad_user():
+    """The user, with the pad as the WebDAV mirror has it right now
+    (Scratchpad.md may have been edited over there)."""
+    from application.services import notes_sync
+    user = current_user._get_current_object()
+    if notes_sync.sync_pad(user) == "changed":
+        user.reload("scratchpad", "scratchpad_updated_at",
+                    "scratchpad_mirror_hash", "scratchpad_mirror_tag")
+    return user
+
+
+def pad_stamp(user) -> str:
+    """The pad's version for the editor's conflict check. Never empty: an
+    empty stamp means "don't check", and a pad never saved since stamps
+    existed can still be overwritten by a pull from the mirror."""
+    at = user.scratchpad_updated_at
+    if not at:
+        return "0"
+    from application.views.notes import _stamp
+    return _stamp(at)
 
 def _pad_context(user) -> dict:
     """Everything scratchpad/_pad.html needs — the page and the window alike."""
@@ -52,6 +73,7 @@ def _pad_context(user) -> dict:
     return dict(
         blocks=blocks,
         blocks_json=_blocks_json(blocks),
+        pad_stamp=pad_stamp(user),
         # "[[" still links a note from the pad; a block reference does not
         # belong here, because the pad is not an Item and nothing can point
         # back at a line that is about to be converted away.
@@ -77,8 +99,18 @@ def save():
     """
     from application.services import outline
 
+    from application.services import notes_sync
+
     user = current_user._get_current_object()
     data = request.get_json(silent=True) or request.form
+    # The version the editor started from. Something else writes the pad now
+    # (a pull from Scratchpad.md, a second tab): refuse rather than overwrite,
+    # and hand back what is there — the editor shows its conflict notice.
+    base = (data.get("base_stamp") or "").strip()
+    if base and base != pad_stamp(user):
+        return jsonify({"ok": False, "conflict": True, "title": "",
+                        "note": user.scratchpad or "",
+                        "stamp": pad_stamp(user)}), 409
     # ``note`` is what the outliner posts; ``text`` is what anything older did.
     text = data.get("note")
     if text is None:
@@ -86,11 +118,13 @@ def save():
     # multipart/form-data normalises every newline to CRLF, and an outline is
     # read line by line — a stray "\r" would ride along inside every block.
     user.scratchpad = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    user.scratchpad_updated_at = notes_sync._utcnow()
     user.save()
+    notes_sync.push_soon(user)
     return jsonify({
         "ok": True,
         "note": user.scratchpad,
-        "stamp": "",              # nothing else writes the pad; no conflict to have
+        "stamp": pad_stamp(user),
         "words": len(re.findall(r"[\w'-]+", outline.plain(user.scratchpad) if user.scratchpad else "")),
         "rendered": _render_blocks(user, data.get("render")),
     })

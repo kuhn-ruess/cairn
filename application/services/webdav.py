@@ -11,6 +11,7 @@ delete, create collections. Depth-1 PROPFIND recursion rather than
 from __future__ import annotations
 
 import base64
+import http.client
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -53,8 +54,15 @@ class DavEntry:
 
 
 def _encode_path(path: str) -> str:
-    """Percent-encode each segment; the separators must survive."""
-    return "/".join(quote(seg, safe="") for seg in path.split("/") if seg != "")
+    """Percent-encode each segment; the separators must survive.
+
+    ``.`` and ``..`` are refused rather than encoded: quoting leaves them as
+    they are, and a server that normalises the URL would then address
+    something outside the mirrored folder."""
+    segs = [seg for seg in path.split("/") if seg != ""]
+    if any(seg in (".", "..") for seg in segs):
+        raise DavError(f"refusing a path that climbs out of the share: {path}")
+    return "/".join(quote(seg, safe="") for seg in segs)
 
 
 class DavClient:
@@ -71,7 +79,9 @@ class DavClient:
             raw = f"{username}:{password}".encode()
             self._auth = "Basic " + base64.b64encode(raw).decode()
         # The base URL's own path, so hrefs coming back can be made relative.
-        self._root_path = urlparse(self.base_url).path.rstrip("/")
+        # Unquoted, because the hrefs are unquoted before they are compared
+        # with it — a folder called "My Notes" is "My%20Notes" in the URL.
+        self._root_path = unquote(urlparse(self.base_url).path).rstrip("/")
 
     # ---------- plumbing ----------
 
@@ -100,7 +110,8 @@ class DavClient:
                  headers: dict | None = None, expect=(200, 201, 204, 207)):
         from application.services.http_safety import UnsafeURLError
 
-        req = urllib.request.Request(self._url(path), data=body, method=method)
+        url = self._url(path)
+        req = urllib.request.Request(url, data=body, method=method)
         if self._auth:
             req.add_header("Authorization", self._auth)
         for key, value in (headers or {}).items():
@@ -117,17 +128,31 @@ class DavClient:
                            exc.code) from exc
         except UnsafeURLError as exc:
             raise DavError(f"{method} {path or '/'}: {exc}") from exc
+        except http.client.HTTPException as exc:
+            # A body cut short (IncompleteRead) or a garbled answer. Not an
+            # OSError, so without this it escaped the round as a crash — and a
+            # truncated GET is exactly the read that must never be used.
+            raise DavError(f"{method} {path or '/'}: {exc!r}") from exc
         except urllib.error.URLError as exc:
             raise DavError(f"{method} {path or '/'}: {exc.reason}") from exc
         except OSError as exc:  # timeouts, TLS, connection reset
             raise DavError(f"{method} {path or '/'}: {exc}") from exc
 
-    def _relative(self, href: str) -> str:
-        """An href from a multistatus response as a path below our root."""
+    def _relative(self, href: str) -> str | None:
+        """An href from a multistatus response as a path below our root, or
+        None for one that does not lie below it (or tries to climb out) —
+        such an entry is not ours to read, write or delete."""
         path = unquote(urlparse(href).path)
-        if self._root_path and path.startswith(self._root_path):
+        if self._root_path:
+            if path.rstrip("/") == self._root_path:
+                return ""
+            if not path.startswith(self._root_path + "/"):
+                return None
             path = path[len(self._root_path):]
-        return path.strip("/")
+        path = path.strip("/")
+        if any(seg in (".", "..") for seg in path.split("/")):
+            return None
+        return path
 
     # ---------- operations ----------
 
@@ -145,24 +170,50 @@ class DavClient:
         me = path.strip("/")
         out: list[DavEntry] = []
         for resp in root.findall(f"{DAV_NS}response"):
-            href = resp.findtext(f"{DAV_NS}href") or ""
-            rel = self._relative(href)
-            if rel == me:
+            entry = self._entry(resp)
+            if entry is None or entry.path == me:
                 continue                       # the collection itself
-            prop = resp.find(f"{DAV_NS}propstat/{DAV_NS}prop")
-            if prop is None:
-                continue
-            is_dir = prop.find(f"{DAV_NS}resourcetype/{DAV_NS}collection") is not None
-            try:
-                size = int(prop.findtext(f"{DAV_NS}getcontentlength") or 0)
-            except ValueError:
-                size = 0
-            out.append(DavEntry(
-                path=rel, is_dir=is_dir, size=size,
-                etag=(prop.findtext(f"{DAV_NS}getetag") or "").strip('"'),
-                mtime=(prop.findtext(f"{DAV_NS}getlastmodified") or ""),
-            ))
+            out.append(entry)
         return out
+
+    def _entry(self, resp) -> DavEntry | None:
+        href = resp.findtext(f"{DAV_NS}href") or ""
+        rel = self._relative(href)
+        if rel is None:
+            return None
+        prop = resp.find(f"{DAV_NS}propstat/{DAV_NS}prop")
+        if prop is None:
+            return None
+        is_dir = prop.find(f"{DAV_NS}resourcetype/{DAV_NS}collection") is not None
+        try:
+            size = int(prop.findtext(f"{DAV_NS}getcontentlength") or 0)
+        except ValueError:
+            size = 0
+        return DavEntry(
+            path=rel, is_dir=is_dir, size=size,
+            etag=(prop.findtext(f"{DAV_NS}getetag") or "").strip('"'),
+            mtime=(prop.findtext(f"{DAV_NS}getlastmodified") or ""),
+        )
+
+    def stat(self, path: str) -> DavEntry | None:
+        """One resource's entry (a Depth-0 PROPFIND), or None when there is
+        nothing at ``path``. One request — what opening a note can afford."""
+        status, body, _headers = self._request(
+            "PROPFIND", path, body=_PROPFIND_BODY,
+            headers={"Depth": "0", "Content-Type": 'text/xml; charset="utf-8"'},
+            expect=(207, 404))
+        if status == 404:
+            return None
+        try:
+            root = ElementTree.fromstring(body)
+        except ElementTree.ParseError as exc:
+            raise DavError(f"PROPFIND {path}: unreadable response: {exc}") from exc
+        for resp in root.findall(f"{DAV_NS}response"):
+            entry = self._entry(resp)
+            if entry is not None:
+                entry.path = path.strip("/")
+                return entry
+        return None
 
     def walk(self, path: str = "", *, skip=()) -> list[DavEntry]:
         """Every file and collection below ``path``, depth first.
@@ -187,12 +238,23 @@ class DavClient:
         return body
 
     def write(self, path: str, data: bytes,
-              content_type="application/octet-stream") -> str:
+              content_type="application/octet-stream", *,
+              if_match: str = "", if_none_match: bool = False) -> str:
         """Write a file. Returns the new ETag when the server sends one, so the
-        caller can record what it wrote without a second request."""
+        caller can record what it wrote without a second request.
+
+        ``if_match`` (an ETag) makes the write conditional on the file still
+        being the version the caller read; ``if_none_match`` on there being no
+        file at all. Either way a file changed over there in the meantime
+        answers 412 instead of being overwritten."""
         self.makedirs(path.rsplit("/", 1)[0] if "/" in path else "")
+        headers = {"Content-Type": content_type}
+        if if_match:
+            headers["If-Match"] = f'"{if_match}"'
+        elif if_none_match:
+            headers["If-None-Match"] = "*"
         _status, _body, headers = self._request(
-            "PUT", path, body=data, headers={"Content-Type": content_type},
+            "PUT", path, body=data, headers=headers,
             expect=(200, 201, 204))
         return (headers.get("ETag") or headers.get("Etag") or "").strip('"')
 

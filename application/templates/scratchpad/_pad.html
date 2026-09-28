@@ -68,9 +68,18 @@
 
 <input type="hidden" id="scratchpadCsrf" name="csrf_token" value="{{ csrf_token() }}">
 
+{# Shown by outliner.js when a save is refused: the pad changed somewhere
+   else (another tab, or Scratchpad.md edited on the WebDAV mirror). #}
+<div class="alert alert-warning d-none py-2 px-3 small" id="note-conflict">
+  The pad changed somewhere else, so your edit wasn't saved. Copy what you
+  need, then
+  <button type="button" class="btn btn-sm btn-warning ms-1" id="note-conflict-reload">reload the pad</button>.
+</div>
+
 {# The same outline a note has, posting to the pad's own save route. #}
 <div id="note-outline" class="note-body scratchpad-outline"
      data-save-url="{{ url_for('scratchpad.save') }}"
+     data-stamp="{{ pad_stamp }}"
      {# No vim keys in the pad, whatever the user set for notes: this is the
         thing you type into before the thought is gone, and a modal editor
         that opens in NORMAL swallows the first sentence. #}

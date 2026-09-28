@@ -197,6 +197,40 @@ def enqueue_notes_mirror(user_id: str, *, trigger: str = "manual") -> None:
                         kwargs={"trigger": trigger}, queue="zammad", retry=False)
 
 
+def enqueue_mirror_push(user_id: str, note_id: str = "") -> None:
+    """Queue a push of ONE note (or, with no id, the scratchpad) a few seconds
+    from now — what saving it does. One queued push per file at a time: the
+    marker is cleared when the task STARTS, so a save that lands after that
+    queues the next one, and the task always syncs the note as it is then."""
+    global _producer
+    from celery import Celery
+    from application.services.notes_sync import PUSH_DELAY
+
+    r = _redis()
+    if not r.set(f"mirror:push-queued:{user_id}:{note_id}", "1", nx=True, ex=60):
+        return
+    url = current_app.config["REDIS_URL"]
+    if _producer is None or _producer.conf.broker_url != url:
+        _producer = Celery("cairn-producer", broker=url)
+        _producer.conf.task_default_queue = "zammad"
+    _producer.send_task("notes_mirror.sync_one", args=[user_id, note_id],
+                        queue="zammad", countdown=PUSH_DELAY, retry=False)
+
+
+@shared_task(name="notes_mirror.sync_one", bind=True, max_retries=20,
+             default_retry_delay=30)
+def sync_one_notes_mirror(self, user_id: str, note_id: str = ""):
+    """One note's (or the pad's) push. A round in progress means "later", not
+    "never" — it may already have passed this note."""
+    from application.services import notes_sync
+
+    _redis().delete(f"mirror:push-queued:{user_id}:{note_id}")
+    result = notes_sync.sync_one(user_id, note_id)
+    if result == "busy":
+        raise self.retry(countdown=30)
+    return result
+
+
 @shared_task(name="notes_mirror.enqueue_due")
 def enqueue_due_notes_mirrors() -> int:
     """Fan out to every user whose mirror interval has elapsed."""

@@ -292,6 +292,13 @@ class User(UserMixin, Document):
     # the /scratchpad page. Persisted server-side so it survives across
     # devices/browsers (not just localStorage) and stays put after a convert.
     scratchpad = StringField(default="")
+    # When the pad was last written — the version stamp its editor saves
+    # against, so a pull from the WebDAV mirror and an open editor cannot
+    # silently overwrite each other (views/scratchpad.save).
+    scratchpad_updated_at = DateTimeField()
+    # The pad's file on the notes mirror (Scratchpad.md), like Item.mirror_*.
+    scratchpad_mirror_hash = StringField(default="")
+    scratchpad_mirror_tag = StringField(default="")
 
     # Today perspective preferences (persisted across sessions).
     today_grouping = StringField(default="none")

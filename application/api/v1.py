@@ -1598,7 +1598,10 @@ def save_scratchpad():
     data = request.get_json(silent=True) or {}
     user = g.current_user
     user.scratchpad = data.get("text") or ""
+    from application.services import notes_sync
+    user.scratchpad_updated_at = notes_sync._utcnow()
     user.save()
+    notes_sync.push_soon(user)
     return jsonify({"text": user.scratchpad})
 
 

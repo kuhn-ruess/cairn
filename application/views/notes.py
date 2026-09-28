@@ -354,6 +354,11 @@ def detail(note_id):
             selected_teams=[str(t.pk) for t in (item.shared_teams or [])],
             access=item.effective_viewers(),
         )
+    # The mirrored file first: if it was edited over there, open THAT version
+    # rather than one the next round would call a conflict. Updates ``item``
+    # in place; costs one PROPFIND, and nothing when the owner has no mirror.
+    from application.services import notes_sync
+    notes_sync.sync_note(item)
     related = item.related_items()
     linked_tasks = [r for r in related if r.kind == "task"]
     linked_projects = [r for r in related if r.kind == "project"]
@@ -643,6 +648,10 @@ def edit(note_id):
         from application.services.notes_write import apply_body
         index = apply_body(item, request.form.get("note", ""), user)
     item.save()
+    if item.kind == "note":
+        # To the owner's share a few seconds from now, not at the next round.
+        from application.services import notes_sync
+        notes_sync.push_soon(item.owner, item.pk)
     if request.headers.get("X-Partial") == "1":
         return jsonify({"ok": True, "title": item.title, "note": item.note,
                         "rendered": _render_blocks(

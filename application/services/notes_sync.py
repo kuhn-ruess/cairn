@@ -32,16 +32,46 @@ A file that isn't tracked is read once: its ``cairn-id`` front-matter says
 whether it is a known note that moved (rename/move in DEVONthink → the note
 moves too) or something new to import.
 
+The **scratchpad** is mirrored too, as ``Scratchpad.md`` at the root of the
+share (:meth:`_Round.pad`), by the same three-way rule — except that a
+deleted file is simply written again: deleting a file must never empty the
+pad. No note is ever filed at that path.
+
+Live, not only in rounds
+------------------------
+Opening a note (or the pad) checks its one file first (:func:`sync_note`,
+:func:`sync_pad` — a Depth-0 PROPFIND, a GET only when it changed), and
+saving one queues a push of just that file a few seconds later
+(:func:`push_soon`, a Celery task). Both use the same decision as the round;
+neither ever trashes a note — "the file is gone" needs the whole listing to
+tell a deletion from a move, so that stays the round's call.
+
 Safety
 ------
 Deletions are the dangerous half. If the remote root lists **nothing** while
 notes claim to have files there, the round refuses to delete anything: an
 unmounted share must not empty the notebook. Any WebDAV failure aborts the
 round before it writes, and the run is recorded in the sync log either way.
+
+Both sides can change WHILE a round runs, so neither is written blind:
+
+* a file is replaced only if it is still the version this round read
+  (``If-Match``), and a new one is only created where nothing is
+  (``If-None-Match: *``) — see :meth:`_Round.put`;
+* a note is saved only if nobody saved it since it was loaded
+  (``save_condition`` on ``updated_at``), the pad likewise;
+* either refusal skips that one note for this round, and the next round sees
+  two changed sides — a conflict, which keeps both texts.
+
+A file that is not UTF-8 is left alone rather than read with replacement
+characters (which the write-back would have made permanent), and an empty
+(0-byte) file never empties a note: a half-written upload looks exactly like
+that.
 """
 from __future__ import annotations
 
 import hashlib
+import logging
 import mimetypes
 import posixpath
 import re
@@ -53,8 +83,19 @@ from application.models.item import Item
 from application.services import tasks_mirror
 from application.services.webdav import DavClient, DavError
 
+log = logging.getLogger(__name__)
+
 ASSETS_DIR = "_assets"
 MD = ".md"
+# The scratchpad's file, at the root of the share. Reserved: no note is filed
+# here (LinkMap seeds it as taken), and it is never adopted as a note.
+PAD_FILE = "Scratchpad.md"
+# How long opening a note may wait for the share — a NAS that is off must not
+# make every page load hang for the client's full timeout.
+LIVE_TIMEOUT = 4
+# Seconds between a save and the push it queues: an autosave fires every
+# second or so while typing, and one push per pause is plenty.
+PUSH_DELAY = 5
 EXT_BY_CTYPE = {
     "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif",
     "image/webp": "webp",
@@ -72,6 +113,28 @@ def _utcnow() -> datetime:
 
 def _hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+class UnreadableFile(DavError):
+    """A file over there that is not UTF-8 text. Skipped, never rewritten."""
+
+
+class Busy(DavError):
+    """One note could not be written safely this round — the other side moved
+    while it ran. Skipped; the next round compares again."""
+
+
+def _decode(raw: bytes, path: str) -> str:
+    """A file's bytes as text — strictly. ``errors="replace"`` used to turn a
+    Latin-1 umlaut into U+FFFD, and the write-back then made that permanent
+    on both sides. A byte-order mark (some Windows editors add one) is not
+    part of the text and would hide the front matter."""
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise UnreadableFile(
+            f"{path}: not UTF-8 text — left alone ({exc.reason} at byte {exc.start})"
+        ) from exc
 
 
 def _parse_dt(value: str):
@@ -210,10 +273,13 @@ class LinkMap:
         self.by_path: dict = {}       # lowercased file path -> pk
         self.block_note: dict = {}    # block id -> pk
         self._labels: dict = {}       # block id -> its text, parsed on demand
-        self._bodies: dict = {}       # pk -> body, for that parsing
-        taken: set = set()
+        # The scratchpad's file is not a note's to take.
+        taken: set = {PAD_FILE.lower()}
+        # Bodies are NOT loaded here: only a block reference needs one, and
+        # opening a single note builds this map too — every body of the
+        # notebook for that would be the whole collection per page view.
         for note in Item.objects(owner=user, kind="note").only(
-                "pk", "title", "note", "parent", "block_ids"):
+                "pk", "title", "parent", "block_ids"):
             path = path_for(note, paths, taken)
             taken.add(path)
             pk = str(note.pk)
@@ -222,7 +288,6 @@ class LinkMap:
                 self.by_title[key] = (pk, path)
             self.by_pk[pk] = (note.title or "", path)
             self.by_path[path.lower()] = pk
-            self._bodies[pk] = note.note or ""
             for bid in (note.block_ids or []):
                 self.block_note.setdefault(bid, pk)
 
@@ -236,7 +301,9 @@ class LinkMap:
         pk = self.block_note.get(block_id)
         text = ""
         if pk:
-            block = outline.find(outline.parse(self._bodies.get(pk, "")), block_id)
+            src = Item.objects(pk=pk).only("note").first()
+            block = outline.find(outline.parse((src.note if src else "") or ""),
+                                 block_id)
             if block is not None:
                 text = block_refs.label_for(block)
         self._labels[block_id] = text or (self.by_pk.get(pk, ("", ""))[0] if pk else "")
@@ -273,7 +340,7 @@ def _is_relative_file(href: str) -> bool:
 def body_to_file(note, body: str, path: str, links=None) -> str:
     """In-app attachment URLs → the relative paths the mirrored copy uses, and
     Cairn's link syntaxes → ordinary Markdown links (see :class:`LinkMap`)."""
-    for url, name, _data in _asset_names(note):
+    for url, name, _data in (_asset_names(note) if note is not None else ()):
         body = body.replace(url, f"{ASSETS_DIR}/{note.pk}/{name}")
     if links is None:
         return body
@@ -315,16 +382,17 @@ def body_from_file(note, body: str, path: str = "", links=None) -> str:
     file (and with it the number of ``../``), and the app only cares about the
     note id and file name."""
     body = show_props(body)
-    pattern = re.compile(
-        r"(?:\.\./)*" + re.escape(ASSETS_DIR) + r"/" + re.escape(str(note.pk))
-        + r"/([^\s)\"']+)")
+    if note is not None:
+        pattern = re.compile(
+            r"(?:\.\./)*" + re.escape(ASSETS_DIR) + r"/" + re.escape(str(note.pk))
+            + r"/([^\s)\"']+)")
 
-    by_name = {name: url for url, name, _d in _asset_names(note)}
+        by_name = {name: url for url, name, _d in _asset_names(note)}
 
-    def repl(m):
-        return by_name.get(m.group(1), m.group(0))
+        def repl(m):
+            return by_name.get(m.group(1), m.group(0))
 
-    body = pattern.sub(repl, body)
+        body = pattern.sub(repl, body)
     if links is None:
         return body
 
@@ -381,6 +449,18 @@ def _format_from(note, meta: dict) -> None:
     want = str(meta.get("format") or "").strip().lower()
     if want in outline.FORMATS:
         note.note_format = want
+
+
+def render_pad(text: str, links=None) -> str:
+    """The scratchpad's file: the outline as it is, links made followable.
+    No front matter — the path says what it is."""
+    return hide_props(body_to_file(None, text or "", PAD_FILE, links))
+
+
+def pad_from_file(text: str, links=None) -> str:
+    """The reverse, with the newline normalisation the pad's own save does."""
+    body = body_from_file(None, text or "", PAD_FILE, links)
+    return body.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def parse(text: str) -> tuple[dict, str]:
@@ -468,6 +548,8 @@ class MirrorStats:
     tasks_archived: int = 0
     conflicts: int = 0
     unchanged: int = 0
+    # What the scratchpad pass did: "", "pushed", "pulled" or "conflict".
+    scratchpad: str = ""
     errors: list = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -485,6 +567,7 @@ class MirrorStats:
             "tasks_archived": self.tasks_archived,
             "conflicts": self.conflicts,
             "unchanged": self.unchanged,
+            "scratchpad": self.scratchpad,
             "errors": self.errors[:10],
         }
 
@@ -502,13 +585,14 @@ class MirrorStats:
                 + (f"; {self.conflicts} conflict(s)" if self.conflicts else ""))
 
 
-def client_for(user) -> DavClient:
+def client_for(user, *, timeout: int = 30) -> DavClient:
     """The configured client for a user, with the password decrypted."""
     from application.services.crypto import decrypt_for_user
     return DavClient(
         user.notes_mirror_url or "",
         user.notes_mirror_user or "",
         decrypt_for_user(user, user.notes_mirror_password or ""),
+        timeout=timeout,
     )
 
 
@@ -560,6 +644,9 @@ class _Round:
         # note with links costs no queries of its own (see LinkMap).
         self.links = LinkMap(user, self.paths)
         self.handled: set[str] = set()
+        # ``updated_at`` of each note as this round loaded it — a note is only
+        # saved if it still has that (see save_note).
+        self.loaded: dict = {}
 
     # ---------- the pass ----------
 
@@ -598,8 +685,13 @@ class _Round:
         doomed_ids = {str(n.pk) for n in doomed}
         self.loose = {}
         self.by_id = {}
-        for path in sorted(set(self.files) - claimed - doomed_paths):
-            text = self.client.read(path).decode("utf-8", "replace")
+        reserved = {p for p in self.files if p.lower() == PAD_FILE.lower()}
+        for path in sorted(set(self.files) - claimed - doomed_paths - reserved):
+            try:
+                text = _decode(self.client.read(path), path)
+            except UnreadableFile as exc:
+                self.stats.errors.append(str(exc))
+                continue
             meta, body = parse(text)
             self.loose[path] = (meta, body, text)
             note_id = (meta.get("cairn-id") or "").strip()
@@ -638,17 +730,159 @@ class _Round:
         # the time this looks.
         self.drop_dirs_of_trashed_folders()
 
+        # After the notes: a note still filed at the pad's path from before it
+        # was reserved has just been moved away from it (see LinkMap).
+        if not any((n.mirror_path or "").lower() == PAD_FILE.lower()
+                   for n in notes) and not any(
+                       p.lower() == PAD_FILE.lower() for p in doomed_paths):
+            try:
+                self.pad()
+            except DavError as exc:
+                self.stats.errors.append(f"{PAD_FILE}: {exc}")
+
         # Tasks last: their folder is written, never read, so nothing above
         # depends on it — and a failure there must not cost the notes round.
         if self.user.notes_mirror_tasks:
             self.mirror_tasks()
 
+    # ---------- one note, outside a round ----------
+
+    def single(self, note) -> None:
+        """This one note against its file, now — what opening or saving it
+        runs. The same decision as a round, over a listing of just the paths
+        it can concern. A missing file is left for the round: only the whole
+        listing can tell a file deleted over there from one that moved."""
+        want = self.links.path_of(note) or path_for(note, self.paths, set())
+        self.files, self.loose, self.by_id = {}, {}, {}
+        self.may_delete = False
+        for path in {note.mirror_path or "", want}:
+            if not path:
+                continue
+            entry = self._stat_strict(path)
+            if entry is not None and not entry.is_dir:
+                self.files[path] = entry
+        self.one(note, want)
+
+    # ---------- the scratchpad ----------
+
+    def pad(self) -> None:
+        """``User.scratchpad`` ⇄ ``Scratchpad.md`` at the root of the share.
+
+        The note rule, three-way against ``scratchpad_mirror_hash``, with two
+        differences: a pull is an atomic update conditional on
+        ``scratchpad_updated_at`` (the pad has no Item to save), and a file
+        that is gone is written again rather than emptying the pad."""
+        from application.models.user import User
+
+        me = User.objects(pk=self.user.pk).only(
+            "scratchpad", "scratchpad_updated_at", "scratchpad_mirror_hash",
+            "scratchpad_mirror_tag").first()
+        if me is None:
+            return
+        text = me.scratchpad or ""
+        local_text = render_pad(text, self.links)
+        local_hash = _hash(local_text)
+        base = me.scratchpad_mirror_hash or ""
+        entry = self._stat_strict(PAD_FILE)
+
+        if entry is not None and entry.is_dir:
+            self.stats.errors.append(
+                f"{PAD_FILE} is a folder over there — the scratchpad is not mirrored.")
+            return
+        if entry is None:
+            # Never written — or deleted over there, which is not how a pad is
+            # emptied (the Clear button is): write it again.
+            self._pad_write(local_text, base="")
+            self.stats.scratchpad = "pushed"
+            return
+
+        if base and entry.tag and entry.tag == (me.scratchpad_mirror_tag or ""):
+            remote_text = None
+        else:
+            remote_text = _decode(self.client.read(PAD_FILE), PAD_FILE)
+        remote_changed = remote_text is not None and _hash(remote_text) != base
+        local_changed = local_hash != base
+
+        if remote_changed and not remote_text.strip() and text.strip():
+            self.stats.errors.append(
+                f"{PAD_FILE}: the file was empty — the pad was written back.")
+            remote_changed, local_changed = False, True
+
+        if not remote_changed and not local_changed:
+            if not self.dry_run:
+                self._pad_remember(base, entry.tag)
+            return
+        if remote_changed and local_changed:
+            if _hash(remote_text) == local_hash:
+                if not self.dry_run:
+                    self._pad_remember(local_hash, entry.tag)
+                return
+            # Both moved: the file's version is parked beside it and comes
+            # back as a note on the next round — the same rule as a note's.
+            stamp = _utcnow().strftime("%Y-%m-%d %H%M%S")
+            if not self.dry_run:
+                self.put(f"Scratchpad (conflict {stamp}){MD}",
+                         (f"---\ntitle: Scratchpad (conflict {stamp})\n---\n\n"
+                          + remote_text).encode("utf-8"),
+                         "text/markdown; charset=utf-8", base="")
+            self.stats.conflicts += 1
+            self._pad_write(local_text, base=entry.etag)
+            self.stats.scratchpad = "conflict"
+            return
+        if local_changed:
+            self._pad_write(local_text, base=entry.etag)
+            self.stats.scratchpad = "pushed"
+            return
+
+        # The file won.
+        new = pad_from_file(remote_text, self.links)
+        self.stats.scratchpad = "pulled"
+        if self.dry_run:
+            return
+        done = User.objects(pk=self.user.pk,
+                            scratchpad_updated_at=me.scratchpad_updated_at).update(
+            set__scratchpad=new, set__scratchpad_updated_at=_utcnow())
+        if not done:
+            raise Busy(f"{PAD_FILE}: the pad was edited while this ran — "
+                       "left for the next round")
+        again = render_pad(new, self.links)
+        if again == remote_text:
+            self._pad_remember(_hash(again), entry.tag)
+        else:
+            self._pad_write(again, base=entry.etag)
+
+    def _pad_write(self, text: str, *, base) -> None:
+        if self.dry_run:
+            self.stats.files_written += 1
+            return
+        etag = self.put(PAD_FILE, text.encode("utf-8"),
+                        "text/markdown; charset=utf-8", base=base)
+        self.stats.files_written += 1
+        if not etag:
+            entry = self._stat(PAD_FILE)
+            etag = entry.tag if entry else ""
+        self._pad_remember(_hash(text), etag)
+
+    def _pad_remember(self, digest: str, tag: str) -> None:
+        """Bookkeeping, atomically — ``User.save`` would write whatever else
+        the round's copy of the user carries."""
+        from application.models.user import User
+        User.objects(pk=self.user.pk).update(
+            set__scratchpad_mirror_hash=digest, set__scratchpad_mirror_tag=tag)
+
     # ---------- one note ----------
 
     def one(self, note, want_path: str) -> None:
+        self.loaded[str(note.pk)] = note.updated_at
+        path = note.mirror_path or ""
+        if path and path != want_path and path.lower() == want_path.lower():
+            # Only the case differs. On a case-insensitive share (a Mac, SMB)
+            # "write the new name, delete the old one" is one file: the delete
+            # took the note's only copy and the next round trashed the note.
+            # The file keeps its old spelling; nothing is lost by that.
+            want_path = path
         local_text = render(note, want_path, self.links)
         local_hash = _hash(local_text)
-        path = note.mirror_path or ""
         entry = self.files.get(path) if path else None
         moved = False
 
@@ -666,7 +900,7 @@ class _Round:
 
         if entry is None:
             if not path:                       # never mirrored → create it
-                self.write(note, want_path, local_text)
+                self.write(note, want_path, local_text, base="")
                 return
             if not self.may_delete:            # share unreadable: leave it be
                 return
@@ -679,11 +913,25 @@ class _Round:
         elif path in self.loose:
             remote_text = self.loose[path][2]     # already read this round
         else:
-            remote_text = self.client.read(path).decode("utf-8", "replace")
+            remote_text = _decode(self.client.read(path), path)
 
         remote_changed = (remote_text is not None
                           and _hash(remote_text) != note.mirror_hash)
         local_changed = local_hash != note.mirror_hash
+
+        if remote_changed and not remote_text.strip() and (note.note or "").strip():
+            # An EMPTY file where the note has text. That is what a file looks
+            # like halfway through being uploaded (a sync client, an editor
+            # that truncates before it writes), and taking it would wipe the
+            # note. Deleting the file is how to get rid of a note from over
+            # there; an empty file is never read as "make the note empty".
+            if moved:
+                self.stats.errors.append(
+                    f"{path}: the file is empty — the note was left as it is.")
+                return
+            self.stats.errors.append(
+                f"{path}: the file was empty — the note's text was written back.")
+            remote_changed, local_changed = False, True
 
         # A link the note still carries to a file lying over there. Normally
         # that is a pull's business — but a note whose file has been read once
@@ -698,7 +946,7 @@ class _Round:
             if absorbed != (note.note or ""):
                 note.note = absorbed
                 if not self.dry_run:
-                    note.save()
+                    self.save_note(note)
                 local_text = render(note, want_path, self.links)
                 local_hash = _hash(local_text)
                 local_changed = True
@@ -720,10 +968,21 @@ class _Round:
             return
 
         if remote_changed and local_changed:
+            if _hash(remote_text) == local_hash:
+                # Both sides "changed" into the same text — a first round
+                # meeting a file that already says what the note says. Nothing
+                # to park; just remember it.
+                if not self.dry_run:
+                    self.remember(note, path, local_hash, entry.tag)
+                self.stats.unchanged += 1
+                return
             self.conflict(note, path, remote_text)
-            self.write(note, want_path, local_text)
-            if path != want_path and not self.dry_run:
-                self.client.delete(path)
+            if path == want_path:
+                self.write(note, path, local_text, base=entry.etag)
+            else:
+                self.write(note, want_path, local_text, base="")
+                if not self.dry_run:
+                    self.client.delete(path)
             return
 
         if remote_changed:
@@ -733,17 +992,19 @@ class _Round:
         if path != want_path:
             self.move(note, path, want_path, local_text)
         else:
-            self.write(note, want_path, local_text)
+            self.write(note, want_path, local_text, base=entry.etag)
 
     # ---------- the individual moves ----------
 
-    def write(self, note, path: str, text: str) -> None:
-        """Write the file and whatever it embeds, then remember what we wrote."""
+    def write(self, note, path: str, text: str, *, base=None) -> None:
+        """Write the file and whatever it embeds, then remember what we wrote.
+
+        ``base`` is what the caller knows is there (see :meth:`put`)."""
         if self.dry_run:
             self.stats.files_written += 1
             return
-        etag = self.client.write(path, text.encode("utf-8"),
-                                 "text/markdown; charset=utf-8")
+        etag = self.put(path, text.encode("utf-8"),
+                        "text/markdown; charset=utf-8", base=base)
         self.stats.files_written += 1
         self.write_assets(note, path)
         if not etag:
@@ -752,6 +1013,49 @@ class _Round:
             entry = self._stat(path)
             etag = entry.tag if entry else ""
         self.remember(note, path, _hash(text), etag)
+
+    def put(self, path: str, data: bytes, ctype: str, *, base=None) -> str:
+        """A PUT that does not overwrite what it has not seen.
+
+        ``base`` says what the caller read: ``None`` — nothing known, write
+        unconditionally (our own attachments); ``""`` — there was no file, so
+        only create one; an ETag — replace only that version. A 412 is then
+        checked against the share: if the file really changed (or appeared),
+        this note is skipped with :class:`Busy` and the next round sees both
+        sides moved. If it did not, the server simply does not compare its
+        own ETags faithfully, and the write goes ahead."""
+        if base is None or base.startswith("W/"):
+            return self.client.write(path, data, ctype)
+        try:
+            return self.client.write(path, data, ctype, if_match=base,
+                                     if_none_match=not base)
+        except DavError as exc:
+            if exc.status != 412:
+                raise
+            now = self._stat_strict(path)
+            holds = (now is None) if not base else (
+                now is not None and now.etag == base)
+            if not holds:
+                raise Busy(f"{path}: changed over there while this ran — "
+                           "left for the next round") from exc
+            return self.client.write(path, data, ctype)
+
+    def save_note(self, note) -> None:
+        """Save a note this round changed — unless someone saved it since it
+        was loaded. Without the condition a round that took a minute wrote a
+        stale note over whatever was typed in that minute, and neither side
+        ever saw the lost text again."""
+        from mongoengine.errors import SaveConditionError
+        loaded = self.loaded.get(str(note.pk))
+        try:
+            if loaded is None:
+                note.save()
+            else:
+                note.save(save_condition={"updated_at": loaded})
+        except SaveConditionError as exc:
+            raise Busy(f"{note.title}: edited in Cairn while this ran — "
+                       "left for the next round") from exc
+        self.loaded[str(note.pk)] = note.updated_at
 
     @staticmethod
     def remember(note, path: str, digest: str, tag: str) -> None:
@@ -888,7 +1192,9 @@ class _Round:
         return url
 
     def move(self, note, old_path: str, new_path: str, text: str) -> None:
-        self.write(note, new_path, text)
+        # Only where nothing is: a file somebody put at the new name is not
+        # this note's to overwrite.
+        self.write(note, new_path, text, base="")
         if not self.dry_run and old_path and old_path != new_path:
             self.client.delete(old_path)
             old_assets = assets_dir(old_path, note.pk)
@@ -907,15 +1213,18 @@ class _Round:
         """Park the file's version beside it. It comes back as its own note on
         the next round, which is how both texts stay reachable without merging
         either one."""
-        stamp = _utcnow().strftime("%Y-%m-%d %H%M")
+        # Down to the second, and only where nothing is: two conflicts on one
+        # note within the same minute used to share a name, and the second
+        # overwrote the first — the one text this step exists to keep.
+        stamp = _utcnow().strftime("%Y-%m-%d %H%M%S")
         stem = path[: -len(MD)] if path.lower().endswith(MD) else path
         meta, body = parse(remote_text)
         title = (meta.get("title") or note.title or "").strip()
         head = f"---\ntitle: {title} (conflict {stamp})\n---\n\n"
         if not self.dry_run:
-            self.client.write(f"{stem} (conflict {stamp}){MD}",
-                              (head + body).encode("utf-8"),
-                              "text/markdown; charset=utf-8")
+            self.put(f"{stem} (conflict {stamp}){MD}",
+                     (head + body).encode("utf-8"),
+                     "text/markdown; charset=utf-8", base="")
         self.stats.conflicts += 1
 
     def apply_remote(self, note, path: str, remote_text: str, *, moved=False,
@@ -938,7 +1247,7 @@ class _Round:
         if "[[" in (note.note or "") or note._data.get("note_links"):
             note_links.rebuild(note, note_links.title_index(self.user))
         was_at = note.mirror_path or ""
-        note.save()
+        self.save_note(note)
         # When the file was last touched, not when this round noticed. The edit
         # happened over there, and stamping it "now" is how a note edited in
         # DEVONthink last week came home at the top of the recently-changed
@@ -947,7 +1256,8 @@ class _Round:
         self.stats.notes_updated += 1
         # Write back: the body came from there, but ``updated`` moved, and a
         # stale one would read as a change next round and push for nothing.
-        self.write(note, path, render(note, path, self.links))
+        self.write(note, path, render(note, path, self.links),
+                   base=entry.etag if entry is not None else None)
         self.stats.files_written -= 1          # the same file, not a second
         if was_at and assets_dir(was_at, note.pk) != assets_dir(path, note.pk):
             # It was dragged into another folder over there; its attachments
@@ -982,7 +1292,9 @@ class _Round:
         self.stats.notes_created += 1
         # Write it back so the file gains its cairn-id and is tracked from now
         # on — at the path it already has, so nothing moves under the user.
-        self.write(note, path, render(note, path, self.links))
+        entry = self.files.get(path)
+        self.write(note, path, render(note, path, self.links),
+                   base=entry.etag if entry is not None else None)
         self.stats.files_written -= 1
 
     def drop_dirs_of_trashed_folders(self) -> None:
@@ -1157,6 +1469,18 @@ class _Round:
             cache[parent] = {e.path: e for e in self._list(parent) if not e.is_dir}
         return cache[parent].get(path)
 
+    def _stat_strict(self, path):
+        """The entry for ``path`` now, or None — and a failure is a failure,
+        not "nothing there" (that answer decides whether to overwrite)."""
+        stat = getattr(self.client, "stat", None)
+        if stat is not None:
+            return stat(path)
+        parent = path.rsplit("/", 1)[0] if "/" in path else ""
+        for entry in self.client.list(parent):
+            if entry.path == path:
+                return entry
+        return None
+
     def _stat(self, path):
         """The entry for ``path``, read from its parent listing."""
         parent, _, name = path.rpartition("/")
@@ -1164,6 +1488,122 @@ class _Round:
             if entry.path == path or entry.path.rsplit("/", 1)[-1] == name:
                 return entry
         return None
+
+
+# ---------------------------------------------------------------------------
+# Live: one note (or the pad) on open and after a save
+# ---------------------------------------------------------------------------
+
+def mirror_on(user) -> bool:
+    return bool(user is not None and getattr(user, "notes_mirror_enabled", False)
+                and (getattr(user, "notes_mirror_url", "") or "").strip())
+
+
+def _redis_or_none():
+    """The deployment's Redis, or None. Locks are a courtesy here — without
+    Redis (a dev box) the conditional writes still keep both sides safe."""
+    try:
+        import redis
+        from flask import current_app
+        r = redis.Redis.from_url(current_app.config["REDIS_URL"],
+                                 socket_connect_timeout=0.5, socket_timeout=0.5)
+        r.ping()
+        return r
+    except Exception:
+        return None
+
+
+def _live(user, work, *, client=None, timeout=LIVE_TIMEOUT) -> str:
+    """Run ``work(round)`` for one file, outside a round.
+
+    Answers ``off`` (no mirror), ``busy`` (a round or another live sync holds
+    this user), ``down`` (the share failed a moment ago — not asked again for
+    two minutes, so a NAS that is off costs one timeout, not one per page),
+    ``failed``, ``changed`` (something came in from the share) or ``ok``.
+    Never raises: opening a note must not depend on a NAS."""
+    if not mirror_on(user):
+        return "off"
+    import secrets
+    uid = str(user.pk)
+    r = _redis_or_none()
+    token = secrets.token_hex(8)
+    if r is not None:
+        if r.exists(f"mirror:down:{uid}"):
+            return "down"
+        if r.exists(f"mirror:lock:{uid}"):
+            return "busy"
+        if not r.set(f"mirror:live-lock:{uid}", token, nx=True, ex=60):
+            return "busy"
+    try:
+        stats = MirrorStats()
+        rnd = _Round(user, client or client_for(user, timeout=timeout), stats, False)
+        work(rnd)
+        for err in stats.errors:
+            log.info("notes mirror (%s): %s", uid, err)
+        return "changed" if (stats.notes_updated or stats.conflicts
+                             or stats.scratchpad == "pulled") else "ok"
+    except Busy as exc:
+        log.info("notes mirror (%s): %s", uid, exc)
+        return "busy"
+    except DavError as exc:
+        log.warning("notes mirror (%s): %s", uid, exc)
+        if r is not None and not exc.status:
+            r.set(f"mirror:down:{uid}", "1", ex=120)
+        return "failed"
+    except Exception:
+        log.exception("notes mirror (%s): live sync failed", uid)
+        return "failed"
+    finally:
+        if r is not None:
+            try:
+                if r.get(f"mirror:live-lock:{uid}") == token.encode():
+                    r.delete(f"mirror:live-lock:{uid}")
+            except Exception:
+                pass
+
+
+def sync_note(note, *, client=None, timeout=LIVE_TIMEOUT) -> str:
+    """Bring one note and its file into step — on open, and as the push a save
+    queues. Works on ``note`` in place, so a caller rendering it afterwards
+    shows what came in. The mirror is the OWNER's, whoever is looking."""
+    if note is None or note.kind != "note" or note.trashed_at:
+        return "off"
+    return _live(note.owner, lambda rnd: rnd.single(note),
+                 client=client, timeout=timeout)
+
+
+def sync_pad(user, *, client=None, timeout=LIVE_TIMEOUT) -> str:
+    """The same for the scratchpad. ``changed`` means the caller's copy of the
+    user is stale (the pull is an atomic update)."""
+    def work(rnd):
+        claimed = Item.all_objects(owner=user, kind="note",
+                                   mirror_path__iexact=PAD_FILE).first()
+        if claimed is None:        # a note still there from before: the round moves it
+            rnd.pad()
+    return _live(user, work, client=client, timeout=timeout)
+
+
+def sync_one(user_id: str, note_id: str = "", *, timeout: int = 30) -> str:
+    """The queued push (``notes_mirror.sync_one``): the note, or with no id the
+    scratchpad, synced as it is NOW — ten autosaves collapse into one push."""
+    from application.models.user import User
+    if note_id:
+        note = Item.objects(pk=note_id, kind="note").first()
+        return sync_note(note, timeout=timeout) if note else "off"
+    user = User.objects(pk=user_id).first()
+    return sync_pad(user, timeout=timeout) if user else "off"
+
+
+def push_soon(user, note_id="") -> None:
+    """After a save: queue a push of that one file. Never raises — without a
+    broker the next round carries the change, as it always did."""
+    if not mirror_on(user):
+        return
+    try:
+        from application.services.sync_tasks import enqueue_mirror_push
+        enqueue_mirror_push(str(user.pk), str(note_id or ""))
+    except Exception as exc:
+        log.info("notes mirror: push not queued (%s) — the next round takes it", exc)
 
 
 def due_user_ids(now=None) -> list:
