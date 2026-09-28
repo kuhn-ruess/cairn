@@ -1,0 +1,54 @@
+{# The report pivoted by month: one column per calendar month of the period,
+   0 where nothing was booked, a total on each side. A customer with several
+   projects gets a line of its own above them; one with a single project is
+   just that line. The CSV/Excel export writes exactly these rows
+   (views.timetracking._monthly_table). #}
+{% if not monthly.customers %}
+  <p class="text-muted">No time entries match these filters.</p>
+{% else %}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle small tt-months">
+    <thead>
+      <tr>
+        <th>Customer / project</th>
+        {% for m in monthly.months %}<th class="text-end text-nowrap">{{ m.label }}</th>{% endfor %}
+        <th class="text-end">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in monthly.customers %}
+        {% set multi = c.projects|length > 1 %}
+        {% if multi %}
+          <tr class="fw-semibold">
+            <td>{{ c.name }}</td>
+            {% for v in c.minutes %}
+              <td class="text-end text-nowrap {{ 'text-muted' if not v }}">{{ v|duration if v else '0' }}</td>
+            {% endfor %}
+            <td class="text-end text-nowrap">{{ c.total|duration }}</td>
+          </tr>
+        {% endif %}
+        {% for p in c.projects %}
+          <tr>
+            <td class="{{ 'ps-4' if multi }}">
+              {% if not multi %}<span class="fw-semibold">{{ c.name }}</span> › {% endif %}{{ p.name }}
+            </td>
+            {% for v in p.minutes %}
+              <td class="text-end text-nowrap {{ 'text-muted' if not v }}">{{ v|duration if v else '0' }}</td>
+            {% endfor %}
+            <td class="text-end text-nowrap fw-semibold">{{ p.total|duration }}</td>
+          </tr>
+        {% endfor %}
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr class="fw-bold">
+        <td>Total</td>
+        {% for v in monthly.totals %}
+          <td class="text-end text-nowrap">{{ v|duration if v else '0' }}</td>
+        {% endfor %}
+        <td class="text-end text-nowrap">{{ monthly.total|duration }}</td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+{% endif %}

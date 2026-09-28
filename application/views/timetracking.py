@@ -811,6 +811,9 @@ def _report_filters(args=None):
         # default, one click away, and never silently — what they hold is
         # summarised where the totals are.
         "archived": args.get("archived") == "1",
+        # "entries" lists every booking; "month" pivots the same result into
+        # one column per calendar month (a customer's year at a glance).
+        "view": "month" if args.get("view") == "month" else "entries",
     }
 
 
@@ -822,8 +825,12 @@ def _report_context(args=None):
     f = _report_filters(args)
     data = _grouped_report(team, f)
     header, rows, _cols = _export_table(data, _filter_project(f))
+    monthly = None
+    if f["view"] == "month":
+        from application.services.timetracking import monthly_breakdown
+        monthly = monthly_breakdown(data["rows"], f["date_from"], f["date_to"])
     return dict(
-        team=team, f=f, can_bill=can_bill(user, team),
+        team=team, f=f, can_bill=can_bill(user, team), monthly=monthly,
         can_unlock=team.is_managed_by(user),
         can_import=can_bill(user, team),
         # Field definitions for the inline edit forms — for the projects on
@@ -1005,6 +1012,29 @@ def _export_table(data, project=None):
         values = {c["key"]: c["value"] for c in r.get("custom", [])}
         rows.append([_report_cell(r, c["key"], values, shown) for c in cols])
     return [c["label"] for c in cols], rows, cols
+
+
+def _monthly_table(monthly):
+    """``(header, rows)`` for the per-month export, the same rows the page
+    shows: a customer with several projects gets a line of its own above
+    them, one with a single project is just that project's line."""
+    header = (["Customer", "Project"]
+              + [m["label"] for m in monthly["months"]] + ["Total"])
+
+    def hours(mins):
+        return f"{mins / 60:.2f}"
+
+    rows = []
+    for c in monthly["customers"]:
+        if len(c["projects"]) > 1:
+            rows.append([c["name"], "All projects"]
+                        + [hours(v) for v in c["minutes"]] + [hours(c["total"])])
+        for p in c["projects"]:
+            rows.append([c["name"], p["name"]]
+                        + [hours(v) for v in p["minutes"]] + [hours(p["total"])])
+    rows.append(["Total", ""] + [hours(v) for v in monthly["totals"]]
+                + [hours(monthly["total"])])
+    return header, rows
 
 
 def _grouped_report(team, f):
@@ -1547,11 +1577,18 @@ def report_csv():
     team = _team()
     f = _report_filters()
     data = _grouped_report(team, f)
-    header, rows, cols = _export_table(data, _filter_project(f))
     excel = request.args.get("excel") == "1"
-    # Which cells need the decimal comma is read off the columns, never off
-    # fixed positions — a project's own column order moves them.
-    decimal_at = {i for i, c in enumerate(cols) if c["key"] in DECIMAL_KEYS}
+    if f["view"] == "month":
+        from application.services.timetracking import monthly_breakdown
+        header, rows = _monthly_table(monthly_breakdown(
+            data["rows"], f["date_from"], f["date_to"]))
+        # Every cell past Customer and Project is hours.
+        decimal_at = set(range(2, len(header)))
+    else:
+        header, rows, cols = _export_table(data, _filter_project(f))
+        # Which cells need the decimal comma is read off the columns, never
+        # off fixed positions — a project's own column order moves them.
+        decimal_at = {i for i, c in enumerate(cols) if c["key"] in DECIMAL_KEYS}
 
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";" if excel else ",")
@@ -1595,6 +1632,8 @@ def _export_name(team, f) -> str:
     # Only the characters a filesystem (and a Content-Disposition header)
     # tolerate everywhere; umlauts are fine, slashes and quotes are not.
     who = re.sub(r'[\\/:*?"<>|\r\n]+', " ", who).strip() or "export"
+    if f.get("view") == "month":
+        who += " per month"
     return f"{period} {who}.csv"
 
 

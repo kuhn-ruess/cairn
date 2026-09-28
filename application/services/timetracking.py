@@ -825,6 +825,52 @@ def resolve_period(preset: str, from_str: str, to_str: str, today: date):
     return first, nxt - timedelta(days=1)
 
 
+MONTH_ABBR = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def monthly_breakdown(rows, date_from: date, date_to: date) -> dict:
+    """The report's rows pivoted into one column per calendar month.
+
+    Pure: takes the rows ``build_report_rows`` produced (already filtered) and
+    the period, returns customer → project rows with minutes per month. Every
+    month the period touches gets a column, and a month without time reads 0
+    rather than going missing — "February: nothing" is an answer the reader
+    asked for, a skipped column is one they have to notice."""
+    months = []
+    y, m = date_from.year, date_from.month
+    while (y, m) <= (date_to.year, date_to.month):
+        months.append({"key": (y, m), "label": f"{MONTH_ABBR[m - 1]} {y}"})
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    at = {mo["key"]: i for i, mo in enumerate(months)}
+    n = len(months)
+
+    customers: dict = {}
+    col_totals = [0] * n
+    for r in rows:
+        i = at.get((r["spent_on"].year, r["spent_on"].month))
+        if i is None:
+            continue
+        c = customers.setdefault(r["customer"], {
+            "name": r["customer"], "id": r["customer_id"],
+            "minutes": [0] * n, "total": 0, "projects": {}})
+        p = c["projects"].setdefault(r["project_id"], {
+            "name": r["project"], "id": r["project_id"],
+            "minutes": [0] * n, "total": 0})
+        for bucket in (c, p):
+            bucket["minutes"][i] += r["minutes"]
+            bucket["total"] += r["minutes"]
+        col_totals[i] += r["minutes"]
+
+    out = []
+    for c in sorted(customers.values(), key=lambda x: (x["name"] or "").lower()):
+        projects = sorted(c["projects"].values(),
+                          key=lambda x: (x["name"] or "").lower())
+        out.append({**c, "projects": projects})
+    return {"months": months, "customers": out,
+            "totals": col_totals, "total": sum(col_totals)}
+
+
 
 
 

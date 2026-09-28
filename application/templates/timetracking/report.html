@@ -20,6 +20,16 @@
   <input type="hidden" name="team" value="{{ team.pk }}">
   <div class="row g-2 align-items-end">
     <div class="col-auto">
+      <label class="form-label small mb-0">View</label>
+      {# Same filters, two shapes: every entry, or the result pivoted into one
+         column per month of the period (pick "This year" for a year). #}
+      <select name="view" class="form-select form-select-sm"
+              onchange="this.form.submit();">
+        <option value="entries" {% if f.view != 'month' %}selected{% endif %}>Entries</option>
+        <option value="month" {% if f.view == 'month' %}selected{% endif %}>Per month</option>
+      </select>
+    </div>
+    <div class="col-auto">
       <label class="form-label small mb-0">Period</label>
       {# A preset names its own range, so it clears the two date fields on the
          way out — otherwise the range still in them would win over the preset
@@ -158,9 +168,13 @@
   <span class="text-muted small">{{ f.date_from.isoformat() }} – {{ f.date_to.isoformat() }}</span>
 </div>
 
+{% if monthly %}
+  {% include "timetracking/_report_months.html" %}
+{% else %}
 {# The wrapper stays here (see _report_body.html): the body is swapped
    into it after an edit, filters and all. #}
 <div id="tt-report" data-args="{{ request.query_string.decode('utf-8') }}">
   {% include "timetracking/_report_body.html" %}
 </div>
+{% endif %}
 {% endblock %}
