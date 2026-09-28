@@ -635,6 +635,25 @@ def task_time_context(user, item):
     }
 
 
+def comment_time_target(user, item) -> dict | None:
+    """Where time typed into ``item``'s comment box books to, or ``None``.
+
+    The same preselect the item's time section shows (``default_project_id``),
+    resolved once so the box can NAME it: a duration field that books to a
+    project nobody can see is how hours end up on the wrong invoice. ``None``
+    for a user without a team or when nothing resolves — the box then offers
+    no time field and the time section's picker is the way in."""
+    if not has_team(user):
+        return None
+    pid = default_project_id(user, item)
+    project = project_for_user(user, pid) if pid else None
+    if project is None:
+        return None
+    customer = project.customer.name if project.customer else ""
+    return {"id": str(project.id),
+            "label": f"{customer} › {project.name}" if customer else project.name}
+
+
 def booking_default_project_id(user, booking, *, projects=None, entries=None) -> str:
     """Which billing project a meeting should be billed to, preselected.
 

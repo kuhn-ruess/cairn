@@ -254,6 +254,15 @@
           }
           return;
         }
+        // Enter in the comment's time field posts the comment too — it is
+        // part of that action, not a task field.
+        if (t && t.name === "log_duration") {
+          ev.preventDefault();
+          const wrap = t.closest("[data-inspector-comment-form]");
+          const addBtn = wrap && wrap.querySelector(".comment-add-btn");
+          if (addBtn) addBtn.click();
+          return;
+        }
         const tag = t && t.tagName;
         if (tag === "BUTTON" || tag === "A" || tag === "SELECT" ||
             (t && t.isContentEditable)) return;
@@ -616,16 +625,40 @@
       wrap
         .querySelectorAll('input[name="remove_tags"]:checked')
         .forEach((cb) => fd.append("remove_tags", cb.value));
+      // Time typed beside the box is booked with the same request.
+      const dur = wrap.querySelector('input[name="log_duration"]');
+      const tproj = wrap.querySelector('input[name="log_project_id"]');
+      if (dur && dur.value.trim()) {
+        fd.append("log_duration", dur.value.trim());
+        if (tproj) fd.append("log_project_id", tproj.value);
+      }
       const resp = await fetch(wrap.dataset.action, {
         method: "POST",
         body: fd,
         headers: { "X-Inspector-Request": "1" },
       });
+      if (resp.status === 400) {
+        // Refused before anything was written (an unreadable duration) —
+        // keep the text, point at the field.
+        const err = await resp.json().catch(() => ({}));
+        if (dur) {
+          dur.classList.add("is-invalid");
+          dur.title = err.error || "Can't read this duration";
+          dur.focus();
+        }
+        return;
+      }
       if (!resp.ok) throw new Error("comment failed: " + resp.status);
       const data = await resp.json();
       appendCommentToList(data, wrap);
       reflectRemovedLabels(data.removed_tags || [], wrap);
       textarea.value = "";
+      if (dur) { dur.value = ""; dur.classList.remove("is-invalid"); }
+      if (data.time_block) {
+        const tb = (wrap.closest(".inspector-form") || body || document)
+          .querySelector(".time-block");
+        if (tb) tb.innerHTML = data.time_block;
+      }
     } catch (err) {
       console.error(err);
     } finally {

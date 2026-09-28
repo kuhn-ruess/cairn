@@ -521,6 +521,17 @@ def register_filters(app):
 
     app.jinja_env.globals["tt_task_time"] = tt_task_time
 
+    def tt_comment_target(item):
+        """The billing project time typed into ``item``'s comment box books to
+        (``{"id", "label"}``), or None — then the box shows no time field."""
+        from flask_login import current_user
+        from application.services.timetracking import comment_time_target
+        if not current_user.is_authenticated:
+            return None
+        return comment_time_target(current_user._get_current_object(), item)
+
+    app.jinja_env.globals["tt_comment_target"] = tt_comment_target
+
     def linked_notes_folder(item):
         """The notes folder an item belongs to (own link or inherited from an
         ancestor), or None — powers the "Notes" jump button on task/project

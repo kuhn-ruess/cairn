@@ -429,6 +429,9 @@
         {% with item = task, drop_prefix = 'insp-drop' %}
           {% include "tasks/_comment_drop_labels.html" %}
         {% endwith %}
+        {% with item = task, time_prefix = 'insp-time' %}
+          {% include "tasks/_comment_log_time.html" %}
+        {% endwith %}
         <div class="d-flex align-items-center mt-1">
           <small class="text-muted">New comments are <strong>internal</strong> by default.</small>
           <button type="button" class="btn btn-sm btn-primary ms-auto comment-add-btn">

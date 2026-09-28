@@ -3457,6 +3457,15 @@ def comment(task_id):
         abort(404)
     form = CommentForm()
     if form.validate_on_submit():
+        # Time typed beside the comment is checked BEFORE anything is written:
+        # a duration that can't be read or booked refuses the whole submit, so
+        # the comment never lands while the hours it was about silently don't.
+        booking, problem = _comment_time(user, task)
+        if problem:
+            if request.headers.get("X-Inspector-Request") == "1":
+                return jsonify({"ok": False, "error": problem}), 400
+            flash(problem + " The comment was not posted.", "warning")
+            return redirect(request.referrer or url_for("tasks.detail", task_id=task_id))
         # Labels ticked in the comment box come off with the same submit —
         # writing the answer and handing the task back is one gesture (the
         # `Review AI Work` handshake is the case this exists for). Done before
@@ -3467,8 +3476,8 @@ def comment(task_id):
         # cannot drift into notifying different people.
         from application.services.notifications import notify_new_comment
         notify_new_comment(task, form.body.data, by_user=user)
+        logged = _book_comment_time(user, task, booking, form.body.data)
         if request.headers.get("X-Inspector-Request") == "1":
-            from flask import jsonify
             c = task.comments[-1]
             return jsonify(
                 {
@@ -3486,14 +3495,70 @@ def comment(task_id):
                     # would otherwise put the label straight back on.
                     "removed_tags": removed,
                     "tags": list(task.tags or []),
+                    # The time section is re-rendered when the comment booked
+                    # time, so its total and entry list don't go stale.
+                    "logged_minutes": logged,
+                    "time_block": _time_block(user, task) if logged else None,
                 }
             )
+        msg = "Comment posted."
         if removed:
-            flash("Comment posted. Removed label(s): " + ", ".join(removed) + ".", "success")
-        else:
-            flash("Comment posted.", "success")
+            msg = "Comment posted. Removed label(s): " + ", ".join(removed) + "."
+        if logged:
+            msg += f" Logged {current_app.jinja_env.filters['duration'](logged)}."
+        flash(msg, "success")
     # Stay where the comment was posted (task detail OR a project page).
     return redirect(request.referrer or url_for("tasks.detail", task_id=task_id))
+
+def _comment_time(user, task):
+    """The time booking a comment submit asks for: ``((project, minutes), None)``,
+    ``(None, None)`` when the field was left empty, or ``(None, message)`` when
+    it can't be booked."""
+    raw = (request.form.get("log_duration") or "").strip()
+    if not raw:
+        return None, None
+    from application.services.timetracking import (
+        default_project_id, parse_duration, project_for_user,
+    )
+    minutes = parse_duration(raw)
+    if not minutes:
+        return None, f"Can't read “{raw}” as a duration (1h30m, 1:30, 90)."
+    # The project the box NAMED travels with the form; the default is only the
+    # answer for a client that didn't send one.
+    pid = (request.form.get("log_project_id") or "").strip() \
+        or default_project_id(user, task)
+    project = project_for_user(user, pid) if pid else None
+    if project is None:
+        return None, "No billing project to log this time to."
+    return (project, minutes), None
+
+
+def _book_comment_time(user, task, booking, body):
+    """Write the entry ``_comment_time`` approved; the comment is its note.
+    Returns the minutes booked (0 when nothing was asked for)."""
+    if not booking:
+        return 0
+    from application.services.timetracking import add_entry, custom_values
+    from application.services.tz import user_zone
+    project, minutes = booking
+    add_entry(
+        project=project, user=user, minutes=minutes,
+        spent_on=datetime.now(user_zone(user)),
+        # Nothing but the duration was asked for, so custom fields take their
+        # defaults — the same as the one-click stopwatch start.
+        custom=custom_values(project, lambda _key: None),
+        note=(body or "").strip(), source_item=task,
+    )
+    user.tt_last_project = str(project.id)
+    user.save()
+    return minutes
+
+
+def _time_block(user, task):
+    from application.services.timetracking import task_time_context
+    return render_template("timetracking/_task_time.html", task=task,
+                           tt=task_time_context(user, task))
+
 
 @tasks_bp.route("/<task_id>/comments/peek")
 @login_required

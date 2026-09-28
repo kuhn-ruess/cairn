@@ -260,6 +260,9 @@
         {% with item = task, drop_prefix = 'detail-drop' %}
           {% include "tasks/_comment_drop_labels.html" %}
         {% endwith %}
+        {% with item = task, time_prefix = 'detail-time' %}
+          {% include "tasks/_comment_log_time.html" %}
+        {% endwith %}
         <div class="d-flex align-items-center">
           <small class="text-muted me-auto">New comments are <strong>internal</strong> by default.</small>
           {{ comment_form.submit(class="btn btn-sm btn-primary") }}

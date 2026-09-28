@@ -1,0 +1,20 @@
+{# "I spent this long on it" beside a comment box: one optional duration that
+   books a time entry with the same submit, the comment as its note — see
+   ``tasks.comment``, which reads ``log_duration`` / ``log_project_id``.
+
+   The target is resolved here and NAMED, and its id travels with the form, so
+   what the box says is exactly where the hours land. No target (no team, or
+   nothing resolves) → no field; the time section's picker is the way in then.
+   Expects ``item``; ``time_prefix`` keeps the id unique per page. #}
+{% set _tgt = tt_comment_target(item) %}
+{% if _tgt %}
+  {% set _id = (time_prefix|default('ctime')) ~ '-' ~ item.pk %}
+  <div class="comment-log-time d-flex flex-wrap align-items-center gap-2 mb-2">
+    <label class="small text-muted mb-0" for="{{ _id }}"><i class="bi bi-stopwatch"></i> Log time</label>
+    <input type="text" class="form-control form-control-sm" style="width: 7rem;"
+           id="{{ _id }}" name="log_duration" placeholder="30m, 1:15" autocomplete="off"
+           title="Optional — books this much time with the comment as its note (1h30m, 1:30, 90)">
+    <input type="hidden" name="log_project_id" value="{{ _tgt.id }}">
+    <span class="small text-muted text-truncate">→ {{ _tgt.label }}</span>
+  </div>
+{% endif %}
