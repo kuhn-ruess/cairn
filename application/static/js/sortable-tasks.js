@@ -30,8 +30,9 @@
   // So the intent is horizontal, the one axis the reorder does not use: move
   // the pointer right of where the drag started and the list FREEZES — onMove
   // returns false, nothing shuffles any more — and the drop nests the dragged
-  // task under the row it is now sitting below, which is the row the highlight
-  // names. Move back left and it is an ordinary reorder
+  // task under the row the highlight names: the row under the pointer (the
+  // frozen list no longer moves it away), else the row the dragged one sits
+  // below. Move back left and it is an ordinary reorder
   // again, unchanged. No timing anywhere: it is on or off, and it is painted.
   const NEST_SHIFT_PX = 48;   // how far right before a drag becomes a nest
   let dragSource = null;
@@ -67,6 +68,18 @@
     }
     return null;
   }
+  // Once the list is frozen nothing moves under the cursor any more, so the
+  // pointer is truthful again: the row it is over is the row being aimed at.
+  // Without this the target stayed the row above the dragged one at the moment
+  // of freezing — and a hand heads for the target diagonally, so on a long
+  // list the drag froze on the first row it passed and stuck there.
+  function rowUnderPointer(x, y) {
+    const hit = document.elementFromPoint(x, y);
+    const row = hit && hit.closest(".task-row[data-task-id], .tree-task[data-task-id]");
+    if (!row || !dragSource || dragSource.contains(row)) return null;
+    if (!row.closest(".task-list, .tree-tasks")) return null;
+    return row;
+  }
   function setNestMode(on) {
     on = !!on && !!dragSource;
     if (on === nestMode) return;
@@ -78,12 +91,18 @@
     if (!dragSource) return;
     const touch = ev.touches && ev.touches[0];
     const x = touch ? touch.clientX : ev.clientX;
+    const y = touch ? touch.clientY : ev.clientY;
     if (typeof x !== "number") return;
     if (dragStartX === null) dragStartX = x;
     setNestMode(x - dragStartX >= NEST_SHIFT_PX);
-    // While frozen the list cannot reshuffle, but the very first samples can
-    // still arrive before Sortable settles — keep the painted row honest.
-    if (nestMode) setMergeTarget(nestTargetFor(dragSource));
+    if (!nestMode) return;
+    // Over another row: that one. Over the dragged row itself or a gap
+    // between rows: keep what is painted, else the row the dragged one sits
+    // under. Only once a row is named does onMove freeze the list.
+    if (!nestTargetFor(dragSource)) { setMergeTarget(null); return; }
+    const aimed = rowUnderPointer(x, y);
+    if (aimed) setMergeTarget(aimed);
+    else if (!mergeTarget) setMergeTarget(nestTargetFor(dragSource));
   }
   // Capture, so this runs before Sortable's own document listeners decide
   // anything.
