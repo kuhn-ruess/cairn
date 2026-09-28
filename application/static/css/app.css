@@ -1967,6 +1967,7 @@ body.is-dragging .tree-project-header .project-handle { opacity: .55; }
 .source-chip.source-zammad  { background: rgba( 52, 73, 94,.20); color: #aac7e0; border-color: rgba(52,73,94,.5); }
 .source-chip.source-todoist { background: rgba(228, 67, 50,.15); color: #ff8a7a; border-color: rgba(228,67,50,.4); }
 .source-chip.source-csv     { background: rgba(131,165,152,.20); color: #b8d4cb; border-color: rgba(131,165,152,.4); }
+.source-chip.source-helix   { background: rgba(215,153, 33,.15); color: #fabd2f; border-color: rgba(215,153,33,.4); }
 .external-id-chip {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: .7rem;

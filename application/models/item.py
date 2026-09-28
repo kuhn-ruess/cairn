@@ -322,7 +322,7 @@ class Item(Document):
     # the ticket again: see ``zammad_team._reconcile_assignments``.
     external_owner = StringField()
     # Human-readable origin (``todoist`` / ``zammad`` / ``csv`` /
-    # ``jira`` / …). Importers fill this so the UI can show a "source"
+    # ``jira`` / ``helix`` / …). Importers fill this so the UI can show a "source"
     # chip without parsing the ``external_id`` prefix.
     source = StringField()
 

@@ -2086,9 +2086,12 @@ def _parse_csv_date(raw):
             except ValueError:
                 return None
     # Numeric fallbacks, locale-independent. Jira's German export uses
-    # "dd.mm.yyyy HH:MM" (e.g. "02.11.2026 00:00"), so the timed variants come
+    # "dd.mm.yyyy HH:MM" (e.g. "02.11.2026 00:00"), Helix's "dd.mm.yyyy,
+    # HH:MM:SS" (e.g. "28.09.2026, 13:58:41"), so the timed variants come
     # first — otherwise the trailing time makes the date-only formats fail.
-    for fmt in ("%d.%m.%Y %H:%M", "%d.%m.%Y", "%d.%m.%y %H:%M", "%d.%m.%y",
+    for fmt in ("%d.%m.%Y, %H:%M:%S", "%d.%m.%Y %H:%M:%S",
+                "%d.%m.%Y, %H:%M", "%d.%m.%Y %H:%M", "%d.%m.%Y",
+                "%d.%m.%y %H:%M", "%d.%m.%y",
                 "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
                 "%m/%d/%Y %H:%M", "%m/%d/%Y", "%d/%m/%Y"):
         try:
@@ -2096,6 +2099,28 @@ def _parse_csv_date(raw):
         except ValueError:
             continue
     return None
+
+
+# The context columns of a Helix grid export worth keeping on the task, in the
+# order they are written into its note. Header names as normalised (lowercase).
+_HELIX_CONTEXT = (
+    ("Customer", ("vollständiger name des kunden", "customer full name")),
+    ("Affected infrastructure", ("betroffene infrastruktur",)),
+    ("Environment", ("umgebung", "environment")),
+    ("Platform", ("platform",)),
+    ("Application tier", ("anwendungsebene",)),
+)
+
+
+def _helix_context_note(values, row_get):
+    """``- Customer: Jane Doe`` lines for the Helix context columns that are
+    filled in this row, or ``""``."""
+    lines = []
+    for label, keys in _HELIX_CONTEXT:
+        val = row_get(values, *keys)
+        if val:
+            lines.append(f"- {label}: {val}")
+    return "\n".join(lines)
 
 
 @projects_bp.route("/<project_id>/import-csv", methods=["GET", "POST"])
@@ -2112,6 +2137,12 @@ def import_csv(project_id):
       title (required), note, status, priority, flagged, due, tags,
       csv_id, and the Gantt window "Target start" / "Target end"
       (→ start_date / end_date; ISO + Jira date formats accepted).
+
+    Two ticket systems are recognised by their export's header row: a Jira
+    export and a BMC Helix "Grid Data" export (German column names: "ID
+    anzeigen", "Kurzbeschreibung", "Name des Zuständigen", …). Both are
+    read the same way — the ticket id keys the row, the workflow status
+    becomes a tag instead of Cairn's status.
     """
     import csv as _csv
     from io import StringIO
@@ -2185,10 +2216,18 @@ def import_csv(project_id):
     # and iterate again to import. 100s of rows is fine in memory.
     body = [row for row in raw_reader]
 
-    is_jira = any(h in headers for h in (
+    # A Helix "Grid Data" export (the Smart IT / Mid Tier console list saved
+    # as CSV) is told apart by its id and summary columns. Checked first: its
+    # English variant has a "Summary" column, which would read as Jira.
+    is_helix = ("id anzeigen" in headers or "display id" in headers) and any(
+        h in headers for h in ("kurzbeschreibung", "summary"))
+    is_jira = not is_helix and any(h in headers for h in (
         "issue key", "summary", "vorgangsschlüssel", "zusammenfassung",
     ))
-    source_tag = "jira" if is_jira else "csv"
+    source_tag = "helix" if is_helix else "jira" if is_jira else "csv"
+    # Ticket exports carry a workflow status of their own; it becomes a tag
+    # under "<Tracker>: Status" rather than Cairn's status (see below).
+    tracker = "Helix" if is_helix else "Jira" if is_jira else ""
 
     # Detect index lists for multi-value columns up front.
     label_idx = [i for i, h in enumerate(headers)
@@ -2202,7 +2241,7 @@ def import_csv(project_id):
     # pure digits), +1 if it contains a space (real prose), and a
     # uniqueness bonus so we pick the longish, mostly-distinct column.
     title_aliases = ("title", "name", "summary", "subject",
-                     "zusammenfassung", "betreff")
+                     "zusammenfassung", "betreff", "kurzbeschreibung")
     auto_title_idx = None
     if not any(a in headers for a in title_aliases):
         scores = [0] * len(headers)
@@ -2320,7 +2359,8 @@ def import_csv(project_id):
             continue
         csv_id = _row_get(values, "csv_id", "id", "issue key", "key",
                           "issue id", "ticket id",
-                          "vorgangsschlüssel", "vorgangs id", "vorgangs-id")
+                          "vorgangsschlüssel", "vorgangs id", "vorgangs-id",
+                          "id anzeigen", "display id")
         if csv_id:
             seen_csv_ids.add(csv_id)
         target = existing_by_csv_id.get(csv_id) if csv_id else None
@@ -2339,8 +2379,15 @@ def import_csv(project_id):
         note_val = _row_get(values, "note", "description", "beschreibung")
         if note_val:
             target.note = note_val
+        elif is_helix and not target.note:
+            # A Helix grid export has no description, only a handful of
+            # context columns. The one that matters is who asked (the
+            # "customer" is the requesting person, not a Cairn Customer), so
+            # those go into the note once — never over a note already there,
+            # which by then is the user's own.
+            target.note = _helix_context_note(values, _row_get)
         status_val = _row_get(values, "status")
-        if status_val and not is_jira:
+        if status_val and not tracker:
             # For Jira CSV the status ("Offen", "Backlog", "WAITING", …)
             # is surfaced as a tag (see below) so the user can filter
             # by it without polluting Cairn's task-status field. Don't
@@ -2371,7 +2418,8 @@ def import_csv(project_id):
         # import must never do that (see models/notification.py). Assigning to
         # the importer themselves is the same as unassigned — they own it.
         assignee_val = _row_get(values, "assignee", "bearbeiter",
-                                "zugewiesen an", "assigned to")
+                                "zugewiesen an", "assigned to",
+                                "name des zuständigen", "assignee name")
         if assignee_val:
             match = people.get(assignee_val.strip().lower())
             if match is None:
@@ -2394,7 +2442,8 @@ def import_csv(project_id):
         # by the user's offset. _parse_csv_date tolerates ISO + Jira formats.
         from application.services.tz import attach_user_tz
         due_val = _row_get(values, "due", "due date", "duedate",
-                           "fälligkeitsdatum", "fälligkeit")
+                           "fälligkeitsdatum", "fälligkeit",
+                           "zieldatum", "target date")
         due_dt = _parse_csv_date(due_val)
         if due_dt:
             target.due_date = attach_user_tz(due_dt, user)
@@ -2403,11 +2452,13 @@ def import_csv(project_id):
         # wrapper-aware lookup. "target …" is tried first so it wins over the
         # looser date-column aliases if several are present.
         start_dt = _parse_csv_date(_row_get_cf(
-            values, "target start", "start date", "startdatum"))
+            values, "target start", "start date", "startdatum",
+            "aktuelles startdatum", "aktuelles startdatun"))
         if start_dt:
             target.start_date = attach_user_tz(start_dt, user)
         end_dt = _parse_csv_date(_row_get_cf(
-            values, "target end", "end date", "enddatum"))
+            values, "target end", "end date", "enddatum",
+            "aktuelles enddatum"))
         if end_dt:
             target.end_date = attach_user_tz(end_dt, user)
 
@@ -2440,15 +2491,15 @@ def import_csv(project_id):
         if label_values:
             ensure_user_has_tags(
                 user, label_values,
-                group=("Jira: Label" if is_jira else "CSV"),
+                group=(f"{tracker}: Label" if tracker else "CSV"),
             )
-        if is_jira and status_val:
-            ensure_user_has_tags(user, [status_val], group="Jira: Status")
+        if tracker and status_val:
+            ensure_user_has_tags(user, [status_val], group=f"{tracker}: Status")
 
         csv_tags = list(label_values)
-        if is_jira and status_val and status_val not in csv_tags:
+        if tracker and status_val and status_val not in csv_tags:
             csv_tags.append(status_val)
-        if label_idx or (is_jira and status_val):
+        if label_idx or (tracker and status_val):
             target.tags = merge_external_tags(
                 target.tags, target.external_tags, csv_tags)
             target.external_tags = list(csv_tags)

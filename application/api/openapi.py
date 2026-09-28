@@ -317,7 +317,7 @@ def build_openapi_spec() -> dict:
                         },
                         "source": {
                             "type": "string", "nullable": True,
-                            "enum": ["todoist", "zammad", "csv", "jira", None],
+                            "enum": ["todoist", "zammad", "csv", "jira", "helix", None],
                         },
                         "attachments": {
                             "type": "array",
