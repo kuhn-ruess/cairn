@@ -654,6 +654,54 @@ def comment_time_target(user, item) -> dict | None:
             "label": f"{customer} › {project.name}" if customer else project.name}
 
 
+def quick_log_context(user, *, item=None, project_id: str = "",
+                      customer_id: str = "") -> dict | None:
+    """What the global "Log time" dialog (``t``) offers and preselects.
+
+    The page the dialog was opened on says whose work this probably is: a task,
+    note or project (its own history, then its subtree's billing link), a
+    billing project's page, or a customer's page (that customer's project the
+    user booked on most recently). The picker carries the whole shortlist
+    either way — the context only decides the preselect, and ``context`` names
+    what decided it, so the dialog can say why that project is selected. With
+    no context that resolves it is the ordinary default (last used project).
+
+    ``None`` for a user without a team."""
+    if not has_team(user):
+        return None
+    rows = pickable_projects(user)
+    ids = {r["id"] for r in rows}
+    chosen, why = "", ""
+    if item is not None:
+        tp = resolve_time_project(item)
+        for pid in (last_entry_project_id(user, item), str(tp.id) if tp else ""):
+            if pid in ids:
+                chosen, why = pid, item.title or "this item"
+                break
+    elif project_id in ids:
+        chosen = project_id
+        why = next(f"{r['customer']} › {r['name']}" for r in rows
+                   if r["id"] == project_id)
+    elif customer_id:
+        recent = list(getattr(user, "tt_recent_projects", None) or [])
+        rank = {pid: i for i, pid in enumerate(recent)}
+        mine = sorted((r for r in rows if r["customer_id"] == customer_id),
+                      key=lambda r: rank.get(r["id"], len(recent)))
+        if mine:
+            chosen, why = mine[0]["id"], mine[0]["customer"]
+    if not chosen:
+        chosen = default_project_id(user, None, projects=rows)
+    # A source to link the entry to: only work items — a folder is where the
+    # project came from, not what the time was spent on.
+    source = item if item is not None and item.kind in ("task", "note") else None
+    return {
+        "projects": pickable_projects(user, limit=PICKER_SHORTLIST, keep=chosen),
+        "default_project_id": chosen,
+        "context": why,
+        "source": source,
+    }
+
+
 def booking_default_project_id(user, booking, *, projects=None, entries=None) -> str:
     """Which billing project a meeting should be billed to, preselected.
 

@@ -518,6 +518,71 @@ def day_log():
     return _capture_response(user)
 
 
+def _context_item(user, raw):
+    """The item a quick-log was opened on, or ``None`` — context is a hint, so
+    an id that doesn't resolve (or isn't the user's to see) is simply no
+    context rather than an error."""
+    tid = to_oid(raw)
+    if tid is None:
+        return None
+    item = Item.objects(pk=tid).first()
+    return item if item is not None and item.can_be_viewed_by(user) else None
+
+
+@timetracking_bp.route("/quick")
+@login_required
+@team_required
+def quick_form():
+    """The body of the global "Log time" dialog (``t``), rendered when it opens.
+
+    Loaded lazily rather than baked into every page: the project shortlist
+    costs queries, and most page views never open the dialog. ``item`` /
+    ``tp`` / ``customer`` are the page's context (see ``quick-log.js``)."""
+    from application.services.timetracking import quick_log_context
+    from application.services.tz import user_zone
+    user = current_user._get_current_object()
+    ctx = quick_log_context(
+        user, item=_context_item(user, request.args.get("item")),
+        project_id=(request.args.get("tp") or "").strip(),
+        customer_id=(request.args.get("customer") or "").strip())
+    return render_template("timetracking/_quick_form.html", q=ctx,
+                           today=datetime.now(user_zone(user)).date())
+
+
+@timetracking_bp.route("/quick", methods=["POST"])
+@login_required
+@team_required
+def quick_log():
+    """Book one entry from the "Log time" dialog. JSON either way: the dialog
+    stays open on a refusal and says why, and nothing is written then."""
+    user = current_user._get_current_object()
+    pid = (request.form.get("project_id") or "").strip()
+    project = project_for_user(user, pid) if pid else None
+    if project is None:
+        return jsonify({"ok": False, "error": "Pick a billing project."}), 400
+    minutes, start, end, custom = _booking(request.form, project)
+    if not minutes:
+        return jsonify({"ok": False, "error":
+                        "Enter a duration (1h30m, 1:30, 90) or a start and end time."}), 400
+    source = None
+    if request.form.get("link_item") == "1":
+        source = _context_item(user, request.form.get("item_id"))
+    add_entry(
+        project=project, user=user, minutes=minutes,
+        spent_on=_spent_on(request.form.get("spent_on"), user),
+        start_time=start, end_time=end, custom=custom,
+        note=(request.form.get("note") or "").strip(), source_item=source,
+        billable=request.form.get("billable") != "0",
+    )
+    user.tt_last_project = str(project.id)
+    user.save()
+    customer = project.customer.name if project.customer else ""
+    out = _ajax_payload(user)
+    out.update({"ok": True, "minutes": minutes,
+                "project": f"{customer} › {project.name}" if customer else project.name})
+    return jsonify(out)
+
+
 @timetracking_bp.route("/timer/start", methods=["POST"])
 @login_required
 @team_required

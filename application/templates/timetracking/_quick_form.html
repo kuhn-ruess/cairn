@@ -1,0 +1,45 @@
+{% import "timetracking/_capture_macros.html" as cap %}
+{# The body of the global "Log time" dialog (``t``, sidebar button) — fetched
+   by quick-log.js each time the dialog opens, so the preselected project
+   follows the page it was opened on. The controls are the day sheet's capture
+   bar (``.time-add``), so time-entries.js arms the custom fields, the clock
+   toggle and the duration chips exactly as it does there; quick-log.js owns
+   only the submit. #}
+{% if not q.projects %}
+  <p class="text-muted small mb-0">No billing projects yet —
+    <a href="{{ url_for('timetracking.index') }}">create a customer and a project</a> first.</p>
+{% else %}
+<div class="time-add" data-quick-log>
+  <input type="text" class="form-control form-control-lg quick-add-input time-add-note"
+         name="note" placeholder="What did you work on?" autocomplete="off" maxlength="200">
+  <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+    {{ cap.duration_or_clock() }}
+  </div>
+  <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+    <label class="form-label small text-muted mb-0"><i class="bi bi-receipt"></i> Project</label>
+    {{ cap.project_select(q.projects, q.default_project_id, "flex-grow-0") }}
+    <input type="date" class="form-control form-control-sm time-add-date w-auto"
+           value="{{ today.isoformat() }}" title="Day">
+    <label class="form-check form-check-inline m-0 small" title="Billable">
+      <input type="checkbox" class="form-check-input time-add-billable" checked> billable
+    </label>
+  </div>
+  <div class="form-text mt-1">
+    {% if q.context %}
+      <i class="bi bi-crosshair"></i> Preselected from <strong>{{ q.context }}</strong> — pick another project to override.
+    {% else %}
+      <i class="bi bi-clock-history"></i> Preselected: the project you last logged to.
+    {% endif %}
+  </div>
+  <div class="d-flex flex-wrap gap-1 mt-2">{{ cap.custom_fields() }}</div>
+  {% if q.source %}
+    <div class="form-check mt-2 small">
+      <input type="checkbox" class="form-check-input" id="quickLogLink" name="link_item" value="1" checked>
+      <input type="hidden" name="item_id" value="{{ q.source.pk }}">
+      <label class="form-check-label text-muted" for="quickLogLink">
+        <i class="bi bi-link-45deg"></i> Link to <strong>{{ q.source.title or 'this item' }}</strong>
+      </label>
+    </div>
+  {% endif %}
+</div>
+{% endif %}
