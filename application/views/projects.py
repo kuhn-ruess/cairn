@@ -2639,13 +2639,29 @@ def import_csv(project_id):
                            + "\n".join(link_lines))
                 me.save()
 
+    # "Complete tasks missing from the CSV" answers for THIS file only: the
+    # tasks this project holds from the same ticket system. The lookup above
+    # spans all of the user's imported items (so a moved task still matches a
+    # row), and closing everything absent from it once let a Helix export
+    # close every Jira task and vice versa — and a Jira export of one project
+    # close the tickets imported into another. A task moved out of this
+    # project is left alone; so is one that is already closed.
     archived = 0
-    if mode == "sync" and archive_missing and seen_csv_ids is not None:
+    if mode == "sync" and archive_missing:
+        from application.services.trash import _subtree_pks
+        in_project = set(_subtree_pks(project.pk))
         for cid, t in existing_by_csv_id.items():
-            if cid in seen_csv_ids:
+            if (cid in seen_csv_ids or t.source != source_tag
+                    or t.pk not in in_project):
                 continue
-            t.status = "done"
-            t.save()
+            if t.kind == "task":
+                if t.status in ("done", "dropped"):
+                    continue
+                t.mark_done(by=user, via="csv-import")
+            else:  # a ticket promoted to a container by the wiring pass
+                if t.status in ("completed", "dropped"):
+                    continue
+                t.set_container_completion(True, by=user, via="csv-import")
             archived += 1
 
     parts = [
@@ -2654,7 +2670,7 @@ def import_csv(project_id):
         f"skipped {skipped}",
     ]
     if archived:
-        parts.append(f"archived {archived}")
+        parts.append(f"completed {archived} no longer in the file")
     parts.append(f"delimiter={dialect.delimiter!r}")
     if any(h in headers for h in title_aliases):
         title_col = next(h for h in title_aliases if h in headers)

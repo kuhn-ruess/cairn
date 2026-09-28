@@ -501,6 +501,54 @@ def cleanup_completed_tasks(dry_run, username):
             click.echo(f"  {name}: {verb} {n} task(s)")
     click.echo(f"total: {verb} {total} task(s) across {len(results)} user(s)")
 
+@cairn_cli.command("reopen-csv-closed")
+@click.argument("username")
+@click.option("--since", required=True,
+              help="Window start, ISO (UTC unless an offset is given).")
+@click.option("--until", "until_", help="Window end, ISO (default: now).")
+@click.option("--source", type=click.Choice(["jira", "helix", "csv"]),
+              help="Only tasks from this system.")
+@click.option("--apply", "do_apply", is_flag=True,
+              help="Reopen them. Without it, only list what would be reopened.")
+def reopen_csv_closed(username, since, until_, source, do_apply):
+    """Reopen imported tasks a CSV import closed as "missing from the file".
+
+    Dry run by default: lists every candidate with the time it was closed,
+    grouped by that minute, so one import run reads as one block. A task
+    closed by hand inside the window looks the same — narrow the window or
+    the source until the list is only the import's doing, then --apply.
+    """
+    from datetime import datetime, timezone
+    from application.services.csv_reopen import closed_by_import, reopen
+
+    def _ts(raw):
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            raise click.BadParameter(f"not an ISO timestamp: {raw}")
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+    user = User.objects(username=username).first()
+    if not user:
+        raise click.ClickException(f"no user '{username}'")
+    lo = _ts(since)
+    hi = _ts(until_) if until_ else datetime.now(timezone.utc)
+    items = closed_by_import(user, lo, hi, source=source)
+    minute = None
+    for i in items:
+        at = i.completed_at or i.updated_at
+        if at.strftime("%Y-%m-%d %H:%M") != minute:
+            minute = at.strftime("%Y-%m-%d %H:%M")
+            click.echo(f"closed {minute} UTC:")
+        click.echo(f"  {i.source or '-':6} {i.external_ref or '-':14} "
+                   f"{i.kind:7} {i.completed_via or '-':10} {i.title}")
+    if not do_apply:
+        click.echo(f"{len(items)} item(s) would be reopened — dry run, "
+                   f"add --apply to reopen them")
+        return
+    click.echo(f"reopened {reopen(items)} item(s)")
+
+
 @cairn_cli.command("cleanup-trash")
 @click.option("--dry-run", is_flag=True, help="Report only, don't delete.")
 @click.option("--user", "username", help="Only sweep one user (by username).")

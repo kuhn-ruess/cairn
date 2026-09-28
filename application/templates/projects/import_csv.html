@@ -48,6 +48,8 @@
            {{ 'checked' if project.csv_archive_missing else '' }}>
     <label class="form-check-label" for="archive-missing">
       In sync mode, complete (set to done) tasks that don't appear in the CSV
+      — only this project's tasks from the same system (a Jira file never
+      closes Helix tickets, nor tickets imported into another project)
     </label>
   </div>
 
