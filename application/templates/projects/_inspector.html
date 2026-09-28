@@ -77,8 +77,12 @@
 
   <div class="inspector-section" data-show-for="project,section">
     {{ form.tags.label(class="form-label small text-uppercase text-muted") }}
-    {{ form.tags(class="form-select form-select-sm", size="5") }}
-    <div class="form-text">⌘/Ctrl-click for multi-select.</div>
+    {%- set tag_meta = [] -%}
+    {%- for t in current_user.tags or [] -%}
+      {%- set _ = tag_meta.append({"name": t.name, "parent": t.parent or "", "excl": t.exclusive_children, "color": t.color}) -%}
+    {%- endfor -%}
+    {{ form.tags(class="form-select form-select-sm", size="5", **{"data-tag-toggle": "1", "data-tag-meta": tag_meta|tojson}) }}
+    <div class="form-text">Type to search or create a label. One tag per exclusive group.</div>
   </div>
 
   <div class="inspector-section grid-2" data-show-for="project,section">

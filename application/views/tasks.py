@@ -325,26 +325,19 @@ def _populate_form_choices(form: TaskForm, user: User, task: Item | None = None)
     # so there's no blank option.
     form.owner.choices = people
 
-def _apply_tags(task: Item, user: User, raw_names) -> bool:
-    """Normalise + apply a list of tag names to ``task``. True if a tag rule
-    reassigned it.
+def resolve_tag_names(user: User, raw_names) -> list:
+    """Normalise a submitted list of tag names into the list to store.
 
     Type-to-create any name the user doesn't have yet (gray default colour,
-    mirroring OmniFocus), enforce exclusive-children groups (at most one child
-    from an exclusive parent), store the final names, and run the tag-driven
-    rules (auto-status, auto-assign). Shared by the full edit form and the
-    subtask quick-edit modal so both behave identically."""
+    mirroring OmniFocus) and enforce exclusive-children groups (at most one
+    child from an exclusive parent). Shared by the task inspector, the subtask
+    quick-edit modal and the project inspector, which all carry the same
+    token field."""
     from application.models.tag import Tag
-    from application.services.label_rules import apply_label_rules
     # Tags are stored as a list of names; the multi-select submits names.
     # Normalise once (strip + cap at the model's 64-char limit) so a
-    # type-created tag and the name stored on the task always match.
+    # type-created tag and the name stored on the item always match.
     submitted = [n.strip()[:64] for n in (raw_names or []) if n and n.strip()]
-    # Snapshot the tags already on the task so the label rule below only
-    # fires for tags added in *this* edit. Without this, a status-mapping
-    # tag re-snaps the status on every save and you can never move the
-    # task off that status by hand.
-    previously = set(task.tags or [])
     final, seen_excl = [], set()
     by_name = {t.name: t for t in (user.tags or [])}
     created = False
@@ -366,6 +359,23 @@ def _apply_tags(task: Item, user: User, raw_names) -> bool:
                     continue  # already picked one from this exclusive group
                 seen_excl.add(tag.parent)
         final.append(name)
+    return final
+
+
+def _apply_tags(task: Item, user: User, raw_names) -> bool:
+    """Normalise + apply a list of tag names to ``task``. True if a tag rule
+    reassigned it.
+
+    ``resolve_tag_names`` does the type-to-create and the exclusive groups;
+    this stores the result and runs the tag-driven rules (auto-status,
+    auto-assign)."""
+    from application.services.label_rules import apply_label_rules
+    # Snapshot the tags already on the task so the label rule below only
+    # fires for tags added in *this* edit. Without this, a status-mapping
+    # tag re-snaps the status on every save and you can never move the
+    # task off that status by hand.
+    previously = set(task.tags or [])
+    final = resolve_tag_names(user, raw_names)
     task.tags = final
     # Label-driven rules for the tags added in this edit: ``maps_to_status``
     # snaps the task to that status (authoritative over any explicit status

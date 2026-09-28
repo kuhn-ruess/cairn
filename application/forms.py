@@ -159,7 +159,9 @@ class ProjectForm(FlaskForm):
     name = StringField("Name", validators=[DataRequired(), Length(max=200)])
     note = TextAreaField("Note", validators=[Optional()])
     color = StringField("Color (hex)", validators=[Optional(), Length(max=16)])
-    tags = SelectMultipleField("Labels", choices=[])
+    # validate_choice off for the same reason as TaskForm.tags: the token
+    # field type-creates labels (views/projects.py::_apply).
+    tags = SelectMultipleField("Labels", choices=[], validate_choice=False)
     defer_date = DateTimeLocalField("Defer until", format="%Y-%m-%dT%H:%M", validators=[Optional()])
     due_date = DateTimeLocalField("Due date", format="%Y-%m-%dT%H:%M", validators=[Optional()])
     plan_date = DateTimeLocalField("Plan date", format="%Y-%m-%dT%H:%M", validators=[Optional()])
