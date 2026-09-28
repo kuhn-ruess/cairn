@@ -1963,6 +1963,8 @@ body.is-dragging .tree-project-header .project-handle { opacity: .55; }
   color: var(--gv-fg2);
   border: 1px solid transparent;
 }
+/* The ticket's own workflow status, read as written ("In Arbeit"). */
+.source-chip-status { text-transform: none; letter-spacing: 0; font-weight: 500; }
 .source-chip.source-jira    { background: rgba( 38,132,255,.15); color: #4aa3ff; border-color: rgba(38,132,255,.4); }
 .source-chip.source-zammad  { background: rgba( 52, 73, 94,.20); color: #aac7e0; border-color: rgba(52,73,94,.5); }
 .source-chip.source-todoist { background: rgba(228, 67, 50,.15); color: #ff8a7a; border-color: rgba(228,67,50,.4); }

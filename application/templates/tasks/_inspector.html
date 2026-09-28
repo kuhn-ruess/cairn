@@ -481,7 +481,8 @@
     {% if task and (task.external_ref or task.source) %}
       <div class="form-text small text-muted mt-1 d-flex gap-2 flex-wrap">
         {% if task.source %}
-          <span class="source-chip source-{{ task.source }}">{{ task.source }}</span>
+          <span class="source-chip source-{{ task.source }}"
+                {% if task.external_status %}title="Status in {{ task.source }} as of the last import"{% endif %}>{{ task.source }}{% if task.external_status %} · <span class="source-chip-status">{{ task.external_status }}</span>{% endif %}</span>
         {% endif %}
         {% if task.external_ref %}
           {% set ext_url = task.external_url(current_user) %}

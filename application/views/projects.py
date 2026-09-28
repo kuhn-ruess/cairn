@@ -2364,11 +2364,16 @@ def import_csv(project_id):
         if csv_id:
             seen_csv_ids.add(csv_id)
         target = existing_by_csv_id.get(csv_id) if csv_id else None
-        if target is None:
+        # A ticket already here keeps the status the user gave it: the import
+        # refreshes what the ticket system says (``external_status``, the
+        # status tag), never Cairn's own status field — see the rules below.
+        is_new = target is None
+        if is_new:
             target = Item(owner=user, kind="task", parent=project, status="open")
             created += 1
         else:
             updated += 1
+        previous_external = set(target.external_tags or [])
         target.title = title[:500]
         target.source = source_tag
         if is_jira:
@@ -2387,7 +2392,9 @@ def import_csv(project_id):
             # which by then is the user's own.
             target.note = _helix_context_note(values, _row_get)
         status_val = _row_get(values, "status")
-        if status_val and not tracker:
+        if tracker:
+            target.external_status = status_val or None
+        if status_val and not tracker and is_new:
             # For Jira CSV the status ("Offen", "Backlog", "WAITING", …)
             # is surfaced as a tag (see below) so the user can filter
             # by it without polluting Cairn's task-status field. Don't
@@ -2561,9 +2568,19 @@ def import_csv(project_id):
             target.external_ref = csv_id
         # Tag-driven status mapping ("Warte auf Kunde → waiting") —
         # applies whether labels came from Stichwörter columns or the
-        # Jira Status value we surface as a tag.
-        from application.services.label_rules import apply_label_rules
-        apply_label_rules(target, user)
+        # Jira Status value we surface as a tag. On a ticket already here
+        # only a tag the ticket system just ADDED may move the status (its
+        # workflow status changed since the last import) — the same rule
+        # the inspector follows. A tag that was there before must not snap
+        # back a status the user has set by hand since.
+        from application.services.label_rules import (
+            apply_assignee_rule, apply_label_rules, apply_status_rule)
+        if is_new:
+            apply_label_rules(target, user)
+        else:
+            apply_status_rule(target, user,
+                              only_tags=set(csv_tags) - previous_external)
+            apply_assignee_rule(target, user)
         target.save()
 
         # Record relationship metadata for the second pass.

@@ -319,6 +319,12 @@ def build_openapi_spec() -> dict:
                             "type": "string", "nullable": True,
                             "enum": ["todoist", "zammad", "csv", "jira", "helix", None],
                         },
+                        "external_status": {
+                            "type": "string", "nullable": True,
+                            "description": "The ticket's workflow status in its own "
+                                           "system as of the last CSV import "
+                                           "(Jira/Helix). Cairn's `status` is separate.",
+                        },
                         "attachments": {
                             "type": "array",
                             "items": {"$ref": "#/components/schemas/Attachment"},

@@ -225,8 +225,8 @@
             {% endif %}
             {% if task.source and current_user.show_field('source', view_key=_vk) %}
               <span class="source-chip source-{{ task.source }}"
-                    title="Imported from {{ task.source }}">
-                {{ task.source }}
+                    title="Imported from {{ task.source }}{% if task.external_status %} — status there: {{ task.external_status }}{% endif %}">
+                {{ task.source }}{% if task.external_status %} · <span class="source-chip-status">{{ task.external_status }}</span>{% endif %}
               </span>
             {% endif %}
             {% if task.external_ref and current_user.show_field('external_id', view_key=_vk) %}

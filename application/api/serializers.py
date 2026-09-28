@@ -286,6 +286,7 @@ def task(t) -> dict[str, Any]:
         "external_id": t.external_id or None,
         "external_ref": t.external_ref or None,
         "source": t.source or None,
+        "external_status": t.external_status or None,
         "owner": user_brief(t.owner),
         "assigned_to": user_brief(t.assigned_to),
         "assigned_by": user_brief(t.assigned_by),

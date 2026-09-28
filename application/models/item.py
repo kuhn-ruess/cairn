@@ -321,6 +321,11 @@ class Item(Document):
     # the task is what lets a later run put the assignment right without asking
     # the ticket again: see ``zammad_team._reconcile_assignments``.
     external_owner = StringField()
+    # The ticket's workflow status over there ("In Arbeit", "Zugewiesen"), as
+    # of the last import — shown beside the source chip. Deliberately apart
+    # from ``status``: a re-import refreshes this and leaves the user's own
+    # status alone (see ``views.projects.import_csv``).
+    external_status = StringField()
     # Human-readable origin (``todoist`` / ``zammad`` / ``csv`` /
     # ``jira`` / ``helix`` / …). Importers fill this so the UI can show a "source"
     # chip without parsing the ``external_id`` prefix.
