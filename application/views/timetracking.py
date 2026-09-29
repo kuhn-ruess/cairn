@@ -814,6 +814,9 @@ def _report_filters(args=None):
         # "entries" lists every booking; "month" pivots the same result into
         # one column per calendar month (a customer's year at a glance).
         "view": "month" if args.get("view") == "month" else "entries",
+        # Export shape: one line per day (and per run of back-to-back clock
+        # times) instead of one per booking — see _merge_per_day.
+        "merge": args.get("merge") == "1",
     }
 
 
@@ -824,7 +827,7 @@ def _report_context(args=None):
     user = current_user._get_current_object()
     f = _report_filters(args)
     data = _grouped_report(team, f)
-    header, rows, _cols = _export_table(data, _filter_project(f))
+    header, rows, _cols = _export_table(data, _filter_project(f), f["merge"])
     monthly = None
     if f["view"] == "month":
         from application.services.timetracking import monthly_breakdown
@@ -1000,18 +1003,109 @@ def _report_cell(row, key, values, shown):
     return ""
 
 
-def _export_table(data, project=None):
+def _export_table(data, project=None, merge=False):
     """``(header, rows, columns)`` for the report export — one flat table.
 
     The CSV, the Excel-flavoured CSV and the on-page preview all render this,
-    so what you see before downloading is what the file contains."""
+    so what you see before downloading is what the file contains. ``merge``
+    folds a day's bookings into one line (see :func:`_merge_per_day`)."""
     cols = _report_columns(data, project)
+    if merge:
+        # Custom fields don't survive a merge: five bookings have five values,
+        # and the merged line speaks through its description alone.
+        cols = [c for c in cols if not c["key"].startswith("cf:")]
     shown = {c["key"] for c in cols}
+    ordered = sorted(data["rows"],
+                     key=lambda r: (r["spent_on"], r.get("start_time") or ""))
+    if merge:
+        return [c["label"] for c in cols], _merge_per_day(ordered, cols, shown), cols
     rows = []
-    for r in sorted(data["rows"], key=lambda r: (r["spent_on"], r.get("start_time") or "")):
+    for r in ordered:
         values = {c["key"]: c["value"] for c in r.get("custom", [])}
         rows.append([_report_cell(r, c["key"], values, shown) for c in cols])
     return [c["label"] for c in cols], rows, cols
+
+
+def _clock_min(hhmm):
+    """``"09:30"`` → 570, anything else → None."""
+    try:
+        h, m = (hhmm or "").split(":")
+        return int(h) * 60 + int(m)
+    except ValueError:
+        return None
+
+
+def _merge_per_day(rows, cols, shown):
+    """The export with one line per day instead of one per booking.
+
+    Bookings merge when they share the day, customer, project, user, billable
+    and billed state — anything else would put two invoices' worth of time on
+    one line. Within that, bookings with clock times merge only where they
+    touch or overlap (one ends when the next starts, or later), so every
+    separate block of the day keeps its own line with its own start and end;
+    bookings without clock times make one line of their own. Hours and money
+    are the SUM of the bookings, not the clock span; the description is the
+    bookings' descriptions, comma-separated, each once."""
+    groups: dict = {}
+    for r in rows:
+        key = (r["spent_on"], r["customer"], r["project"], r["user_name"],
+               r["billable"], r["locked"])
+        groups.setdefault(key, []).append(r)
+
+    lines = []   # (sort key, start, end, bookings)
+    for key, members in groups.items():
+        loose, blocks = [], []
+        for r in members:          # already sorted by start time
+            lo = _clock_min(r.get("start_time"))
+            hi = _clock_min(r.get("end_time"))
+            if lo is None or hi is None:
+                loose.append(r)
+                continue
+            if hi < lo:            # crosses midnight
+                hi += 24 * 60
+            if blocks and lo <= blocks[-1][1]:
+                blocks[-1][1] = max(blocks[-1][1], hi)
+                blocks[-1][2].append(r)
+            else:
+                blocks.append([lo, hi, [r]])
+        for lo, hi, members_ in blocks:
+            lines.append(((key[0], lo), lo, hi, members_))
+        if loose:
+            lines.append(((key[0], -1), None, None, loose))
+    lines.sort(key=lambda ln: ln[0])
+
+    def hhmm(m):
+        return "" if m is None else f"{m // 60 % 24:02d}:{m % 60:02d}"
+
+    out = []
+    for _sk, lo, hi, members in lines:
+        minutes = sum(r["minutes"] for r in members)
+        cents = sum(r["amount_cents"] or 0 for r in members)
+        first = members[0]
+        line = []
+        for c in cols:
+            k = c["key"]
+            if k == "start":
+                line.append(hhmm(lo))
+            elif k == "end":
+                line.append(hhmm(hi))
+            elif k == "minutes":
+                line.append(minutes)
+            elif k == "hours":
+                line.append(f"{minutes / 60:.2f}")
+            elif k == "amount":
+                line.append(f"{cents / 100:.2f}")
+            elif k in ("note", "ref", "source", "service"):
+                seen = []
+                for r in members:
+                    v = _report_cell(r, k, {}, shown)
+                    if v and v not in seen:
+                        seen.append(v)
+                line.append(", ".join(seen))
+            else:
+                line.append(_report_cell(first, k, {}, shown))
+        out.append(line)
+    return out
 
 
 def _monthly_table(monthly):
@@ -1585,7 +1679,7 @@ def report_csv():
         # Every cell past Customer and Project is hours.
         decimal_at = set(range(2, len(header)))
     else:
-        header, rows, cols = _export_table(data, _filter_project(f))
+        header, rows, cols = _export_table(data, _filter_project(f), f["merge"])
         # Which cells need the decimal comma is read off the columns, never
         # off fixed positions — a project's own column order moves them.
         decimal_at = {i for i, c in enumerate(cols) if c["key"] in DECIMAL_KEYS}

@@ -140,6 +140,16 @@
         incl. archived projects
       </label>
     </div>
+    {% if f.view != 'month' %}
+    <div class="col-auto">
+      <label class="form-check small mb-1"
+             title="One line per day in the export: hours added up, descriptions comma-separated, custom fields left out. Back-to-back clock times become one block; separate blocks keep a line each.">
+        <input type="checkbox" class="form-check-input" name="merge" value="1"
+               {% if f.merge %}checked{% endif %}>
+        merge per day
+      </label>
+    </div>
+    {% endif %}
     <div class="col-auto">
       <button class="btn btn-sm btn-primary">Apply</button>
     </div>
