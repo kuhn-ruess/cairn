@@ -263,6 +263,16 @@
           if (addBtn) addBtn.click();
           return;
         }
+        // Enter in the time section books the entry (time-entries.js) — it is
+        // not a task save. Saving too re-rendered the whole panel, and when
+        // that render ran before the booking landed it replaced the time
+        // section with one that didn't have the new entry: the time looked
+        // unsaved. The entry editor and the picker's search are the same.
+        if (t && t.closest && t.closest(".time-add, .tt-edit, .tt-pick, .time-block")) {
+          // A focused button keeps its native Enter = click.
+          if (t.tagName !== "BUTTON" && t.tagName !== "A") ev.preventDefault();
+          return;
+        }
         const tag = t && t.tagName;
         if (tag === "BUTTON" || tag === "A" || tag === "SELECT" ||
             (t && t.isContentEditable)) return;
