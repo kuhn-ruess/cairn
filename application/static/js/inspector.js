@@ -617,60 +617,107 @@
   });
   applyCommentSort();  // initial pass for the current page (e.g. task detail)
 
+  // One place posts what the comment box holds — the comment, the time typed
+  // beside it, or both — for Post AND for a task save (flushPendingComment).
+  // Posts on the same box run one after another and each reads the fields
+  // only when its turn comes; a success clears them. So Post-then-Save, or two
+  // quick clicks, book the time exactly once: the later one finds nothing.
+  function postPendingComment(wrap) {
+    const prev = wrap._commentPost || Promise.resolve();
+    const next = prev.catch(() => {}).then(() => doPostComment(wrap));
+    wrap._commentPost = next;
+    return next;
+  }
+
+  function showCommentError(wrap, msg) {
+    let el = wrap.querySelector(".comment-post-error");
+    if (!msg) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "comment-post-error small text-danger mt-1";
+      el.setAttribute("role", "alert");
+      wrap.appendChild(el);
+    }
+    el.textContent = msg;
+  }
+
+  // Resolves true when something was posted, false when the box was empty.
+  // Throws (after showing why, inputs kept) when the post failed.
+  async function doPostComment(wrap) {
+    const textarea = wrap.querySelector("textarea[name=comment_body]");
+    const value = (textarea && textarea.value.trim()) || "";
+    const dur = wrap.querySelector('input[name="log_duration"]');
+    const tproj = wrap.querySelector('input[name="log_project_id"]');
+    const duration = (dur && dur.value.trim()) || "";
+    if (!value && !duration) return false;
+    const fd = new FormData();
+    const csrf = document.querySelector('input[name="csrf_token"]');
+    if (csrf) fd.append("csrf_token", csrf.value);
+    fd.append("body", value);
+    // Labels ticked beside the box come off with the same request.
+    wrap
+      .querySelectorAll('input[name="remove_tags"]:checked')
+      .forEach((cb) => fd.append("remove_tags", cb.value));
+    // Time typed beside the box is booked with the same request.
+    if (duration) {
+      fd.append("log_duration", duration);
+      if (tproj) fd.append("log_project_id", tproj.value);
+    }
+    let resp;
+    try {
+      resp = await fetch(wrap.dataset.action, {
+        method: "POST",
+        body: fd,
+        headers: { "X-Inspector-Request": "1" },
+      });
+    } catch (e) {
+      const msg = "Couldn't post the comment/time (network error) — nothing was lost, try again.";
+      showCommentError(wrap, msg);
+      throw new Error(msg);
+    }
+    if (!resp.ok) {
+      // A 400 is refused before anything was written (an unreadable
+      // duration) — keep the text, point at the field.
+      const err = await resp.json().catch(() => ({}));
+      const msg = err.error || ("Couldn't post the comment/time (error " + resp.status + ").");
+      if (resp.status === 400 && dur && duration) {
+        dur.classList.add("is-invalid");
+        dur.title = msg;
+        dur.focus();
+      }
+      showCommentError(wrap, msg);
+      throw new Error(msg);
+    }
+    const data = await resp.json();
+    if (data.comment !== false) {
+      appendCommentToList(data, wrap);
+      reflectRemovedLabels(data.removed_tags || [], wrap);
+    }
+    if (textarea) textarea.value = "";
+    if (dur) { dur.value = ""; dur.classList.remove("is-invalid"); dur.title = ""; }
+    showCommentError(wrap, "");
+    if (data.time_block) {
+      const tb = (wrap.closest(".inspector-form") || body || document)
+        .querySelector(".time-block");
+      if (tb) tb.innerHTML = data.time_block;
+    }
+    return true;
+  }
+
   async function onCommentAdd(ev) {
     ev.preventDefault();
     const btn = ev.currentTarget;
     const wrap = btn.closest("[data-inspector-comment-form]");
     if (!wrap) return;
-    const textarea = wrap.querySelector("textarea[name=comment_body]");
-    const value = (textarea && textarea.value.trim()) || "";
-    if (!value) { if (textarea) textarea.focus(); return; }
     btn.disabled = true;
     try {
-      const fd = new FormData();
-      const csrf = document.querySelector('input[name="csrf_token"]');
-      if (csrf) fd.append("csrf_token", csrf.value);
-      fd.append("body", value);
-      // Labels ticked beside the box come off with the same request.
-      wrap
-        .querySelectorAll('input[name="remove_tags"]:checked')
-        .forEach((cb) => fd.append("remove_tags", cb.value));
-      // Time typed beside the box is booked with the same request.
-      const dur = wrap.querySelector('input[name="log_duration"]');
-      const tproj = wrap.querySelector('input[name="log_project_id"]');
-      if (dur && dur.value.trim()) {
-        fd.append("log_duration", dur.value.trim());
-        if (tproj) fd.append("log_project_id", tproj.value);
-      }
-      const resp = await fetch(wrap.dataset.action, {
-        method: "POST",
-        body: fd,
-        headers: { "X-Inspector-Request": "1" },
-      });
-      if (resp.status === 400) {
-        // Refused before anything was written (an unreadable duration) —
-        // keep the text, point at the field.
-        const err = await resp.json().catch(() => ({}));
-        if (dur) {
-          dur.classList.add("is-invalid");
-          dur.title = err.error || "Can't read this duration";
-          dur.focus();
-        }
-        return;
-      }
-      if (!resp.ok) throw new Error("comment failed: " + resp.status);
-      const data = await resp.json();
-      appendCommentToList(data, wrap);
-      reflectRemovedLabels(data.removed_tags || [], wrap);
-      textarea.value = "";
-      if (dur) { dur.value = ""; dur.classList.remove("is-invalid"); }
-      if (data.time_block) {
-        const tb = (wrap.closest(".inspector-form") || body || document)
-          .querySelector(".time-block");
-        if (tb) tb.innerHTML = data.time_block;
+      const posted = await postPendingComment(wrap);
+      if (!posted) {
+        const textarea = wrap.querySelector("textarea[name=comment_body]");
+        if (textarea) textarea.focus();
       }
     } catch (err) {
-      console.error(err);
+      console.error(err);  // already shown beside the box
     } finally {
       btn.disabled = false;
     }
@@ -789,26 +836,19 @@
   }
 
   // The comment box lives inside the task form but is a separate action.
-  // Before saving the task, persist any typed-but-unposted comment so the
-  // save doesn't silently discard it (the form re-render would wipe the
-  // textarea). The freshly-saved fragment then shows the new comment.
+  // Before saving the task, post whatever it holds — comment, time, or both —
+  // so the save never drops it (the re-render would wipe the fields). It is
+  // awaited: the task save and its re-render only start once the comment and
+  // the booking are written. A failure throws, so the save stops with the
+  // input still there and the reason on screen.
   async function flushPendingComment(form) {
     const wrap = form.querySelector("[data-inspector-comment-form]");
     if (!wrap) return;
-    const textarea = wrap.querySelector("textarea[name=comment_body]");
-    const value = textarea && textarea.value.trim();
-    if (!value) return;
     try {
-      const fd = new FormData();
-      const csrf = form.querySelector('input[name="csrf_token"]') ||
-                   document.querySelector('input[name="csrf_token"]');
-      if (csrf) fd.append("csrf_token", csrf.value);
-      fd.append("body", value);
-      await fetch(wrap.dataset.action, {
-        method: "POST", body: fd, headers: { "X-Inspector-Request": "1" },
-      });
-      textarea.value = "";  // don't resend it with the task save / re-render
-    } catch (e) { /* non-fatal — proceed with the task save */ }
+      await postPendingComment(wrap);
+    } catch (e) {
+      throw new Error("Task not saved: " + e.message);
+    }
   }
 
   async function onFormSubmit(ev) {

@@ -130,5 +130,52 @@ class CommentLogTimeTests(unittest.TestCase):
         self.assertFalse(bad.get_json()["ok"])
 
 
+    def test_time_without_a_comment_books_it_and_posts_nothing(self):
+        resp = self._post({"body": "", "log_duration": "45m",
+                           "log_project_id": str(self.project.pk)},
+                          headers={"X-Inspector-Request": "1"})
+        data = resp.get_json()
+        self.assertTrue(data["ok"])
+        self.assertFalse(data["comment"])
+        self.assertEqual(data["logged_minutes"], 45)
+        [entry] = self._entries()
+        self.assertEqual((entry.minutes, entry.note), (45, ""))
+        self.assertEqual(self._comments(), [])
+        # The plain form (task page) too.
+        self.assertEqual(self._post({"body": "  ", "log_duration": "15"}).status_code, 302)
+        self.assertEqual(sorted(e.minutes for e in self._entries()), [15, 45])
+        self.assertEqual(self._comments(), [])
+
+    def test_neither_comment_nor_time_is_refused(self):
+        resp = self._post({"body": " "}, headers={"X-Inspector-Request": "1"})
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(self._entries(), [])
+        self.assertEqual(self._comments(), [])
+
+    def test_a_duration_project_books_no_clock_times(self):
+        self._post({"body": "x", "log_duration": "30m"})
+        [entry] = self._entries()
+        self.assertIsNone(entry.start_time)
+        self.assertIsNone(entry.end_time)
+
+    def test_a_clock_project_ends_now_and_starts_duration_earlier(self):
+        from datetime import datetime, timedelta
+        from application.services.tz import user_zone
+        self.project.time_mode = "clock"
+        self.project.save()
+        zone = user_zone(self.user)
+        before = datetime.now(zone).replace(second=0, microsecond=0)
+        self._post({"body": "on the phone", "log_duration": "1h15m"})
+        after = datetime.now(zone)
+        [entry] = self._entries()
+        self.assertEqual(entry.minutes, 75)
+        ends = {(before + timedelta(minutes=m)).strftime("%H:%M")
+                for m in range(0, 2) if before + timedelta(minutes=m) <= after}
+        self.assertIn(entry.end_time, ends)
+        end = datetime.strptime(entry.end_time, "%H:%M")
+        self.assertEqual((end - timedelta(minutes=75)).strftime("%H:%M"),
+                         entry.start_time)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

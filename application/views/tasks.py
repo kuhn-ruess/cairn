@@ -3471,10 +3471,23 @@ def comment(task_id):
         # a duration that can't be read or booked refuses the whole submit, so
         # the comment never lands while the hours it was about silently don't.
         booking, problem = _comment_time(user, task)
+        body = (form.body.data or "").strip()
+        if not problem and not body and not booking:
+            problem = "Nothing to post — write a comment or enter a time."
         if problem:
             if request.headers.get("X-Inspector-Request") == "1":
                 return jsonify({"ok": False, "error": problem}), 400
-            flash(problem + " The comment was not posted.", "warning")
+            flash(problem + (" The comment was not posted." if body else ""), "warning")
+            return redirect(request.referrer or url_for("tasks.detail", task_id=task_id))
+        if not body:
+            # Time only (the box was left empty): book it, post no comment.
+            logged = _book_comment_time(user, task, booking, "")
+            if request.headers.get("X-Inspector-Request") == "1":
+                return jsonify({"ok": True, "comment": False,
+                                "logged_minutes": logged,
+                                "time_block": _time_block(user, task)})
+            flash(f"Logged {current_app.jinja_env.filters['duration'](logged)}.",
+                  "success")
             return redirect(request.referrer or url_for("tasks.detail", task_id=task_id))
         # Labels ticked in the comment box come off with the same submit —
         # writing the answer and handing the task back is one gesture (the
@@ -3492,6 +3505,7 @@ def comment(task_id):
             return jsonify(
                 {
                     "ok": True,
+                    "comment": True,
                     "index": len(task.comments) - 1,
                     "author": c.author_name,
                     "body": c.body,
@@ -3551,13 +3565,22 @@ def _book_comment_time(user, task, booking, body):
     from application.services.timetracking import add_entry, custom_values
     from application.services.tz import user_zone
     project, minutes = booking
+    end = datetime.now(user_zone(user))
+    spent_on, clock = end, {}
+    if project.time_mode == "clock" and minutes < 24 * 60:
+        # A project booked by the clock wants the times of day: the work ends
+        # now (the moment of the submit) and started ``minutes`` before —
+        # dated on the day it started, like the stopwatch.
+        start = end - timedelta(minutes=minutes)
+        spent_on = start
+        clock = {"start_time": start.strftime("%H:%M"),
+                 "end_time": end.strftime("%H:%M")}
     add_entry(
-        project=project, user=user, minutes=minutes,
-        spent_on=datetime.now(user_zone(user)),
+        project=project, user=user, minutes=minutes, spent_on=spent_on,
         # Nothing but the duration was asked for, so custom fields take their
         # defaults — the same as the one-click stopwatch start.
         custom=custom_values(project, lambda _key: None),
-        note=(body or "").strip(), source_item=task,
+        note=(body or "").strip(), source_item=task, **clock,
     )
     user.tt_last_project = str(project.id)
     user.save()

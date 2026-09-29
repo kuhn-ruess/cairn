@@ -151,7 +151,9 @@ class TaskForm(FlaskForm):
 
 
 class CommentForm(FlaskForm):
-    body = TextAreaField("Comment", validators=[DataRequired()])
+    # Optional: time typed beside the box may be booked with no comment at all
+    # (``tasks.comment`` refuses a submit that carries neither).
+    body = TextAreaField("Comment", validators=[Optional()])
     submit = SubmitField("Post comment")
 
 
