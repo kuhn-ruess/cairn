@@ -37,6 +37,18 @@ def _is_handoff(url):
     return url.startswith(_HANDOFF_SCHEMES) or bool(_X_SCHEME_RE.match(url))
 
 
+def safe_link(url):
+    """``url`` if it is fit for an ``href``, else ``""``: http(s) plus the
+    hand-off schemes (``message:`` for a mail, ``mailto:``, ``tel:``, ``x-…:``).
+    For a link that came from outside (a CalDAV client's ``URL``) and renders
+    on a task that other people may open, where a ``javascript:`` value would
+    be stored XSS."""
+    url = (url or "").strip()
+    if url.lower().startswith(("http://", "https://")) or _is_handoff(url):
+        return url
+    return ""
+
+
 # A rendered code block or code span, taken whole. Safe to read with a regex
 # *here* and nowhere else: this only ever runs on bleach.clean output, whose
 # tag set is a short allowlist and where an angle bracket inside the code is
@@ -490,6 +502,9 @@ def register_filters(app):
         if not value:
             return ""
         return value.strftime("%Y-%m-%d")
+
+    app.add_template_filter(safe_link, "safe_link")
+    app.add_template_global(_is_handoff, "link_is_handoff")
 
     @app.template_filter("status_label")
     def status_label(value):

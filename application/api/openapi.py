@@ -240,6 +240,10 @@ def build_openapi_spec() -> dict:
                         "note": {"type": "string"},
                         "color": {"type": "string", "nullable": True},
                         "location": {"type": "string", "nullable": True},
+                        "url": {
+                            "type": "string", "nullable": True,
+                            "description": "The link a CalDAV client stored on the reminder (VTODO URL), e.g. message://%3C<message-id>%3E for a reminder made from Apple Mail.",
+                        },
                         "sort_order": {"type": "integer"},
                         "status": {
                             "type": "string",

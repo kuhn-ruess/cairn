@@ -18,7 +18,8 @@ client's PUT-new / DELETE-old dance).
 
 Mapping (``Item`` ⇄ ``VTODO``):
   title↔SUMMARY, note↔DESCRIPTION (with a link back to the task on its first
-  line, stripped again on the way in), due_date↔DUE, defer_date↔DTSTART,
+  line, stripped again on the way in), url↔URL (a reminder's own link, e.g. the
+  mail it was made from; our task link when it has none), due_date↔DUE, defer_date↔DTSTART,
   priority↔PRIORITY (Apple buckets: P1=High/1, P2=Medium/5, P3+P4=Low/9),
   tags↔CATEGORIES,
   status: done→COMPLETED, dropped→CANCELLED, else NEEDS-ACTION.
@@ -464,6 +465,38 @@ def _strip_backlink(text, item):
     return text[m.end():] if m else text
 
 
+def _inbound_link(todo, item):
+    """The link an inbound VTODO carries, or None when it carries none.
+
+    Reminders keeps the mail a reminder was made from in ``URL``
+    (``message://%3C<message-id>%3E``); a client without a URL field may put a
+    link into ``ATTACH`` as a URI instead. Our own backlink coming back is not a
+    link of the reminder's, it is what we sent when there was none, so it
+    answers ``""`` (no link). A VTODO with neither property answers None and
+    the caller keeps what it has: a client that drops a property it does not
+    know must not cost the task its mail."""
+    try:
+        val = todo.get("url")
+        if val is None:
+            attach = todo.get("attach")
+            for a in attach if isinstance(attach, list) else [attach]:
+                if a is None:
+                    continue
+                params = getattr(a, "params", {}) or {}
+                if str(params.get("VALUE", "URI")).upper() != "BINARY":
+                    val = a
+                    break
+        if val is None:
+            return None
+        link = str(val).strip()
+    except Exception:
+        return None
+    if item.pk and re.fullmatch(r"https?://\S*/tasks/" + re.escape(str(item.pk))
+                                + r"/?", link, re.IGNORECASE):
+        return ""
+    return link[:2000]
+
+
 def _todo_ics(item, user):
     cal = Calendar()
     cal.add("prodid", "-//Cairn//CalDAV//EN")
@@ -473,8 +506,11 @@ def _todo_ics(item, user):
     todo.add("summary", item.title or "")
     todo.add("description", _description(item))
     # Clients that show a URL field (Reminders on recent OS versions) get the
-    # link as a tappable one rather than as text in the notes.
-    todo.add("url", _task_url(item))
+    # link as a tappable one rather than as text in the notes. A link the
+    # client gave us (the mail a reminder was made from) wins: overwriting it
+    # with ours is how those links disappeared from the device. The way back to
+    # Cairn is still the first line of DESCRIPTION.
+    todo.add("url", item.url or _task_url(item))
     # CalDAV/Reminders has a single date (DUE). Per the user's rule: the PLAN
     # date is the Reminders date whenever it's set (that's their "do it" date,
     # so planned tasks always land in Reminders' Today); the due date is only
@@ -562,6 +598,9 @@ def _apply_ics(item, raw, user=None):
         except Exception:
             pass
     item.location = location
+    link = _inbound_link(todo, item)
+    if link is not None:
+        item.url = link
     try:
         due = _to_dt(g("due"), user)
     except Exception:

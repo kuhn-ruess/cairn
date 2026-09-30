@@ -256,6 +256,7 @@ def task(t) -> dict[str, Any]:
         "priority": t.priority,
         "sort_order": t.sort_order,
         "location": t.location or None,
+        "url": t.url or None,
         "defer_date": iso(t.defer_date),
         "due_date": iso(t.due_date),
         "plan_date": iso(t.plan_date),

@@ -38,6 +38,7 @@ class _Task:
     caldav_uid = ""
     note = ""
     location = ""
+    url = ""
     priority = None
     tags = ()
     defer_date = None

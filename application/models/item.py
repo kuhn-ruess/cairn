@@ -355,6 +355,12 @@ class Item(Document):
     # survives. The geofence (radius/coords) from Apple's structured location
     # is not preserved — only the human-readable place.
     location = StringField()
+    # A link the task points AT, as a CalDAV client sends it in the VTODO's
+    # ``URL`` property: a reminder made from Apple Mail carries the mail as
+    # ``message://%3C<message-id>%3E`` there. Stored as sent (any scheme) so the
+    # round trip hands the client back exactly what it gave; the templates only
+    # make it clickable through the ``safe_link`` filter.
+    url = StringField()
     # Recurrence — back-compat layout:
     #   ``repeat_every_days`` was the only knob in the old schema. It
     #   stays the "how many" counter. ``repeat_unit`` says what one

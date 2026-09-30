@@ -514,6 +514,18 @@
         {% endif %}
       </div>
     {% endif %}
+    {# The reminder's own link (VTODO URL), e.g. the mail it was made from. #}
+    {% set task_link = task.url|safe_link if task else "" %}
+    {% if task_link %}
+      <div class="form-text small text-muted mt-1 text-truncate">
+        {% if task_link.startswith("message:") %}
+          <a href="{{ task_link }}" title="{{ task_link }}"><i class="bi bi-envelope"></i> Open mail</a>
+        {% else %}
+          <a href="{{ task_link }}" title="{{ task_link }}"
+             {% if not link_is_handoff(task_link) %}target="_blank" rel="noopener"{% endif %}><i class="bi bi-link-45deg"></i> {{ task_link }}</a>
+        {% endif %}
+      </div>
+    {% endif %}
   </div>
 
   {% if task and task.pk %}
