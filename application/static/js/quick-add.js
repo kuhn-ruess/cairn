@@ -48,6 +48,15 @@
     projectHint.className = "form-text mt-1 text-muted";
   }
   projectInput.addEventListener("change", updateProjectHint);
+  // Enter in the picker's search box takes the highlighted project (↓/↑ walk
+  // it, searchable-select.js) and hands the caret back to the title, so the
+  // next Enter adds the task.
+  modalEl.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter" || ev.metaKey || ev.ctrlKey || ev.isComposing) return;
+    if (!ev.target.matches || !ev.target.matches(".searchable-select-input")) return;
+    if (!projectInput.parentNode.contains(ev.target)) return;
+    input.focus();
+  });
 
   // ----- Light client-side preview parser (mirrors server tokens) -----
   const PREVIEW_PATTERNS = [
@@ -168,7 +177,36 @@
                  ? ` style="color: ${t.color}"` : ""}></i> ${escape(t.name)}`,
       })),
     },
+    project: {
+      // `#` is a search in the project picker below, straight away. The list
+      // is that picker's own options (no round trip), and picking one sets the
+      // picker and drops the `#query` from the title: a `#name` token only
+      // reaches projects whose name is one word, the picker reaches them all.
+      re: /(?:^|\s)(#"[^"\n]*|#[\w\-äöüÄÖÜß]*)$/,
+      local: q => {
+        const needle = q.trim().toLowerCase();
+        return Array.from(projectInput.options)
+          .filter(o => !needle || o.textContent.toLowerCase().includes(needle))
+          .slice(0, 20)
+          .map(o => ({
+            token: "",
+            pick: () => pickProject(o.value),
+            html: `<i class="bi bi-folder"></i> ${escape(o.textContent.trim())}`,
+          }));
+      },
+    },
   };
+
+  function pickProject(value) {
+    // An old filter in the picker's search box would hide the option picked.
+    const projectSearch = projectInput.parentNode.querySelector(".searchable-select-input");
+    if (projectSearch && projectSearch.value) {
+      projectSearch.value = "";
+      projectSearch.dispatchEvent(new Event("input"));
+    }
+    projectInput.value = value;
+    projectInput.dispatchEvent(new Event("change", { bubbles: true }));
+  }
 
   function tokenAtCaret() {
     const pos = input.selectionStart || 0;
@@ -177,7 +215,7 @@
       const m = before.match(src.re);
       if (!m) continue;
       const raw = m[1];
-      const query = /^[@+]"/.test(raw) ? raw.slice(2) : raw.slice(1);
+      const query = /^[@+#]"/.test(raw) ? raw.slice(2) : raw.slice(1);
       return { start: pos - raw.length, end: pos, query, kind };
     }
     return null;
@@ -203,6 +241,12 @@
     acToken = tok;
     const src = AC_SOURCES[tok.kind];
     const seq = ++acSeq;
+    if (src.local) {
+      acItems = src.local(tok.query);
+      acIndex = -1;
+      renderAc();
+      return;
+    }
     try {
       const resp = await fetch(src.url(tok.query), { credentials: "same-origin" });
       if (!resp.ok || seq !== acSeq) return;
@@ -216,12 +260,14 @@
     const item = acItems[i];
     if (!item || !acToken) return;
     const v = input.value;
-    const replacement = item.token + " ";
+    if (item.pick) item.pick();
+    const replacement = item.token ? item.token + " " : "";
     input.value = v.slice(0, acToken.start) + replacement + v.slice(acToken.end);
     const caret = acToken.start + replacement.length;
     input.setSelectionRange(caret, caret);
     hideAc();
     preview();
+    updateProjectHint();
     input.focus();
   }
 
@@ -243,7 +289,8 @@
       if (acIndex < 0) return;
       ev.preventDefault(); ev.stopPropagation(); applyAc(acIndex);
     } else if (ev.key === "Escape") {
-      hideAc();
+      // Closes the list, not the dialog: the next Escape does that.
+      ev.preventDefault(); ev.stopPropagation(); hideAc();
     }
   });
   acBox.addEventListener("mousedown", (ev) => {

@@ -46,10 +46,35 @@
       }
     }
 
+    // Step the selection through the options the filter left visible, so the
+    // list can be walked from the search box without reaching for the mouse
+    // (the native <select> beside it is a closed dropdown, and its own arrow
+    // keys walk the hidden options too in some browsers).
+    function step(delta) {
+      const visible = opts.filter((o) => !o.hidden && !o.disabled);
+      if (!visible.length) return;
+      const at = visible.findIndex((o) => o.value === sel.value);
+      const next = at < 0 ? (delta > 0 ? 0 : visible.length - 1)
+        : Math.min(visible.length - 1, Math.max(0, at + delta));
+      if (visible[next].value === sel.value) return;
+      sel.value = visible[next].value;
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
     search.addEventListener("input", filter);
     search.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
+        filter();
+      } else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !sel.multiple) {
+        e.preventDefault();
+        step(e.key === "ArrowDown" ? 1 : -1);
+      } else if (e.key === "Escape" && search.value) {
+        // First Escape empties the search and keeps the dialog around it
+        // open; only an Escape on an empty box goes on to close it.
+        e.preventDefault();
+        e.stopPropagation();
+        search.value = "";
         filter();
       }
     });
