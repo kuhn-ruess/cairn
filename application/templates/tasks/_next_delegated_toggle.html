@@ -1,0 +1,14 @@
+{# Next-actions rail head: show / hide tasks you delegated to somebody else
+   (User.plan_show_delegated). Only offered when there are any.
+   Requires: delegated (count). #}
+{% if delegated %}
+<form method="post" action="{{ url_for('tasks.toggle_show_delegated') }}" class="m-0 ms-auto">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="next" value="{{ request.full_path }}">
+  <input type="hidden" name="show" value="{{ '0' if current_user.plan_show_delegated else '1' }}">
+  <button type="submit" class="plan-rail-toggle{% if current_user.plan_show_delegated %} is-on{% endif %}"
+          title="{{ 'Hide the tasks you delegated to somebody else' if current_user.plan_show_delegated else 'Also show the tasks you delegated to somebody else' }}">
+    <i class="bi bi-person-check"></i> Delegated {{ delegated }}{% if current_user.plan_show_delegated %} · on{% endif %}
+  </button>
+</form>
+{% endif %}

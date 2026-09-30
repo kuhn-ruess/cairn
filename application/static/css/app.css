@@ -2912,6 +2912,20 @@ body.ps-resizing * {
   flex: 0 0 auto; font-size: .68rem; color: var(--gv-fg4);
   background: var(--gv-bg3); border-radius: 1rem; padding: 0 .45rem;
 }
+/* Next rail: a task that is with somebody else, and the switch that shows them. */
+.plan-rail-delegated {
+  flex: 0 0 auto; max-width: 45%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: .68rem; color: var(--gv-bg0); background: var(--gv-blue);
+  border-radius: 1rem; padding: 0 .45rem;
+}
+.plan-rail-toggle {
+  font: inherit; font-size: .65rem; text-transform: none; letter-spacing: 0;
+  color: var(--gv-fg4); background: none; cursor: pointer;
+  border: 1px solid var(--gv-bg3); border-radius: 1rem; padding: 0 .45rem;
+}
+.plan-rail-toggle:hover { color: var(--gv-fg2); }
+.plan-rail-toggle.is-on { color: var(--gv-fg1); border-color: var(--gv-blue); }
 /* A rail split by project / customer. The section head is quieter than the
    rail's own head — it is a subdivision of one list, not a second list. */
 .plan-rail-group { margin-bottom: .6rem; }

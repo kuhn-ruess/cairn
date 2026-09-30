@@ -850,22 +850,34 @@ def _next_actions_pool(user, now, seen_pks, limit=None):
     ``/tasks/next`` already renders the same set unbounded off the same
     ``owner+status`` / ``assigned_to+status`` index. ``limit`` stays for a
     caller that genuinely wants a preview.
+
+    Tasks you own but DELEGATED to somebody else are left out unless
+    ``user.plan_show_delegated`` is on (then each pill carries
+    ``delegated_to``). Returns ``(pool, delegated)`` — the second is how many
+    delegated tasks there are, shown or not, so the rail can offer the switch.
     """
     candidates = list(
         Item.objects(_scope(user), kind="task", status="next")
-        .filter(Q(assigned_to=None) | Q(assigned_to=user))
+        .filter(Q(assigned_to=None) | Q(assigned_to=user) | Q(owner=user))
         .order_by("+sort_order", "+due_date")
     )
     _prefetch_refs(candidates)
     pool = []
+    delegated = 0
     for t in candidates:
         if t.pk in seen_pks or t.is_blocked(now):
             continue
+        to = t.assigned_to if t.assigned_to and t.assigned_to != user else None
+        if to is not None:
+            delegated += 1
+            if not user.plan_show_delegated:
+                continue
         pool.append({"obj": t, "title": t.title,
-                     "duration_min": t.estimated_minutes or 30})
+                     "duration_min": t.estimated_minutes or 30,
+                     "delegated_to": to})
         if limit is not None and len(pool) >= limit:
             break
-    return pool
+    return pool, delegated
 
 
 @tasks_bp.route("/today")
@@ -1374,7 +1386,7 @@ def today():
         # work in by hand without "Plan my day" hoovering it all up.
         seen_pks = ({c["obj"].pk for c in cls["backlog"]}
                     | {it["obj"].pk for it in timed if it["kind"] == "task"})
-        next_pool = _next_actions_pool(user, now, seen_pks)
+        next_pool, next_delegated = _next_actions_pool(user, now, seen_pks)
         # Deadline markers: tasks in today's plate whose due date lands on
         # this day get a line on the timeline at their due time.
         due_raw = {}  # minute-of-day → [titles]
@@ -1436,6 +1448,7 @@ def today():
             "allday": cls["allday"],
             "backlog": cls["backlog"],
             "next_pool": next_pool,
+            "next_delegated": next_delegated,
             "grouping": pgroup,
             "backlog_groups": _group_rail(cls["backlog"], pgroup),
             "next_groups": _group_rail(next_pool, pgroup),
@@ -1452,15 +1465,16 @@ def today():
     # Single-day List view gets the same draggable "Next actions" pool the
     # Plan timeline has: next-marked tasks not already on the plate, dragged
     # up onto the list to plan them for the day being viewed (POST /schedule).
-    list_next_pool = []
+    list_next_pool, list_next_delegated = [], 0
     if view_mode == "list" and days == 1:
-        list_next_pool = _next_actions_pool(
+        list_next_pool, list_next_delegated = _next_actions_pool(
             user, now, {t.pk for t in filtered})
 
     return render_template(
         "tasks/today.html",
         title=title,
         list_next_pool=list_next_pool,
+        list_next_delegated=list_next_delegated,
         projects_with_dates=projects_with_dates,
         proj_header_info=proj_header_info,
         tasks=filtered,
@@ -1758,6 +1772,18 @@ def toggle_show_shared():
     user.save()
     return redirect(request.form.get("next") or request.referrer
                     or url_for("dashboard.home"))
+
+
+@tasks_bp.route("/today/show-delegated", methods=["POST"])
+@login_required
+def toggle_show_delegated():
+    """Flip whether the Next-actions rail on Today / Plan shows tasks you
+    delegated to somebody else, then go back to the page it was flipped on."""
+    user = current_user._get_current_object()
+    user.plan_show_delegated = request.form.get("show") == "1"
+    user.save()
+    return redirect(request.form.get("next") or request.referrer
+                    or url_for("tasks.today"))
 
 
 @tasks_bp.route("/assigned")

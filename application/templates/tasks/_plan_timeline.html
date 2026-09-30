@@ -206,6 +206,7 @@
       </form>
       <i class="bi bi-grip-vertical plan-grip"></i>
       <a class="plan-rail-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
+      {% include "tasks/_delegated_badge.html" %}
       {# Left over at the end of the day: back into Next actions, off the day.
          Only on the Unplanned rail — a Next pill is already there. #}
       {% if back_to_next and it.obj.status != 'next' %}
@@ -251,10 +252,11 @@
       {% endif %}
     </div>
 
-    {% if plan_data.next_pool %}
+    {% if plan_data.next_pool or plan_data.next_delegated %}
       <div class="plan-rail">
         <h2 class="plan-rail-head">
           <i class="bi bi-arrow-right-circle"></i> Next actions <span class="plan-rail-count">{{ plan_data.next_pool|length }}</span>
+          {% with delegated=plan_data.next_delegated %}{% include "tasks/_next_delegated_toggle.html" %}{% endwith %}
         </h2>
         {{ rail_sections(plan_data.next_groups, 'plan-next-item', colors=_rc) }}
       </div>

@@ -267,7 +267,7 @@ class BackToNextTests(PlanBase):
         self.assertNotIn("Rechnung schreiben", timed | backlog)
         from application.views.tasks import _next_actions_pool
         with self.app.test_request_context():
-            pool = _next_actions_pool(self.user, at, set())
+            pool, _ = _next_actions_pool(self.user, at, set())
         self.assertIn("Rechnung schreiben", {it["title"] for it in pool})
 
     def test_the_duration_the_card_carried_is_not_touched(self):
@@ -302,6 +302,61 @@ class BackToNextTests(PlanBase):
             Item.objects(pk=self.morning.pk).update_one(set__status="done")
         html = self._plan_page(datetime(2026, 9, 24, 19, 0, tzinfo=BERLIN))
         self.assertNotIn("task-next-back", html)
+
+
+class DelegatedInNextTests(PlanBase):
+    """*"eine option delegierte task anzuzeigen ist die loesung, man muss aber
+    sehen mit einem badge das der task delegiert ist"* — the Next rail hides a
+    task you handed to somebody else, the Next page doesn't; a switch on the
+    rail brings it back, badged with who has it."""
+
+    def setUp(self):
+        super().setUp()
+        from application.models.item import Item
+        from application.models.user import User
+        with self.app.app_context():
+            self.helper = User(username="helper", email="helper@test.invalid",
+                               display_name="Helferlein",
+                               password_hash="x", level="premium").save()
+            Item(owner=self.user, kind="task", title="Delegiert",
+                 status="next", assigned_to=self.helper,
+                 assigned_by=self.user).save()
+
+    def _set(self, show):
+        self.client.post("/tasks/today/show-delegated", data={"show": show})
+
+    def test_hidden_by_default_and_the_switch_says_how_many(self):
+        html = self._plan_page(datetime(2026, 9, 24, 8, 0, tzinfo=BERLIN))
+        self.assertNotIn("Delegiert<", html)
+        self.assertIn("Delegated 1", html)
+        self.assertNotIn("plan-rail-delegated", html)
+
+    def test_switched_on_it_is_there_with_its_badge(self):
+        self._set("1")
+        html = self._plan_page(datetime(2026, 9, 24, 8, 0, tzinfo=BERLIN))
+        self.assertIn("Delegiert<", html)
+        self.assertIn("plan-rail-delegated", html)
+        self.assertIn("Helferlein", html)
+        self._set("0")
+        html = self._plan_page(datetime(2026, 9, 24, 8, 0, tzinfo=BERLIN))
+        self.assertNotIn("Delegiert<", html)
+
+    def test_somebody_elses_task_assigned_elsewhere_never_shows(self):
+        """Only work YOU delegated comes back — not every visible task that is
+        with a third person."""
+        from application.models.item import Item
+        from application.views.tasks import _next_actions_pool
+        with self.app.app_context():
+            Item(owner=self.helper, kind="task", title="Fremd", status="next",
+                 assigned_to=self.helper).save()
+        self._set("1")
+        with self.app.test_request_context():
+            from application.models.user import User
+            user = User.objects(pk=self.user.pk).first()
+            pool, delegated = _next_actions_pool(
+                user, datetime(2026, 9, 24, 8, 0, tzinfo=BERLIN), set())
+        self.assertEqual(delegated, 1)
+        self.assertEqual({it["title"] for it in pool}, {"Delegiert"})
 
 
 if __name__ == "__main__":  # pragma: no cover

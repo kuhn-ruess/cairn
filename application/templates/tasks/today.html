@@ -502,7 +502,7 @@
   {% endif %}
 {% endfor %}
 
-{% if view_mode == 'list' and list_next_pool %}
+{% if view_mode == 'list' and (list_next_pool or list_next_delegated) %}
   {# "Next actions" pool — next-marked tasks not already on the plate. Reuses
      the Plan timeline's rail markup so styling + the complete-form handler
      come for free; today-next.js wires the drag-up-to-plan-today gesture. #}
@@ -512,6 +512,7 @@
       <h2 class="plan-rail-head">
         <i class="bi bi-arrow-right-circle"></i> Next actions
         <span class="plan-rail-count">{{ list_next_pool|length }}</span>
+        {% with delegated=list_next_delegated %}{% include "tasks/_next_delegated_toggle.html" %}{% endwith %}
       </h2>
       <div class="plan-rail-hint">Drag a card up into the list to plan it for this day</div>
       {% for it in list_next_pool %}
@@ -530,6 +531,7 @@
           </form>
           <i class="bi bi-grip-vertical plan-grip"></i>
           <a class="plan-rail-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
+          {% include "tasks/_delegated_badge.html" %}
           <span class="plan-rail-dur">{{ it.duration_min }}m</span>
         </div>
       {% endfor %}

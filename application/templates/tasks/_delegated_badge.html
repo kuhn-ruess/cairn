@@ -1,0 +1,6 @@
+{# On a Next-actions pill: this task is with somebody else. Requires: it. #}
+{% if it.delegated_to %}
+  <span class="plan-rail-delegated" title="Delegated to {{ it.delegated_to }}">
+    <i class="bi bi-person"></i> {{ it.delegated_to }}
+  </span>
+{% endif %}

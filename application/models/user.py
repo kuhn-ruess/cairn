@@ -342,6 +342,10 @@ class User(UserMixin, Document):
     # grouped — it is chronological, which is the whole point of it.
     plan_grouping = StringField(default="none",
                                 choices=("none", "project", "customer"))
+    # The Next-actions rail on Today / Plan leaves out tasks you delegated to
+    # somebody else (you don't plan other people's work into your day). On,
+    # they come back, badged with who has them. Toggled from the rail head.
+    plan_show_delegated = BooleanField(default=False)
     # Reminder for a planned block, as minutes before it starts. 10 by default,
     # ``0`` = no reminder — one control is both the lead time and the off
     # switch. It is delivered as a VALARM in every calendar export of a planned
