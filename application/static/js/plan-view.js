@@ -379,8 +379,11 @@
       let msg = `Planned ${j.planned} task(s).`;
       if (j.day_over) {
         msg = `Nothing re-planned — the working day (${j.window}) is over.`;
-      } else if (j.skipped) {
-        msg = `Planned ${j.planned}; ${j.skipped} left in Unplanned (no room before the day ends).`;
+      } else {
+        const left = [];
+        if (j.skipped) left.push(`${j.skipped} left in Unplanned`);
+        if (j.next_left) left.push(`${j.next_left} left in Next actions`);
+        if (left.length) msg = `Planned ${j.planned}; ${left.join(", ")} (no room before the day ends).`;
       }
       sessionStorage.setItem("plan_toast", msg);
       window.location.reload();

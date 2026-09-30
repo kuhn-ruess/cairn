@@ -1393,8 +1393,8 @@ def today():
         timed = _assign_columns(cls["timed"])
         # "Next actions" pool — actionable next-tasks that aren't already on
         # the day (no time, not in the auto-plan backlog). Draggable onto the
-        # track but deliberately NOT auto-planned, so the user can pull extra
-        # work in by hand without "Plan my day" hoovering it all up.
+        # track by hand; "Plan my day" fills what room the day's own work
+        # leaves with them.
         seen_pks = ({c["obj"].pk for c in cls["backlog"]}
                     | {it["obj"].pk for it in timed if it["kind"] == "task"})
         next_pool, next_delegated = _next_actions_pool(user, now, seen_pks)
@@ -2998,15 +2998,28 @@ def auto_plan():
 
     # Candidate order: priority (P1 first), then due date, then manual order.
     FAR = datetime(9999, 1, 1, tzinfo=timezone.utc)
-    cands.sort(key=lambda c: (c["obj"].priority or 99,
-                              _as_tz(c["obj"].due_date, timezone.utc) or FAR,
-                              c["obj"].sort_order or 0))
+    order = lambda c: (c["obj"].priority or 99,
+                       _as_tz(c["obj"].due_date, timezone.utc) or FAR,
+                       c["obj"].sort_order or 0)
+    cands.sort(key=order)
+    # Then whatever room is left goes to the Next actions — the rail beside
+    # the timeline, same set, delegated ones only while that switch is on.
+    # The day's own work (Unplanned) is placed first, because it is due; a
+    # Next task that doesn't fit is simply left in Next, untouched.
+    seen = {c["obj"].pk for c in cands} | {it["obj"].pk for it in timed_tasks}
+    next_cands, _ = _next_actions_pool(user, now, seen)
+    next_cands.sort(key=order)
+    n_day = len(cands)
+    cands = cands + next_cands
     starts = plan_day([c["duration_min"] for c in cands], busy,
                       window_start, window_end, gap=gap)
 
-    planned, skipped, warnings = 0, 0, []
-    for c, start in zip(cands, starts):
+    planned, skipped, next_left, warnings = 0, 0, 0, []
+    for i, (c, start) in enumerate(zip(cands, starts)):
         task = c["obj"]
+        if start is None and i >= n_day:
+            next_left += 1
+            continue
         if start is None:
             # A re-pack loses the task's time — but it must NOT lose the task.
             # Clearing ``plan_date`` took it off the day altogether, and a task
@@ -3027,7 +3040,7 @@ def auto_plan():
         warnings.extend(_writeback_calendar(task, user) or [])
         planned += 1
     return jsonify({"ok": True, "planned": planned, "skipped": skipped,
-                    "warnings": warnings})
+                    "next_left": next_left, "warnings": warnings})
 
 
 @tasks_bp.route("/<task_id>/move-options")

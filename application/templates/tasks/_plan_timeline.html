@@ -21,7 +21,8 @@
 <div class="plan-wrap">
   <div class="plan-head d-flex flex-wrap align-items-center gap-2 mb-2">
     <button type="button" id="plan-auto-btn" class="btn btn-sm btn-primary"
-            data-date="{{ plan_data.date }}">
+            data-date="{{ plan_data.date }}"
+            title="Give today's unplanned tasks a time, then fill the free time left with Next actions">
       <i class="bi bi-magic"></i> Plan my day
     </button>
     <button type="button" id="plan-repack-btn" class="btn btn-sm btn-outline-secondary"
@@ -179,9 +180,10 @@
     </div>
   </div>
 
-  {# Draggable rails. "Unplanned" = today's tasks without a time (these are
-     what "Plan my day" auto-fills). "Next" = other next-actions you can pull
-     in by hand — never auto-planned. Drag any pill onto the track.
+  {# Draggable rails. "Unplanned" = today's tasks without a time (planned on
+     the day, due by it, flagged). "Next" = other next-actions. "Plan my day"
+     places Unplanned first, then fills the remaining room from Next. Drag any
+     pill onto the track.
      Both are split into sections by ``plan_data.grouping`` (project / customer
      / none) — when you pick work together, what it belongs to is the thing you
      need to see, and the flat list of forty pills does not say it. #}

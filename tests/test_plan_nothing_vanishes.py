@@ -304,6 +304,41 @@ class BackToNextTests(PlanBase):
         self.assertNotIn("task-next-back", html)
 
 
+class PlanMyDayTakesNextTests(PlanBase):
+    """*"plan my day sollte alle next tasks, ggf. mit den delegated wenn aktiv
+    plannen"* — the day's own work first, then the free time from Next."""
+
+    def _auto(self, at):
+        with mock.patch("application.views.tasks.datetime", _clock(at)):
+            resp = self.client.post("/tasks/auto-plan",
+                                    data={"date": DAY.isoformat()})
+        return resp.get_json()
+
+    def test_next_fills_the_room_after_the_days_own_work(self):
+        from application.models.item import Item
+        with self.app.app_context():
+            Item.objects(pk=self.afternoon.pk).update_one(
+                set__plan_date=datetime(2026, 9, 24, 0, 0, tzinfo=BERLIN))
+            nxt = Item(owner=self.user, kind="task", title="Weiter", status="next",
+                       estimated_minutes=30, priority=1).save()
+        body = self._auto(datetime(2026, 9, 24, 8, 0, tzinfo=BERLIN))
+        self.assertEqual(body["planned"], 2)
+        day_task = self._reload(self.afternoon).plan_date.astimezone(BERLIN)
+        next_task = self._reload(nxt).plan_date.astimezone(BERLIN)
+        self.assertEqual(next_task.date(), DAY)
+        # P1 or not, the Next task comes after what is due on the day.
+        self.assertLess(day_task, next_task)
+
+    def test_a_next_task_that_doesnt_fit_is_left_alone(self):
+        from application.models.item import Item
+        with self.app.app_context():
+            big = Item(owner=self.user, kind="task", title="Riesig", status="next",
+                       estimated_minutes=600).save()
+        body = self._auto(datetime(2026, 9, 24, 16, 0, tzinfo=BERLIN))
+        self.assertEqual(body["next_left"], 1)
+        self.assertIsNone(self._reload(big).plan_date)
+
+
 class DelegatedInNextTests(PlanBase):
     """*"eine option delegierte task anzuzeigen ist die loesung, man muss aber
     sehen mit einem badge das der task delegiert ist"* — the Next rail hides a
