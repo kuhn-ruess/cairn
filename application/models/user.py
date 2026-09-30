@@ -342,6 +342,11 @@ class User(UserMixin, Document):
     # grouped — it is chronological, which is the whole point of it.
     plan_grouping = StringField(default="none",
                                 choices=("none", "project", "customer"))
+    # How the Plan view draws the day: ``timeline`` is the hour grid with the
+    # Due / Next rails, ``list`` the work list (one card per task with its
+    # note, latest comments and the common edits in place, to work through
+    # the day without opening each task).
+    plan_layout = StringField(default="timeline", choices=("timeline", "list"))
     # The Next-actions rail on Today / Plan leaves out tasks you delegated to
     # somebody else (you don't plan other people's work into your day). On,
     # they come back, badged with who has them. Toggled from the rail head.

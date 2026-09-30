@@ -26,12 +26,27 @@
       <i class="bi bi-magic"></i> Plan my day
       {% if plan_data.carryover_count %}<span class="badge text-bg-warning ms-1" title="{{ plan_data.carryover_count }} unfinished from earlier days — Plan my day brings them onto today">+{{ plan_data.carryover_count }}</span>{% endif %}
     </button>
-    <span class="text-muted small">
+    <span class="text-muted small{% if plan_data.layout == 'list' %} d-none{% endif %}">
       Plans <strong>Due</strong>, then <strong>Next actions</strong>, into free time
       {{ '%02d:00'|format(plan_data.work_start_min // 60) }}–{{ '%02d:00'|format(plan_data.work_end_min // 60) }}
       · click an empty slot to add ·
       <a href="{{ url_for('settings.profile') }}">change hours</a>
     </span>
+    {# Timeline or work list: the same day either way. The work list is for
+       going through it, with each task's note, comments and the common
+       edits on the card (tasks/_plan_worklist.html). #}
+    <div class="btn-group btn-group-sm" role="group" aria-label="Plan layout">
+      <a class="btn btn-sm {% if plan_data.layout != 'list' %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}"
+         href="?date={{ plan_data.date }}&view=plan&playout=timeline"
+         title="The day as a timeline, with the Due and Next actions rails">
+        <i class="bi bi-bounding-box"></i> Timeline
+      </a>
+      <a class="btn btn-sm {% if plan_data.layout == 'list' %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}"
+         href="?date={{ plan_data.date }}&view=plan&playout=list"
+         title="The day as a work list: note, comments and the common edits on every card">
+        <i class="bi bi-card-list"></i> Work list
+      </a>
+    </div>
     {# How the rails are split. Customer is only offered on a team: without one
        there are no billing projects, so every task would land in "No customer"
        and the button would be a lie. #}
@@ -42,7 +57,7 @@
         {% if _v != 'customer' or current_user.team or current_user.is_team_admin %}
           <a class="btn btn-sm {% if plan_data.grouping == _v %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}"
              href="?date={{ plan_data.date }}&view=plan&pgroup={{ _v }}"
-             title="Group Due + Next actions by {{ _lbl|lower }}">
+             title="Group {{ 'the Due cards' if plan_data.layout == 'list' else 'Due + Next actions' }} by {{ _lbl|lower }}">
             <i class="bi {{ _ico }}"></i> {{ _lbl }}
           </a>
         {% endif %}
@@ -55,6 +70,9 @@
     {% endif %}
   </div>
 
+  {% if plan_data.layout == 'list' %}
+    {% include "tasks/_plan_worklist.html" %}
+  {% else %}
   {% if plan_data.allday %}
     <div class="plan-allday mb-2">
       {% for it in plan_data.allday %}
@@ -254,4 +272,5 @@
       </div>
     {% endif %}
   </div>
+  {% endif %}
 </div>

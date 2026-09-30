@@ -1,0 +1,185 @@
+{# The Plan view's work list: the same day as the timeline (its timed tasks,
+   then the Due rail), drawn as one column of cards that carry what the
+   calendar has no room for. The point is to go through the day without
+   opening each task: note, latest comments, where it is filed, its labels and
+   dates are on the card, and the common edits happen in place
+   (static/js/plan-worklist.js, delegated on document because <main> is
+   swapped after every inspector save). Everything else is one click away in
+   the inspector, the same one every other list opens.
+
+   Endpoints are the existing ones: complete / reopen, schedule / unschedule
+   (plan date + time), quick-edit (due date, labels), note (X-Partial swaps
+   _note_body.html back in), comment (X-Inspector-Request answers JSON). #}
+{% from "tasks/_tag_macros.html" import tag_chips with context %}
+{% from "tasks/_event_note_macros.html" import task_note_btn %}
+
+{% macro wl_card(t, start=None, end=None, dur=None, done=false, colors={}) %}
+  {% set _c = colors.get(t.pk|string) %}
+  {% set _path = plan_data.work_paths.get(t.pk|string) %}
+  {% set _pd = (t.plan_date|localdate).isoformat() if t.plan_date else '' %}
+  {% set _files = (t.note_files|length) + (t.note_images|length) %}
+  <article class="wl-card{% if done %} is-done{% endif %}{% if t.priority %} plan-prio-{{ t.priority }}{% endif %}{% if _c %} has-row-color{% endif %}"
+           data-task-id="{{ t.pk }}"
+           {% if _c %}style="--dot: {{ _c.color }};"{% endif %}>
+    <header class="wl-head">
+      <button type="button" class="wl-check"
+              data-complete-url="{{ url_for('tasks.complete', task_id=t.pk) }}"
+              data-reopen-url="{{ url_for('tasks.reopen', task_id=t.pk) }}"
+              title="{{ 'Reopen' if done else 'Mark done' }}"
+              aria-label="{{ 'Reopen' if done else 'Mark done' }}">
+        <i class="bi {{ 'bi-check-circle-fill' if done else 'bi-circle' }}"></i>
+      </button>
+      <div class="wl-title-wrap">
+        <div class="wl-title">
+          {% if t.flagged %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
+          {% if t.priority %}<span class="priority-p{{ t.priority }}">P{{ t.priority }}</span>{% endif %}
+          <a href="{{ url_for('tasks.detail', task_id=t.pk) }}">{{ t.title }}</a>
+        </div>
+        <div class="wl-meta">
+          {% if start %}
+            <span class="wl-when"><i class="bi bi-clock"></i>
+              {{ '%02d:%02d to %02d:%02d'|format(start.hour, start.minute, end.hour, end.minute) }}</span>
+          {% endif %}
+          <span class="badge text-bg-secondary text-uppercase">{{ t.status }}</span>
+          <span title="{{ _c.label if _c else '' }}">
+            {% if _path %}<i class="bi bi-folder"></i> {{ _path }}{% else %}<i class="bi bi-inbox"></i> Inbox{% endif %}
+          </span>
+          {% if t.due_date %}
+            <span class="{{ 'text-danger' if t.due_date < now_utc() and not done else '' }}">
+              <i class="bi bi-flag"></i> due {{ t.due_date|relativedate }}</span>
+          {% endif %}
+          {% if dur %}<span><i class="bi bi-stopwatch"></i> {{ dur }}m</span>{% endif %}
+          {% if t.assigned_to %}
+            <span><i class="bi bi-person-check"></i> {{ t.assigned_to }}</span>
+          {% endif %}
+          {% if _files %}
+            <span title="Attachments in the note"><i class="bi bi-paperclip"></i> {{ _files }}</span>
+          {% endif %}
+          {% if t.comments %}
+            <span><i class="bi bi-chat-left-text"></i> {{ t.comments|length }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="wl-actions">
+        {{ task_note_btn(t, task_note_counts.get(t.pk|string, 0)) }}
+        <button type="button" class="btn btn-sm btn-outline-secondary"
+                data-inspector-url="{{ url_for('tasks.edit', task_id=t.pk) }}"
+                data-inspector-title="{{ t.title }}"
+                title="Open the inspector for everything else">
+          <i class="bi bi-sliders"></i><span class="d-none d-sm-inline"> Edit</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="wl-fields">
+      <label class="wl-field" title="Planned day and time (empty time = no time yet)">
+        <i class="bi bi-calendar-check"></i>
+        <input type="date" class="form-control form-control-sm wl-plan-date"
+               value="{{ _pd }}"
+               data-schedule-url="{{ url_for('tasks.schedule', task_id=t.pk) }}"
+               data-unschedule-url="{{ url_for('tasks.unschedule', task_id=t.pk) }}">
+        <input type="time" class="form-control form-control-sm wl-plan-time" step="900"
+               value="{{ '%02d:%02d'|format(start.hour, start.minute) if start else '' }}">
+      </label>
+      <label class="wl-field" title="Due date">
+        <i class="bi bi-flag"></i>
+        <input type="date" class="form-control form-control-sm wl-due"
+               value="{{ (t.due_date|localdate).isoformat() if t.due_date else '' }}"
+               data-url="{{ url_for('tasks.quick_edit', task_id=t.pk) }}">
+      </label>
+      <div class="wl-field wl-tags">
+        {{ tag_chips(t) }}
+        <input type="text" class="form-control form-control-sm wl-tag-add"
+               list="wl-tag-names" placeholder="+ label"
+               data-url="{{ url_for('tasks.quick_edit', task_id=t.pk) }}"
+               data-tags='{{ (t.tags or [])|tojson }}'
+               aria-label="Add a label">
+      </div>
+    </div>
+
+    <section class="wl-note-wrap">
+      <div class="wl-note-head">
+        <span>Note</span>
+        <button type="button" class="btn btn-link btn-sm p-0 wl-note-edit-btn">
+          <i class="bi bi-pencil"></i> Edit</button>
+      </div>
+      {% set _long = t.note and (t.note|length > 400 or t.note.count('\n') > 6) %}
+      <div class="wl-note{% if _long %} is-clamped{% endif %}">{% with task=t %}{% include "tasks/_note_body.html" %}{% endwith %}</div>
+      {% if _long %}
+        <button type="button" class="btn btn-link btn-sm p-0 wl-note-more">Show more</button>
+      {% endif %}
+      <form class="wl-note-form d-none" method="post"
+            action="{{ url_for('tasks.note_edit', task_id=t.pk) }}">
+        <textarea name="note" class="form-control form-control-sm mb-2" rows="6"
+                  placeholder="Notes, links, context…">{{ t.note or '' }}</textarea>
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-sm btn-primary">Save</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary wl-note-cancel">Cancel</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="wl-comments">
+      {% if t.comments|length > 2 %}
+        <a class="wl-comments-all small" href="{{ url_for('tasks.detail', task_id=t.pk) }}#comments">
+          All {{ t.comments|length }} comments</a>
+      {% endif %}
+      <div class="wl-comment-list">
+        {% for c in t.comments[-2:] %}
+          <div class="wl-comment">
+            <div class="wl-comment-head"><strong>{{ c.author_name }}</strong>
+              <span class="text-muted">{{ c.created_at|localdt }}</span></div>
+            <div class="md-body">{{ c.body|markdown }}</div>
+          </div>
+        {% endfor %}
+      </div>
+      <form class="wl-comment-form" method="post"
+            action="{{ url_for('tasks.comment', task_id=t.pk) }}">
+        <textarea name="body" class="form-control form-control-sm" rows="1"
+                  placeholder="Add a comment…" aria-label="Add a comment"></textarea>
+        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Post comment">
+          <i class="bi bi-send"></i></button>
+      </form>
+    </section>
+  </article>
+{% endmacro %}
+
+<datalist id="wl-tag-names">
+  {% for tg in current_user.tags %}<option value="{{ tg.name }}">{% endfor %}
+</datalist>
+
+<div class="wl" id="plan-worklist" data-date="{{ plan_data.date }}">
+  {% if plan_data.allday %}
+    <div class="plan-allday mb-2">
+      {% for it in plan_data.allday %}
+        <span class="plan-allday-chip"
+              style="--c: {{ it.obj.calendar_color if it.kind == 'event' else '#6c757d' }};">
+          <i class="bi bi-calendar-event"></i> {{ it.title }}
+        </span>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <h2 class="plan-rail-head mt-2">
+    <i class="bi bi-clock"></i> Scheduled <span class="plan-rail-count">{{ plan_data.work_timed|length }}</span>
+  </h2>
+  {% for it in plan_data.work_timed %}
+    {{ wl_card(it.obj, it.start, it.end, it.duration_min, it.done, _rc) }}
+  {% else %}
+    <p class="text-muted small">Nothing has a time on this day yet.</p>
+  {% endfor %}
+
+  <h2 class="plan-rail-head mt-4">
+    <i class="bi bi-alarm"></i> Due, no time yet <span class="plan-rail-count">{{ plan_data.backlog|length }}</span>
+  </h2>
+  {% for label, icon, entries in plan_data.backlog_groups %}
+    {% if label %}
+      <div class="plan-rail-group-head mt-3"><i class="bi {{ icon }}"></i> {{ label }}
+        <span class="plan-rail-count">{{ entries|length }}</span></div>
+    {% endif %}
+    {% for it in entries %}{{ wl_card(it.obj, dur=it.duration_min, colors=_rc) }}{% endfor %}
+  {% endfor %}
+  {% if not plan_data.backlog %}
+    <p class="text-muted small">Everything for this day has a time.</p>
+  {% endif %}
+</div>

@@ -3659,3 +3659,73 @@ body.scratchpad-frame .sp-tools {
    one-character selection — so the thin caret has to go, or there are two. */
 textarea.ol-edit.vim-normal { caret-color: transparent; }
 textarea.ol-edit.vim-normal::selection { background: var(--bs-primary, #d79921); color: var(--bs-body-bg); }
+
+/* ---- Plan view: the work list (tasks/_plan_worklist.html) ----
+   One column of cards, read top to bottom. Quiet on purpose: the left edge is
+   the priority as on the timeline cards, the project colour is a thin dot
+   before the title, and everything else is the task's own text. */
+.wl-card {
+  --c: var(--gv-bg3);
+  background: var(--gv-bg0-soft);
+  border: 1px solid var(--gv-bg2); border-left: 3px solid var(--c);
+  border-radius: .6rem; padding: .7rem .85rem; margin-bottom: .75rem;
+}
+.wl-card.is-done { opacity: .6; }
+.wl-card.is-done .wl-title a { text-decoration: line-through; }
+.wl-head { display: flex; align-items: flex-start; gap: .6rem; }
+.wl-check {
+  flex: 0 0 auto; border: 0; background: none; padding: 0; line-height: 1;
+  font-size: 1.25rem; color: var(--gv-fg4); cursor: pointer;
+}
+.wl-check:hover, .wl-card.is-done .wl-check { color: var(--gv-green-br); }
+.wl-title-wrap { flex: 1 1 auto; min-width: 0; }
+.wl-title { font-weight: 600; font-size: 1rem; overflow-wrap: anywhere; }
+.wl-title a { color: var(--gv-fg0); text-decoration: none; }
+.wl-title a:hover { text-decoration: underline; }
+.wl-card.has-row-color .wl-title::before {
+  content: ""; display: inline-block; width: .55rem; height: .55rem;
+  border-radius: 50%; background: var(--dot); margin-right: .4rem;
+  vertical-align: middle;
+}
+.wl-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .75rem;
+  font-size: .78rem; color: var(--gv-fg4); margin-top: .15rem;
+}
+.wl-when { color: var(--gv-fg2); font-weight: 600; }
+.wl-actions { flex: 0 0 auto; display: flex; align-items: center; gap: .35rem; }
+.wl-flash { margin: .3rem 0 0 1.85rem; }
+.wl-fields {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .9rem;
+  margin: .55rem 0 0 1.85rem;
+}
+.wl-field {
+  display: inline-flex; align-items: center; gap: .3rem; margin: 0;
+  color: var(--gv-fg4); font-size: .8rem;
+}
+.wl-field .form-control { width: auto; padding: .1rem .35rem; font-size: .8rem; }
+.wl-tags { flex-wrap: wrap; }
+.wl-tags .wl-tag-add { width: 7.5rem; }
+.wl-note-wrap, .wl-comments { margin: .6rem 0 0 1.85rem; }
+.wl-note-head {
+  display: flex; align-items: center; gap: .5rem;
+  font-size: .68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--gv-fg4); margin-bottom: .2rem;
+}
+.wl-note { font-size: .9rem; overflow-wrap: anywhere; }
+.wl-note.is-clamped:not(.is-open) {
+  max-height: 9.5em; overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent);
+  mask-image: linear-gradient(180deg, #000 70%, transparent);
+}
+.wl-note img { max-width: 100%; height: auto; }
+.wl-comments { border-top: 1px dashed var(--gv-bg2); padding-top: .45rem; }
+.wl-comment { font-size: .85rem; margin-bottom: .4rem; overflow-wrap: anywhere; }
+.wl-comment-head { font-size: .75rem; }
+.wl-comment-head .text-muted { margin-left: .35rem; }
+.wl-comment img { max-width: 100%; height: auto; }
+.wl-comment-form { display: flex; gap: .35rem; align-items: flex-start; }
+.wl-comment-form textarea { resize: vertical; min-height: calc(1.5em + .5rem + 2px); }
+@media (max-width: 575.98px) {
+  .wl-card { padding: .6rem .6rem; }
+  .wl-fields, .wl-note-wrap, .wl-comments, .wl-flash { margin-left: 0; }
+}

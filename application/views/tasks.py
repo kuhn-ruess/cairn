@@ -1456,7 +1456,25 @@ def today():
         if pgroup != user.plan_grouping:
             user.plan_grouping = pgroup
             user.save()
+        # Timeline or work list: the same day, drawn as the grid or as one
+        # readable column of cards with each task's note, comments and the
+        # common edits in place. Persisted like the grouping.
+        playout = (request.args.get("playout") or user.plan_layout or "timeline").strip()
+        if playout not in ("timeline", "list"):
+            playout = "timeline"
+        if playout != user.plan_layout:
+            user.plan_layout = playout
+            user.save()
+        work_timed = [it for it in timed if it["kind"] == "task"]
+        work_paths = {}
+        if playout == "list":
+            from application.services.containers import container_paths
+            work_paths = container_paths(
+                [it["obj"] for it in work_timed] + [c["obj"] for c in cls["backlog"]])
         plan_data = {
+            "layout": playout,
+            "work_timed": work_timed,
+            "work_paths": work_paths,
             "timed": timed,
             "allday": cls["allday"],
             "backlog": cls["backlog"],
