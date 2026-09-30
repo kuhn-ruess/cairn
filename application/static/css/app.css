@@ -3725,7 +3725,16 @@ textarea.ol-edit.vim-normal::selection { background: var(--bs-primary, #d79921);
 .wl-comment img { max-width: 100%; height: auto; }
 .wl-comment-form { display: flex; gap: .35rem; align-items: flex-start; }
 .wl-comment-form textarea { resize: vertical; min-height: calc(1.5em + .5rem + 2px); }
+/* Time tracking on the card: total + stopwatch on one line; the inspector's
+   own section (timetracking/_task_time.html) replaces it once opened. */
+.wl-time { margin: .6rem 0 0 1.85rem; }
+.wl-time.is-open { border-top: 1px dashed var(--gv-bg2); padding-top: .45rem; }
+.wl-time-line { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .75rem; font-size: .85rem; }
+.wl-section-label {
+  font-size: .68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--gv-fg4);
+}
 @media (max-width: 575.98px) {
   .wl-card { padding: .6rem .6rem; }
-  .wl-fields, .wl-note-wrap, .wl-comments, .wl-flash { margin-left: 0; }
+  .wl-fields, .wl-note-wrap, .wl-comments, .wl-flash, .wl-time { margin-left: 0; }
 }

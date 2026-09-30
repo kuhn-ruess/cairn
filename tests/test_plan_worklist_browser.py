@@ -153,6 +153,88 @@ class PlanWorklistBrowserTests(unittest.TestCase):
         self.assertEqual(self._db().status, "done")
         self.assertEqual(self.errors, [])
 
+    def _with_team(self):
+        """Put the user on a team whose customer the Webshop belongs to, plus
+        a second task on the day, so the time section has somewhere to book
+        and a second card to hand the stopwatch to."""
+        from application.models.team import Team
+        from application.models.timetracking import (
+            Customer, TimeBucket, TimeTrackingProject)
+        from application.models.user import User
+        today = datetime.now(BERLIN).date()
+        with self.app.app_context():
+            user = User.objects(pk=self.user.pk).first()
+            team = Team(name="Kuhn IT", admin=user, admins=[user]).save()
+            user.team = team
+            user.level = "team_admin"
+            user.save()
+            acme = Customer(team=team, name="Acme GmbH").save()
+            billing = TimeTrackingProject(team=team, customer=acme,
+                                          name="Support").save()
+            project = self.Item.objects(pk=self.task.parent.pk).first()
+            project.time_project = billing
+            project.save()
+            self.other = self.Item(
+                owner=user, kind="task", title="Zweiter Task", parent=project,
+                plan_date=datetime.combine(today, time(0, 0)).replace(tzinfo=BERLIN),
+            ).save()
+
+        def cleanup():
+            with self.app.app_context():
+                TimeBucket.objects.delete()
+                TimeTrackingProject.objects.delete()
+                Customer.objects.delete()
+                Team.objects.delete()
+        self.addCleanup(cleanup)
+        self.page.reload()
+        self.page.wait_for_load_state("networkidle")
+
+    def _entries(self):
+        from application.models.timetracking import TimeBucket
+        with self.app.app_context():
+            return [e for b in TimeBucket.objects for e in b.entries
+                    if e.status == "active"]
+
+    def test_time_tracking_on_the_card(self):
+        self._with_team()
+        page, card = self.page, self._card()
+        other = page.locator(f'.wl-card[data-task-id="{self.other.pk}"]')
+        # Grouped by the customer the billing binding names.
+        page.locator(".wl-group-head", has_text="Acme GmbH").wait_for()
+
+        # Start on the first card: its section becomes the running stopwatch.
+        card.locator(".wl-time .tt-timer-start").click()
+        card.locator(".wl-time .tt-timer-stop").wait_for()
+        with self.app.app_context():
+            from application.models.user import User
+            timer = User.objects(pk=self.user.pk).first().running_timer
+        self.assertEqual(timer.source_item_id, str(self.task.pk))
+
+        # Start on the second: the first one's Stop must go, or it would stop
+        # the wrong task.
+        other.locator(".wl-time .tt-timer-start").click()
+        other.locator(".wl-time .tt-timer-stop").wait_for()
+        card.locator(".wl-time .tt-timer-start").wait_for()
+        self.assertEqual(card.locator(".wl-time .tt-timer-stop").count(), 0)
+        other.locator(".wl-time .tt-timer-stop").click()
+        other.locator(".wl-time .tt-timer-start").wait_for()
+
+        # Manual entry through the inspector's own section, opened on demand.
+        # The first card's section was already swapped for the full one when
+        # its timer was taken over; a fresh page shows the one-line summary.
+        page.reload()
+        page.wait_for_load_state("networkidle")
+        card = self._card()
+        before = len(self._entries())
+        card.locator(".wl-time-open").click()
+        card.locator(".wl-time .time-add-duration").fill("45m")
+        card.locator(".wl-time .time-add-btn").click()
+        card.locator(".wl-time .time-row strong", has_text="45m").wait_for()
+        mine = [e for e in self._entries() if e.source_item_id == str(self.task.pk)]
+        self.assertEqual(len(self._entries()), before + 1)
+        self.assertIn(45, [e.minutes for e in mine])
+        self.assertEqual(self.errors, [])
+
     def test_fits_a_phone(self):
         self.page.set_viewport_size({"width": 375, "height": 800})
         self.page.reload()

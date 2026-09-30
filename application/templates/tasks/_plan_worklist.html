@@ -9,7 +9,14 @@
 
    Endpoints are the existing ones: complete / reopen, schedule / unschedule
    (plan date + time), quick-edit (due date, labels), note (X-Partial swaps
-   _note_body.html back in), comment (X-Inspector-Request answers JSON). #}
+   _note_body.html back in), comment (X-Inspector-Request answers JSON).
+
+   The day is grouped by CUSTOMER (views/tasks._worklist_groups), timed tasks
+   first inside each group. Time tracking sits on every card for a team user:
+   the tracked total and the stopwatch are rendered here, the full section
+   (entries, manual entry) is the inspector's own timetracking/_task_time.html,
+   fetched into the card's .time-block on demand. time-entries.js drives it
+   exactly as it drives the inspector. #}
 {% from "tasks/_tag_macros.html" import tag_chips with context %}
 {% from "tasks/_event_note_macros.html" import task_note_btn %}
 
@@ -97,6 +104,41 @@
       </div>
     </div>
 
+    {% if plan_data.work_tt %}
+      {% set _mins = plan_data.work_minutes.get(t.pk|string, 0) %}
+      {% set _run = current_user.running_timer %}
+      {% set _mine = _run and _run.source_item_id == t.pk|string %}
+      <section class="wl-time time-block"
+               data-task-id="{{ t.pk }}"
+               data-block-url="{{ url_for('timetracking.task_block', task_id=t.pk) }}">
+        <div class="wl-time-line">
+          <span class="wl-section-label">Time</span>
+          <span class="wl-time-total{% if not _mins %} text-muted{% endif %}"
+                title="Time tracked on this task">
+            <i class="bi bi-stopwatch"></i> {{ _mins|duration if _mins else 'nothing tracked yet' }}</span>
+          {% if _mine %}
+            <button type="button" class="btn btn-sm btn-danger tt-timer-stop"
+                    data-action="{{ url_for('timetracking.timer_stop') }}"
+                    title="Stop the timer and log the time">
+              <i class="bi bi-stop-fill"></i> Stop
+              <span class="tt-timer-elapsed font-monospace ms-1"
+                    data-elapsed="{{ _run.elapsed_seconds() }}">0:00:00</span>
+            </button>
+          {% elif not done %}
+            <button type="button" class="btn btn-sm btn-outline-danger tt-timer-start"
+                    data-action="{{ url_for('timetracking.timer_start') }}"
+                    data-task-id="{{ t.pk }}"
+                    title="Start the stopwatch on this task">
+              <i class="bi bi-play-fill"></i> Start timer
+            </button>
+          {% endif %}
+          <button type="button" class="btn btn-link btn-sm p-0 wl-time-open"
+                  title="Show the logged entries and log time by hand">
+            <i class="bi bi-plus-circle"></i> Log time, entries</button>
+        </div>
+      </section>
+    {% endif %}
+
     <section class="wl-note-wrap">
       <div class="wl-note-head">
         <span>Note</span>
@@ -160,26 +202,17 @@
     </div>
   {% endif %}
 
-  <h2 class="plan-rail-head mt-2">
-    <i class="bi bi-clock"></i> Scheduled <span class="plan-rail-count">{{ plan_data.work_timed|length }}</span>
-  </h2>
-  {% for it in plan_data.work_timed %}
-    {{ wl_card(it.obj, it.start, it.end, it.duration_min, it.done, _rc) }}
-  {% else %}
-    <p class="text-muted small">Nothing has a time on this day yet.</p>
-  {% endfor %}
-
-  <h2 class="plan-rail-head mt-4">
-    <i class="bi bi-alarm"></i> Due, no time yet <span class="plan-rail-count">{{ plan_data.backlog|length }}</span>
-  </h2>
-  {% for label, icon, entries in plan_data.backlog_groups %}
+  {% for label, cards in plan_data.work_groups %}
     {% if label %}
-      <div class="plan-rail-group-head mt-3"><i class="bi {{ icon }}"></i> {{ label }}
-        <span class="plan-rail-count">{{ entries|length }}</span></div>
+      <h2 class="plan-rail-head wl-group-head{% if not loop.first %} mt-4{% else %} mt-2{% endif %}">
+        <i class="bi {{ 'bi-dash-circle' if label == 'No customer' and loop.last else 'bi-building' }}"></i>
+        {{ label }} <span class="plan-rail-count">{{ cards|length }}</span>
+      </h2>
     {% endif %}
-    {% for it in entries %}{{ wl_card(it.obj, dur=it.duration_min, colors=_rc) }}{% endfor %}
+    {% for c in cards %}
+      {{ wl_card(c.obj, c.start, c.end, c.dur, c.done, _rc) }}
+    {% endfor %}
+  {% else %}
+    <p class="text-muted small">Nothing planned or due on this day.</p>
   {% endfor %}
-  {% if not plan_data.backlog %}
-    <p class="text-muted small">Everything for this day has a time.</p>
-  {% endif %}
 </div>

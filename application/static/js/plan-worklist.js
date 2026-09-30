@@ -225,6 +225,42 @@
     }
   });
 
+  // ---- time tracking -------------------------------------------------------
+  // The card shows the tracked total and the stopwatch; start / stop / log are
+  // time-entries.js's own handlers (the card's section is a .time-block, so
+  // they answer with the inspector's partial and swap it in). What lives here
+  // is opening that partial on demand, and keeping the OTHER cards honest:
+  // starting a timer on one card stops the one running on another, and that
+  // card must not keep offering a Stop that would now stop the wrong task.
+  function loadTimeBlock(sec) {
+    return fetch(sec.dataset.blockUrl, {
+      credentials: "same-origin", headers: { "X-Requested-With": "XMLHttpRequest" },
+    }).then((r) => { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then((html) => { sec.innerHTML = html; sec.classList.add("is-open"); });
+  }
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest && ev.target.closest(".wl-time-open");
+    if (!btn || !inList(btn)) return;
+    ev.preventDefault();
+    const sec = btn.closest(".wl-time");
+    btn.disabled = true;
+    loadTimeBlock(sec).catch(() => {
+      btn.disabled = false;
+      flash(cardOf(sec), "Couldn't load the time tracking.", true);
+    });
+  });
+  document.addEventListener("tt:timer-changed", (ev) => {
+    const running = (ev.detail && ev.detail.timerItem) || "";
+    const answered = ev.detail && ev.detail.block;
+    document.querySelectorAll("#plan-worklist .wl-time").forEach((sec) => {
+      if (sec === answered) return;  // just re-rendered by the answer itself
+      const showsStop = !!sec.querySelector(".tt-timer-stop");
+      if (showsStop !== (sec.dataset.taskId === running)) {
+        loadTimeBlock(sec).catch(() => {});
+      }
+    });
+  });
+
   // Enter posts a comment, Shift+Enter is a new line.
   document.addEventListener("keydown", (ev) => {
     const el = ev.target;

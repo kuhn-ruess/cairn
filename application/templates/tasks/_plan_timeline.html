@@ -49,7 +49,9 @@
     </div>
     {# How the rails are split. Customer is only offered on a team: without one
        there are no billing projects, so every task would land in "No customer"
-       and the button would be a lie. #}
+       and the button would be a lie. The work list has no rails: it is always
+       grouped by customer (views/tasks._worklist_groups), so no switch there. #}
+    {% if plan_data.layout != 'list' %}
     <div class="btn-group btn-group-sm ms-auto" role="group" aria-label="Group the rails">
       {% for _v, _lbl, _ico in [('none', 'Flat', 'bi-list-ul'),
                                 ('project', 'Project', 'bi-folder'),
@@ -57,12 +59,13 @@
         {% if _v != 'customer' or current_user.team or current_user.is_team_admin %}
           <a class="btn btn-sm {% if plan_data.grouping == _v %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}"
              href="?date={{ plan_data.date }}&view=plan&pgroup={{ _v }}"
-             title="Group {{ 'the Due cards' if plan_data.layout == 'list' else 'Due + Next actions' }} by {{ _lbl|lower }}">
+             title="Group Due + Next actions by {{ _lbl|lower }}">
             <i class="bi {{ _ico }}"></i> {{ _lbl }}
           </a>
         {% endif %}
       {% endfor %}
     </div>
+    {% endif %}
     {% if plan_data.backlog %}
       <span class="badge text-bg-secondary">
         {{ plan_data.backlog|length }} due

@@ -610,6 +610,26 @@ def item_entries(user, item) -> list[dict]:
     return rows
 
 
+def item_minutes(user, items) -> dict:
+    """``{str(item.pk): minutes}`` of active time logged on each of ``items``.
+
+    The list-sized counterpart of ``item_entries``: the same buckets (the
+    user's teams, the ``entries.source_item_id`` index), counted in ONE query
+    for the whole list instead of one per row. Items without time are absent.
+    """
+    teams = user_teams(user)
+    ids = {str(i.pk) for i in items}
+    if not teams or not ids:
+        return {}
+    out: dict = {}
+    for b in TimeBucket.objects(team__in=teams,
+                                entries__source_item_id__in=list(ids)).only("entries"):
+        for e in b.entries:
+            if e.source_item_id in ids and e.status == "active":
+                out[e.source_item_id] = out.get(e.source_item_id, 0) + (e.minutes or 0)
+    return out
+
+
 def task_time_context(user, item):
     """Everything the inspector time section needs for one task, or ``None``.
 

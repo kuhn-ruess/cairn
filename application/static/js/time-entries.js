@@ -41,7 +41,13 @@
       ensureDefaultDate(ctx.block);
       startTicking(ctx.block);
     }
-    if (typeof data.timer_item === "string") syncRowButtons(data.timer_item);
+    if (typeof data.timer_item === "string") {
+      syncRowButtons(data.timer_item);
+      // For views that show more than a row button per task (the Plan work
+      // list): which task the stopwatch runs on now, after this answer.
+      document.dispatchEvent(new CustomEvent("tt:timer-changed",
+        { detail: { timerItem: data.timer_item, block: ctx.block } }));
+    }
   }
 
   // Task rows carry a play button that becomes a stop button while the timer

@@ -465,6 +465,25 @@ def projects_for_customer():
     })
 
 
+@timetracking_bp.route("/task/<task_id>")
+@login_required
+@team_required
+def task_block(task_id):
+    """A task's time section (``_task_time.html``) on its own, for a page that
+    lists many tasks and opens one's block on demand (the Plan work list).
+
+    The same partial the inspector embeds and every capture endpoint answers
+    with, so what the list opens is exactly the inspector's section. Loaded
+    lazily because its project shortlist and entry list cost queries per task.
+    """
+    user = current_user._get_current_object()
+    task = _viewable_task(user, task_id)
+    if task is None:
+        abort(404)
+    return render_template("timetracking/_task_time.html", task=task,
+                           tt=task_time_context(user, task))
+
+
 @timetracking_bp.route("/log/<task_id>", methods=["POST"])
 @login_required
 @team_required

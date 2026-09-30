@@ -1466,15 +1466,27 @@ def today():
             user.plan_layout = playout
             user.save()
         work_timed = [it for it in timed if it["kind"] == "task"]
-        work_paths = {}
+        work_paths, work_groups, work_minutes = {}, [], {}
+        work_tt = False
         if playout == "list":
             from application.services.containers import container_paths
-            work_paths = container_paths(
-                [it["obj"] for it in work_timed] + [c["obj"] for c in cls["backlog"]])
+            from application.services.timetracking import has_team, item_minutes
+            work_objs = [it["obj"] for it in work_timed] + [c["obj"] for c in cls["backlog"]]
+            work_paths = container_paths(work_objs)
+            work_groups = _worklist_groups(work_timed, cls["backlog"])
+            # Time tracking on the cards: the tracked total per task in one
+            # query; the full section (entries, manual entry) loads per card
+            # on demand from /time/task/<id>, the inspector's own partial.
+            work_tt = has_team(user)
+            if work_tt:
+                work_minutes = item_minutes(user, work_objs)
         plan_data = {
             "layout": playout,
             "work_timed": work_timed,
             "work_paths": work_paths,
+            "work_groups": work_groups,
+            "work_tt": work_tt,
+            "work_minutes": work_minutes,
             "timed": timed,
             "allday": cls["allday"],
             "backlog": cls["backlog"],
@@ -1628,6 +1640,44 @@ def _group_rail(entries, mode):
     if rest:
         groups.append((fallback, "bi-inbox" if mode == "project" else "bi-dash-circle",
                        rest))
+    return groups
+
+
+def _worklist_groups(timed, backlog):
+    """The Plan work list, split by CUSTOMER: ``[(label, [card])]``.
+
+    Asked for on task ``6abcdd1f2c6ba359b7a57442`` ("die seite soll noch nach
+    kunden gruppieren"): the list is worked through one customer at a time,
+    so the whole day is grouped, not only its Due part. Customers sort by
+    name, "No customer" comes last. Inside a group the timed tasks come first
+    in time order, then the ones on the day without a time, in the order the
+    Due rail has them.
+
+    ``label`` is ``None`` for the single group of a day where nothing resolves
+    to a customer (a personal account, say): one heading "No customer" over
+    everything says nothing.
+    """
+    from application.services.containers import customer_labels
+    cards = ([{"obj": it["obj"], "start": it["start"], "end": it["end"],
+               "dur": it.get("duration_min"), "done": it.get("done", False)}
+              for it in timed]
+             + [{"obj": c["obj"], "start": None, "end": None,
+                 "dur": c.get("duration_min"), "done": False}
+                for c in backlog])
+    if not cards:
+        return []
+    labels = customer_labels([c["obj"] for c in cards])
+    if not labels:
+        return [(None, cards)]
+    buckets: dict = {}
+    rest: list = []
+    for c in cards:
+        name = labels.get(str(c["obj"].pk))
+        (buckets.setdefault(name, []) if name else rest).append(c)
+    groups = [(name, lst) for name, lst in
+              sorted(buckets.items(), key=lambda kv: kv[0].lower())]
+    if rest:
+        groups.append(("No customer", rest))
     return groups
 
 
