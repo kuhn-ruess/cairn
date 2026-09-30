@@ -22,8 +22,9 @@ PK = ObjectId("6abcea0388b85cc53a6fb448")
 MAIL = ("message://%3C0f9a2b1c-4d5e-6f70-8192-a3b4c5d6e7f8"
         "@mail.example.com%3E")
 
-# What Reminders on macOS sends for a reminder created from a mail (captured
-# shape: Apple's PRODID, X-APPLE-SORT-ORDER, the URL typed as a URI).
+# What Reminders on macOS sends for a reminder created from a mail (modelled
+# on its PUTs: Apple's PRODID, X-APPLE-SORT-ORDER, the URL typed as a URI; not
+# yet checked against a wire dump, see BKTODO_CALDAV_DEBUG).
 APPLE_PUT = (
     "BEGIN:VCALENDAR\r\n"
     "VERSION:2.0\r\n"
