@@ -395,7 +395,7 @@ def _apply_tags(task: Item, user: User, raw_names) -> bool:
 # then got 404s), and cleared its estimate, location, repeat rule and
 # follow-up. See tests/test_process_inbox_filing.py.
 PROCESS_INBOX_FIELDS = frozenset({
-    "title", "note", "project", "status", "priority", "flagged",
+    "title", "note", "project", "status", "priority", "assigned_to", "flagged",
     "defer_date", "due_date", "plan_date", "tags",
 })
 
@@ -414,14 +414,16 @@ def _apply_form(form: TaskForm, task: Item, user: User, *,
     hidden = hidden_sections(user)
 
     def shown(section: str, *names: str) -> bool:
-        """Did this POST actually carry ``names``? The section has to be one the
-        user kept — AND, for a caller whose template is not the inspector, one
-        of the fields that template renders (``fields``). A section is not the
-        unit there: the triage form shows the priority but not the estimate,
-        the project but not the assignee."""
-        if section in hidden:
-            return False
-        return fields is None or all(n in fields for n in names)
+        """Did this POST actually carry ``names``? For the inspector: the
+        section has to be one the user kept. For a caller whose template is
+        not the inspector: the fields that template renders (``fields``), and
+        only those. A section is not the unit there (the triage form shows the
+        priority but not the estimate), and the inspector layout says nothing
+        about it: a section the user hid in the inspector must not stop the
+        triage form from filing or assigning."""
+        if fields is not None:
+            return all(n in fields for n in names)
+        return section not in hidden
 
     # The assignee the picker was rendered with. A tag's auto-assign rule
     # fires below, while the submitted select still carries the value from

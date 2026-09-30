@@ -4,8 +4,8 @@ Run with ``python -m unittest discover tests``. Needs a MongoDB (``TestConfig``
 points at ``bktodo_test``); skipped when there isn't one.
 
 Why this exists: ``tasks/process_inbox.html`` is a deliberately TRIMMED version
-of the inspector — title, note, project, status, priority, flag, the three dates
-and the tags, and nothing else. ``_apply_form`` used to decide "this field never
+of the inspector — title, note, project, status, priority, assignee, flag, the
+three dates and the tags, and nothing else. ``_apply_form`` used to decide "this field never
 reached the POST" from the user's inspector layout alone, which says nothing
 about a second template that renders less. So every field the triage form leaves
 out arrived as its empty default and was written over the task: filing a task
@@ -96,6 +96,7 @@ class ProcessInboxFilingTests(unittest.TestCase):
             "project": str(self.project.pk),
             "status": "open",
             "priority": "",
+            "assigned_to": str(self.helper.pk),
             "defer_date": "",
             "due_date": "",
             "plan_date": "",
@@ -160,6 +161,47 @@ class ProcessInboxFilingTests(unittest.TestCase):
         self.assertIsNotNone(task.due_date)
         self.assertEqual(task.tags, ["home"])
 
+    # -- assigning from the triage form ------------------------------------
+
+    def test_the_triage_form_can_assign(self):
+        """Hand the task to a teammate while filing it."""
+        from application.models.team import Team
+        from application.models.user import User
+        with self.app.app_context():
+            team = Team(name="Inbox team", admin=self.owner).save()
+            mate = User(username="pi-mate", email="pi-mate@test.invalid",
+                        password_hash="x", level="premium", team=team).save()
+        try:
+            resp = self._file_it(assigned_to=str(mate.pk))
+            self.assertEqual(resp.status_code, 302)
+            self.assertEqual(self._reload().assigned_to.pk, mate.pk)
+        finally:
+            with self.app.app_context():
+                Team.objects(pk=team.pk).delete()
+
+    def test_the_triage_form_can_unassign(self):
+        """The picker is rendered now, so its empty value means what it means
+        in the inspector: nobody."""
+        self._file_it(assigned_to="")
+        self.assertIsNone(self._reload().assigned_to)
+
+    def test_a_hidden_inspector_section_does_not_block_triage(self):
+        """The triage form renders its fields whatever the inspector layout
+        says; hiding the Assignee or Status/Project section over there must not
+        make the same fields here silently do nothing."""
+        from application.models.user import User
+        with self.app.app_context():
+            User.objects(pk=self.owner.pk).update(
+                inspector_hidden=["assigned_to", "status_project"])
+            # Guard against a false green: the inspector really hides them.
+            from application.services.inspector_layout import hidden_sections
+            self.assertLessEqual({"assigned_to", "status_project"},
+                                 hidden_sections(User.objects(pk=self.owner.pk).first()))
+        self._file_it(assigned_to="")
+        task = self._reload()
+        self.assertIsNone(task.assigned_to)
+        self.assertEqual(task.parent.pk, self.project.pk)
+
     def test_the_inspector_can_still_unassign(self):
         """The empty picker must keep meaning "unassign" where it is actually
         rendered — the fix narrows what counts as absent, it doesn't make the
@@ -203,8 +245,15 @@ class ProcessInboxFieldListTests(unittest.TestCase):
                / "application/templates/tasks/process_inbox.html").read_text()
         rendered = set(re.findall(r"\bform\.([a-z_]+)\(", tpl))
         self.assertIn("title", rendered)      # the regex found anything at all
-        self.assertNotIn("assigned_to", rendered)  # the field this bug was about
         self.assertEqual(rendered, set(PROCESS_INBOX_FIELDS))
+
+    def test_tags_use_the_inspector_token_field(self):
+        """Not the old bare multi-select with a Ctrl-click hint."""
+        from pathlib import Path
+        tpl = (Path(__file__).resolve().parent.parent
+               / "application/templates/tasks/process_inbox.html").read_text()
+        self.assertIn('"data-tag-toggle": "1"', tpl)
+        self.assertNotIn("Ctrl-click", tpl)
 
 
 if __name__ == "__main__":

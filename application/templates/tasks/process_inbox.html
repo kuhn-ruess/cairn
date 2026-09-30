@@ -66,6 +66,10 @@
                 {{ form.priority.label(class="form-label small text-uppercase text-muted") }}
                 {{ form.priority(class="form-select form-select-sm") }}
               </div>
+              <div class="mb-2">
+                {{ form.assigned_to.label(class="form-label small text-uppercase text-muted") }}
+                {{ form.assigned_to(class="form-select form-select-sm") }}
+              </div>
               <div class="form-check">
                 {{ form.flagged(class="form-check-input") }}
                 {{ form.flagged.label(class="form-check-label") }}
@@ -132,8 +136,13 @@
 
           <div class="mb-3">
             {{ form.tags.label(class="form-label small text-uppercase text-muted") }}
-            {{ form.tags(class="form-select form-select-sm", size="4") }}
-            <div class="form-text small">⌘/Ctrl-click for multi-select.</div>
+            {# The same token field as the inspector (static/js/tag-toggle.js). #}
+            {%- set tag_meta = [] -%}
+            {%- for t in current_user.tags or [] -%}
+              {%- set _ = tag_meta.append({"name": t.name, "parent": t.parent or "", "excl": t.exclusive_children, "color": t.color}) -%}
+            {%- endfor -%}
+            {{ form.tags(class="form-select form-select-sm", size="5", **{"data-tag-toggle": "1", "data-tag-meta": tag_meta|tojson}) }}
+            <div class="form-text small">Type to search or create a label. One tag per exclusive group.</div>
           </div>
 
           <div class="d-flex gap-2">
