@@ -263,6 +263,13 @@
         <i class="bi bi-bar-chart-steps"></i>
       </a>
     {% endif %}
+    {% if project.can_be_edited_by(current_user) %}
+      <a href="{{ url_for('projects.detail', project_id=project.pk, view='sketch') }}"
+         title="Sketch as a Markdown list"
+         class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-markdown"></i>
+      </a>
+    {% endif %}
   </div>
   <div class="btn-group">
     <div class="btn-group" role="group">

@@ -182,3 +182,110 @@ def _create_task(tnode: TaskNode, parent_item, user, stats: dict, order: int,
         for i, child in enumerate(tnode.children):
             _create_task(child, parent_item=task, user=user, stats=stats,
                          order=i, nested=True)
+
+
+# --- Project sketch --------------------------------------------------------
+#
+# The project page's Markdown view: the project typed as a nested list. The
+# same parser as a capture, but a different contract for what already exists.
+# A capture UPDATES a matching task (it re-applies the line's date, priority
+# and tags); a sketch leaves it exactly as it is. A line whose title matches an
+# item already sitting at that place in the tree is only an anchor: nothing on
+# it is changed, and the lines indented under it are filed beneath it. Nothing
+# is ever deleted or moved, so dropping a line from the sketch does nothing.
+# Nesting makes SUB-TASKS (the parent stays a task, the same rule as the
+# inspector's "add subtask"), not sub-projects.
+
+# What a sketch line may land on. Notes share the collection and are never a
+# match; sections and sub-projects are, so a sketch can extend them.
+_SKETCH_KINDS = ["task", "project", "section", "folder"]
+_SKETCH_CLOSED = ["done", "dropped", "completed"]
+
+
+def sketch_outline(project) -> str:
+    """The open part of ``project`` as a nested Markdown list.
+
+    What the sketch view starts with, so a new line can be typed where it
+    belongs. One query per tree depth.
+    """
+    from application.models.item import Item
+
+    lines: list[str] = []
+    children: dict = {}
+    frontier = [project.pk]
+    seen = set(frontier)
+    while frontier:
+        nxt = []
+        for item in (Item.objects(parent__in=frontier, kind__in=_SKETCH_KINDS,
+                                  status__nin=_SKETCH_CLOSED)
+                     .no_dereference().order_by("+sort_order", "+created_at")):
+            if item.pk in seen:
+                continue
+            seen.add(item.pk)
+            raw = item._data.get("parent")
+            parent_pk = getattr(raw, "id", None) or getattr(raw, "pk", None) or raw
+            children.setdefault(parent_pk, []).append(item)
+            nxt.append(item.pk)
+        frontier = nxt
+
+    def _walk(pk, depth):
+        # Sections last, as the project page shows them under the loose tasks.
+        kids = children.get(pk, [])
+        for item in ([k for k in kids if k.kind != "section"]
+                     + [k for k in kids if k.kind == "section"]):
+            title = " ".join((item.title or "").split())
+            if title:
+                lines.append("  " * depth + "- " + title)
+                _walk(item.pk, depth + 1)
+
+    _walk(project.pk, 0)
+    return "\n".join(lines)
+
+
+def sketch_tasks(text: str, user, project) -> dict:
+    """Create the lines of ``text`` that don't exist yet, under ``project``.
+
+    Returns ``{"tasks_created": n, "tasks_skipped": n}``.
+    """
+    stats = {"tasks_created": 0, "tasks_skipped": 0}
+    _sketch_level(parse_tasks(text), project, user, stats)
+    return stats
+
+
+def _sketch_level(nodes, parent, user, stats) -> None:
+    from application.models.item import Item
+    from application.services.quick_parse import parse_task_text
+
+    if not nodes:
+        return
+    siblings = list(Item.objects(parent=parent, kind__in=_SKETCH_KINDS)
+                    .only("title", "sort_order", "kind"))
+    by_title = {(s.title or "").strip().casefold(): s for s in siblings}
+    # New lines go after what is already there, in the order they were typed.
+    order = max((s.sort_order or 0 for s in siblings), default=-1) + 1
+
+    for node in nodes:
+        parsed = parse_task_text(node.title, user)
+        title = (parsed.title or node.title)[:500]
+        # The raw line counts too: an existing title that happens to contain
+        # a token (``today``, ``p1``) loses it to the parser and would
+        # otherwise come back as a second task.
+        existing = (by_title.get(node.title.strip().casefold())
+                    or by_title.get(title.strip().casefold()))
+        if existing is not None:
+            stats["tasks_skipped"] += 1
+            _sketch_level(node.children, existing, user, stats)
+            continue
+        task = Item(
+            owner=user, kind="task", title=title, parent=parent,
+            sort_order=order, tags=list(parsed.tags),
+            priority=parsed.priority, due_date=parsed.due_date,
+            flagged=parsed.flagged, status="open",
+        )
+        if parsed.assignee:
+            task.assign_to(parsed.assignee, by_user=user)
+        task.save()
+        order += 1
+        stats["tasks_created"] += 1
+        by_title[title.strip().casefold()] = task
+        _sketch_level(node.children, task, user, stats)

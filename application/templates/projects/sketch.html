@@ -1,0 +1,93 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ project.title }} · Sketch · Cairn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2 flex-wrap">
+  <a class="text-decoration-none text-muted small" href="{{ url_for('projects.detail', project_id=project.pk) }}">
+    <i class="bi bi-arrow-left"></i> {{ project.title }}
+  </a>
+  <h1 class="h4 mb-0 me-auto">
+    <i class="bi bi-markdown"></i> Sketch
+  </h1>
+</div>
+
+{# The project as a nested list. Every line that is new becomes a task, its
+   indentation a sub-task; a line naming something already there is only an
+   anchor and is never changed, moved or deleted. #}
+<form method="post" action="{{ url_for('projects.sketch', project_id=project.pk) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <textarea name="text" id="project-sketch" class="form-control font-monospace"
+            rows="20" spellcheck="false" autofocus
+            placeholder="- Concept&#10;  - Collect requirements&#10;  - Draft +review&#10;- Build">{{ sketch_text }}{% if sketch_text %}
+{% endif %}</textarea>
+  <div class="form-text">
+    One line per task, indent for sub-tasks (Tab / Shift-Tab). Existing tasks
+    stay as they are: change or delete their lines and nothing happens to them.
+    <code>+tag</code>, <code>@person</code>, <code>p1</code> and dates work as in quick-add.
+    Ctrl/Cmd-Enter creates.
+  </div>
+  <div class="mt-3 d-flex gap-2">
+    <button type="submit" class="btn btn-primary">
+      <i class="bi bi-check-lg"></i> Create tasks
+    </button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('projects.detail', project_id=project.pk) }}">Cancel</a>
+  </div>
+</form>
+
+<script>
+(function () {
+  const ta = document.getElementById("project-sketch");
+  if (!ta) return;
+  const IND = "  ";
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+
+  // The lines the selection touches, as [start, end) offsets into the value.
+  function lineSpan() {
+    const v = ta.value;
+    const start = v.lastIndexOf("\n", ta.selectionStart - 1) + 1;
+    let end = v.indexOf("\n", ta.selectionEnd);
+    if (end < 0) end = v.length;
+    return [start, end];
+  }
+
+  ta.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      ta.form.requestSubmit();
+      return;
+    }
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const [start, end] = lineSpan();
+      const block = ta.value.slice(start, end);
+      const lines = block.split("\n").map((l) => e.shiftKey
+        ? l.replace(/^( {1,2}|\t)/, "") : IND + l);
+      const out = lines.join("\n");
+      const caret = ta.selectionStart;
+      const collapsed = caret === ta.selectionEnd;
+      ta.setRangeText(out, start, end, "select");
+      if (collapsed) {
+        // Only the first line moved, so the caret moves with it.
+        const delta = lines[0].length - block.split("\n")[0].length;
+        const pos = Math.max(start, caret + delta);
+        ta.setSelectionRange(pos, pos);
+      }
+      return;
+    }
+    if (e.key === "Enter" && !e.shiftKey && ta.selectionStart === ta.selectionEnd) {
+      // Continue the list at the same depth; Enter on an empty bullet ends it.
+      const v = ta.value;
+      const start = v.lastIndexOf("\n", ta.selectionStart - 1) + 1;
+      const line = v.slice(start, ta.selectionStart);
+      const m = line.match(/^(\s*)([-*+] )?/);
+      if (!m[2]) return;
+      e.preventDefault();
+      if (line.trim() === m[2].trim()) {
+        ta.setRangeText("", start, ta.selectionStart, "end");
+        return;
+      }
+      ta.setRangeText("\n" + m[1] + m[2], ta.selectionStart, ta.selectionEnd, "end");
+    }
+  });
+})();
+</script>
+{% endblock %}

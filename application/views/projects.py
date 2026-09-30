@@ -804,8 +804,20 @@ def detail(project_id):
     # question "what of this is mine?" has a different answer per person.
     mine_only = request.args.get("mine") == "1"
     view_mode = (request.args.get("view") or project.view_mode or "list").strip()
-    if view_mode not in ("list", "kanban", "calendar", "gantt"):
+    if view_mode not in ("list", "kanban", "calendar", "gantt", "sketch"):
         view_mode = "list"
+    # The Markdown sketch: the project as a nested list to type into. Not a
+    # stored view (it is where you write, not how you read), so only ever
+    # reached through ``?view=sketch``.
+    if view_mode == "sketch":
+        if not project.can_be_edited_by(user):
+            view_mode = "list"
+        else:
+            from application.services.capture import sketch_outline
+            return render_template(
+                "projects/sketch.html", project=project,
+                sketch_text=sketch_outline(project),
+            )
 
     # Gantt / timeline: a dedicated, lightweight render over the project's whole
     # subtree (premium only). Skips the heavy list/kanban assembly below.
@@ -1641,6 +1653,35 @@ def set_view_mode(project_id):
         project.view_mode = mode
         project.save()
     return redirect(url_for("projects.detail", project_id=project_id))
+
+@projects_bp.route("/<project_id>/sketch", methods=["POST"])
+@login_required
+def sketch(project_id):
+    """Create the tasks typed in the Markdown sketch view.
+
+    Lines that match an item already at that place are left untouched (see
+    ``services.capture.sketch_tasks``), so saving the same sketch twice
+    creates nothing the second time.
+    """
+    from application.services.capture import sketch_tasks
+
+    user = current_user._get_current_object()
+    project = Item.objects(pk=project_id,
+                           kind__in=["project", "section", "folder"]).first()
+    if not project:
+        abort(404)
+    if not project.can_be_edited_by(user):
+        abort(403)
+    stats = sketch_tasks(request.form.get("text") or "", user, project)
+    created, skipped = stats["tasks_created"], stats["tasks_skipped"]
+    if created:
+        flash(f"{created} task{'s' if created != 1 else ''} created"
+              + (f", {skipped} existing left as they were." if skipped else "."),
+              "success")
+    else:
+        flash("Nothing new in the sketch.", "info")
+    return redirect(url_for("projects.detail", project_id=project_id))
+
 
 @projects_bp.route("/<project_id>/share", methods=["POST"])
 @login_required
