@@ -139,8 +139,12 @@
     </div>
   {% endif %}
 
+  {# A project with its own fields adds a column each, and the row outgrew
+     the page: Hours, Amount and the pencil ended up off to the right with
+     nothing saying so. Long names wrap now, and the pencil column is pinned
+     to the right edge (.tt-report-table) so it is there however wide it gets. #}
   <div class="table-responsive">
-    <table class="table table-sm align-middle mb-1">
+    <table class="table table-sm align-middle mb-1 tt-report-table">
       <thead>
         <tr class="small text-muted">
           {% if can_bill %}
@@ -173,7 +177,7 @@
             <td class="small text-muted text-nowrap font-monospace">
               {% if e.start_time %}{{ e.start_time }}–{{ e.end_time }}{% endif %}
             </td>
-            <td class="small text-nowrap">
+            <td class="small">
               {% if e.customer_id in live.customers %}
                 <a class="text-decoration-none"
                    href="{{ url_for('timetracking.customer_detail', cid=e.customer_id, team=team.pk) }}">{{ e.customer }}</a>
@@ -203,7 +207,7 @@
             {# One column per custom field — a "Ticket-Nr." you can read down
                the page, instead of a badge buried in the description. #}
             {% for fd in field_columns %}
-              <td class="small text-nowrap">
+              <td class="small">
                 {{ (e.custom | selectattr('key', 'equalto', fd.key)
                              | map(attribute='value') | first) or '' }}
               </td>

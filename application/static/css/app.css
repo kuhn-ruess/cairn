@@ -2872,6 +2872,12 @@ body.ps-resizing * {
   white-space: nowrap;
 }
 
+/* Time report: the pencil column stays on screen when a project's own
+   fields make the table wider than the page (see _report_body.html). */
+.tt-report-table > :is(thead, tbody) > tr > :last-child {
+  position: sticky; right: 0; background: var(--gv-bg0);
+}
+
 /* backlog / next rails */
 .plan-rails {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
