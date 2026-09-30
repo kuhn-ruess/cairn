@@ -2871,6 +2871,34 @@ def plan_create():
                     "edit_url": url_for("tasks.edit", task_id=str(task.pk))})
 
 
+def _plan_grouped(cands, grouping, busy, window_start, window_end, gap):
+    """Place ``cands`` (``[(entry, from_next)]``, most urgent first) into the
+    day; returns ``(cands, starts)`` in the order they were placed.
+
+    Ungrouped, that order is simply urgency. With the rails grouped by project
+    or customer the day is planned in the same blocks — one customer's work
+    back to back instead of DRV between two FMG tasks. Grouping must not decide
+    WHAT gets done, though: the first pass, by urgency alone, picks what fits;
+    only those are then re-ordered into blocks (a block where its most urgent
+    task would have been) and placed again. What doesn't fit keeps its place
+    at the end, unplaced.
+    """
+    from application.services.auto_plan import plan_day
+    durations = lambda lst: [c["duration_min"] for c, _ in lst]
+    starts = plan_day(durations(cands), busy, window_start, window_end, gap=gap)
+    if grouping not in ("project", "customer"):
+        return cands, starts
+    fit = [c for c, st in zip(cands, starts) if st is not None]
+    rest = [c for c, st in zip(cands, starts) if st is None]
+    rank = {id(c[0]): i for i, c in enumerate(fit)}
+    blocks = _group_rail([c for c, _ in fit], grouping)
+    blocks.sort(key=lambda g: min(rank[id(e)] for e in g[2]))
+    by_id = {id(c[0]): c for c in fit}
+    ordered = [by_id[id(e)] for _, _, entries in blocks for e in entries]
+    starts = plan_day(durations(ordered), busy, window_start, window_end, gap=gap)
+    return ordered + rest, starts + [None] * len(rest)
+
+
 def _carry_over(user, day_start):
     """Pull forward unfinished tasks whose plan time is before ``day_start``
     (today's midnight): their ``plan_date`` becomes today with no time, so they
@@ -2917,7 +2945,7 @@ def auto_plan():
     """
     from flask import jsonify
     from datetime import datetime as _dt, time as _t
-    from application.services.auto_plan import plan_day, _snap_up
+    from application.services.auto_plan import _snap_up
     from application.services.calendar_sync import fetch_events
 
     user = current_user._get_current_object()
@@ -3012,15 +3040,14 @@ def auto_plan():
     seen = {c["obj"].pk for c in cands} | {it["obj"].pk for it in timed_tasks}
     next_cands, _ = _next_actions_pool(user, now, seen)
     next_cands.sort(key=order)
-    n_day = len(cands)
-    cands = cands + next_cands
-    starts = plan_day([c["duration_min"] for c in cands], busy,
-                      window_start, window_end, gap=gap)
+    cands = [(c, False) for c in cands] + [(c, True) for c in next_cands]
+    cands, starts = _plan_grouped(cands, user.plan_grouping, busy,
+                                  window_start, window_end, gap)
 
     planned, skipped, next_left, warnings = 0, 0, 0, carry_warnings
-    for i, (c, start) in enumerate(zip(cands, starts)):
+    for (c, from_next), start in zip(cands, starts):
         task = c["obj"]
-        if start is None and i >= n_day:
+        if start is None and from_next:
             next_left += 1
             continue
         if start is None:

@@ -338,6 +338,42 @@ class PlanMyDayTakesNextTests(PlanBase):
         self.assertEqual(body["next_left"], 1)
         self.assertIsNone(self._reload(big).plan_date)
 
+    def _three_in_two_projects(self):
+        from application.models.item import Item
+        with self.app.app_context():
+            drv = Item(owner=self.user, kind="project", title="DRV").save()
+            fmg = Item(owner=self.user, kind="project", title="FMG").save()
+            mk = lambda title, parent, prio: Item(
+                owner=self.user, kind="task", title=title, parent=parent,
+                status="next", estimated_minutes=30, priority=prio).save()
+            return mk("FMG eins", fmg, 1), mk("DRV", drv, 2), mk("FMG zwei", fmg, 3)
+
+    def _order(self, tasks):
+        return [t.title for t in sorted(
+            tasks, key=lambda t: self._reload(t).plan_date)]
+
+    def test_grouped_by_project_the_day_is_planned_in_blocks(self):
+        """*"er hat beim plan my day nicht korrekt nach consumer oder projekt
+        gruppiert, drv hat sich zwischen fmg gemischt"*."""
+        tasks = self._three_in_two_projects()
+        self.client.get("/tasks/today?view=plan&pgroup=project")
+        self._auto(datetime(2026, 9, 24, 8, 0, tzinfo=BERLIN))
+        self.assertEqual(self._order(tasks), ["FMG eins", "FMG zwei", "DRV"])
+
+    def test_ungrouped_it_stays_by_urgency(self):
+        tasks = self._three_in_two_projects()
+        self._auto(datetime(2026, 9, 24, 8, 0, tzinfo=BERLIN))
+        self.assertEqual(self._order(tasks), ["FMG eins", "DRV", "FMG zwei"])
+
+    def test_grouping_does_not_decide_what_gets_done(self):
+        """Only room for two: the two most urgent are planned, whichever
+        block they are in — the less urgent FMG task stays in Next."""
+        tasks = self._three_in_two_projects()
+        self.client.get("/tasks/today?view=plan&pgroup=project")
+        body = self._auto(datetime(2026, 9, 24, 16, 55, tzinfo=BERLIN))
+        self.assertEqual(body["next_left"], 1)
+        self.assertIsNone(self._reload(tasks[2]).plan_date)
+
 
 class DelegatedInNextTests(PlanBase):
     """*"eine option delegierte task anzuzeigen ist die loesung, man muss aber
