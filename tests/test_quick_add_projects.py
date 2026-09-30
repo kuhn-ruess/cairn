@@ -7,8 +7,10 @@ Reported as "die Projektliste im Quick Add zeigt Notiz-Folder, und sollte
 suchbar sein". A task can only be filed into the TASK tree, so no folder of
 the notes tree may be offered there: not an own one, not a nested one, not a
 notebook somebody shared, and not anything that hangs underneath one. And the
-list is long, so it carries the same type-to-filter box as the inspector's
-picker. Driven through the rendered page, because that is where both show.
+list is long, so it is searchable: one field that shows the project and is the
+search for another (quick-add.js), not a search box, a dropdown and a
+"Goes into" line saying the same thing three times. Driven through the
+rendered page, because that is where both show.
 """
 import re
 import unittest
@@ -97,6 +99,7 @@ class QuickAddProjectPickerTests(unittest.TestCase):
         resp = client.get("/notes/")
         self.assertEqual(resp.status_code, 200)
         html = resp.get_data(as_text=True)
+        self._page = html
         m = re.search(r'<select id="quickAddProject".*?</select>', html, re.S)
         self.assertIsNotNone(m, "quick-add project picker not on the page")
         return m.group(0)
@@ -116,9 +119,14 @@ class QuickAddProjectPickerTests(unittest.TestCase):
         picker = self._picker_html()
         self.assertNotIn(str(self.stray.pk), picker)
 
-    def test_the_picker_is_searchable(self):
+    def test_the_picker_is_one_searchable_field(self):
         picker = self._picker_html()
-        self.assertIn("data-searchable-select", picker)
+        # The <select> is only the value the form sends; the field in front
+        # of it is the search, so it must not grow a second search box.
+        self.assertNotIn("data-searchable-select", picker)
+        self.assertIn('class="d-none"', picker)
+        self.assertRegex(self._page, r'<input id="quickAddProjectSearch"[^>]*role="combobox"')
+        self.assertNotIn("Goes into", self._page)
 
 
 if __name__ == "__main__":

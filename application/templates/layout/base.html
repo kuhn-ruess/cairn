@@ -437,19 +437,26 @@
               </div>
             </div>
           </div>
+          {# One field for the project: it shows where the task goes and is
+             the search for another one (quick-add.js). The hidden <select>
+             stays the value the form sends. #}
           <div class="d-flex align-items-center gap-2 mt-2">
-            <label for="quickAddProject" class="form-label small text-muted mb-0">
+            <label for="quickAddProjectSearch" class="form-label small text-muted mb-0 text-nowrap">
               <i class="bi bi-folder"></i> Project
             </label>
-            <select id="quickAddProject" name="project_id" class="form-select form-select-sm w-auto"
-                    data-searchable-select="1" data-searchable-placeholder="Search projects…">
+            <input id="quickAddProjectSearch" type="text"
+                   class="form-control form-control-sm qa-project-combo"
+                   role="combobox" aria-autocomplete="list" aria-expanded="false"
+                   aria-controls="quickAddProjectList" autocomplete="off" spellcheck="false">
+            <span id="quickAddProjectHint" class="small text-info text-nowrap"></span>
+            <select id="quickAddProject" name="project_id" class="d-none" tabindex="-1" aria-hidden="true">
               <option value="">Inbox</option>
               {% for pk, label in user_project_choices %}
                 <option value="{{ pk }}">{{ label }}</option>
               {% endfor %}
             </select>
           </div>
-          <div id="quickAddProjectHint" class="form-text mt-1"></div>
+          <div id="quickAddProjectList" class="qa-assignee-ac d-none" role="listbox"></div>
           <div class="quick-add-hint mt-3 small text-muted">
             <code>@person</code> · <code>+tag</code>
             (or <code>+"two words"</code>) · <code>#project</code> ·

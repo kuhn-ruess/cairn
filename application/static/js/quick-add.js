@@ -19,6 +19,8 @@
   const previewEl = modalEl.querySelector("#quickAddPreview");
   const projectInput = modalEl.querySelector("#quickAddProject");
   const projectHint = modalEl.querySelector("#quickAddProjectHint");
+  const projectCombo = modalEl.querySelector("#quickAddProjectSearch");
+  const projectList = modalEl.querySelector("#quickAddProjectList");
   const continueCb = modalEl.querySelector("#quickAddContinue");
 
   // ----- Detect the current project -----
@@ -33,29 +35,115 @@
     if (qp && /^[0-9a-f]{24}$/i.test(qp)) return qp;
     return "";
   }
+  function projectLabel() {
+    const o = projectInput.options[projectInput.selectedIndex];
+    return o ? o.textContent.trim() : "";
+  }
   function updateProjectHint() {
-    // A #project token typed into the text overrides the dropdown.
+    // The field itself says where the task goes; the one thing left to say
+    // beside it is that a #project token typed into the title wins over it.
+    if (document.activeElement !== projectCombo) projectCombo.value = projectLabel();
     const tokenMatch = input.value.match(/(?<!\S)#([\w\-äöüÄÖÜß]+)\b/);
-    if (tokenMatch) {
-      projectHint.innerHTML =
-        `<i class="bi bi-hash"></i> The <code>#${escape(tokenMatch[1])}</code> token overrides the project above.`;
-      projectHint.className = "form-text mt-1 text-info";
-      return;
-    }
-    const label = projectInput.options[projectInput.selectedIndex].textContent.trim();
-    projectHint.innerHTML =
-      `<i class="bi bi-folder"></i> Goes into <strong>${escape(label)}</strong>. Type <code>#project</code> to override.`;
-    projectHint.className = "form-text mt-1 text-muted";
+    projectHint.innerHTML = tokenMatch
+      ? `<i class="bi bi-hash"></i> <code>#${escape(tokenMatch[1])}</code> overrides this`
+      : "";
   }
   projectInput.addEventListener("change", updateProjectHint);
-  // Enter in the picker's search box takes the highlighted project (↓/↑ walk
-  // it, searchable-select.js) and hands the caret back to the title, so the
-  // next Enter adds the task.
-  modalEl.addEventListener("keydown", (ev) => {
-    if (ev.key !== "Enter" || ev.metaKey || ev.ctrlKey || ev.isComposing) return;
-    if (!ev.target.matches || !ev.target.matches(".searchable-select-input")) return;
-    if (!projectInput.parentNode.contains(ev.target)) return;
+
+  // ----- The project field: one input that shows the project and searches -----
+  // It reads as the current project; focusing it selects that text, so typing
+  // replaces it with a search and the list below filters live. Unlike the
+  // @/+/# list in the title, the first match IS highlighted: this list opens
+  // because a project was asked for, so Enter can mean nothing else. Enter
+  // (or a click) takes it and hands the caret back to the title, where the
+  // next Enter adds the task; Tab takes it and moves on; Escape closes the
+  // list and puts the current project back (the next Escape closes the
+  // dialog). Leaving the field without a pick keeps the project it had.
+  let comboItems = [];   // <option>s shown
+  let comboIndex = -1;
+
+  function comboOpen() { return !projectList.classList.contains("d-none"); }
+  function closeCombo() {
+    projectList.classList.add("d-none");
+    projectList.innerHTML = "";
+    projectCombo.setAttribute("aria-expanded", "false");
+    comboItems = []; comboIndex = -1;
+  }
+  function renderCombo() {
+    if (!comboItems.length) {
+      projectList.innerHTML = '<div class="qa-ac-item text-muted">No project matches</div>';
+    } else {
+      projectList.innerHTML = comboItems.map((o, i) =>
+        `<button type="button" tabindex="-1" role="option" class="qa-ac-item${i === comboIndex ? " active" : ""}" `
+        + `data-i="${i}"><i class="bi ${o.value ? "bi-folder" : "bi-inbox"}"></i> `
+        + `${escape(o.textContent.trim())}</button>`).join("");
+      const active = projectList.querySelector(".qa-ac-item.active");
+      if (active) active.scrollIntoView({ block: "nearest" });
+    }
+    projectList.classList.remove("d-none");
+    projectCombo.setAttribute("aria-expanded", "true");
+  }
+  function filterCombo(q) {
+    const needle = q.trim().toLowerCase();
+    const opts = Array.from(projectInput.options);
+    comboItems = needle ? opts.filter(o => o.textContent.toLowerCase().includes(needle)) : opts;
+    comboIndex = needle ? (comboItems.length ? 0 : -1)
+      : comboItems.findIndex(o => o.value === projectInput.value);
+    renderCombo();
+  }
+  function takeCombo(i) {
+    const o = comboItems[i];
+    closeCombo();
+    if (o) pickProject(o.value);
+    projectCombo.value = projectLabel();
+  }
+
+  projectCombo.addEventListener("focus", () => {
+    projectCombo.select();
+    filterCombo("");
+  });
+  projectCombo.addEventListener("input", () => filterCombo(projectCombo.value));
+  projectCombo.addEventListener("keydown", (ev) => {
+    if (ev.isComposing) return;
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      if (!comboOpen()) { filterCombo(""); return; }
+      if (!comboItems.length) return;
+      const n = comboItems.length;
+      comboIndex = ev.key === "ArrowDown"
+        ? (comboIndex + 1) % n
+        : (comboIndex <= 0 ? n : comboIndex) - 1;
+      renderCombo();
+    } else if (ev.key === "Enter") {
+      // ⌘/Ctrl+Enter adds the task (form handler), with the project it has.
+      if (ev.metaKey || ev.ctrlKey) { closeCombo(); return; }
+      ev.preventDefault();
+      if (comboOpen() && comboIndex >= 0) takeCombo(comboIndex);
+      else { closeCombo(); projectCombo.value = projectLabel(); }
+      input.focus();
+    } else if (ev.key === "Tab") {
+      if (comboOpen() && comboIndex >= 0) takeCombo(comboIndex);
+    } else if (ev.key === "Escape") {
+      if (!comboOpen()) return;
+      ev.preventDefault(); ev.stopPropagation();
+      closeCombo();
+      projectCombo.value = projectLabel();
+      projectCombo.select();
+    }
+  });
+  projectList.addEventListener("mousedown", (ev) => {
+    const btn = ev.target.closest("button.qa-ac-item");
+    if (!btn) return;
+    ev.preventDefault();
+    takeCombo(parseInt(btn.dataset.i, 10));
     input.focus();
+  });
+  projectCombo.addEventListener("blur", () => {
+    setTimeout(() => {
+      if (document.activeElement === projectCombo) return;
+      closeCombo();
+      projectCombo.value = projectLabel();
+    }, 120);
   });
 
   // ----- Light client-side preview parser (mirrors server tokens) -----
@@ -178,9 +266,9 @@
       })),
     },
     project: {
-      // `#` is a search in the project picker below, straight away. The list
-      // is that picker's own options (no round trip), and picking one sets the
-      // picker and drops the `#query` from the title: a `#name` token only
+      // `#` is a search in the project field below, straight away. The list
+      // is that field's own options (no round trip), and picking one sets the
+      // field and drops the `#query` from the title: a `#name` token only
       // reaches projects whose name is one word, the picker reaches them all.
       re: /(?:^|\s)(#"[^"\n]*|#[\w\-äöüÄÖÜß]*)$/,
       local: q => {
@@ -198,12 +286,6 @@
   };
 
   function pickProject(value) {
-    // An old filter in the picker's search box would hide the option picked.
-    const projectSearch = projectInput.parentNode.querySelector(".searchable-select-input");
-    if (projectSearch && projectSearch.value) {
-      projectSearch.value = "";
-      projectSearch.dispatchEvent(new Event("input"));
-    }
     projectInput.value = value;
     projectInput.dispatchEvent(new Event("change", { bubbles: true }));
   }
@@ -418,20 +500,13 @@
     } else {
       wanted = detectCurrentProject();
     }
-    // The picker's search box (searchable-select.js) keeps its filter between
-    // openings; an empty one shows every option again, so the preselection
-    // below can find its project and the list starts complete.
-    const projectSearch = projectInput.parentNode.querySelector(".searchable-select-input");
-    if (projectSearch && projectSearch.value) {
-      projectSearch.value = "";
-      projectSearch.dispatchEvent(new Event("input"));
-    }
     // Only select it if it's actually an option (e.g. a folder context has
     // no matching project option — fall back to Inbox).
     projectInput.value = wanted;
     if (projectInput.value !== wanted) projectInput.value = "";
-    updateProjectHint();
+    closeCombo();
     input.value = "";
+    updateProjectHint();
     if (noteEl) noteEl.value = "";
     modalEl.querySelectorAll('input[type="datetime-local"]').forEach((i) => { i.value = ""; });
     // Today view's "New task" carries data-quickadd-plan="today" → pre-plan the
