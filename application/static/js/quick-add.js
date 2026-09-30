@@ -371,6 +371,14 @@
     } else {
       wanted = detectCurrentProject();
     }
+    // The picker's search box (searchable-select.js) keeps its filter between
+    // openings; an empty one shows every option again, so the preselection
+    // below can find its project and the list starts complete.
+    const projectSearch = projectInput.parentNode.querySelector(".searchable-select-input");
+    if (projectSearch && projectSearch.value) {
+      projectSearch.value = "";
+      projectSearch.dispatchEvent(new Event("input"));
+    }
     // Only select it if it's actually an option (e.g. a folder context has
     // no matching project option — fall back to Inbox).
     projectInput.value = wanted;

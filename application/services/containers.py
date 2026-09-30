@@ -43,30 +43,46 @@ def container_choices(user, *, selectable_kinds=("project", "folder"),
     else:
         scope = Q(owner=user)
     containers = list(
-        # ``folder_domain != "notes"`` keeps the notes-tree folders out of the
-        # project/task container pickers (a note folder is never a valid parent
-        # for a project or task). ``$ne`` also matches pre-notes folders that
-        # have no ``folder_domain`` field at all.
-        Item.objects(scope, kind__in=["project", "folder", "section"],
-                     folder_domain__ne="notes")
+        # The notes-tree folders are fetched too, only so that what hangs
+        # underneath one can be recognised and left out (see ``in_notes``).
+        Item.objects(scope, kind__in=["project", "folder", "section"])
         # ``name`` is a property alias for ``title`` — project the real field
         # or mongoengine raises LookUpError on .only().
-        .only("pk", "title", "kind", "parent", "status")
+        .only("pk", "title", "kind", "parent", "status", "folder_domain")
+        # Parents are looked up in ``by_id``; a dereference here would be one
+        # query per container, on every page (the quick-add dialog).
+        .no_dereference()
     )
     by_id = {str(c.pk): c for c in containers}
+
+    def in_notes(c):
+        """True for a folder of the notes tree AND for anything below one.
+        A note folder is never a valid parent for a project or task, and a
+        task-tree container that ended up inside the notes tree (the project
+        and API create paths don't check the parent's domain) is shown by
+        neither navigator, so offering it only files work out of sight.
+        A folder without the field (older than the notes) counts as tasks."""
+        cur, seen = c, set()
+        while cur is not None and str(cur.pk) not in seen:
+            if cur.kind == "folder" and cur.folder_domain == "notes":
+                return True
+            seen.add(str(cur.pk))
+            par = _ref_pk(cur.parent)
+            cur = by_id.get(str(par)) if par else None
+        return False
 
     def path_label(c):
         parts, cur, seen = [], c, set()
         while cur is not None and str(cur.pk) not in seen:
             seen.add(str(cur.pk))
             parts.append(cur.name)
-            par = cur.parent
-            cur = by_id.get(str(par.pk)) if par else None
+            par = _ref_pk(cur.parent)
+            cur = by_id.get(str(par)) if par else None
         parts.reverse()
         return f"{_KIND_ICON.get(c.kind, '📁')}  " + " / ".join(parts)
 
     def offered(c):
-        if c.kind not in selectable_kinds:
+        if c.kind not in selectable_kinds or in_notes(c):
             return False
         if exclude_pk is not None and c.pk == exclude_pk:
             return False
