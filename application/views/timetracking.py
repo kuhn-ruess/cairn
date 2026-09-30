@@ -107,9 +107,9 @@ def _billing_manager(team):
     for one client into one, and moving hours onto the project they actually
     belong to — the intake pile, or the duplicate an import created. Manager-
     only there meant the person doing the work had to fetch somebody else to
-    tidy up behind them. Reopening billed time and deleting a customer or a
-    project outright stay with the managers — those undo what was settled
-    rather than keeping it in order."""
+    tidy up behind them. Reopening billed time is theirs too — correcting a
+    booking that went out wrong is part of settling the month. Deleting a
+    customer or a project outright stays with the managers."""
     if not can_bill(current_user._get_current_object(), team):
         abort(403)
 
@@ -834,7 +834,6 @@ def _report_context(args=None):
         monthly = monthly_breakdown(data["rows"], f["date_from"], f["date_to"])
     return dict(
         team=team, f=f, can_bill=can_bill(user, team), monthly=monthly,
-        can_unlock=team.is_managed_by(user),
         can_import=can_bill(user, team),
         # Field definitions for the inline edit forms — for the projects on
         # screen, not for every project the team has, and the export exactly as

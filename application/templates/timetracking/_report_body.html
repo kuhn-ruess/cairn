@@ -80,10 +80,8 @@
     <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
       <button class="btn btn-sm btn-success" name="action" value="bill">
         <i class="bi bi-lock"></i> Mark selected billed</button>
-      {% if can_unlock %}
-        <button class="btn btn-sm btn-outline-secondary" name="action" value="unlock">
-          <i class="bi bi-unlock"></i> Reopen selected</button>
-      {% endif %}
+      <button class="btn btn-sm btn-outline-secondary" name="action" value="unlock">
+        <i class="bi bi-unlock"></i> Reopen selected</button>
       {# Re-file selected time onto another project — the per-entry version of
          the wholesale move on the manage page. Whoever bills the month files
          it; billed entries stay where they were settled. #}
@@ -167,10 +165,8 @@
           <tr class="tt-report-row">
             {% if can_bill %}
               <td>
-                {% if not e.locked or can_unlock %}
-                  <input type="checkbox" class="form-check-input tt-pick" name="entry"
-                         value="{{ e.bucket_id }}:{{ e.entry_id }}">
-                {% endif %}
+                <input type="checkbox" class="form-check-input tt-pick" name="entry"
+                       value="{{ e.bucket_id }}:{{ e.entry_id }}">
               </td>
             {% endif %}
             <td class="small text-muted text-nowrap">{{ e.spent_on.strftime('%d.%m.%Y') }}</td>

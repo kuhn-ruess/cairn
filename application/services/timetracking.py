@@ -885,8 +885,8 @@ def reachable_project_ids(user, team) -> set:
     whole team's books: the person who settles the month is typically in the
     office, owns no GTD containers at all, and a subtree scope leaves them with
     an empty report and nothing to bill — the role would name a right it never
-    grants. They still can't *manage* (edit projects, unlock billed time); that
-    stays with the managers."""
+    grants. They still can't *manage* (edit projects' settings, delete
+    customers); that stays with the managers."""
     actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
     # Managers and billers see/bill everything in the team; everyone else is
     # bounded by the containers they own or are a member of.
@@ -2147,8 +2147,9 @@ def public_project_report(project, month: str | None = None,
 
 def can_bill(user, team) -> bool:
     """A team manager, or a member the manager has named a biller, may settle
-    (lock) time. Both see the team's whole book (reachable_project_ids); only
-    a manager may unlock what was billed."""
+    (lock) time — and reopen it: whoever bills the month has to be able to
+    correct a booking that went out wrong without fetching a manager. Both see
+    the team's whole book (reachable_project_ids)."""
     actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
     return team.is_managed_by(actor) or actor in (team.billers or [])
 
@@ -2157,13 +2158,11 @@ def set_locked(*, team, user, items, locked: bool) -> int:
     """Lock (bill) or unlock the given ``(bucket_id, entry_id)`` pairs.
 
     Locking marks entries billed + frozen (records who/when). Only a biller/
-    manager may lock, and only entries whose project is in their reachable scope
-    (the whole team, for both); only managers may unlock. Returns how many
-    entries actually changed."""
+    manager may lock or unlock, and only entries whose project is in their
+    reachable scope (the whole team, for both). Returns how many entries
+    actually changed."""
     actor = user._get_current_object() if hasattr(user, "_get_current_object") else user
-    if locked and not can_bill(actor, team):
-        return 0
-    if not locked and not team.is_managed_by(actor):
+    if not can_bill(actor, team):
         return 0
     scope = reachable_project_ids(actor, team)
 
