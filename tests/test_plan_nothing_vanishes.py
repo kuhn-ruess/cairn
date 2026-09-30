@@ -324,6 +324,9 @@ class DelegatedInNextTests(PlanBase):
 
     def _set(self, show):
         self.client.post("/tasks/today/show-delegated", data={"show": show})
+        from application.models.user import User
+        with self.app.app_context():
+            self.user = User.objects(pk=self.user.pk).first()
 
     def test_hidden_by_default_and_the_switch_says_how_many(self):
         html = self._plan_page(datetime(2026, 9, 24, 8, 0, tzinfo=BERLIN))
@@ -357,6 +360,54 @@ class DelegatedInNextTests(PlanBase):
                 user, datetime(2026, 9, 24, 8, 0, tzinfo=BERLIN), set())
         self.assertEqual(delegated, 1)
         self.assertEqual({it["title"] for it in pool}, {"Delegiert"})
+
+    def _put_on_day(self, when):
+        from application.models.item import Item
+        with self.app.app_context():
+            Item.objects(title="Delegiert").update_one(set__plan_date=when)
+            return Item.objects(title="Delegiert").first()
+
+    def test_dragged_onto_the_day_plan_my_day_plans_it(self):
+        """*"und wenn sie eingeblendet sind, plant sie die plan my day sauber
+        ein?"* — a delegated task put on the day (midnight = Unplanned) is on
+        the timeline and gets a time like any other."""
+        self._set("1")
+        task = self._put_on_day(datetime(2026, 9, 24, 0, 0, tzinfo=BERLIN))
+        at = datetime(2026, 9, 24, 8, 0, tzinfo=BERLIN)
+        timed, backlog = self._rails(at)
+        self.assertIn("Delegiert", backlog)
+        with mock.patch("application.views.tasks.datetime", _clock(at)):
+            self.client.post("/tasks/auto-plan", data={"date": DAY.isoformat()})
+        planned = self._reload(task).plan_date.astimezone(BERLIN)
+        self.assertTrue(planned.hour or planned.minute)
+
+    def test_switched_off_it_stays_out_of_the_plan(self):
+        self._put_on_day(datetime(2026, 9, 24, 0, 0, tzinfo=BERLIN))
+        timed, backlog = self._rails(datetime(2026, 9, 24, 8, 0, tzinfo=BERLIN))
+        self.assertNotIn("Delegiert", timed | backlog)
+
+    def test_carry_over_moves_only_what_the_plan_shows(self):
+        """*"und werden nicht erledigte, geplante des vortages auch nach vorne
+        gezogen?"* — yes, by "Carry over"; but a task the timeline hides must
+        not be moved onto today where nobody sees it arrive."""
+        yesterday = datetime(2026, 9, 23, 10, 0, tzinfo=BERLIN)
+        task = self._put_on_day(yesterday)
+        from application.models.item import Item
+        with self.app.app_context():
+            own = Item(owner=self.user, kind="task", title="Gestern liegen",
+                       plan_date=yesterday).save()
+        at = datetime(2026, 9, 24, 8, 0, tzinfo=BERLIN)
+        with mock.patch("application.views.tasks.datetime", _clock(at)):
+            moved = self.client.post("/tasks/carry-over").get_json()["moved"]
+        self.assertEqual(moved, 1)
+        self.assertEqual(self._reload(own).plan_date.astimezone(BERLIN).date(), DAY)
+        self.assertEqual(self._reload(task).plan_date.astimezone(BERLIN).date(),
+                         yesterday.date())
+        self._set("1")
+        with mock.patch("application.views.tasks.datetime", _clock(at)):
+            moved = self.client.post("/tasks/carry-over").get_json()["moved"]
+        self.assertEqual(moved, 1)
+        self.assertEqual(self._reload(task).plan_date.astimezone(BERLIN).date(), DAY)
 
 
 if __name__ == "__main__":  # pragma: no cover

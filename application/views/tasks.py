@@ -719,6 +719,19 @@ from application.services.prefetch import (
 )
 
 
+def _plan_mine_q(user):
+    """Whose tasks the Plan view plans: mine unassigned + assigned to me. The
+    Plan view is a personal day-planner, so a task delegated to somebody else
+    stays out — unless ``plan_show_delegated`` is on, which brings back the
+    ones I OWN (the same switch as the Next rail, so a delegated task dragged
+    from that rail onto the day doesn't vanish there). Shared by the timeline,
+    "Plan my day" and "Carry over", so all three agree on what's on the day."""
+    mine = Q(assigned_to=None) | Q(assigned_to=user)
+    if user.plan_show_delegated:
+        mine = mine | Q(owner=user)
+    return mine
+
+
 def _plan_day_tasks(user, day_date, tz, *, is_today):
     """Actionable tasks for one day's Plan timeline: scope-visible, not
     done/dropped/someday, and either planned on that day, due by end of it
@@ -737,9 +750,7 @@ def _plan_day_tasks(user, day_date, tz, *, is_today):
             | Q(followup_at__ne=None, followup_at__lte=day_end))
     if is_today:
         cond = cond | Q(flagged=True)
-    # The Plan view is a personal day-planner: hide tasks delegated to someone
-    # else. Keep tasks assigned to me + my own unassigned ones.
-    mine = Q(assigned_to=None) | Q(assigned_to=user)
+    mine = _plan_mine_q(user)
     active = list(Item.objects(_scope(user), kind="task",
                                status__nin=["done", "dropped", "completed", "someday"])
                   .filter(cond).filter(mine))
@@ -1434,7 +1445,7 @@ def today():
                 _scope(user), kind="task",
                 status__nin=["done", "dropped", "someday"],
                 plan_date__ne=None, plan_date__lt=day_start_local,
-            ).count()
+            ).filter(_plan_mine_q(user)).count()
         # How the rails are split up. Persisted like the view mode itself, so
         # the planner comes back the way it was left.
         pgroup = (request.args.get("pgroup") or user.plan_grouping or "none").strip()
@@ -2874,9 +2885,12 @@ def carry_over():
     today = now.astimezone(tz).date()
     day_start = datetime.combine(today, _t(0, 0)).replace(tzinfo=tz)
     moved, warnings = 0, []
+    # Only what the Plan view would then show: pulling a task onto today that
+    # the timeline filters out moves it without anybody seeing it arrive.
     for t in Item.objects(_scope(user), kind="task",
                           status__nin=["done", "dropped", "someday"],
-                          plan_date__ne=None, plan_date__lt=day_start):
+                          plan_date__ne=None, plan_date__lt=day_start,
+                          ).filter(_plan_mine_q(user)):
         if not t.can_be_edited_by(user):
             continue
         t.plan_date = day_start
