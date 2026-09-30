@@ -2924,21 +2924,22 @@ def _carry_over(user, day_start):
 @tasks_bp.route("/auto-plan", methods=["POST"])
 @login_required
 def auto_plan():
-    """The Plan timeline's "Plan my day" (and, with ``mode=repack``, "Re-pack").
+    """The Plan timeline's "Plan my day" — which re-plans the day every time.
 
     Body: ``date=YYYY-MM-DD``. In order: on today, carry what earlier days
-    left unfinished onto today (``_carry_over``); give the Due rail's tasks a
-    time; fill the free time left with Next actions. Non-destructive: placed
-    around calendar events and tasks that are already timed — ``repack``
-    instead re-places those timed tasks too. Each placed task gets
-    ``plan_date`` set + calendar write-back. Returns ``{ok, planned, skipped,
-    next_left, carried, warnings}``.
+    left unfinished onto today (``_carry_over``); place the day's open tasks —
+    the Due rail AND the ones that already have a time — from now on; fill
+    the free time left with Next actions. Only calendar events and lunch stay
+    fixed; a done task is ignored (it neither moves nor blocks its slot).
+    Pressing it again is how a day that ran over is re-planned. Each placed
+    task gets ``plan_date`` set + calendar write-back. Returns ``{ok, planned,
+    skipped, next_left, carried, warnings}``.
 
     **Nothing ever drops out of the view.** Two rules make that true, because
     a planner that hides work is worse than one that plans badly:
 
     * once the working day is over there is no window left, so the call is a
-      no-op and answers ``day_over`` instead of re-packing a day into nothing;
+      no-op and answers ``day_over`` instead of re-planning a day into nothing;
     * a task that does not fit keeps its place on the DAY (midnight, i.e. no
       time-of-day) and shows up in the Due rail — it never has its
       ``plan_date`` cleared, which used to take it off the plate entirely.
@@ -2977,8 +2978,8 @@ def auto_plan():
 
     # There is no day left to pack into: after the working hours are over
     # ``window_start`` (= now) has run past ``window_end``, nothing can fit,
-    # and a re-pack would strip every task's time for no gain. Do nothing and
-    # say so — this is what took the whole day off the view when "Re-pack" was
+    # and a re-plan would strip every task's time for no gain. Do nothing and
+    # say so — this is what took the whole day off the view when a re-plan was
     # pressed at 19:00 with hours ending at 18:00.
     if window_start >= window_end:
         return jsonify({"ok": True, "planned": 0, "skipped": 0, "day_over": True,
@@ -3002,11 +3003,14 @@ def auto_plan():
         _plan_day_tasks(user, d, tz, is_today=is_today),
         events, tz, d, now,
     )
-    mode = (request.form.get("mode") or "").strip()
     gap = user.plan_buffer_min or 0
 
     events_busy = [(it["start"], it["end"]) for it in cls["timed"] if it["kind"] == "event"]
-    timed_tasks = [it for it in cls["timed"] if it["kind"] == "task"]
+    # Pressing it again re-plans the day for real: every OPEN task with a time
+    # is placed again from now on, so what ran over or got skipped moves on.
+    # A done one is left out entirely — it neither moves nor holds its slot.
+    timed_tasks = [it for it in cls["timed"]
+                   if it["kind"] == "task" and not it.get("done")]
     # Optional lunch break kept free, in minutes since midnight
     # (start == end → disabled).
     ls, le = user.plan_lunch_start_min or 0, user.plan_lunch_end_min or 0
@@ -3015,17 +3019,11 @@ def auto_plan():
         lunch_busy = [(_dt.combine(d, _t(ls // 60, ls % 60)).replace(tzinfo=tz),
                        _dt.combine(d, _t(le // 60, le % 60)).replace(tzinfo=tz))]
 
-    if mode == "repack":
-        # Destructive: re-plan backlog AND already-timed tasks from scratch;
-        # only calendar events + lunch stay fixed.
-        cands = list(cls["backlog"]) + [
-            {"obj": it["obj"], "duration_min": it["duration_min"]} for it in timed_tasks
-        ]
-        busy = events_busy + lunch_busy
-    else:
-        # Non-destructive: fill only the backlog around what's already placed.
-        cands = list(cls["backlog"])
-        busy = events_busy + [(it["start"], it["end"]) for it in timed_tasks] + lunch_busy
+    # Only calendar events + lunch stay fixed.
+    cands = list(cls["backlog"]) + [
+        {"obj": it["obj"], "duration_min": it["duration_min"]} for it in timed_tasks
+    ]
+    busy = events_busy + lunch_busy
 
     # Candidate order: priority (P1 first), then due date, then manual order.
     FAR = datetime(9999, 1, 1, tzinfo=timezone.utc)
@@ -3051,7 +3049,7 @@ def auto_plan():
             next_left += 1
             continue
         if start is None:
-            # A re-pack loses the task's time — but it must NOT lose the task.
+            # A re-plan loses the task's time — but it must NOT lose the task.
             # Clearing ``plan_date`` took it off the day altogether, and a task
             # that is neither planned, due nor flagged matches nothing in
             # ``_plan_day_tasks``, so it silently disappeared from the planner.
@@ -3059,7 +3057,7 @@ def auto_plan():
             # writes too), which puts it in the Due rail where an
             # unplaced task belongs.
             cur = _as_tz(task.plan_date, tz)
-            if mode == "repack" and cur and (cur.hour or cur.minute):
+            if cur and (cur.hour or cur.minute):
                 task.plan_date = day_start
                 task.save()
                 warnings.extend(_writeback_calendar(task, user) or [])

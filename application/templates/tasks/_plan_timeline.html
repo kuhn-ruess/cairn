@@ -22,14 +22,9 @@
   <div class="plan-head d-flex flex-wrap align-items-center gap-2 mb-2">
     <button type="button" id="plan-auto-btn" class="btn btn-sm btn-primary"
             data-date="{{ plan_data.date }}"
-            title="Bring unfinished tasks from earlier days onto today, give the Due tasks a time, then fill the free time left with Next actions. Tasks that already have a time stay where they are.">
+            title="Plan the day from now: unfinished tasks from earlier days come onto today, every open task gets a time, then the free time left fills with Next actions. Press again to re-plan — calendar events stay put, done tasks are ignored.">
       <i class="bi bi-magic"></i> Plan my day
       {% if plan_data.carryover_count %}<span class="badge text-bg-warning ms-1" title="{{ plan_data.carryover_count }} unfinished from earlier days — Plan my day brings them onto today">+{{ plan_data.carryover_count }}</span>{% endif %}
-    </button>
-    <button type="button" id="plan-repack-btn" class="btn btn-sm btn-outline-secondary"
-            data-date="{{ plan_data.date }}"
-            title="Like Plan my day, but also moves the tasks that already have a time: every task time today is planned again from scratch. Calendar events stay put.">
-      <i class="bi bi-arrow-repeat"></i> Re-pack
     </button>
     <span class="text-muted small">
       Plans <strong>Due</strong>, then <strong>Next actions</strong>, into free time

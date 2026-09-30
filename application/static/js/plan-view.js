@@ -365,7 +365,7 @@
     openQuickAdd(c, snapAt(c, ev.clientY));
   });
 
-  // ---------- Plan my day / Re-pack (delegated) ----------
+  // ---------- Plan my day (delegated) ----------
   async function runAutoPlan(btn, body, busyLabel) {
     const orig = btn.innerHTML;
     btn.disabled = true;
@@ -393,12 +393,6 @@
   document.addEventListener("click", (ev) => {
     const auto = ev.target.closest("#plan-auto-btn");
     if (auto) { runAutoPlan(auto, { date: auto.dataset.date }, "Planning…"); return; }
-    const repack = ev.target.closest("#plan-repack-btn");
-    if (repack) {
-      if (!confirm("Re-pack the whole day? Every task time today is planned again from scratch — also the ones you placed by hand. Calendar events stay put.")) return;
-      runAutoPlan(repack, { date: repack.dataset.date, mode: "repack" }, "Re-packing…");
-      return;
-    }
   });
 
   // ---------- per-render setup: centre on "now" + surface toast ----------

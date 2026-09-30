@@ -122,7 +122,9 @@ class PlanBase(unittest.TestCase):
         return resp.get_data(as_text=True)
 
     def _repack(self, at, **extra):
-        data = {"date": DAY.isoformat(), "mode": "repack"}
+        """Plan my day — which re-plans the whole day since Re-pack merged
+        into it (the name stays for the history in this file)."""
+        data = {"date": DAY.isoformat()}
         data.update(extra)
         with mock.patch("application.views.tasks.datetime", _clock(at)):
             resp = self.client.post("/tasks/auto-plan", data=data)
@@ -322,12 +324,29 @@ class PlanMyDayTakesNextTests(PlanBase):
             nxt = Item(owner=self.user, kind="task", title="Weiter", status="next",
                        estimated_minutes=30, priority=1).save()
         body = self._auto(datetime(2026, 9, 24, 8, 0, tzinfo=BERLIN))
-        self.assertEqual(body["planned"], 2)
+        # morning (already timed, re-planned too) + afternoon + the Next task
+        self.assertEqual(body["planned"], 3)
         day_task = self._reload(self.afternoon).plan_date.astimezone(BERLIN)
         next_task = self._reload(nxt).plan_date.astimezone(BERLIN)
         self.assertEqual(next_task.date(), DAY)
         # P1 or not, the Next task comes after what is due on the day.
         self.assertLess(day_task, next_task)
+
+    def test_pressing_again_replans_from_now_and_ignores_done_tasks(self):
+        """*"wenn ich plan my day erneut druecke, soll auch der tag wirklich
+        neu geplannt werden und inzwischen erledigte ereigenisse nicht mehr
+        beachtet"*."""
+        from application.models.item import Item
+        with self.app.app_context():
+            # 10:00 (morning) is done; 14:00 (afternoon) is still open.
+            Item.objects(pk=self.morning.pk).update_one(set__status="done")
+        body = self._auto(datetime(2026, 9, 24, 9, 0, tzinfo=BERLIN))
+        self.assertEqual(body["planned"], 1)
+        # The done task keeps its slot on the record, untouched ...
+        self.assertEqual(self._reload(self.morning).plan_date.astimezone(BERLIN).hour, 10)
+        # ... and holds nothing: the open one moves up into the first free slot.
+        moved = self._reload(self.afternoon).plan_date.astimezone(BERLIN)
+        self.assertEqual((moved.hour, moved.minute), (9, 0))
 
     def test_a_next_task_that_doesnt_fit_is_left_alone(self):
         from application.models.item import Item
@@ -369,6 +388,10 @@ class PlanMyDayTakesNextTests(PlanBase):
         """Only room for two: the two most urgent are planned, whichever
         block they are in — the less urgent FMG task stays in Next."""
         tasks = self._three_in_two_projects()
+        from application.models.item import Item
+        with self.app.app_context():  # the day's own tasks out of the way
+            Item.objects(pk__in=[self.morning.pk, self.afternoon.pk]).update(
+                set__status="done")
         self.client.get("/tasks/today?view=plan&pgroup=project")
         body = self._auto(datetime(2026, 9, 24, 16, 55, tzinfo=BERLIN))
         self.assertEqual(body["next_left"], 1)
