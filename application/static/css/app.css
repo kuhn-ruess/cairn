@@ -2899,7 +2899,7 @@ body.ps-resizing * {
 .plan-rail-item.plan-card-dragging { opacity: .4; }
 .plan-next-item { background: var(--gv-bg1); }
 .plan-grip { color: var(--gv-fg4); flex: 0 0 auto; }
-/* Complete-directly control on the Unplanned / Next rails. */
+/* Complete-directly control on the Due / Next rails. */
 .plan-rail-check { flex: 0 0 auto; display: flex; cursor: default; }
 .plan-rail-check .btn { color: var(--gv-fg4); line-height: 1; }
 .plan-rail-check .btn:hover { color: var(--gv-green-br); }

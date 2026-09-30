@@ -2597,7 +2597,7 @@ def set_next(task_id):
 @login_required
 def unschedule(task_id):
     """Take a task's time-of-day away (drag it off the Plan timeline back into
-    the Unplanned rail). Removes the mirrored plan event from Google too.
+    the Due rail). Removes the mirrored plan event from Google too.
 
     With ``date=YYYY-MM-DD`` the task STAYS on that day, without a time — the
     day's midnight, the same value carry-over writes. That is what the rail
@@ -2871,19 +2871,12 @@ def plan_create():
                     "edit_url": url_for("tasks.edit", task_id=str(task.pk))})
 
 
-@tasks_bp.route("/carry-over", methods=["POST"])
-@login_required
-def carry_over():
-    """Pull forward unfinished tasks whose plan time is before today: their
-    ``plan_date`` is reset to today (midnight → today's Plan backlog) so they
-    resurface instead of being stranded in the past."""
-    from flask import jsonify
-    from datetime import time as _t
-    user = current_user._get_current_object()
-    now = datetime.now(timezone.utc)
-    tz = resolve_tz(user)
-    today = now.astimezone(tz).date()
-    day_start = datetime.combine(today, _t(0, 0)).replace(tzinfo=tz)
+def _carry_over(user, day_start):
+    """Pull forward unfinished tasks whose plan time is before ``day_start``
+    (today's midnight): their ``plan_date`` becomes today with no time, so they
+    land in the Due rail instead of being stranded in the past. Part of "Plan
+    my day" — planning today starts with what yesterday left over. Returns
+    ``(moved, warnings)``."""
     moved, warnings = 0, []
     # Only what the Plan view would then show: pulling a task onto today that
     # the timeline filters out moves it without anybody seeing it arrive.
@@ -2897,19 +2890,21 @@ def carry_over():
         t.save()
         warnings.extend(_writeback_calendar(t, user) or [])
         moved += 1
-    return jsonify({"ok": True, "moved": moved, "warnings": warnings})
+    return moved, warnings
 
 
 @tasks_bp.route("/auto-plan", methods=["POST"])
 @login_required
 def auto_plan():
-    """Auto-schedule a day's unplanned tasks into free slots (the Plan
-    timeline's "Plan my day" button).
+    """The Plan timeline's "Plan my day" (and, with ``mode=repack``, "Re-pack").
 
-    Body: ``date=YYYY-MM-DD``. Non-destructive: only tasks without a
-    time-of-day are placed, around existing calendar events and tasks that
-    are already timed. Each placed task gets ``plan_date`` set + Google
-    write-back. Returns ``{ok, planned, skipped, warnings}``.
+    Body: ``date=YYYY-MM-DD``. In order: on today, carry what earlier days
+    left unfinished onto today (``_carry_over``); give the Due rail's tasks a
+    time; fill the free time left with Next actions. Non-destructive: placed
+    around calendar events and tasks that are already timed — ``repack``
+    instead re-places those timed tasks too. Each placed task gets
+    ``plan_date`` set + calendar write-back. Returns ``{ok, planned, skipped,
+    next_left, carried, warnings}``.
 
     **Nothing ever drops out of the view.** Two rules make that true, because
     a planner that hides work is worse than one that plans badly:
@@ -2917,7 +2912,7 @@ def auto_plan():
     * once the working day is over there is no window left, so the call is a
       no-op and answers ``day_over`` instead of re-packing a day into nothing;
     * a task that does not fit keeps its place on the DAY (midnight, i.e. no
-      time-of-day) and shows up in the Unplanned rail — it never has its
+      time-of-day) and shows up in the Due rail — it never has its
       ``plan_date`` cleared, which used to take it off the plate entirely.
     """
     from flask import jsonify
@@ -2945,6 +2940,13 @@ def auto_plan():
     if is_today:
         window_start = max(window_start, _snap_up(now.astimezone(tz)))
 
+    # Planning today starts with what earlier days left unfinished: it comes
+    # onto today first (Due rail), so the pass below plans it like the rest.
+    carried, carry_warnings = 0, []
+    if is_today:
+        carried, carry_warnings = _carry_over(
+            user, _dt.combine(d, _t(0, 0)).replace(tzinfo=tz))
+
     # There is no day left to pack into: after the working hours are over
     # ``window_start`` (= now) has run past ``window_end``, nothing can fit,
     # and a re-pack would strip every task's time for no gain. Do nothing and
@@ -2952,8 +2954,9 @@ def auto_plan():
     # pressed at 19:00 with hours ending at 18:00.
     if window_start >= window_end:
         return jsonify({"ok": True, "planned": 0, "skipped": 0, "day_over": True,
+                        "carried": carried,
                         "window": f"{start_h:02d}:00–{min(end_h, 24):02d}:00",
-                        "warnings": []})
+                        "warnings": carry_warnings})
 
     # Day's calendar events (same opt-in calendars as the Today view).
     day_start = _dt.combine(d, _t(0, 0)).replace(tzinfo=tz)
@@ -3004,7 +3007,7 @@ def auto_plan():
     cands.sort(key=order)
     # Then whatever room is left goes to the Next actions — the rail beside
     # the timeline, same set, delegated ones only while that switch is on.
-    # The day's own work (Unplanned) is placed first, because it is due; a
+    # The day's own work (Due) is placed first, because it is due; a
     # Next task that doesn't fit is simply left in Next, untouched.
     seen = {c["obj"].pk for c in cands} | {it["obj"].pk for it in timed_tasks}
     next_cands, _ = _next_actions_pool(user, now, seen)
@@ -3014,7 +3017,7 @@ def auto_plan():
     starts = plan_day([c["duration_min"] for c in cands], busy,
                       window_start, window_end, gap=gap)
 
-    planned, skipped, next_left, warnings = 0, 0, 0, []
+    planned, skipped, next_left, warnings = 0, 0, 0, carry_warnings
     for i, (c, start) in enumerate(zip(cands, starts)):
         task = c["obj"]
         if start is None and i >= n_day:
@@ -3026,7 +3029,7 @@ def auto_plan():
             # that is neither planned, due nor flagged matches nothing in
             # ``_plan_day_tasks``, so it silently disappeared from the planner.
             # The day's midnight is "on this day, no time yet" (what carry-over
-            # writes too), which puts it in the Unplanned rail where an
+            # writes too), which puts it in the Due rail where an
             # unplaced task belongs.
             cur = _as_tz(task.plan_date, tz)
             if mode == "repack" and cur and (cur.hour or cur.minute):
@@ -3040,7 +3043,8 @@ def auto_plan():
         warnings.extend(_writeback_calendar(task, user) or [])
         planned += 1
     return jsonify({"ok": True, "planned": planned, "skipped": skipped,
-                    "next_left": next_left, "warnings": warnings})
+                    "next_left": next_left, "carried": carried,
+                    "warnings": warnings})
 
 
 @tasks_bp.route("/<task_id>/move-options")

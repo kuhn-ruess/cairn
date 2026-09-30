@@ -365,7 +365,7 @@
     openQuickAdd(c, snapAt(c, ev.clientY));
   });
 
-  // ---------- Plan my day / Re-pack / Carry over (delegated) ----------
+  // ---------- Plan my day / Re-pack (delegated) ----------
   async function runAutoPlan(btn, body, busyLabel) {
     const orig = btn.innerHTML;
     btn.disabled = true;
@@ -374,17 +374,18 @@
       const r = await postForm("/tasks/auto-plan", body);
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { alert("Auto-plan failed (" + r.status + ")"); btn.disabled = false; btn.innerHTML = orig; return; }
-      // What didn't fit is NOT gone — it sits in Unplanned. Say that, and say
+      // What didn't fit is NOT gone — it sits in Due. Say that, and say
       // plainly when there was no day left to plan into at all.
       let msg = `Planned ${j.planned} task(s).`;
       if (j.day_over) {
         msg = `Nothing re-planned — the working day (${j.window}) is over.`;
       } else {
         const left = [];
-        if (j.skipped) left.push(`${j.skipped} left in Unplanned`);
+        if (j.skipped) left.push(`${j.skipped} left in Due`);
         if (j.next_left) left.push(`${j.next_left} left in Next actions`);
         if (left.length) msg = `Planned ${j.planned}; ${left.join(", ")} (no room before the day ends).`;
       }
+      if (j.carried) msg = `Brought ${j.carried} unfinished task(s) onto today. ` + msg;
       sessionStorage.setItem("plan_toast", msg);
       window.location.reload();
     } catch (e) { alert("Auto-plan failed (network)."); btn.disabled = false; btn.innerHTML = orig; }
@@ -394,24 +395,9 @@
     if (auto) { runAutoPlan(auto, { date: auto.dataset.date }, "Planning…"); return; }
     const repack = ev.target.closest("#plan-repack-btn");
     if (repack) {
-      if (!confirm("Re-pack the whole day? This clears today's task times and re-schedules them from scratch.")) return;
+      if (!confirm("Re-pack the whole day? Every task time today is planned again from scratch — also the ones you placed by hand. Calendar events stay put.")) return;
       runAutoPlan(repack, { date: repack.dataset.date, mode: "repack" }, "Re-packing…");
       return;
-    }
-    const carry = ev.target.closest("#plan-carryover-btn");
-    if (carry) {
-      (async () => {
-        const orig = carry.innerHTML;
-        carry.disabled = true;
-        carry.innerHTML = '<i class="bi bi-hourglass-split"></i> Carrying over…';
-        try {
-          const r = await postForm("/tasks/carry-over", {});
-          const j = await r.json().catch(() => ({}));
-          if (!r.ok) { alert("Carry-over failed (" + r.status + ")"); carry.disabled = false; carry.innerHTML = orig; return; }
-          sessionStorage.setItem("plan_toast", `Carried ${j.moved} task(s) to today.`);
-          window.location.reload();
-        } catch (e) { alert("Carry-over failed (network)."); carry.disabled = false; carry.innerHTML = orig; }
-      })();
     }
   });
 

@@ -11,12 +11,12 @@ erledigten task wieder in die next liste schiebt"*.
 ``window_start`` (= now, snapped up) past ``window_end``, so ``plan_day``
 returned ``None`` for every candidate — and the repack branch then cleared each
 task's ``plan_date``. A task with no plan date, no due date and no flag matches
-nothing in ``_plan_day_tasks``, so it didn't even fall back into the Unplanned
+nothing in ``_plan_day_tasks``, so it didn't even fall back into the Due
 rail: the whole day was simply gone from the page. It is **not** a timezone
 defect (the window and ``now`` are both resolved in the user's zone); it is an
 empty remaining window. Two rules fix it and are pinned here: a day that is over
 is a no-op, and a task that does not fit keeps its place ON the day, at midnight
-— which is "planned for today, no time yet", exactly what the Unplanned rail
+— which is "planned for today, no time yet", exactly what the Due rail
 shows and what carry-over writes. Drag-to-unschedule had the same hole and gets
 the same answer.
 
@@ -131,7 +131,7 @@ class PlanBase(unittest.TestCase):
 
     def _rails(self, at):
         """The day's buckets as the timeline computes them: which tasks are
-        timed and which sit in the Unplanned rail."""
+        timed and which sit in the Due rail."""
         from application.views.tasks import _plan_classify, _plan_day_tasks
         with self.app.test_request_context(), \
                 mock.patch("application.views.tasks.datetime", _clock(at)):
@@ -187,7 +187,7 @@ class NoRoomLeftTests(PlanBase):
 
     def test_an_unplaced_task_keeps_its_day_at_midnight(self):
         """"On this day, no time yet" — the value carry-over writes, and the
-        only one the Unplanned rail can be drawn from."""
+        only one the Due rail can be drawn from."""
         self._repack(self.LATE)
         for task in (self.morning, self.afternoon):
             local = self._reload(task).plan_date.astimezone(BERLIN)
@@ -202,7 +202,7 @@ class NoRoomLeftTests(PlanBase):
 
     def test_a_task_that_still_fits_is_placed(self):
         """The guard must not turn the re-pack off: with room for the short one
-        it is timed, and only the long one goes to Unplanned."""
+        it is timed, and only the long one goes to Due."""
         body = self._repack(datetime(2026, 9, 24, 17, 15, tzinfo=BERLIN))
         self.assertEqual((body["planned"], body["skipped"]), (1, 1))
         timed, backlog = self._rails(datetime(2026, 9, 24, 17, 30, tzinfo=BERLIN))
@@ -222,7 +222,7 @@ class MiddayRepackTests(PlanBase):
 
 
 class UnscheduleKeepsTheDayTests(PlanBase):
-    """Dragging a card into the Unplanned rail had the same hole: the pill was
+    """Dragging a card into the Due rail had the same hole: the pill was
     drawn client-side and gone again on the next render."""
 
     def test_with_a_date_the_task_stays_on_the_day_without_a_time(self):
@@ -286,7 +286,7 @@ class BackToNextTests(PlanBase):
         at = datetime(2026, 9, 24, 19, 0, tzinfo=BERLIN)
         html = self._plan_page(at)
         self.assertIn("task-next-back", html)
-        # ... and on a pill in the Unplanned rail too (no time on the day).
+        # ... and on a pill in the Due rail too (no time on the day).
         from application.models.item import Item
         with self.app.app_context():
             Item.objects(pk=self.afternoon.pk).update_one(
@@ -404,7 +404,7 @@ class DelegatedInNextTests(PlanBase):
 
     def test_dragged_onto_the_day_plan_my_day_plans_it(self):
         """*"und wenn sie eingeblendet sind, plant sie die plan my day sauber
-        ein?"* — a delegated task put on the day (midnight = Unplanned) is on
+        ein?"* — a delegated task put on the day (midnight = Due) is on
         the timeline and gets a time like any other."""
         self._set("1")
         task = self._put_on_day(datetime(2026, 9, 24, 0, 0, tzinfo=BERLIN))
@@ -421,9 +421,10 @@ class DelegatedInNextTests(PlanBase):
         timed, backlog = self._rails(datetime(2026, 9, 24, 8, 0, tzinfo=BERLIN))
         self.assertNotIn("Delegiert", timed | backlog)
 
-    def test_carry_over_moves_only_what_the_plan_shows(self):
+    def test_plan_my_day_carries_over_only_what_the_plan_shows(self):
         """*"und werden nicht erledigte, geplante des vortages auch nach vorne
-        gezogen?"* — yes, by "Carry over"; but a task the timeline hides must
+        gezogen?"* / *"plan my day muss auch ein carry over machen"* — Plan my
+        day brings them onto today first; but a task the timeline hides must
         not be moved onto today where nobody sees it arrive."""
         yesterday = datetime(2026, 9, 23, 10, 0, tzinfo=BERLIN)
         task = self._put_on_day(yesterday)
@@ -432,18 +433,35 @@ class DelegatedInNextTests(PlanBase):
             own = Item(owner=self.user, kind="task", title="Gestern liegen",
                        plan_date=yesterday).save()
         at = datetime(2026, 9, 24, 8, 0, tzinfo=BERLIN)
-        with mock.patch("application.views.tasks.datetime", _clock(at)):
-            moved = self.client.post("/tasks/carry-over").get_json()["moved"]
-        self.assertEqual(moved, 1)
-        self.assertEqual(self._reload(own).plan_date.astimezone(BERLIN).date(), DAY)
+
+        def plan_my_day():
+            with mock.patch("application.views.tasks.datetime", _clock(at)):
+                return self.client.post(
+                    "/tasks/auto-plan", data={"date": DAY.isoformat()}).get_json()
+
+        body = plan_my_day()
+        self.assertEqual(body["carried"], 1)
+        mine = self._reload(own).plan_date.astimezone(BERLIN)
+        self.assertEqual(mine.date(), DAY)
+        self.assertTrue(mine.hour or mine.minute)  # carried AND planned
         self.assertEqual(self._reload(task).plan_date.astimezone(BERLIN).date(),
                          yesterday.date())
         self._set("1")
-        with mock.patch("application.views.tasks.datetime", _clock(at)):
-            moved = self.client.post("/tasks/carry-over").get_json()["moved"]
-        self.assertEqual(moved, 1)
+        self.assertEqual(plan_my_day()["carried"], 1)
         self.assertEqual(self._reload(task).plan_date.astimezone(BERLIN).date(), DAY)
 
+    def test_another_day_carries_nothing_over(self):
+        """Carrying over means "onto today" — planning tomorrow must not."""
+        from application.models.item import Item
+        with self.app.app_context():
+            old = Item(owner=self.user, kind="task", title="Alt",
+                       plan_date=datetime(2026, 9, 20, 10, 0, tzinfo=BERLIN)).save()
+        at = datetime(2026, 9, 23, 8, 0, tzinfo=BERLIN)  # the day BEFORE DAY
+        with mock.patch("application.views.tasks.datetime", _clock(at)):
+            body = self.client.post("/tasks/auto-plan",
+                                    data={"date": DAY.isoformat()}).get_json()
+        self.assertEqual(body["carried"], 0)
+        self.assertEqual(self._reload(old).plan_date.astimezone(BERLIN).day, 20)
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

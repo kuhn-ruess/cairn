@@ -1,6 +1,6 @@
 {# Structured.app-style single-column day planner.
    Driven by ``plan_data`` from tasks.today(): timed (events+tasks with a
-   time), allday chips, backlog (unplanned candidates), and the minute
+   time), allday chips, backlog (the Due rail), and the minute
    bounds range_start_min/range_end_min/work_*_min/now_min. Vertical scale
    is --plan-ppm (px per minute); items are absolutely positioned by time.
    Interactions (drag to reschedule, resize, "Plan my day") are wired by the
@@ -22,22 +22,17 @@
   <div class="plan-head d-flex flex-wrap align-items-center gap-2 mb-2">
     <button type="button" id="plan-auto-btn" class="btn btn-sm btn-primary"
             data-date="{{ plan_data.date }}"
-            title="Give today's unplanned tasks a time, then fill the free time left with Next actions">
+            title="Bring unfinished tasks from earlier days onto today, give the Due tasks a time, then fill the free time left with Next actions. Tasks that already have a time stay where they are.">
       <i class="bi bi-magic"></i> Plan my day
+      {% if plan_data.carryover_count %}<span class="badge text-bg-warning ms-1" title="{{ plan_data.carryover_count }} unfinished from earlier days — Plan my day brings them onto today">+{{ plan_data.carryover_count }}</span>{% endif %}
     </button>
     <button type="button" id="plan-repack-btn" class="btn btn-sm btn-outline-secondary"
             data-date="{{ plan_data.date }}"
-            title="Clear today's task times and re-pack everything from scratch">
+            title="Like Plan my day, but also moves the tasks that already have a time: every task time today is planned again from scratch. Calendar events stay put.">
       <i class="bi bi-arrow-repeat"></i> Re-pack
     </button>
-    {% if plan_data.carryover_count %}
-      <button type="button" id="plan-carryover-btn" class="btn btn-sm btn-outline-warning"
-              title="Move unfinished tasks from before today onto today">
-        <i class="bi bi-arrow-down-left-circle"></i> Carry over {{ plan_data.carryover_count }}
-      </button>
-    {% endif %}
     <span class="text-muted small">
-      Slots the <strong>Unplanned</strong> tasks into free time
+      Plans <strong>Due</strong>, then <strong>Next actions</strong>, into free time
       {{ '%02d:00'|format(plan_data.work_start_min // 60) }}–{{ '%02d:00'|format(plan_data.work_end_min // 60) }}
       · click an empty slot to add ·
       <a href="{{ url_for('settings.profile') }}">change hours</a>
@@ -52,7 +47,7 @@
         {% if _v != 'customer' or current_user.team or current_user.is_team_admin %}
           <a class="btn btn-sm {% if plan_data.grouping == _v %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}"
              href="?date={{ plan_data.date }}&view=plan&pgroup={{ _v }}"
-             title="Group Unplanned + Next actions by {{ _lbl|lower }}">
+             title="Group Due + Next actions by {{ _lbl|lower }}">
             <i class="bi {{ _ico }}"></i> {{ _lbl }}
           </a>
         {% endif %}
@@ -60,7 +55,7 @@
     </div>
     {% if plan_data.backlog %}
       <span class="badge text-bg-secondary">
-        {{ plan_data.backlog|length }} unplanned
+        {{ plan_data.backlog|length }} due
       </span>
     {% endif %}
   </div>
@@ -180,9 +175,9 @@
     </div>
   </div>
 
-  {# Draggable rails. "Unplanned" = today's tasks without a time (planned on
-     the day, due by it, flagged). "Next" = other next-actions. "Plan my day"
-     places Unplanned first, then fills the remaining room from Next. Drag any
+  {# Draggable rails. "Due" = today's tasks without a time (planned on the
+     day, due by it, flagged, carried over). "Next" = other next-actions.
+     "Plan my day" places Due first, then fills the remaining room from Next. Drag any
      pill onto the track.
      Both are split into sections by ``plan_data.grouping`` (project / customer
      / none) — when you pick work together, what it belongs to is the thing you
@@ -210,7 +205,7 @@
       <a class="plan-rail-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
       {% include "tasks/_delegated_badge.html" %}
       {# Left over at the end of the day: back into Next actions, off the day.
-         Only on the Unplanned rail — a Next pill is already there. #}
+         Only on the Due rail — a Next pill is already there. #}
       {% if back_to_next and it.obj.status != 'next' %}
         <button type="button" class="plan-back-next task-next-back" draggable="false"
                 data-task-id="{{ it.obj.pk }}"
@@ -244,7 +239,7 @@
   <div class="plan-rails mt-3">
     <div class="plan-rail" id="plan-backlog">
       <h2 class="plan-rail-head">
-        <i class="bi bi-inbox"></i> Unplanned <span class="plan-rail-count">{{ plan_data.backlog|length }}</span>
+        <i class="bi bi-alarm"></i> Due <span class="plan-rail-count">{{ plan_data.backlog|length }}</span>
       </h2>
       <div class="plan-rail-hint">Drag a card here to unschedule it</div>
       {% if plan_data.backlog %}
