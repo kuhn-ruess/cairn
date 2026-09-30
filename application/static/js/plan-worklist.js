@@ -5,8 +5,8 @@
  * swapped wholesale after every inspector save (bktodo:refresh-needed), and
  * anything bound to the cards would be gone after the first one.
  *
- * Every edit goes to an endpoint the rest of the app already uses (complete /
- * reopen, schedule / unschedule, quick-edit, note, comment), and updates its
+ * Every edit goes to an endpoint the rest of the app already uses (complete,
+ * schedule / unschedule, quick-edit, note, comment), and updates its
  * own card in place. Nothing here re-renders the list: a card you are halfway
  * through writing a note on must not be redrawn because you ticked another.
  * The one exception is adding a label, which asks for a background refresh of
@@ -63,25 +63,44 @@
     if (!dirty() && window.bktodoRefreshMain) window.bktodoRefreshMain();
   }
 
-  // ---- done / reopen ------------------------------------------------------
+  // ---- done ----------------------------------------------------------------
+  // The list is what is still to do, so a ticked card leaves it: fade, fold,
+  // remove, the group's count follows and an emptied group goes with it (the
+  // same as a task row in every other list, which has no undo either; Reopen
+  // is in the inspector and on the timeline, which still shows the task).
   document.addEventListener("click", (ev) => {
     const btn = ev.target.closest && ev.target.closest(".wl-check");
     if (!btn || !inList(btn)) return;
     ev.preventDefault();
     const card = cardOf(btn);
-    const done = card.classList.contains("is-done");
     btn.disabled = true;
-    post(done ? btn.dataset.reopenUrl : btn.dataset.completeUrl, {})
+    post(btn.dataset.completeUrl, {})
       .then(() => {
-        card.classList.toggle("is-done", !done);
-        const icon = btn.querySelector("i");
-        icon.className = "bi " + (done ? "bi-circle" : "bi-check-circle-fill");
-        const label = done ? "Mark done" : "Reopen";
-        btn.title = label; btn.setAttribute("aria-label", label);
+        card.style.maxHeight = card.offsetHeight + "px";
+        void card.offsetHeight;  // start the fold from the card's own height
+        card.classList.add("wl-leaving");
+        setTimeout(() => dropCard(card), 220);
       })
-      .catch(() => flash(card, "Couldn't save, try again.", true))
-      .finally(() => { btn.disabled = false; });
+      .catch(() => {
+        btn.disabled = false;
+        flash(card, "Couldn't save, try again.", true);
+      });
   });
+  function dropCard(card) {
+    const group = card.closest(".wl-group");
+    card.remove();
+    if (group) {
+      const left = group.querySelectorAll(".wl-card").length;
+      const count = group.querySelector(".plan-rail-count");
+      if (count) count.textContent = left;
+      if (!left) group.remove();
+    }
+    const root = document.getElementById("plan-worklist");
+    if (root && !root.querySelector(".wl-card")) {
+      const empty = root.querySelector(".wl-empty");
+      if (empty) empty.classList.remove("d-none");
+    }
+  }
 
   // ---- plan date + time, due date -----------------------------------------
   document.addEventListener("change", (ev) => {

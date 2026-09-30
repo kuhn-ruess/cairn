@@ -198,9 +198,24 @@ class PlanWorklistTests(unittest.TestCase):
 
         r = self.client.post(f"/tasks/{self.timed.pk}/complete", headers=xhr)
         self.assertEqual(self._task(self.timed).status, "done")
-        # A done task that was planned with a time stays on the list, struck.
+
+    def test_done_tasks_leave_the_list_but_not_the_timeline(self):
+        """*"erledigte sachen sollen von der liste verschwinden"*: the list is
+        what is still to do. The timeline keeps a done task, struck, as it
+        always did."""
+        xhr = {"X-Requested-With": "XMLHttpRequest"}
+        self.client.post(f"/tasks/{self.timed.pk}/complete", headers=xhr)
+        self.client.post(f"/tasks/{self.untimed.pk}/complete", headers=xhr)
         html = self._page("&playout=list")
-        self.assertIn("wl-card is-done", html)
+        self.assertNotIn(f'data-task-id="{self.timed.pk}"', html)
+        self.assertNotIn(f'data-task-id="{self.untimed.pk}"', html)
+        self.assertNotIn('class="wl-card', html)
+        self.assertIn("Nothing left planned or due on this day.", html)
+        self.assertNotIn("wl-empty d-none", html)
+
+        html = self._page("&playout=timeline")
+        self.assertIn("plan-card-task is-done", html)
+        self.assertIn("Rechnung schreiben", html)
 
 
 @unittest.skipIf(connect is None, "mongoengine not installed")

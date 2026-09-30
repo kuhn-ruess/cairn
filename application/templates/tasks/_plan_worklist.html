@@ -7,7 +7,7 @@
    swapped after every inspector save). Everything else is one click away in
    the inspector, the same one every other list opens.
 
-   Endpoints are the existing ones: complete / reopen, schedule / unschedule
+   Endpoints are the existing ones: complete, schedule / unschedule
    (plan date + time), quick-edit (due date, labels), note (X-Partial swaps
    _note_body.html back in), comment (X-Inspector-Request answers JSON).
 
@@ -16,25 +16,26 @@
    the tracked total and the stopwatch are rendered here, the full section
    (entries, manual entry) is the inspector's own timetracking/_task_time.html,
    fetched into the card's .time-block on demand. time-entries.js drives it
-   exactly as it drives the inspector. #}
+   exactly as it drives the inspector.
+
+   Only what is still to do is on the list: a done task is left out, and one
+   ticked off here fades out of it (the timeline keeps showing it, struck). #}
 {% from "tasks/_tag_macros.html" import tag_chips with context %}
 {% from "tasks/_event_note_macros.html" import task_note_btn %}
 
-{% macro wl_card(t, start=None, end=None, dur=None, done=false, colors={}) %}
+{% macro wl_card(t, start=None, end=None, dur=None, colors={}) %}
   {% set _c = colors.get(t.pk|string) %}
   {% set _path = plan_data.work_paths.get(t.pk|string) %}
   {% set _pd = (t.plan_date|localdate).isoformat() if t.plan_date else '' %}
   {% set _files = (t.note_files|length) + (t.note_images|length) %}
-  <article class="wl-card{% if done %} is-done{% endif %}{% if t.priority %} plan-prio-{{ t.priority }}{% endif %}{% if _c %} has-row-color{% endif %}"
+  <article class="wl-card{% if t.priority %} plan-prio-{{ t.priority }}{% endif %}{% if _c %} has-row-color{% endif %}"
            data-task-id="{{ t.pk }}"
            {% if _c %}style="--dot: {{ _c.color }};"{% endif %}>
     <header class="wl-head">
       <button type="button" class="wl-check"
               data-complete-url="{{ url_for('tasks.complete', task_id=t.pk) }}"
-              data-reopen-url="{{ url_for('tasks.reopen', task_id=t.pk) }}"
-              title="{{ 'Reopen' if done else 'Mark done' }}"
-              aria-label="{{ 'Reopen' if done else 'Mark done' }}">
-        <i class="bi {{ 'bi-check-circle-fill' if done else 'bi-circle' }}"></i>
+              title="Mark done" aria-label="Mark done">
+        <i class="bi bi-circle"></i>
       </button>
       <div class="wl-title-wrap">
         <div class="wl-title">
@@ -52,7 +53,7 @@
             {% if _path %}<i class="bi bi-folder"></i> {{ _path }}{% else %}<i class="bi bi-inbox"></i> Inbox{% endif %}
           </span>
           {% if t.due_date %}
-            <span class="{{ 'text-danger' if t.due_date < now_utc() and not done else '' }}">
+            <span class="{{ 'text-danger' if t.due_date < now_utc() else '' }}">
               <i class="bi bi-flag"></i> due {{ t.due_date|relativedate }}</span>
           {% endif %}
           {% if dur %}<span><i class="bi bi-stopwatch"></i> {{ dur }}m</span>{% endif %}
@@ -124,7 +125,7 @@
               <span class="tt-timer-elapsed font-monospace ms-1"
                     data-elapsed="{{ _run.elapsed_seconds() }}">0:00:00</span>
             </button>
-          {% elif not done %}
+          {% else %}
             <button type="button" class="btn btn-sm btn-outline-danger tt-timer-start"
                     data-action="{{ url_for('timetracking.timer_start') }}"
                     data-task-id="{{ t.pk }}"
@@ -203,16 +204,18 @@
   {% endif %}
 
   {% for label, cards in plan_data.work_groups %}
-    {% if label %}
-      <h2 class="plan-rail-head wl-group-head{% if not loop.first %} mt-4{% else %} mt-2{% endif %}">
-        <i class="bi {{ 'bi-dash-circle' if label == 'No customer' and loop.last else 'bi-building' }}"></i>
-        {{ label }} <span class="plan-rail-count">{{ cards|length }}</span>
-      </h2>
-    {% endif %}
-    {% for c in cards %}
-      {{ wl_card(c.obj, c.start, c.end, c.dur, c.done, _rc) }}
-    {% endfor %}
-  {% else %}
-    <p class="text-muted small">Nothing planned or due on this day.</p>
+    <section class="wl-group">
+      {% if label %}
+        <h2 class="plan-rail-head wl-group-head">
+          <i class="bi {{ 'bi-dash-circle' if label == 'No customer' and loop.last else 'bi-building' }}"></i>
+          {{ label }} <span class="plan-rail-count">{{ cards|length }}</span>
+        </h2>
+      {% endif %}
+      {% for c in cards %}
+        {{ wl_card(c.obj, c.start, c.end, c.dur, _rc) }}
+      {% endfor %}
+    </section>
   {% endfor %}
+  <p class="text-muted small wl-empty{% if plan_data.work_groups %} d-none{% endif %}">
+    Nothing left planned or due on this day.</p>
 </div>

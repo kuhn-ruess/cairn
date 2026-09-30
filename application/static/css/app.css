@@ -3670,14 +3670,23 @@ textarea.ol-edit.vim-normal::selection { background: var(--bs-primary, #d79921);
   border: 1px solid var(--gv-bg2); border-left: 3px solid var(--c);
   border-radius: .6rem; padding: .7rem .85rem; margin-bottom: .75rem;
 }
-.wl-card.is-done { opacity: .6; }
-.wl-card.is-done .wl-title a { text-decoration: line-through; }
+/* Ticked off: the card fades and folds away (plan-worklist.js removes it). */
+.wl-card {
+  transition: opacity .18s ease, transform .18s ease, max-height .2s ease,
+              padding .2s ease, margin .2s ease;
+}
+.wl-card.wl-leaving {
+  opacity: 0; transform: translateX(8px); max-height: 0; overflow: hidden;
+  margin: 0; padding-top: 0; padding-bottom: 0; pointer-events: none;
+}
+.wl-group-head { margin-top: .5rem; }
+.wl-group + .wl-group .wl-group-head { margin-top: 1.5rem; }
 .wl-head { display: flex; align-items: flex-start; gap: .6rem; }
 .wl-check {
   flex: 0 0 auto; border: 0; background: none; padding: 0; line-height: 1;
   font-size: 1.25rem; color: var(--gv-fg4); cursor: pointer;
 }
-.wl-check:hover, .wl-card.is-done .wl-check { color: var(--gv-green-br); }
+.wl-check:hover { color: var(--gv-green-br); }
 .wl-title-wrap { flex: 1 1 auto; min-width: 0; }
 .wl-title { font-weight: 600; font-size: 1rem; overflow-wrap: anywhere; }
 .wl-title a { color: var(--gv-fg0); text-decoration: none; }

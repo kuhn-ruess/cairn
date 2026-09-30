@@ -6,7 +6,7 @@ without either.
 
 ``test_plan_worklist.py`` checks what the page carries and that the endpoints
 answer; this checks the part only a browser has: that the edits on a card
-(done, note, comment, label, plan time) are made in place by
+(note, comment, label, plan time, done) are made in place by
 ``static/js/plan-worklist.js`` and land in the database, and that the list fits
 a phone without a horizontal scroll.
 """
@@ -145,12 +145,12 @@ class PlanWorklistBrowserTests(unittest.TestCase):
         card.locator(".tag-chip", has_text="kunde").wait_for()
         self.assertIn("kunde", self._db().tags)
 
-        # Done: the card stays, marked; the task is done.
+        # Done: the card fades out of the list; the task is done, and with
+        # nothing else on the day the list says so.
         card.locator(".wl-check").click()
-        page.wait_for_function(
-            f"() => document.querySelector('.wl-card[data-task-id=\"{self.task.pk}\"]')"
-            ".classList.contains('is-done')")
+        card.wait_for(state="detached")
         self.assertEqual(self._db().status, "done")
+        page.locator(".wl-empty").wait_for(state="visible")
         self.assertEqual(self.errors, [])
 
     def _with_team(self):

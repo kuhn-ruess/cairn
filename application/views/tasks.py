@@ -1465,7 +1465,11 @@ def today():
         if playout != user.plan_layout:
             user.plan_layout = playout
             user.save()
-        work_timed = [it for it in timed if it["kind"] == "task"]
+        # The list is what is still to do: a done task leaves it (asked for on
+        # task 6abcdd1f2c6ba359b7a57442, "erledigte sachen sollen von der
+        # liste verschwinden"). The timeline keeps showing it, struck.
+        work_timed = [it for it in timed
+                      if it["kind"] == "task" and not it.get("done")]
         work_paths, work_groups, work_minutes = {}, [], {}
         work_tt = False
         if playout == "list":
@@ -1659,10 +1663,10 @@ def _worklist_groups(timed, backlog):
     """
     from application.services.containers import customer_labels
     cards = ([{"obj": it["obj"], "start": it["start"], "end": it["end"],
-               "dur": it.get("duration_min"), "done": it.get("done", False)}
+               "dur": it.get("duration_min")}
               for it in timed]
              + [{"obj": c["obj"], "start": None, "end": None,
-                 "dur": c.get("duration_min"), "done": False}
+                 "dur": c.get("duration_min")}
                 for c in backlog])
     if not cards:
         return []
