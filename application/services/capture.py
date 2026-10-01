@@ -193,6 +193,11 @@ def _create_task(tnode: TaskNode, parent_item, user, stats: dict, order: int,
 # item already sitting at that place in the tree is only an anchor: nothing on
 # it is changed, and the lines indented under it are filed beneath it. Nothing
 # is ever deleted or moved, so dropping a line from the sketch does nothing.
+# A line of an open item that was moved to another place in the sketch (other
+# section, other parent) is that item, not a new one: it stays where it is and
+# is an anchor all the same. Only an item whose line is NOT still at its own
+# place counts as moved, so the same title typed a second time elsewhere is a
+# new task.
 # Nesting makes SUB-TASKS (the parent stays a task, the same rule as the
 # inspector's "add subtask"), not sub-projects.
 
@@ -261,20 +266,53 @@ def sketch_tasks(text: str, user, project) -> dict:
     Returns ``{"tasks_created": n, "tasks_skipped": n, "sections_created": n}``.
     """
     stats = {"tasks_created": 0, "tasks_skipped": 0, "sections_created": 0}
-    if project.kind != "project":
-        _sketch_level(parse_tasks(text), project, user, stats)
-        return stats
-    heading, block = None, []
-    for raw in (text or "").splitlines() + ["# "]:
-        m = _HEADING_RE.match(raw)
-        if not m:
-            block.append(raw)
+    # Two passes over the same text: the first only notes which existing items
+    # are still at their own place, the second files the lines. A line that
+    # matches nothing at its place may then be an open item moved there.
+    ctx = {"dry": True, "claimed": set(), "moved": _sketch_open_items(project)}
+    for dry in (True, False):
+        ctx["dry"] = dry
+        if project.kind != "project":
+            _sketch_level(parse_tasks(text), project, user, stats, ctx)
             continue
-        target = project if heading is None else _sketch_section(
-            heading, project, user, stats)
-        _sketch_level(parse_tasks("\n".join(block)), target, user, stats)
-        heading, block = (m.group(1) or None), []
+        heading, block = None, []
+        for raw in (text or "").splitlines() + ["# "]:
+            m = _HEADING_RE.match(raw)
+            if not m:
+                block.append(raw)
+                continue
+            target = project if heading is None else _sketch_section(
+                heading, project, user, stats, ctx)
+            if target is not None:
+                _sketch_level(parse_tasks("\n".join(block)), target, user,
+                              stats, ctx)
+            heading, block = (m.group(1) or None), []
     return stats
+
+
+def _sketch_open_items(project) -> dict:
+    """The open items under ``project`` (any depth) by casefolded title.
+
+    What the sketch view lists, so what a line may have been moved from.
+    Sections are headings, not lines, and closed items aren't listed.
+    """
+    from application.models.item import Item
+
+    found: dict = {}
+    frontier, seen = [project.pk], {project.pk}
+    while frontier:
+        nxt = []
+        for item in Item.objects(parent__in=frontier, kind__in=_SKETCH_KINDS,
+                                 status__nin=_SKETCH_CLOSED).only("title", "kind"):
+            if item.pk in seen:
+                continue
+            seen.add(item.pk)
+            nxt.append(item.pk)
+            if item.kind != "section":
+                key = (item.title or "").strip().casefold()
+                found.setdefault(key, []).append(item)
+        frontier = nxt
+    return found
 
 
 # A heading line: hashes, a space, a title. ``#project`` without the space is
@@ -282,14 +320,17 @@ def sketch_tasks(text: str, user, project) -> dict:
 _HEADING_RE = re.compile(r"^\s*#{1,6}(?:\s+(.*?))?(?:\s+#+)?\s*$")
 
 
-def _sketch_section(title: str, project, user, stats):
-    """The section ``title`` of ``project``: the existing one, else a new one."""
+def _sketch_section(title: str, project, user, stats, ctx):
+    """The section ``title`` of ``project``: the existing one, else a new one.
+
+    In the first pass a section that doesn't exist yet is ``None``.
+    """
     from application.models.item import Item
 
     title = " ".join(title.split())[:500]
     existing = Item.objects(parent=project, kind="section",
                             title__iexact=title).first()
-    if existing is not None:
+    if existing is not None or ctx["dry"]:
         return existing
     last = Item.objects(parent=project).order_by("-sort_order").only(
         "sort_order").first()
@@ -303,7 +344,7 @@ def _sketch_section(title: str, project, user, stats):
     return section
 
 
-def _sketch_level(nodes, parent, user, stats) -> None:
+def _sketch_level(nodes, parent, user, stats, ctx) -> None:
     from application.models.item import Item
     from application.services.quick_parse import parse_task_text
 
@@ -321,11 +362,19 @@ def _sketch_level(nodes, parent, user, stats) -> None:
         # The raw line counts too: an existing title that happens to contain
         # a token (``today``, ``p1``) loses it to the parser and would
         # otherwise come back as a second task.
-        existing = (by_title.get(node.title.strip().casefold())
-                    or by_title.get(title.strip().casefold()))
+        keys = (node.title.strip().casefold(), title.strip().casefold())
+        existing = by_title.get(keys[0]) or by_title.get(keys[1])
+        if ctx["dry"]:
+            # First pass: only note what is still at its own place.
+            if existing is not None:
+                ctx["claimed"].add(existing.pk)
+                _sketch_level(node.children, existing, user, stats, ctx)
+            continue
+        if existing is None:
+            existing = _sketch_moved(keys, ctx)
         if existing is not None:
             stats["tasks_skipped"] += 1
-            _sketch_level(node.children, existing, user, stats)
+            _sketch_level(node.children, existing, user, stats, ctx)
             continue
         task = Item(
             owner=user, kind="task", title=title, parent=parent,
@@ -339,4 +388,18 @@ def _sketch_level(nodes, parent, user, stats) -> None:
         order += 1
         stats["tasks_created"] += 1
         by_title[title.strip().casefold()] = task
-        _sketch_level(node.children, task, user, stats)
+        _sketch_level(node.children, task, user, stats, ctx)
+
+
+def _sketch_moved(keys, ctx):
+    """The open item a line was moved away from, if there is one.
+
+    Only an item whose own line is gone from its place qualifies, and each
+    one is taken once, so a title typed twice is one anchor and one new task.
+    """
+    for key in keys:
+        for item in ctx["moved"].get(key, []):
+            if item.pk not in ctx["claimed"]:
+                ctx["claimed"].add(item.pk)
+                return item
+    return None

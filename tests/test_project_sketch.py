@@ -140,6 +140,56 @@ class ProjectSketchTests(unittest.TestCase):
         done.save()
         self.assertEqual(sketch_outline(self.project), "- A\n  - B")
 
+    def test_moving_a_line_to_another_section_creates_nothing(self):
+        from application.services.capture import sketch_outline
+        self._sketch("## Phase 1\n- Kickoff\n  - Agenda\n## Phase 2\n- Abnahme")
+        p1 = self._child(self.project, "Phase 1")
+        kickoff = self._child(p1, "Kickoff")
+        stats = self._sketch("## Phase 1\n## Phase 2\n- Abnahme\n- Kickoff\n"
+                             "  - Agenda\n  - Raum buchen")
+        self.assertEqual(stats, {"tasks_created": 1, "tasks_skipped": 3,
+                                 "sections_created": 0})
+        self.assertEqual(self.Item.objects(title="Kickoff").count(), 1)
+        self.assertEqual(self.Item.objects(title="Agenda").count(), 1)
+        # The existing task stays where it is; what is new under it lands
+        # beneath it there.
+        kickoff.reload()
+        self.assertEqual(kickoff.parent.pk, p1.pk)
+        self.assertIsNotNone(self._child(kickoff, "Raum buchen"))
+        self.assertIn("## Phase 1\n- Kickoff", sketch_outline(self.project))
+
+    def test_moving_a_line_to_another_parent_creates_nothing(self):
+        self._sketch("- A\n  - B\n- C")
+        b = self._child(self._child(self.project, "A"), "B")
+        stats = self._sketch("- A\n- C\n  - B")
+        self.assertEqual(stats["tasks_created"], 0)
+        self.assertEqual(self.Item.objects(title="B").count(), 1)
+        b.reload()
+        self.assertEqual(b.parent.title, "A")
+
+    def test_deleting_a_line_changes_nothing(self):
+        self._sketch("- A\n  - B\n## Phase 1\n- C")
+        stats = self._sketch("## Phase 1")
+        self.assertEqual(stats["tasks_created"], 0)
+        self.assertEqual(self.Item.objects(kind="task", title__in=["A", "B", "C"])
+                         .count(), 3)
+
+    def test_same_title_in_two_places_is_still_new(self):
+        # The existing one is still listed at its place, so the second line
+        # is a new task, not the existing one moved.
+        self._sketch("## Phase 1\n- Testen")
+        stats = self._sketch("- Testen\n## Phase 1\n- Testen")
+        self.assertEqual(stats["tasks_created"], 1)
+        self.assertEqual(self.Item.objects(title="Testen").count(), 2)
+
+    def test_a_done_task_elsewhere_does_not_block_a_new_line(self):
+        self._sketch("## Phase 1\n- Testen")
+        done = self.Item.objects(title="Testen").first()
+        done.status = "done"
+        done.save()
+        stats = self._sketch("## Phase 2\n- Testen")
+        self.assertEqual(stats["tasks_created"], 1)
+
     def test_page_and_post(self):
         client = self.app.test_client()
         with client.session_transaction() as sess:
