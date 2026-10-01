@@ -65,7 +65,7 @@ class ProjectSketchTests(unittest.TestCase):
 
     def test_nesting_becomes_sub_tasks(self):
         stats = self._sketch("- Konzept\n  - Anforderungen\n    - Interviews\n- Umsetzung")
-        self.assertEqual(stats, {"tasks_created": 4, "tasks_skipped": 0})
+        self.assertEqual(stats, {"tasks_created": 4, "tasks_skipped": 0, "sections_created": 0})
         konzept = self._child(self.project, "Konzept")
         self.assertEqual(konzept.kind, "task")      # stays a task, holds sub-tasks
         anf = self._child(konzept, "Anforderungen")
@@ -76,7 +76,7 @@ class ProjectSketchTests(unittest.TestCase):
         old = self.Item(owner=self.owner, kind="task", title="Konzept",
                         parent=self.project, priority=1, status="next").save()
         stats = self._sketch("- konzept p4 +neu\n  - Anforderungen")
-        self.assertEqual(stats, {"tasks_created": 1, "tasks_skipped": 1})
+        self.assertEqual(stats, {"tasks_created": 1, "tasks_skipped": 1, "sections_created": 0})
         old.reload()
         self.assertEqual((old.priority, old.status, list(old.tags)), (1, "next", []))
         self.assertEqual(self.Item.objects(parent=self.project).count(), 1)
@@ -85,13 +85,52 @@ class ProjectSketchTests(unittest.TestCase):
     def test_same_sketch_twice_creates_nothing_new(self):
         text = "- A\n  - B\n- C"
         self._sketch(text)
-        self.assertEqual(self._sketch(text), {"tasks_created": 0, "tasks_skipped": 3})
+        self.assertEqual(self._sketch(text), {"tasks_created": 0, "tasks_skipped": 3, "sections_created": 0})
 
     def test_sketch_extends_a_section(self):
         section = self.Item(owner=self.owner, kind="section", title="Phase 1",
                             parent=self.project).save()
         self._sketch("- Phase 1\n  - Kickoff")
         self.assertIsNotNone(self._child(section, "Kickoff"))
+
+    def test_heading_makes_a_section(self):
+        stats = self._sketch("- Lose\n\n## Phase 1\n- Kickoff\n  - Agenda\n"
+                             "## Phase 2\n- Abnahme")
+        self.assertEqual(stats, {"tasks_created": 4, "tasks_skipped": 0,
+                                 "sections_created": 2})
+        self.assertEqual(self._child(self.project, "Lose").kind, "task")
+        p1 = self._child(self.project, "Phase 1")
+        self.assertEqual(p1.kind, "section")
+        self.assertIsNotNone(self._child(self._child(p1, "Kickoff"), "Agenda"))
+        p2 = self._child(self.project, "Phase 2")
+        self.assertEqual(p2.kind, "section")
+        self.assertIsNotNone(self._child(p2, "Abnahme"))
+        self.assertIsNone(self._child(self.project, "Abnahme"))
+
+    def test_heading_uses_an_existing_section(self):
+        section = self.Item(owner=self.owner, kind="section", title="Phase 1",
+                            parent=self.project, status="active").save()
+        stats = self._sketch("# phase 1\n- Kickoff")
+        self.assertEqual(stats["sections_created"], 0)
+        self.assertEqual(self.Item.objects(parent=self.project).count(), 1)
+        self.assertIsNotNone(self._child(section, "Kickoff"))
+        section.reload()
+        self.assertEqual(section.title, "Phase 1")
+
+    def test_hash_token_is_not_a_heading(self):
+        self._sketch("- Anruf\n#Relaunch")
+        self.assertEqual(self.Item.objects(parent=self.project,
+                                           kind="section").count(), 0)
+
+    def test_outline_shows_sections_as_headings(self):
+        from application.services.capture import sketch_outline
+        text = "- Lose\n\n## Phase 1\n- Kickoff\n  - Agenda"
+        self._sketch(text)
+        self.assertEqual(sketch_outline(self.project), text)
+        # Saved back unchanged it creates nothing.
+        self.assertEqual(self._sketch(sketch_outline(self.project)),
+                         {"tasks_created": 0, "tasks_skipped": 3,
+                          "sections_created": 0})
 
     def test_outline_round_trips(self):
         from application.services.capture import sketch_outline

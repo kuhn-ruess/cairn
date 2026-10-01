@@ -229,27 +229,78 @@ def sketch_outline(project) -> str:
         frontier = nxt
 
     def _walk(pk, depth):
-        # Sections last, as the project page shows them under the loose tasks.
-        kids = children.get(pk, [])
-        for item in ([k for k in kids if k.kind != "section"]
-                     + [k for k in kids if k.kind == "section"]):
+        for item in children.get(pk, []):
             title = " ".join((item.title or "").split())
-            if title:
+            if title and item.kind != "section":
                 lines.append("  " * depth + "- " + title)
                 _walk(item.pk, depth + 1)
 
+    # The loose items first, then each section as a ``##`` heading with its
+    # items as a list of their own: the order the project page shows them in.
     _walk(project.pk, 0)
+    for section in children.get(project.pk, []):
+        title = " ".join((section.title or "").split())
+        if section.kind != "section" or not title:
+            continue
+        if lines:
+            lines.append("")
+        lines.append("## " + title)
+        _walk(section.pk, 0)
     return "\n".join(lines)
 
 
 def sketch_tasks(text: str, user, project) -> dict:
     """Create the lines of ``text`` that don't exist yet, under ``project``.
 
-    Returns ``{"tasks_created": n, "tasks_skipped": n}``.
+    A Markdown heading (``## Phase 1``) is a SECTION of the project: the list
+    under it, up to the next heading, is filed into that section. A heading
+    naming a section the project already has uses it, any other creates one.
+    Only a project holds sections, so in a sketch of anything else a heading
+    is an ordinary line.
+
+    Returns ``{"tasks_created": n, "tasks_skipped": n, "sections_created": n}``.
     """
-    stats = {"tasks_created": 0, "tasks_skipped": 0}
-    _sketch_level(parse_tasks(text), project, user, stats)
+    stats = {"tasks_created": 0, "tasks_skipped": 0, "sections_created": 0}
+    if project.kind != "project":
+        _sketch_level(parse_tasks(text), project, user, stats)
+        return stats
+    heading, block = None, []
+    for raw in (text or "").splitlines() + ["# "]:
+        m = _HEADING_RE.match(raw)
+        if not m:
+            block.append(raw)
+            continue
+        target = project if heading is None else _sketch_section(
+            heading, project, user, stats)
+        _sketch_level(parse_tasks("\n".join(block)), target, user, stats)
+        heading, block = (m.group(1) or None), []
     return stats
+
+
+# A heading line: hashes, a space, a title. ``#project`` without the space is
+# the quick-add project token and stays a list line.
+_HEADING_RE = re.compile(r"^\s*#{1,6}(?:\s+(.*?))?(?:\s+#+)?\s*$")
+
+
+def _sketch_section(title: str, project, user, stats):
+    """The section ``title`` of ``project``: the existing one, else a new one."""
+    from application.models.item import Item
+
+    title = " ".join(title.split())[:500]
+    existing = Item.objects(parent=project, kind="section",
+                            title__iexact=title).first()
+    if existing is not None:
+        return existing
+    last = Item.objects(parent=project).order_by("-sort_order").only(
+        "sort_order").first()
+    section = Item(
+        owner=user, kind="section", title=title, parent=project,
+        project_type="parallel", status="active", review_interval_days=0,
+        sort_order=((last.sort_order or 0) + 1) if last else 0,
+    )
+    section.save()
+    stats["sections_created"] += 1
+    return section
 
 
 def _sketch_level(nodes, parent, user, stats) -> None:

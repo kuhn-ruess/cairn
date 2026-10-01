@@ -11,17 +11,19 @@
 </div>
 
 {# The project as a nested list. Every line that is new becomes a task, its
-   indentation a sub-task; a line naming something already there is only an
+   indentation a sub-task, a ``##`` heading a section; a line naming something already there is only an
    anchor and is never changed, moved or deleted. #}
 <form method="post" action="{{ url_for('projects.sketch', project_id=project.pk) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <textarea name="text" id="project-sketch" class="form-control font-monospace"
             rows="20" spellcheck="false" autofocus
-            placeholder="- Concept&#10;  - Collect requirements&#10;  - Draft +review&#10;- Build">{{ sketch_text }}{% if sketch_text %}
+            placeholder="- Kickoff&#10;&#10;## Concept&#10;- Collect requirements&#10;  - Interviews&#10;- Draft +review&#10;&#10;## Build">{{ sketch_text }}{% if sketch_text %}
 {% endif %}</textarea>
   <div class="form-text">
-    One line per task, indent for sub-tasks (Tab / Shift-Tab). Existing tasks
-    stay as they are: change or delete their lines and nothing happens to them.
+    One line per task, indent for sub-tasks (Tab / Shift-Tab). A heading
+    (<code>## Phase 1</code>) is a section: the list under it goes into it.
+    Existing tasks and sections stay as they are: change or delete their lines
+    and nothing happens to them.
     <code>+tag</code>, <code>@person</code>, <code>p1</code> and dates work as in quick-add.
     Ctrl/Cmd-Enter creates.
   </div>

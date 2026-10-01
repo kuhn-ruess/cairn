@@ -1674,8 +1674,14 @@ def sketch(project_id):
         abort(403)
     stats = sketch_tasks(request.form.get("text") or "", user, project)
     created, skipped = stats["tasks_created"], stats["tasks_skipped"]
-    if created:
-        flash(f"{created} task{'s' if created != 1 else ''} created"
+    sections = stats.get("sections_created", 0)
+    if created or sections:
+        parts = []
+        if sections:
+            parts.append(f"{sections} section{'s' if sections != 1 else ''}")
+        if created or not sections:
+            parts.append(f"{created} task{'s' if created != 1 else ''}")
+        flash(" and ".join(parts) + " created"
               + (f", {skipped} existing left as they were." if skipped else "."),
               "success")
     else:
