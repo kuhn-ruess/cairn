@@ -1232,7 +1232,6 @@ def create_tag():
     t = _Tag(
         name=name,
         color=data.get("color", "#6c757d"),
-        is_context=data.get("is_context", True),
         on_hold=data.get("on_hold", False),
         parent=data.get("parent") or None,
         exclusive_children=data.get("exclusive_children", False),
@@ -1253,8 +1252,6 @@ def update_tag(tag_name):
     data = request.get_json(silent=True) or {}
     if "color" in data:
         tag.color = data["color"]
-    if "is_context" in data:
-        tag.is_context = bool(data["is_context"])
     if "on_hold" in data:
         tag.on_hold = bool(data["on_hold"])
     if "parent" in data:

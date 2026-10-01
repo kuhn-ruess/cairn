@@ -698,7 +698,7 @@ class User(UserMixin, Document):
             if not name:
                 continue
             if not self.tag_by_name(name):
-                self.tags.append(_Tag(name=name, color="#6c757d", is_context=False))
+                self.tags.append(_Tag(name=name, color="#6c757d"))
                 added += 1
         return added
 

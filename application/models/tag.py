@@ -29,7 +29,10 @@ def _utcnow() -> datetime:
 class Tag(EmbeddedDocument):
     name = StringField(required=True, max_length=64)
     color = StringField(default="#6c757d", max_length=16)
-    is_context = BooleanField(default=True)
+    # Unused. Tags used to be shown as "@name" when this was set; "@" now
+    # means a person everywhere, so the flag was dropped. The field stays
+    # defined only so tag documents that still carry it keep loading.
+    is_context = BooleanField()
     on_hold = BooleanField(default=False)
 
     # Tag hierarchy
@@ -55,4 +58,4 @@ class Tag(EmbeddedDocument):
     external_id = StringField()  # opaque id from the importing source
 
     def __str__(self) -> str:
-        return f"@{self.name}" if self.is_context else self.name
+        return self.name

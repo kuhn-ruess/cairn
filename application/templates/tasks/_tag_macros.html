@@ -18,7 +18,7 @@
     {% set _t = current_user.tag_by_name(tag_name) %}
     <span class="tag-chip{{ ' tag-chip-removable' if removable else '' }}"
           style="--tag-color: {{ _t.color if _t else '#6c757d' }};">
-      {% if _t and _t.is_context %}@{% endif %}{{ tag_name }}
+      {{ tag_name }}
       {% if removable %}
         <button type="button" class="tag-chip-remove"
                 data-tag-remove-url="{{ url_for('tasks.remove_tag', task_id=item.pk) }}"

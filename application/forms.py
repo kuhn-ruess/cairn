@@ -225,7 +225,6 @@ class ProjectForm(FlaskForm):
 class TagForm(FlaskForm):
     name = StringField("Name", validators=[DataRequired(), Length(max=64)])
     color = StringField("Color (hex)", default="#6c757d")
-    is_context = BooleanField("Display as @context", default=True)
     on_hold = BooleanField("On hold")
     parent = SelectField("Group (parent tag)", choices=[], validators=[Optional()])
     exclusive_children = BooleanField(

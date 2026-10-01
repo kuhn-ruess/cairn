@@ -15,8 +15,7 @@ Mapping
 * Todoist section  → bktodo Item parented under the section's Todoist
   project. Section IDs are stored as ``external_id="section:<id>"`` so they
   never collide with project IDs.
-* Todoist label    → bktodo Tag (is_context=False — Todoist labels aren't
-  strictly @contexts)
+* Todoist label    → bktodo Tag
 * Todoist task     → bktodo Item
     - Priority: Todoist 4 (highest) … 1 (lowest)  →  bktodo 1 … 4 (inverted)
     - Status:   active → next | inbox (no project) ; completed → done
@@ -429,7 +428,6 @@ def _import_labels(user, labels, stats, dry_run) -> dict[str, Tag]:
         existing = out.get(raw["name"])
         if existing:
             existing.color = _todoist_color(raw.get("color")) or existing.color
-            existing.is_context = False
             existing.external_id = str(raw["id"])
             stats.tags_updated += 1
         else:
@@ -441,7 +439,6 @@ def _import_labels(user, labels, stats, dry_run) -> dict[str, Tag]:
             new_tag = Tag(
                 name=raw["name"],
                 color=_todoist_color(raw.get("color")) or "#6c757d",
-                is_context=False,
                 external_id=str(raw["id"]),
                 parent="Todoist",
             )
@@ -450,7 +447,7 @@ def _import_labels(user, labels, stats, dry_run) -> dict[str, Tag]:
             stats.tags_created += 1
 
     if out and not user.tag_by_name("Todoist"):
-        user.tags.append(Tag(name="Todoist", color="#6c757d", is_context=False))
+        user.tags.append(Tag(name="Todoist", color="#6c757d"))
 
     if not dry_run:
         user.save()
@@ -629,13 +626,13 @@ def _import_task(
     tags: list[str] = []
     todoist_labels = raw.get("labels") or []
     if todoist_labels and not user.tag_by_name("Todoist"):
-        user.tags.append(Tag(name="Todoist", color="#6c757d", is_context=False))
+        user.tags.append(Tag(name="Todoist", color="#6c757d"))
         if not dry_run:
             user.save()
     for name in todoist_labels:
         if name not in tag_by_name:
             new_tag = Tag(
-                name=name, color="#6c757d", is_context=False,
+                name=name, color="#6c757d",
                 parent="Todoist",
             )
             user.tags.append(new_tag)

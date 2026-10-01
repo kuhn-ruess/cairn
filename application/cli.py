@@ -1156,7 +1156,6 @@ def migrate_tags_to_embedded():
             user.tags.append(EmbeddedTag(
                 name=raw["name"],
                 color=raw.get("color") or "#6c757d",
-                is_context=raw.get("is_context", True),
                 on_hold=raw.get("on_hold", False),
                 parent=parent_name,
                 external_id=raw.get("external_id"),

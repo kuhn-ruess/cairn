@@ -517,7 +517,6 @@ def build_openapi_spec() -> dict:
                     "properties": {
                         "name": {"type": "string"},
                         "color": {"type": "string"},
-                        "is_context": {"type": "boolean"},
                         "on_hold": {"type": "boolean"},
                         "parent": {"type": "string", "nullable": True},
                         "exclusive_children": {"type": "boolean"},
@@ -537,7 +536,6 @@ def build_openapi_spec() -> dict:
                     "properties": {
                         "name": {"type": "string"},
                         "color": {"type": "string"},
-                        "is_context": {"type": "boolean"},
                         "on_hold": {"type": "boolean"},
                         "parent": {"type": "string"},
                         "exclusive_children": {"type": "boolean"},

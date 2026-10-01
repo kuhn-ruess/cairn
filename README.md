@@ -13,7 +13,7 @@ Built on the same stack as
   Someday/Maybe, Assigned-to-me, Completed
 - **Projects** (parallel / sequential / single-actions) with folders,
   review intervals and a weekly-review screen
-- **Tags / contexts** with colors and on-hold state
+- **Tags** with colors and on-hold state
 - **Tasks** with defer- and due-dates, priority, flags, estimates,
   per-day recurrence and embedded **comments**
 - **Collaboration**: share projects with other users, assign tasks

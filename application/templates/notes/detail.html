@@ -188,7 +188,7 @@
         {% for tag_name in (note.tags or []) %}
           {% set tg = current_user.tag_by_name(tag_name) %}
           <span class="tag-chip" style="background: {{ tg.color if tg else '#6c757d' }};">
-            {% if tg and tg.is_context %}@{% endif %}{{ tag_name }}
+            {{ tag_name }}
           </span>
         {% else %}
           <span class="text-muted small" id="note-no-tags">No tags.</span>
@@ -205,7 +205,7 @@
             <button type="button"
                     class="note-tag-opt btn btn-sm w-100 text-start d-flex align-items-center gap-2 rounded-0 {% if on %}active{% endif %}"
                     data-name="{{ value }}" data-color="{{ tg.color if tg else '#6c757d' }}"
-                    data-context="{{ '1' if tg and tg.is_context else '' }}" aria-pressed="{{ 'true' if on else 'false' }}">
+                    aria-pressed="{{ 'true' if on else 'false' }}">
               <i class="bi {{ 'bi-check-square' if on else 'bi-square' }}"></i>
               <span class="text-truncate">{{ label }}</span>
             </button>
@@ -446,7 +446,7 @@
     const on = selectedTagOpts();
     tagChips.innerHTML = on.length
       ? on.map(o => `<span class="tag-chip" style="background:${escapeAttr(o.dataset.color || "#6c757d")};">`
-          + `${o.dataset.context ? "@" : ""}${escapeHtml(o.dataset.name)}</span>`).join("")
+          + `${escapeHtml(o.dataset.name)}</span>`).join("")
       : '<span class="text-muted small">No tags.</span>';
   }
   async function saveTags() {

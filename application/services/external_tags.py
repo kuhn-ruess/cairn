@@ -87,11 +87,11 @@ def ensure_user_has_tags(user, names, *, group: str | None = None) -> None:
     new_names = [n for n in (names or []) if n and not user.tag_by_name(n)]
     touched = False
     if group and not user.tag_by_name(group):
-        user.tags.append(Tag(name=group, color="#6c757d", is_context=False))
+        user.tags.append(Tag(name=group, color="#6c757d"))
         touched = True
     for name in new_names:
         user.tags.append(Tag(
-            name=name, color="#6c757d", is_context=False,
+            name=name, color="#6c757d",
             parent=(group if group else None),
         ))
         touched = True

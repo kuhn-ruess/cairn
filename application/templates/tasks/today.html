@@ -169,7 +169,7 @@
       {% if active_tag %}
         {% set at = current_user.tag_by_name(active_tag) %}
         <span class="tag-chip" style="--tag-color: {{ at.color if at else '#6c757d' }};">
-          {% if at and at.is_context %}@{% endif %}{{ active_tag }}
+          {{ active_tag }}
         </span>
       {% else %}
         <i class="bi bi-tags"></i> all

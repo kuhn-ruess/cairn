@@ -8,7 +8,7 @@
   </a>
 </div>
 {% if not tags %}
-  <p class="text-muted">No tags yet — create one for each context (@home, @office, @errands…).</p>
+  <p class="text-muted">No tags yet. Create one for each kind of work (home, office, errands…).</p>
 {% else %}
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <p class="text-muted small mb-2">

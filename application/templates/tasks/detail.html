@@ -99,7 +99,7 @@
           <a class="tag-chip text-decoration-none"
              style="background: {{ tg.color if tg else '#6c757d' }};"
              href="{{ url_for('tags.detail', tag_name=tag_name) }}">
-            {% if tg and tg.is_context %}@{% endif %}{{ tag_name }}
+            {{ tag_name }}
           </a>
         {% endfor %}
       </div>

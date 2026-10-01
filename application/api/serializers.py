@@ -56,7 +56,6 @@ def tag(tag) -> dict[str, Any]:
         "id": tag.name,
         "name": tag.name,
         "color": tag.color,
-        "is_context": tag.is_context,
         "on_hold": tag.on_hold,
         "parent": tag.parent or None,
         "exclusive_children": tag.exclusive_children,

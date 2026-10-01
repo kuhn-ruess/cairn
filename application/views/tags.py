@@ -1,4 +1,4 @@
-"""Tag / GTD context views — tags now live embedded on ``User.tags``."""
+"""Tag views. Tags live embedded on ``User.tags``."""
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 from mongoengine import Q
@@ -71,7 +71,6 @@ def create():
             user.tags.append(Tag(
                 name=form.name.data,
                 color=form.color.data,
-                is_context=form.is_context.data,
                 on_hold=form.on_hold.data,
                 parent=form.parent.data or None,
                 exclusive_children=form.exclusive_children.data,
@@ -129,7 +128,6 @@ def edit(tag_name):
         new_name = form.name.data
         tag.name = new_name
         tag.color = form.color.data
-        tag.is_context = form.is_context.data
         tag.on_hold = form.on_hold.data
         tag.parent = new_parent
         tag.exclusive_children = form.exclusive_children.data
