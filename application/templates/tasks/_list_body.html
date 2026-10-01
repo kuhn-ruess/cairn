@@ -46,6 +46,7 @@
               leaves room for the title. #}
            {% if _depth > 0 %}style="--indent-level: {{ [_depth, 8]|min }};"{% endif %}
            data-task-id="{{ task.pk }}" data-task-status="{{ task.status }}"
+           {% if _depth > 0 %}data-depth="{{ _depth }}"{% endif %}
            {% if task._followup_only|default(false) %}data-followup-only="1"{% endif %}
            {% if task.assigned_to_id %}data-assigned-to-id="{{ task.assigned_to_id }}"{% endif %}>
         <div class="d-flex align-items-center gap-1">

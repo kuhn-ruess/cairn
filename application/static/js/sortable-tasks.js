@@ -39,6 +39,40 @@
   let mergeTarget = null;
   let dragStartX = null;
   let nestMode = false;
+  // The list the drag started in, and the dragged task's own sub-task rows.
+  //
+  // Nesting is a gesture INSIDE one list. A drag heading for another section
+  // drifts right on the way down as easily as any other, and it used to turn
+  // into a nest there: the list froze, the drop never reached the section, and
+  // the task landed as a sub-task of whatever row was under the pointer (or of
+  // its OWN sub-task, which the server rightly refuses: "can't nest a task
+  // under its own subtask"). Over another list the drag is a move, full stop.
+  //
+  // The sub-task rows stay where they are while their parent is dragged (they
+  // are separate rows that follow it), so they are under the pointer and above
+  // the dragged row all the time. They are never a place to nest it.
+  let dragOrigin = null;
+  let dragFamily = new Set();
+  function depthOf(row) {
+    return parseInt((row && row.dataset && row.dataset.depth) || "0", 10) || 0;
+  }
+  // The rows right after ``row`` that are deeper than it: its sub-task tree.
+  function subtaskRowsOf(row) {
+    const family = new Set();
+    if (!row || !row.dataset.taskId) return family;
+    const depth = depthOf(row);
+    let next = row.nextElementSibling;
+    while (next && next.dataset && next.dataset.taskId && depthOf(next) > depth) {
+      family.add(next);
+      next = next.nextElementSibling;
+    }
+    return family;
+  }
+  function canNestUnder(row) {
+    return !!row && row !== dragSource && !dragFamily.has(row)
+      && row.dataset.taskId !== (dragSource && dragSource.dataset.taskId)
+      && (!dragOrigin || row.closest(".task-list, .tree-tasks") === dragOrigin);
+  }
   function clearMergeTarget() {
     if (mergeTarget) mergeTarget.classList.remove("drop-merge-target");
     mergeTarget = null;
@@ -61,7 +95,8 @@
     while (prev) {
       if (prev.dataset && prev.dataset.taskId
           && prev.matches(".task-row, .tree-task")
-          && prev.dataset.taskId !== row.dataset.taskId) {
+          && prev.dataset.taskId !== row.dataset.taskId
+          && canNestUnder(prev)) {
         return prev;
       }
       prev = prev.previousElementSibling;
@@ -78,7 +113,14 @@
     const row = hit && hit.closest(".task-row[data-task-id], .tree-task[data-task-id]");
     if (!row || !dragSource || dragSource.contains(row)) return null;
     if (!row.closest(".task-list, .tree-tasks")) return null;
-    return row;
+    return canNestUnder(row) ? row : null;
+  }
+  // Is the pointer over a list other than the one the drag started in?
+  function overOtherList(x, y) {
+    const hit = document.elementFromPoint(x, y);
+    const list = hit && hit.closest(".task-list, .tree-tasks");
+    return !!(list && dragOrigin && list !== dragOrigin
+              && !(dragSource && dragSource.contains(list)));
   }
   function setNestMode(on) {
     on = !!on && !!dragSource;
@@ -94,6 +136,13 @@
     const y = touch ? touch.clientY : ev.clientY;
     if (typeof x !== "number") return;
     if (dragStartX === null) dragStartX = x;
+    // Over another section's list the drag is a move into it, however far
+    // right the hand has drifted on the way there.
+    if (overOtherList(x, y) || (dragOrigin && dragSource
+        && dragSource.closest(".task-list, .tree-tasks") !== dragOrigin)) {
+      setNestMode(false);
+      return;
+    }
     setNestMode(x - dragStartX >= NEST_SHIFT_PX);
     if (!nestMode) return;
     // Over another row: that one. Over the dragged row itself or a gap
@@ -154,6 +203,8 @@
       onStart: (ev) => {
         document.body.classList.add("is-dragging");
         dragSource = ev.item;
+        dragOrigin = ev.from;
+        dragFamily = subtaskRowsOf(ev.item);
         dragStartX = null;
         nestMode = false;
         document.body.classList.remove("is-nesting");
@@ -189,6 +240,8 @@
         nestMode = false;
         dragStartX = null;
         dragSource = null;
+        dragOrigin = null;
+        dragFamily = new Set();
         // Where the destination bucket IS the intent of the drop (Today grouped
         // by priority, a task dragged out of Completed), re-bucket the task and
         // never hijack the drop as a nest.
@@ -717,7 +770,10 @@
         return;
       }
       // Refresh main so counters + cross-section moves reflect immediately.
-      refreshMain();
+      // Through the wrapped refresher, never the bare one: the swap replaces
+      // every sub-project row, and only the wrapper arms the new ones as drop
+      // targets. The bare call left the page taking exactly one such drop.
+      window.bktodoRefreshMain();
     } catch (err) {
       console.error(err);
       flashError("Move failed — network error.");
@@ -783,7 +839,7 @@
           }
           li.classList.add("ps-drop-flash");
           setTimeout(() => li.classList.remove("ps-drop-flash"), 600);
-          refreshMain();
+          window.bktodoRefreshMain();
         } catch (err) {
           flashError("Move failed (network).");
         }
@@ -832,7 +888,7 @@
           }
           row.classList.add("sp-drop-flash");
           setTimeout(() => row.classList.remove("sp-drop-flash"), 600);
-          refreshMain();
+          window.bktodoRefreshMain();
         } catch (err) {
           flashError("Move failed (network).");
         }
