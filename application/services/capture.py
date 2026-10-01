@@ -189,15 +189,25 @@ def _create_task(tnode: TaskNode, parent_item, user, stats: dict, order: int,
 # The project page's Markdown view: the project typed as a nested list. The
 # same parser as a capture, but a different contract for what already exists.
 # A capture UPDATES a matching task (it re-applies the line's date, priority
-# and tags); a sketch leaves it exactly as it is. A line whose title matches an
-# item already sitting at that place in the tree is only an anchor: nothing on
-# it is changed, and the lines indented under it are filed beneath it. Nothing
-# is ever deleted or moved, so dropping a line from the sketch does nothing.
-# A line of an open item that was moved to another place in the sketch (other
-# section, other parent) is that item, not a new one: it stays where it is and
-# is an anchor all the same. Only an item whose line is NOT still at its own
-# place counts as moved, so the same title typed a second time elsewhere is a
-# new task.
+# and tags); a sketch never edits an item's fields. A line whose title matches
+# an item already sitting at that place in the tree is only an anchor: nothing
+# on it is changed, and the lines indented under it are filed beneath it.
+#
+# The sketch does change WHERE a task is and WHETHER it is open:
+#
+# * A line of an open task moved to another place in the sketch (other
+#   section, other parent) is that task, and saving MOVES it there, its
+#   sub-tasks with it. Only a task whose line is NOT still at its own place
+#   counts as moved, so the same title typed a second time elsewhere is a new
+#   task. Sub-projects and folders are anchors only, never moved.
+# * A task whose line the sketch showed when it was opened and that is gone
+#   on save is CLOSED (``Item.complete``, never deleted). Only the ids the
+#   page was opened with (``shown``) are candidates, so a task someone added
+#   meanwhile, or a closed one the sketch never listed, is never touched.
+#   Closing a task closes its open sub-tasks too (the model's cascade).
+#
+# The view runs a plan first (``apply=False``, nothing written) and asks for
+# confirmation whenever a save would move or close anything.
 # Nesting makes SUB-TASKS (the parent stays a task, the same rule as the
 # inspector's "add subtask"), not sub-projects.
 
@@ -207,11 +217,19 @@ _SKETCH_KINDS = ["task", "project", "section", "folder"]
 _SKETCH_CLOSED = ["done", "dropped", "completed"]
 
 
-def sketch_outline(project) -> str:
+class _Draft:
+    """A task or section a plan would create: no pk, nothing under it yet."""
+
+    def __init__(self, title, parent=None):
+        self.title, self.parent, self.pk, self.kind = title, parent, None, "task"
+
+
+def sketch_outline(project, shown: list | None = None) -> str:
     """The open part of ``project`` as a nested Markdown list.
 
     What the sketch view starts with, so a new line can be typed where it
-    belongs. One query per tree depth.
+    belongs. One query per tree depth. ``shown`` collects the pks of the
+    tasks written as lines: the snapshot a save closes missing lines against.
     """
     from application.models.item import Item
 
@@ -238,6 +256,8 @@ def sketch_outline(project) -> str:
             title = " ".join((item.title or "").split())
             if title and item.kind != "section":
                 lines.append("  " * depth + "- " + title)
+                if shown is not None and item.kind == "task":
+                    shown.append(str(item.pk))
                 _walk(item.pk, depth + 1)
 
     # The loose items first, then each section as a ``##`` heading with its
@@ -254,8 +274,13 @@ def sketch_outline(project) -> str:
     return "\n".join(lines)
 
 
-def sketch_tasks(text: str, user, project) -> dict:
-    """Create the lines of ``text`` that don't exist yet, under ``project``.
+def sketch_tasks(text: str, user, project, shown=None, apply: bool = True) -> dict:
+    """Bring ``project`` in line with the sketch ``text``.
+
+    New lines become tasks, a moved line moves its task, and a task in
+    ``shown`` (the pks the sketch was opened with) whose line is gone is
+    closed. ``shown=None`` closes nothing. ``apply=False`` writes nothing and
+    returns what a save would do.
 
     A Markdown heading (``## Phase 1``) is a SECTION of the project: the list
     under it, up to the next heading, is filed into that section. A heading
@@ -263,15 +288,24 @@ def sketch_tasks(text: str, user, project) -> dict:
     Only a project holds sections, so in a sketch of anything else a heading
     is an ordinary line.
 
-    Returns ``{"tasks_created": n, "tasks_skipped": n, "sections_created": n}``.
+    Returns the counts ``tasks_created``, ``tasks_skipped`` and
+    ``sections_created``, and the titles ``created``, ``moved``, ``closed``
+    (the missing lines), ``closed_with`` (open sub-tasks the sketch didn't
+    list that close with their parent) and ``refused`` (moves that would put
+    a task under its own sub-task, left where they are).
     """
-    stats = {"tasks_created": 0, "tasks_skipped": 0, "sections_created": 0}
-    # Two passes over the same text: the first only notes which existing items
-    # are still at their own place, the second files the lines. A line that
-    # matches nothing at its place may then be an open item moved there.
-    ctx = {"dry": True, "claimed": set(), "moved": _sketch_open_items(project)}
-    for dry in (True, False):
-        ctx["dry"] = dry
+    stats = {"tasks_created": 0, "tasks_skipped": 0, "sections_created": 0,
+             "created": [], "moved": [], "closed": [], "closed_with": [],
+             "refused": []}
+    by_title, open_items = _sketch_open_items(project)
+    # Two passes over the same text: the first ("scan") only notes which
+    # existing items are still at their own place, the second files the
+    # lines. A line that matches nothing at its place may then be an open
+    # item moved there.
+    ctx = {"mode": "scan", "claimed": set(), "moved": by_title, "kept": set(),
+           "drafts": {}}
+    for mode in ("scan", "apply" if apply else "plan"):
+        ctx["mode"] = mode
         if project.kind != "project":
             _sketch_level(parse_tasks(text), project, user, stats, ctx)
             continue
@@ -287,23 +321,27 @@ def sketch_tasks(text: str, user, project) -> dict:
                 _sketch_level(parse_tasks("\n".join(block)), target, user,
                               stats, ctx)
             heading, block = (m.group(1) or None), []
+    _sketch_close(shown, open_items, user, stats, ctx)
     return stats
 
 
-def _sketch_open_items(project) -> dict:
-    """The open items under ``project`` (any depth) by casefolded title.
+def _sketch_open_items(project):
+    """The open items under ``project`` (any depth): by casefolded title, and
+    by pk.
 
-    What the sketch view lists, so what a line may have been moved from.
-    Sections are headings, not lines, and closed items aren't listed.
+    What the sketch view lists, so what a line may have been moved from and
+    what a missing line may close. Sections are headings, not lines, and
+    closed items aren't listed.
     """
     from application.models.item import Item
 
     found: dict = {}
+    by_pk: dict = {}
     frontier, seen = [project.pk], {project.pk}
     while frontier:
         nxt = []
         for item in Item.objects(parent__in=frontier, kind__in=_SKETCH_KINDS,
-                                 status__nin=_SKETCH_CLOSED).only("title", "kind"):
+                                 status__nin=_SKETCH_CLOSED):
             if item.pk in seen:
                 continue
             seen.add(item.pk)
@@ -311,8 +349,9 @@ def _sketch_open_items(project) -> dict:
             if item.kind != "section":
                 key = (item.title or "").strip().casefold()
                 found.setdefault(key, []).append(item)
+                by_pk[str(item.pk)] = item
         frontier = nxt
-    return found
+    return found, by_pk
 
 
 # A heading line: hashes, a space, a title. ``#project`` without the space is
@@ -323,15 +362,24 @@ _HEADING_RE = re.compile(r"^\s*#{1,6}(?:\s+(.*?))?(?:\s+#+)?\s*$")
 def _sketch_section(title: str, project, user, stats, ctx):
     """The section ``title`` of ``project``: the existing one, else a new one.
 
-    In the first pass a section that doesn't exist yet is ``None``.
+    In the scan a section that doesn't exist yet is ``None``, in a plan a
+    draft.
     """
     from application.models.item import Item
 
     title = " ".join(title.split())[:500]
     existing = Item.objects(parent=project, kind="section",
                             title__iexact=title).first()
-    if existing is not None or ctx["dry"]:
+    if existing is not None or ctx["mode"] == "scan":
         return existing
+    if ctx["mode"] == "plan":
+        # The same new heading twice is one section, as it will be on save.
+        key = title.casefold()
+        if key not in ctx["drafts"]:
+            stats["sections_created"] += 1
+            ctx["drafts"][key] = _Draft(title, project)
+        return ctx["drafts"][key]
+    stats["sections_created"] += 1
     last = Item.objects(parent=project).order_by("-sort_order").only(
         "sort_order").first()
     section = Item(
@@ -340,7 +388,6 @@ def _sketch_section(title: str, project, user, stats, ctx):
         sort_order=((last.sort_order or 0) + 1) if last else 0,
     )
     section.save()
-    stats["sections_created"] += 1
     return section
 
 
@@ -350,9 +397,14 @@ def _sketch_level(nodes, parent, user, stats, ctx) -> None:
 
     if not nodes:
         return
-    siblings = list(Item.objects(parent=parent, kind__in=_SKETCH_KINDS)
-                    .only("title", "sort_order", "kind"))
-    by_title = {(s.title or "").strip().casefold(): s for s in siblings}
+    siblings = [] if parent.pk is None else list(
+        Item.objects(parent=parent, kind__in=_SKETCH_KINDS)
+        .only("title", "sort_order", "kind", "status"))
+    # An open item wins over a closed one of the same title: the open one is
+    # the line the sketch showed, and losing it to a closed twin would close it.
+    by_title = {}
+    for s in sorted(siblings, key=lambda s: s.status not in _SKETCH_CLOSED):
+        by_title[(s.title or "").strip().casefold()] = s
     # New lines go after what is already there, in the order they were typed.
     order = max((s.sort_order or 0 for s in siblings), default=-1) + 1
 
@@ -364,7 +416,7 @@ def _sketch_level(nodes, parent, user, stats, ctx) -> None:
         # otherwise come back as a second task.
         keys = (node.title.strip().casefold(), title.strip().casefold())
         existing = by_title.get(keys[0]) or by_title.get(keys[1])
-        if ctx["dry"]:
+        if ctx["mode"] == "scan":
             # First pass: only note what is still at its own place.
             if existing is not None:
                 ctx["claimed"].add(existing.pk)
@@ -372,9 +424,18 @@ def _sketch_level(nodes, parent, user, stats, ctx) -> None:
             continue
         if existing is None:
             existing = _sketch_moved(keys, ctx)
+            if existing is not None and _sketch_move(existing, parent, order,
+                                                     stats, ctx):
+                order += 1
         if existing is not None:
+            ctx["kept"].add(existing.pk)
             stats["tasks_skipped"] += 1
             _sketch_level(node.children, existing, user, stats, ctx)
+            continue
+        stats["tasks_created"] += 1
+        stats["created"].append(title)
+        if ctx["mode"] == "plan":
+            _sketch_level(node.children, _Draft(title, parent), user, stats, ctx)
             continue
         task = Item(
             owner=user, kind="task", title=title, parent=parent,
@@ -386,7 +447,6 @@ def _sketch_level(nodes, parent, user, stats, ctx) -> None:
             task.assign_to(parsed.assignee, by_user=user)
         task.save()
         order += 1
-        stats["tasks_created"] += 1
         by_title[title.strip().casefold()] = task
         _sketch_level(node.children, task, user, stats, ctx)
 
@@ -403,3 +463,59 @@ def _sketch_moved(keys, ctx):
                 ctx["claimed"].add(item.pk)
                 return item
     return None
+
+
+def _sketch_move(item, parent, order, stats, ctx) -> bool:
+    """Move the task ``item`` under ``parent`` (in a plan: only count it).
+
+    Sub-projects and folders stay where they are. A task never goes under
+    its own sub-task: that move is reported in ``refused`` and not made.
+    Returns whether the task moved.
+    """
+    raw = item._data.get("parent")
+    current = getattr(raw, "id", None) or getattr(raw, "pk", None) or raw
+    if item.kind != "task" or (parent.pk is not None and current == parent.pk):
+        return False
+    node, depth = parent, 0
+    while node is not None and depth < 50:
+        if node.pk == item.pk:
+            stats["refused"].append(item.title)
+            return False
+        node, depth = node.parent, depth + 1
+    stats["moved"].append(item.title)
+    if ctx["mode"] == "apply":
+        item.parent = parent
+        item.sort_order = order
+        item.save()
+    return True
+
+
+def _sketch_close(shown, open_items, user, stats, ctx) -> None:
+    """Close the tasks the sketch showed whose line is gone.
+
+    ``Item.complete`` closes a task's open sub-tasks with it, so those the
+    sketch didn't list (added meanwhile) are named in ``closed_with`` for
+    the confirmation. A sub-task whose line was kept was moved out first.
+    """
+    from application.models.item import Item
+
+    gone = []
+    for pk in dict.fromkeys(shown or []):
+        item = open_items.get(pk)
+        if item is not None and item.kind == "task" and item.pk not in ctx["kept"]:
+            gone.append(item)
+    gone_pks = {i.pk for i in gone}
+    frontier = [i.pk for i in gone]
+    while frontier:
+        kids = list(Item.objects(parent__in=frontier, kind="task",
+                                 status__nin=_SKETCH_CLOSED).only("title"))
+        kids = [k for k in kids if k.pk not in ctx["kept"]]
+        stats["closed_with"] += [k.title for k in kids if k.pk not in gone_pks]
+        frontier = [k.pk for k in kids if k.pk not in gone_pks]
+    for item in gone:
+        stats["closed"].append(item.title)
+        if ctx["mode"] != "apply":
+            continue
+        item.reload()
+        if item.status not in _SKETCH_CLOSED:
+            item.complete(by_user=user)

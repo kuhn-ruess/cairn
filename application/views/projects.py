@@ -814,9 +814,10 @@ def detail(project_id):
             view_mode = "list"
         else:
             from application.services.capture import sketch_outline
+            shown: list = []
             return render_template(
                 "projects/sketch.html", project=project,
-                sketch_text=sketch_outline(project),
+                sketch_text=sketch_outline(project, shown), shown=shown,
             )
 
     # Gantt / timeline: a dedicated, lightweight render over the project's whole
@@ -1657,11 +1658,13 @@ def set_view_mode(project_id):
 @projects_bp.route("/<project_id>/sketch", methods=["POST"])
 @login_required
 def sketch(project_id):
-    """Create the tasks typed in the Markdown sketch view.
+    """Save the Markdown sketch view.
 
-    Lines that match an item already at that place are left untouched (see
-    ``services.capture.sketch_tasks``), so saving the same sketch twice
-    creates nothing the second time.
+    New lines become tasks, a moved line moves its task, and a task the page
+    was opened with (``shown``) whose line is gone is closed (see
+    ``services.capture.sketch_tasks``). A save that would move or close
+    anything is planned first and shown for confirmation; only the second
+    POST (``confirm=1``) applies it.
     """
     from application.services.capture import sketch_tasks
 
@@ -1672,21 +1675,42 @@ def sketch(project_id):
         abort(404)
     if not project.can_be_edited_by(user):
         abort(403)
-    stats = sketch_tasks(request.form.get("text") or "", user, project)
-    created, skipped = stats["tasks_created"], stats["tasks_skipped"]
-    sections = stats.get("sections_created", 0)
-    if created or sections:
-        parts = []
-        if sections:
-            parts.append(f"{sections} section{'s' if sections != 1 else ''}")
-        if created or not sections:
-            parts.append(f"{created} task{'s' if created != 1 else ''}")
-        flash(" and ".join(parts) + " created"
-              + (f", {skipped} existing left as they were." if skipped else "."),
-              "success")
+    text = request.form.get("text") or ""
+    shown = [s for s in (request.form.get("shown") or "").split(",") if s]
+    if request.form.get("confirm") != "1":
+        plan = sketch_tasks(text, user, project, shown, apply=False)
+        if plan["moved"] or plan["closed"] or plan["closed_with"]:
+            return render_template(
+                "projects/sketch.html", project=project, sketch_text=text,
+                shown=shown, plan=plan,
+            )
+    stats = sketch_tasks(text, user, project, shown)
+    parts = []
+    if stats["sections_created"]:
+        n = stats["sections_created"]
+        parts.append(f"{n} section{'s' if n != 1 else ''} created")
+    for key, verb in (("created", "created"), ("moved", "moved"),
+                      ("closed", "closed")):
+        if stats[key]:
+            parts.append(_sketch_names(stats[key]) + " " + verb)
+    if stats["closed_with"]:
+        parts.append(_sketch_names(stats["closed_with"])
+                     + " closed with their parent")
+    if parts:
+        flash("Sketch saved: " + "; ".join(parts) + ".", "success")
     else:
-        flash("Nothing new in the sketch.", "info")
+        flash("Nothing changed in the sketch.", "info")
+    if stats["refused"]:
+        flash(_sketch_names(stats["refused"]) + " left in place: a task can't "
+              "go under its own sub-task.", "warning")
     return redirect(url_for("projects.detail", project_id=project_id))
+
+
+def _sketch_names(titles, limit=8) -> str:
+    """``3 tasks (A, B, C)``, the list cut off after ``limit`` names."""
+    n = len(titles)
+    names = ", ".join(titles[:limit]) + (f" and {n - limit} more" if n > limit else "")
+    return f"{n} task{'s' if n != 1 else ''} ({names})"
 
 
 @projects_bp.route("/<project_id>/share", methods=["POST"])

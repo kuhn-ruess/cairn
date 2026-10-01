@@ -11,10 +11,33 @@
 </div>
 
 {# The project as a nested list. Every line that is new becomes a task, its
-   indentation a sub-task, a ``##`` heading a section; a line naming something already there is only an
-   anchor and is never changed, moved or deleted. #}
+   indentation a sub-task, a ``##`` heading a section. A line naming a task
+   already there is that task: put elsewhere it moves the task there, removed
+   it closes the task (never deletes it). ``shown`` is the set of tasks the
+   page opened with: only those can be closed. A save that moves or closes
+   anything comes back here as ``plan`` and needs a second click. #}
 <form method="post" action="{{ url_for('projects.sketch', project_id=project.pk) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="shown" value="{{ (shown or [])|join(',') }}">
+  {% if plan %}
+  <div class="alert alert-warning" role="alert" id="sketch-confirm">
+    <div class="fw-semibold mb-1">Apply these changes?</div>
+    <ul class="mb-2">
+      {% if plan.closed %}<li>{{ plan.closed|length }} task{{ 's' if plan.closed|length != 1 }} will be closed: {{ plan.closed|join(', ') }}</li>{% endif %}
+      {% if plan.closed_with %}<li>{{ plan.closed_with|length }} open sub-task{{ 's' if plan.closed_with|length != 1 }} not shown in the sketch will close with {{ 'their' if plan.closed_with|length != 1 else 'its' }} parent: {{ plan.closed_with|join(', ') }}</li>{% endif %}
+      {% if plan.moved %}<li>{{ plan.moved|length }} task{{ 's' if plan.moved|length != 1 }} will be moved: {{ plan.moved|join(', ') }}</li>{% endif %}
+      {% if plan.created %}<li>{{ plan.created|length }} task{{ 's' if plan.created|length != 1 }} will be created: {{ plan.created|join(', ') }}</li>{% endif %}
+      {% if plan.refused %}<li>Left in place (a task can't go under its own sub-task): {{ plan.refused|join(', ') }}</li>{% endif %}
+    </ul>
+    <div class="d-flex gap-2">
+      <button type="submit" name="confirm" value="1" class="btn btn-warning btn-sm">
+        <i class="bi bi-check-lg"></i> Apply
+      </button>
+      <button type="button" class="btn btn-outline-secondary btn-sm"
+              onclick="document.getElementById('sketch-confirm').remove()">Keep editing</button>
+    </div>
+  </div>
+  {% endif %}
   <textarea name="text" id="project-sketch" class="form-control font-monospace"
             rows="20" spellcheck="false" autofocus
             placeholder="- Kickoff&#10;&#10;## Concept&#10;- Collect requirements&#10;  - Interviews&#10;- Draft +review&#10;&#10;## Build">{{ sketch_text }}{% if sketch_text %}
@@ -22,14 +45,16 @@
   <div class="form-text">
     One line per task, indent for sub-tasks (Tab / Shift-Tab). A heading
     (<code>## Phase 1</code>) is a section: the list under it goes into it.
-    Existing tasks and sections stay as they are: change or delete their lines
-    and nothing happens to them.
+    An existing task's line put under another heading or task moves it
+    there; a line removed closes its task (with its sub-tasks). Before
+    anything is moved or closed you are asked to confirm. Sections are never
+    renamed or removed.
     <code>+tag</code>, <code>@person</code>, <code>p1</code> and dates work as in quick-add.
-    Ctrl/Cmd-Enter creates.
+    Ctrl/Cmd-Enter saves.
   </div>
   <div class="mt-3 d-flex gap-2">
     <button type="submit" class="btn btn-primary">
-      <i class="bi bi-check-lg"></i> Create tasks
+      <i class="bi bi-check-lg"></i> Save
     </button>
     <a class="btn btn-outline-secondary" href="{{ url_for('projects.detail', project_id=project.pk) }}">Cancel</a>
   </div>

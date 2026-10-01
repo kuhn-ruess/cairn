@@ -4,8 +4,9 @@ Run with ``python -m unittest discover tests``. Needs a MongoDB for the test
 database (``bktodo_test``); skipped when there isn't one.
 
 A sketch is a nested list typed into a project: new lines become tasks,
-indentation becomes sub-tasks, and anything that already exists is left
-exactly as it is (only used as the anchor for the lines under it).
+indentation becomes sub-tasks, an existing task's line put elsewhere moves
+it, and a line the sketch opened with that is gone closes its task. Nothing
+on an existing item's fields is ever changed.
 """
 import unittest
 
@@ -56,9 +57,30 @@ class ProjectSketchTests(unittest.TestCase):
             Item.all_objects(owner=u).delete()
             u.delete()
 
-    def _sketch(self, text):
+    def _sketch(self, text, shown=None, apply=True):
         from application.services.capture import sketch_tasks
-        return sketch_tasks(text, self.owner, self.project)
+        stats = sketch_tasks(text, self.owner, self.project, shown, apply)
+        self.last = stats
+        return {k: stats[k] for k in
+                ("tasks_created", "tasks_skipped", "sections_created")}
+
+    def _client(self):
+        """A test client logged in as the owner. The class's app context is
+        reused by every request, so Flask-Login's ``g._login_user`` would
+        otherwise hand this test the user of the previous one."""
+        from flask import g
+        g.pop("_login_user", None)
+        client = self.app.test_client()
+        with client.session_transaction() as sess:
+            sess["_user_id"] = str(self.owner.pk)
+            sess["_fresh"] = True
+        return client
+
+    def _open(self):
+        """The sketch as the page opens it: its text and the shown ids."""
+        from application.services.capture import sketch_outline
+        shown = []
+        return sketch_outline(self.project, shown), shown
 
     def _child(self, parent, title):
         return self.Item.objects(parent=parent, title=title).first()
@@ -140,39 +162,140 @@ class ProjectSketchTests(unittest.TestCase):
         done.save()
         self.assertEqual(sketch_outline(self.project), "- A\n  - B")
 
-    def test_moving_a_line_to_another_section_creates_nothing(self):
+    def test_moving_a_line_to_another_section_moves_the_task(self):
         from application.services.capture import sketch_outline
         self._sketch("## Phase 1\n- Kickoff\n  - Agenda\n## Phase 2\n- Abnahme")
         p1 = self._child(self.project, "Phase 1")
+        p2 = self._child(self.project, "Phase 2")
         kickoff = self._child(p1, "Kickoff")
+        _, shown = self._open()
         stats = self._sketch("## Phase 1\n## Phase 2\n- Abnahme\n- Kickoff\n"
-                             "  - Agenda\n  - Raum buchen")
+                             "  - Agenda\n  - Raum buchen", shown)
         self.assertEqual(stats, {"tasks_created": 1, "tasks_skipped": 3,
                                  "sections_created": 0})
+        self.assertEqual((self.last["moved"], self.last["closed"]),
+                         (["Kickoff"], []))
         self.assertEqual(self.Item.objects(title="Kickoff").count(), 1)
-        self.assertEqual(self.Item.objects(title="Agenda").count(), 1)
-        # The existing task stays where it is; what is new under it lands
-        # beneath it there.
         kickoff.reload()
-        self.assertEqual(kickoff.parent.pk, p1.pk)
+        self.assertEqual(kickoff.parent.pk, p2.pk)
+        # Its sub-task came along, and what is new under it lands beneath it.
+        self.assertIsNotNone(self._child(kickoff, "Agenda"))
         self.assertIsNotNone(self._child(kickoff, "Raum buchen"))
-        self.assertIn("## Phase 1\n- Kickoff", sketch_outline(self.project))
+        self.assertEqual(kickoff.status, "open")
+        self.assertIn("## Phase 2\n- Abnahme\n- Kickoff", sketch_outline(self.project))
 
-    def test_moving_a_line_to_another_parent_creates_nothing(self):
+    def test_moving_a_line_to_another_parent_moves_the_task(self):
         self._sketch("- A\n  - B\n- C")
         b = self._child(self._child(self.project, "A"), "B")
-        stats = self._sketch("- A\n- C\n  - B")
+        _, shown = self._open()
+        stats = self._sketch("- A\n- C\n  - B", shown)
         self.assertEqual(stats["tasks_created"], 0)
+        self.assertEqual((self.last["moved"], self.last["closed"]), (["B"], []))
         self.assertEqual(self.Item.objects(title="B").count(), 1)
         b.reload()
-        self.assertEqual(b.parent.title, "A")
+        self.assertEqual(b.parent.title, "C")
+        self.assertEqual(b.status, "open")
 
-    def test_deleting_a_line_changes_nothing(self):
+    def test_moving_out_of_a_section_to_the_top(self):
+        self._sketch("## Phase 1\n- Kickoff")
+        kickoff = self.Item.objects(title="Kickoff").first()
+        _, shown = self._open()
+        self._sketch("- Kickoff\n## Phase 1", shown)
+        kickoff.reload()
+        self.assertEqual(kickoff.parent.pk, self.project.pk)
+
+    def test_a_task_never_moves_under_its_own_sub_task(self):
+        from application.services.capture import _sketch_move
+        self._sketch("- A\n  - B")
+        a = self._child(self.project, "A")
+        b = self._child(a, "B")
+        stats = {"moved": [], "refused": []}
+        self.assertFalse(_sketch_move(a, b, 0, stats, {"mode": "apply"}))
+        self.assertEqual(stats, {"moved": [], "refused": ["A"]})
+        a.reload()
+        self.assertEqual(a.parent.pk, self.project.pk)
+
+    def test_removing_a_line_closes_the_task(self):
+        self._sketch("- A\n  - B\n- C\n## Phase 1\n- D")
+        _, shown = self._open()
+        stats = self._sketch("- A\n## Phase 1", shown)
+        self.assertEqual(stats["tasks_created"], 0)
+        self.assertEqual(sorted(self.last["closed"]), ["B", "C", "D"])
+        for title in ("B", "C", "D"):
+            item = self.Item.objects(title=title).first()
+            self.assertIsNotNone(item)            # closed, never deleted
+            self.assertEqual(item.status, "done")
+        self.assertEqual(self.Item.objects(title="A").first().status, "open")
+
+    def test_removing_a_parent_closes_its_sub_tasks(self):
+        self._sketch("- A\n  - B")
+        _, shown = self._open()
+        a = self._child(self.project, "A")
+        # Added after the sketch was opened: not in the snapshot, but it
+        # closes with its parent (the model's cascade), and the plan says so.
+        late = self.Item(owner=self.owner, kind="task", title="Spaet",
+                         parent=a, status="open").save()
+        self._sketch("", shown, apply=False)
+        self.assertEqual((sorted(self.last["closed"]), self.last["closed_with"]),
+                         (["A", "B"], ["Spaet"]))
+        self._sketch("", shown)
+        late.reload()
+        self.assertEqual(late.status, "done")
+
+    def test_tasks_not_in_the_snapshot_are_untouched(self):
+        self._sketch("- A\n## Phase 1\n- C")
+        _, shown = self._open()
+        done = self.Item(owner=self.owner, kind="task", title="Alt",
+                         parent=self.project, status="done").save()
+        late = self.Item(owner=self.owner, kind="task", title="Neu",
+                         parent=self.project, status="open").save()
+        # The page also sends ids that don't belong to the project.
+        stranger = self.Item(owner=self.owner, kind="task", title="Fremd",
+                             status="open").save()
+        self._sketch("- A\n## Phase 1\n- C", shown + [str(stranger.pk),
+                                                       str(done.pk)])
+        self.assertEqual(self.last["closed"], [])
+        for item, status in ((late, "open"), (stranger, "open"), (done, "done")):
+            item.reload()
+            self.assertEqual(item.status, status)
+
+    def test_without_a_snapshot_a_removed_line_changes_nothing(self):
         self._sketch("- A\n  - B\n## Phase 1\n- C")
         stats = self._sketch("## Phase 1")
         self.assertEqual(stats["tasks_created"], 0)
-        self.assertEqual(self.Item.objects(kind="task", title__in=["A", "B", "C"])
-                         .count(), 3)
+        self.assertEqual(self.Item.objects(kind="task", title__in=["A", "B", "C"],
+                                           status="open").count(), 3)
+
+    def test_saving_unchanged_changes_nothing(self):
+        self._sketch("- A\n  - B\n- C\n## Phase 1\n- D\n  - E")
+        before = {(i.title, i.status, i.parent.pk, i.sort_order, i.updated_at)
+                  for i in self.Item.objects(owner=self.owner)
+                  if i.pk != self.project.pk}
+        text, shown = self._open()
+        stats = self._sketch(text, shown)
+        self.assertEqual(stats, {"tasks_created": 0, "tasks_skipped": 5,
+                                 "sections_created": 0})
+        self.assertEqual([self.last[k] for k in
+                          ("created", "moved", "closed", "closed_with")],
+                         [[], [], [], []])
+        after = {(i.title, i.status, i.parent.pk, i.sort_order, i.updated_at)
+                 for i in self.Item.objects(owner=self.owner)
+                 if i.pk != self.project.pk}
+        self.assertEqual(before, after)
+
+    def test_a_plan_writes_nothing(self):
+        self._sketch("## Phase 1\n- Kickoff\n- Weg")
+        _, shown = self._open()
+        stats = self._sketch("## Phase 2\n- Kickoff\n  - Neu", shown, apply=False)
+        self.assertEqual(stats, {"tasks_created": 1, "tasks_skipped": 1,
+                                 "sections_created": 1})
+        self.assertEqual((self.last["moved"], self.last["closed"]),
+                         (["Kickoff"], ["Weg"]))
+        self.assertIsNone(self._child(self.project, "Phase 2"))
+        self.assertIsNone(self.Item.objects(title="Neu").first())
+        self.assertEqual(self.Item.objects(title="Weg").first().status, "open")
+        self.assertEqual(self.Item.objects(title="Kickoff").first().parent.title,
+                         "Phase 1")
 
     def test_same_title_in_two_places_is_still_new(self):
         # The existing one is still listed at its place, so the second line
@@ -191,10 +314,7 @@ class ProjectSketchTests(unittest.TestCase):
         self.assertEqual(stats["tasks_created"], 1)
 
     def test_page_and_post(self):
-        client = self.app.test_client()
-        with client.session_transaction() as sess:
-            sess["_user_id"] = str(self.owner.pk)
-            sess["_fresh"] = True
+        client = self._client()
         pid = str(self.project.pk)
         page = client.get(f"/projects/{pid}?view=sketch")
         self.assertEqual(page.status_code, 200)
@@ -205,6 +325,25 @@ class ProjectSketchTests(unittest.TestCase):
         listing = client.get(f"/projects/{pid}")
         self.assertEqual(listing.status_code, 200)
         self.assertIn(b"bi-markdown", listing.data)
+
+    def test_closing_asks_first(self):
+        client = self._client()
+        pid = str(self.project.pk)
+        self._sketch("- A\n- B")
+        page = client.get(f"/projects/{pid}?view=sketch")
+        b = self._child(self.project, "B")
+        self.assertIn(str(b.pk).encode(), page.data)        # in ``shown``
+        _, shown = self._open()
+        form = {"text": "- A", "shown": ",".join(shown)}
+        resp = client.post(f"/projects/{pid}/sketch", data=form)
+        self.assertEqual(resp.status_code, 200)              # the confirmation
+        self.assertIn(b"will be closed: B", resp.data)
+        b.reload()
+        self.assertEqual(b.status, "open")
+        resp = client.post(f"/projects/{pid}/sketch", data=dict(form, confirm="1"))
+        self.assertEqual(resp.status_code, 302)
+        b.reload()
+        self.assertEqual(b.status, "done")
 
 
 if __name__ == "__main__":
