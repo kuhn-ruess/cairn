@@ -21,7 +21,7 @@ try:
     from mongoengine import disconnect
     from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
     from playwright.sync_api import sync_playwright
-except ImportError:  # pragma: no cover - no playwright / mongoengine installed
+except ImportError:  # pragma: no cover (no playwright or mongoengine installed)
     sync_playwright = None
 
 
