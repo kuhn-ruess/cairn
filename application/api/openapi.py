@@ -311,6 +311,23 @@ def build_openapi_spec() -> dict:
                         },
                         "created_at": {"type": "string", "format": "date-time"},
                         "updated_at": {"type": "string", "format": "date-time"},
+                        "comments": {
+                            "type": "array", "items": {"type": "object"},
+                            "description": "Oldest first by created_at. Not in the compact row.",
+                        },
+                        "last_comment_at": {
+                            "type": "string", "format": "date-time", "nullable": True,
+                            "description": "When the newest comment (by created_at) was written; null without comments.",
+                        },
+                        "last_comment_author_id": {
+                            "type": "string", "nullable": True,
+                            "description": "The Cairn user who wrote the newest comment; null for a reply "
+                                           "mirrored in from Zammad or Jira without a Cairn account, and without comments.",
+                        },
+                        "last_comment_author_name": {
+                            "type": "string", "nullable": True,
+                            "description": "Display name of the newest comment's author, external senders included.",
+                        },
                         "external_id": {
                             "type": "string", "nullable": True,
                             "description": "Prefixed internal id (csv:…, zammad:…).",
@@ -1093,9 +1110,22 @@ def build_openapi_spec() -> dict:
                     "summary": "List tasks",
                     "tags": ["tasks"],
                     "parameters": [
-                        {"name": "status", "in": "query", "schema": {"type": "string"}},
+                        {"name": "status", "in": "query", "schema": {"type": "string"},
+                         "description": "One status or a comma list (open,next,waiting_reply); the task has one of them."},
+                        {"name": "status_not", "in": "query", "schema": {"type": "string"},
+                         "description": "One status or a comma list to leave out. Applies on top of 'status' and 'open'."},
                         {"name": "open", "in": "query", "schema": {"type": "boolean"},
                          "description": "true → only open tasks (status not done/dropped). Ignored when 'status' is given."},
+                        {"name": "kind", "in": "query", "schema": {"type": "string", "enum": ["task", "project", "section", "folder"]},
+                         "description": "Without it the list also carries projects, sections and folders."},
+                        {"name": "compact", "in": "query", "schema": {"type": "boolean"},
+                         "description": "true → the slim row: no comments, attachments or importer bookkeeping. The last_comment_* fields are in both."},
+                        {"name": "updated_since", "in": "query", "schema": {"type": "string", "format": "date-time"},
+                         "description": "Only rows changed at or after this instant (delta sync)."},
+                        {"name": "awaiting_reply", "in": "query", "schema": {"type": "boolean"},
+                         "description": ("true → only tasks whose newest comment (by created_at) was not written by you, "
+                                         "including replies mirrored in without a Cairn account, plus tasks with no comment at all. "
+                                         "Filtered in the query, so limit and offset page over the matching rows.")},
                         {"name": "project_id", "in": "query", "schema": {"type": "string"}},
                         {"name": "tag_id", "in": "query", "schema": {"type": "string"},
                          "description": "Tag NAME (the field is a list of strings)."},

@@ -120,6 +120,34 @@ def _day_end(raw, user):
 
 # ---------------- tasks ----------------
 
+def _status_list(raw):
+    """``open,next`` → ``["open", "next"]``; ``None`` when nothing was asked.
+    An unknown entry comes back as that string, for the 400 to name it."""
+    names = [s.strip() for s in (raw or "").split(",") if s.strip()]
+    for name in names:
+        if name not in TASK_STATUS:
+            return name
+    return names or None
+
+
+def awaiting_reply_q(user):
+    """Raw filter: the task's newest comment (by ``created_at``, the later one
+    in the list on a tie, the same rule as ``serializers.last_comment``) was
+    not written by ``user``, or the task has no comments."""
+    newest = {"$reduce": {
+        "input": {"$ifNull": ["$comments", []]},
+        "initialValue": None,
+        "in": {"$cond": [
+            {"$or": [{"$eq": ["$$value", None]},
+                     {"$gte": ["$$this.created_at", "$$value.created_at"]}]},
+            "$$this", "$$value"]},
+    }}
+    return {"$expr": {"$ne": [
+        {"$let": {"vars": {"last": newest}, "in": "$$last.author"}},
+        user.pk,
+    ]}}
+
+
 @api_v1_bp.get("/tasks")
 @token_required
 def list_tasks():
@@ -132,15 +160,21 @@ def list_tasks():
         # owned by me or handed to me, team shares and stale member entries out.
         from application.services.permissions import own_or_assigned_q
         qs = qs.filter(own_or_assigned_q(user))
-    status = request.args.get("status")
-    if status:
-        if status not in TASK_STATUS:
-            return _bad_request(f"invalid status: {status}")
-        qs = qs.filter(status=status)
+    # ``status`` and ``status_not`` both take one status or a comma list.
+    statuses = _status_list(request.args.get("status"))
+    excluded = _status_list(request.args.get("status_not"))
+    for bad in (statuses, excluded):
+        if isinstance(bad, str):
+            return _bad_request(f"invalid status: {bad}")
+    if statuses:
+        qs = qs.filter(status__in=statuses)
     elif request.args.get("open") == "true":
         # "Offene" Aufgaben: alles außer abgeschlossen/verworfen. An den
         # konkreten ``status`` gekoppelt — ein expliziter Status gewinnt.
-        qs = qs.filter(status__nin=["done", "dropped"])
+        excluded = ["done", "dropped", *(excluded or [])]
+    if excluded:
+        # Applies on top of ``status`` and ``open``: each one only narrows.
+        qs = qs.filter(status__nin=excluded)
     kind = request.args.get("kind")
     if kind:
         # The query is not kind-filtered by default, so it returns
@@ -166,6 +200,11 @@ def list_tasks():
         qs = qs.filter(flagged=True)
     if request.args.get("assigned_to_me") == "true":
         qs = qs.filter(assigned_to=user)
+    if request.args.get("awaiting_reply") == "true":
+        # The newest comment is somebody else's (or nobody's: an imported
+        # reply without a Cairn account), or there is no comment at all. Asked
+        # in the query itself so ``limit``/``offset`` page over the right rows.
+        qs = qs.filter(__raw__=awaiting_reply_q(user))
     updated_since = request.args.get("updated_since")
     if updated_since:
         # Incremental sync: only rows touched at/after this instant.
@@ -256,7 +295,9 @@ def today_debug():
                 reasons.append("followup")
         return reasons
 
-    matched = [(t, r) for t in qs for r in [match_reason(t)] if r]
+    # select_related: the compact row reads each newest comment's author.
+    matched = [(t, r) for t in qs.select_related(max_depth=1)
+               for r in [match_reason(t)] if r]
     focus_item = focus_service.current(user)
     return jsonify({
         "now": now.isoformat(),

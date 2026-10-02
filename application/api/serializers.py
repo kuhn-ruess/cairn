@@ -1,5 +1,6 @@
 """Plain-dict serializers — no extra dependency needed for JSON."""
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -144,6 +145,40 @@ def comment(c, task_pk=None) -> dict[str, Any]:
     }
 
 
+def _comment_time(c):
+    dt = c.created_at
+    if dt is None:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def last_comment(comments):
+    """The newest comment by ``created_at``, not by list position (an import
+    can append an older reply late); on a tie the later one in the list.
+    ``api.v1.awaiting_reply_q`` asks the database the same question."""
+    last = None
+    for c in comments or []:
+        if last is None or _comment_time(c) >= _comment_time(last):
+            last = c
+    return last
+
+
+def last_comment_fields(t) -> dict[str, Any]:
+    """Who wrote the newest comment and when, so a list reader needs no
+    ``GET /tasks/<id>`` per row. ``last_comment_author_id`` is null for a
+    reply mirrored in without a Cairn account (Zammad, Jira)."""
+    c = last_comment(t.comments)
+    if c is None:
+        return {"last_comment_at": None, "last_comment_author_id": None,
+                "last_comment_author_name": None}
+    author_ids = ref_ids([c._data.get("author")])
+    return {
+        "last_comment_at": iso(c.created_at),
+        "last_comment_author_id": author_ids[0] if author_ids else None,
+        "last_comment_author_name": c.author_name,
+    }
+
+
 def api_token(t) -> dict[str, Any]:
     """An API token's metadata — never the token itself, which exists in
     plaintext exactly once, in the response that minted it."""
@@ -213,6 +248,7 @@ def task_compact(t) -> dict[str, Any]:
         "created_at": iso(t.created_at),
         "updated_at": iso(t.updated_at),
         "completed_at": iso(t.completed_at),
+        **last_comment_fields(t),
     }
 
 
@@ -291,7 +327,11 @@ def task(t) -> dict[str, Any]:
         "assigned_to": user_brief(t.assigned_to),
         "assigned_by": user_brief(t.assigned_by),
         "assigned_at": iso(t.assigned_at),
-        "comments": [comment(c, t.pk) for c in (t.comments or [])],
+        # Oldest first by ``created_at``; the stored order is append order,
+        # which an import can break.
+        "comments": [comment(c, t.pk) for c in
+                     sorted(t.comments or [], key=_comment_time)],
+        **last_comment_fields(t),
         "attachments": [attachment(t.pk, f) for f in (t.note_files or [])],
         "note_images": [note_image(t.pk, i) for i in (t.note_images or [])],
         "created_at": iso(t.created_at),

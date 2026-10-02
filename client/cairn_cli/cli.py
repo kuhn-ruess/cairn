@@ -258,6 +258,10 @@ def cmd_list(args):
         params["flagged"] = "true"
     if args.assigned_to_me:
         params["assigned_to_me"] = "true"
+    if args.status_not:
+        params["status_not"] = args.status_not
+    if args.awaiting_reply:
+        params["awaiting_reply"] = "true"
 
     if args.project:
         params["project_id"] = _resolve_project_id(client, args.project)
@@ -419,9 +423,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("list", help="List your tasks, with filters.")
     sp.add_argument("-p", "--project", help="Only this project (by name).")
     sp.add_argument("--inbox", action="store_true", help="Only inbox tasks (no project).")
-    sp.add_argument("-s", "--status", help="Filter by status (e.g. inbox, next, done, waiting…).")
+    sp.add_argument("-s", "--status", help="Filter by status, one or a comma list (e.g. open,next).")
+    sp.add_argument("--status-not", help="Leave these statuses out (comma list, e.g. waiting,done).")
     sp.add_argument("-f", "--flagged", action="store_true", help="Only flagged tasks.")
     sp.add_argument("--assigned-to-me", action="store_true", help="Only tasks assigned to me.")
+    sp.add_argument("--awaiting-reply", action="store_true",
+                    help="Only tasks whose newest comment is not mine, or that have none.")
     sp.add_argument("--shared", action="store_true",
                     help="Also list tasks that merely reach you through a shared project.")
     sp.add_argument("--limit", type=int, default=50, help="Max rows (default 50).")

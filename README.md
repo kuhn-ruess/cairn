@@ -234,10 +234,19 @@ Tokens are issued with `flask --app wsgi:app cairn issue-token <user>`.
 | GET/POST | `/api/v1/tags` | list / create tags |
 | PATCH/DELETE | `/api/v1/tags/<id>` | single tag |
 
-Task list query params: `status`, `project_id`, `tag_id`, `flagged=true`,
-`assigned_to_me=true`, `mine=true`, `limit`, `offset`. Without `mine=true` the
+Task list query params: `status`, `status_not`, `project_id`, `tag_id`,
+`flagged=true`, `assigned_to_me=true`, `mine=true`, `awaiting_reply=true`,
+`limit`, `offset`. Without `mine=true` the
 list also carries what is merely visible to you — every task in a project
 someone shared.
+
+`status` and `status_not` take one status or a comma list
+(`status_not=waiting,done`). Every row, compact or full, names its newest
+comment by `created_at`: `last_comment_at`, `last_comment_author_id` (null for
+a reply mirrored in without a Cairn account) and `last_comment_author_name`.
+`awaiting_reply=true` keeps the tasks whose newest comment is not yours, or
+that have none, so an inbox needs one call:
+`/api/v1/tasks?assigned_to_me=true&status_not=waiting&awaiting_reply=true&kind=task&compact=true`.
 
 `/api/v1/due` is the queue reader: open tasks whose due date has been reached,
 oldest first, widened with `days=N` / `until=YYYY-MM-DD` or narrowed with
