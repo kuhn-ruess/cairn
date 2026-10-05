@@ -191,7 +191,13 @@
     if (!list) return;
     const at = indexOf(node);
     const before = siblings(node)[at + 1];
-    if (before && before.el && before.el.parentNode === list) list.insertBefore(node.el, before.el);
+    const next = before && before.el && before.el.parentNode === list ? before.el : null;
+    // Already there: leave it. Re-inserting an element takes it out of the
+    // page for a moment, and a block that is open loses its focus with it,
+    // so the blur commits it in the middle of whatever is placing it (a
+    // paste then never got its new blocks rendered and showed them empty).
+    if (node.el.parentNode === list && node.el.nextElementSibling === next) return;
+    if (next) list.insertBefore(node.el, next);
     else list.appendChild(node.el);
   }
 
@@ -1108,22 +1114,40 @@
     if (!fresh) return;
 
     node.content = ta.value;
-    let after = node;
+    // Where the rest goes: beside the block, unless that is off screen or
+    // behind its open children. Then it goes INSIDE, the same rule Enter
+    // follows. Zoomed in on a block, its siblings are not on the page, and
+    // blocks put there vanished from under the writer's hands.
+    const inside = (node.children.length && !collapsed(node))
+        || (scope.indexOf(node) >= 0 && scope !== model);
+    let after = null, slot = 0;
+    let adopted = [];
     if (!node.content.trim()) {
       // An empty block is a place to put things, not a thing: replace it.
+      // Its own properties stay: an id:: is what a zoom or a ((reference))
+      // points at, and the pasted line has none of its own to give.
       const first = fresh.shift();
       node.content = first.content;
-      node.props = first.props;
-      first.children.forEach((kid) => { kid.parent = node; node.children.push(kid); });
+      node.props = Object.assign({}, node.props, first.props);
+      adopted = allNodes(first.children);
+      first.children.forEach((kid, i) => { kid.parent = node; node.children.splice(i, 0, kid); });
+      slot = first.children.length;
       ta.value = node.content;
     }
     placeTree(node);
     fresh.forEach((block) => {
-      insertAfter(after, block);
+      if (after) insertAfter(after, block);
+      else if (inside) {
+        block.parent = node;
+        node.children.splice(slot, 0, block);
+        makeBlockEl(block);
+        place(block);
+      } else insertAfter(node, block);
       placeTree(block);
       after = block;
     });
-    commit(node, allNodes(fresh));
+    after = after || node;
+    commit(node, adopted.concat(allNodes(fresh)));
     repaintAll();
     focusBlock(after, "end");
   }
