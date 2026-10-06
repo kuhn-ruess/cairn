@@ -143,8 +143,9 @@ class NoteImage(EmbeddedDocument):
 class NoteFile(EmbeddedDocument):
     """An arbitrary file dragged/pasted onto a note, stored inline on the item
     (same model as NoteImage, never on the filesystem). The note references it
-    by ``token`` via ``/tasks/<id>/note-file/<token>`` as a download link;
-    unlike images it is always served as an attachment, never rendered inline."""
+    by ``token`` via ``/tasks/<id>/note-file/<token>`` as a download link.
+    Served inline only for raster images, PDF and plain text, as a download
+    for every other type (``views.tasks._INLINE_TYPES``)."""
     token = StringField(required=True)
     filename = StringField(required=True)
     content_type = StringField(default="application/octet-stream")

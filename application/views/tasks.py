@@ -3989,14 +3989,28 @@ def note_image(task_id, token):
     return Response(
         bytes(img.data),
         mimetype=img.content_type or "image/webp",
-        headers={"Cache-Control": "private, max-age=86400"},
+        headers={"Cache-Control": "private, max-age=86400",
+                 "X-Content-Type-Options": "nosniff"},
     )
 
 
-def _store_note_file(item, fileobj):
-    """Append an arbitrary uploaded file to ``item.note_files`` (shared by the
-    task and note routes). Returns a JSON-ready payload dict, or an
-    ``(error, status)`` tuple on failure."""
+def _attachment_type(fileobj, name: str) -> str:
+    """The content type a file is stored with: what the client said, unless
+    that says nothing (no type, ``application/octet-stream``, which is what
+    ``curl -F file=@x.odp`` sends), then a guess from the file name."""
+    import mimetypes
+    ctype = (fileobj.mimetype or "").lower()
+    if ctype and ctype != "application/octet-stream":
+        return ctype
+    return mimetypes.guess_type(name)[0] or "application/octet-stream"
+
+
+def _add_note_file(item, fileobj):
+    """Append an uploaded file to ``item.note_files`` WITHOUT saving. Returns
+    ``{"token", "filename", "size"}``, or an ``(error, status)`` tuple, in which
+    case nothing was appended. Several files are checked one by one before a
+    single save (the API comment with attachments), so one that doesn't fit
+    leaves the item as it was."""
     import secrets
     if not fileobj:
         return ("no file", 400)
@@ -4009,36 +4023,47 @@ def _store_note_file(item, fileobj):
     token = secrets.token_urlsafe(12)
     item.note_files.append(NoteFile(
         token=token, filename=name,
-        content_type=fileobj.mimetype or "application/octet-stream", data=data,
+        content_type=_attachment_type(fileobj, name), data=data,
     ))
     size = _item_bson_size(item)
     if size > ITEM_MAX_BYTES:
-        item.note_files.pop()  # don't persist — would risk the 16 MB doc cap
-        return ("item is full — remove some attachments before adding more", 413)
+        item.note_files.pop()  # don't persist: would risk the 16 MB doc cap
+        return ("item is full, remove some attachments before adding more", 413)
+    return {"token": token, "filename": name, "size": size}
+
+
+def _store_note_file(item, fileobj):
+    """Append an arbitrary uploaded file to ``item.note_files`` and save
+    (shared by the task and note routes). Returns a JSON-ready payload dict,
+    or an ``(error, status)`` tuple on failure."""
+    result = _add_note_file(item, fileobj)
+    if isinstance(result, tuple):
+        return result
     item.save()
-    return {"token": token, "filename": name, "size": size,
-            "storage": item.storage_info()}
+    return {**result, "storage": item.storage_info()}
 
 
-# Types we never render inline: same-origin HTML/SVG/XML can execute script in
-# the user's session. These are always forced to download; everything else is
-# served ``inline`` so the browser opens it in place (PDFs, images, text…) when
-# it can, and falls back to downloading what it can't display (Office docs).
-_FORCE_DOWNLOAD_TYPES = {
-    "text/html", "application/xhtml+xml", "image/svg+xml",
-    "application/xml", "text/xml",
+# The only types a note attachment is served ``inline`` as, so the browser
+# opens them in place: raster images, PDF, plain text. Everything else is a
+# download. An allow list, not a block list: the content type is whatever the
+# uploader claimed, and a same-origin page of any type the browser renders as
+# a document (HTML, SVG, any ``+xml``...) runs script in the viewer's session.
+_INLINE_TYPES = {
+    "image/png", "image/jpeg", "image/gif", "image/webp",
+    "application/pdf", "text/plain",
 }
 
 
 def _note_file_response(item, token):
-    """Serve an inline note attachment. Opens in the browser when it can render
-    the type; only script-capable types (HTML/SVG/XML) are forced to download."""
+    """Serve a note attachment: inline for the few safe types the browser can
+    show (``_INLINE_TYPES``), as a download for everything else."""
     f = next((x for x in (item.note_files or []) if x.token == token), None)
     if not f:
         abort(404)
     from urllib.parse import quote
     ctype = (f.content_type or "application/octet-stream").lower()
-    disposition = "attachment" if ctype in _FORCE_DOWNLOAD_TYPES else "inline"
+    ctype = ctype.split(";", 1)[0].strip()
+    disposition = "inline" if ctype in _INLINE_TYPES else "attachment"
     fallback = f.filename.encode("ascii", "ignore").decode() or "attachment"
     content_disposition = (f"{disposition}; filename=\"{fallback}\"; "
                            f"filename*=UTF-8''{quote(f.filename)}")

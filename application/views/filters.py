@@ -115,6 +115,20 @@ def _link_target(attrs, new=False):
     return attrs
 
 
+# A file attached to a task or note (``/tasks|notes/<id>/note-file/<token>``),
+# an API upload included. Marked so it reads as a file, not as a page link.
+_ATTACHMENT_HREF_RE = re.compile(
+    r"^/(?:tasks|notes)/[0-9a-fA-F]{24}/note-file/[A-Za-z0-9_\-]+$")
+
+
+def _attachment_link(attrs, new=False):
+    """linkify callback: give an attachment link its paperclip class."""
+    if _ATTACHMENT_HREF_RE.match(attrs.get((None, "href"), "")):
+        attrs[(None, "class")] = "attachment-link"
+        attrs[(None, "title")] = "Attachment"
+    return attrs
+
+
 # ``- [ ] todo`` / ``- [x] done`` inside a note body. Python-Markdown has no
 # task-list extension bundled, so the brackets survive into the rendered <li>
 # and we swap them for a real checkbox here. ``data-md-task`` is the checkbox's
@@ -630,7 +644,7 @@ def register_filters(app):
         # <a> tags are left alone by linkify; code and pre stay literal, which
         # is what _linkify_outside_code is for (bleach's own skip_tags escapes
         # the code a second time). Open in a new tab, no referrer leak.
-        cleaned = _linkify_outside_code(cleaned, [_link_target])
+        cleaned = _linkify_outside_code(cleaned, [_link_target, _attachment_link])
         return Markup(cleaned)
 
     @app.template_filter("note_md")

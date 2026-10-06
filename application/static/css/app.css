@@ -3747,3 +3747,13 @@ textarea.ol-edit.vim-normal::selection { background: var(--bs-primary, #d79921);
   .wl-card { padding: .6rem .6rem; }
   .wl-fields, .wl-note-wrap, .wl-comments, .wl-flash, .wl-time { margin-left: 0; }
 }
+
+/* A file attached to a task or note, in a rendered note or comment
+   (``_attachment_link`` in views/filters.py): a paperclip in front, so a
+   download reads as a file and not as a link to another page. */
+a.attachment-link::before {
+  font-family: "bootstrap-icons";
+  content: "\f4b3";
+  margin-right: .2em;
+  vertical-align: -.125em;
+}

@@ -276,6 +276,18 @@ leaving a second copy (201), so an import needs no bookkeeping of its own.
 (`http://127.0.0.1:16106/mcp`, plain JSON-RPC over HTTP, so cron can drive it)
 → every note tagged `#cairn` → Cairn, then Agenda's own trash.
 
+**Files** go in over the API as multipart, into the same `note_files` the
+app's drag and drop fills (`views.tasks._add_note_file`, same limits: 10 MB per
+file, `ITEM_MAX_BYTES` per item): `POST /tasks/<id>/attachments` (field
+`file`, link appended to the note unless `append_to_note=0`) and
+`POST /tasks/<id>/comments` as multipart (`body` plus any number of `file`
+parts, linked at the end of the comment, all or nothing). A file nothing links
+to is reaped (`_prune_orphan_attachments`), which is why the upload links it
+somewhere by default. Serving (`_note_file_response`, web and API alike) is
+`inline` only for the allow list `_INLINE_TYPES` (raster images, PDF, plain
+text) and a download for everything else, always with `nosniff`: the stored
+type is whatever the uploader claimed.
+
 `application/api/openapi.py` is the hand-written spec served at
 `/api/v1/openapi.json` and rendered at `/api/v1/docs`. Add a path there for
 every route you add — `tests/test_time_api.py` asserts the two agree.

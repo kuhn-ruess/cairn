@@ -575,17 +575,99 @@ def bulk_projects():
 
     return jsonify({"action": action, "affected": affected, "skipped": skipped})
 
+def _attachment_markdown(task, stored) -> str:
+    """The Markdown a stored note file is referenced by: an image for a raster
+    picture (it renders in the comment), a link for everything else. It points
+    at the WEB route, like a file dropped in the app; the API serializers turn
+    that into the API download URL for API readers."""
+    from flask import url_for
+    url = url_for("tasks.note_file", task_id=str(task.pk), token=stored["token"])
+    label = stored["filename"].replace("[", "").replace("]", "")
+    f = next(x for x in task.note_files if x.token == stored["token"])
+    from application.views.tasks import _sniff_image_type
+    if _sniff_image_type(bytes(f.data[:12])):
+        return f"![{label}]({url})"
+    return f"[{label}]({url})"
+
+
+def _attachment_payload(task, stored) -> dict:
+    from application.api.serializers import attachment as ser_attachment
+    f = next(x for x in task.note_files if x.token == stored["token"])
+    return {**ser_attachment(task.pk, f),
+            "markdown": _attachment_markdown(task, stored)}
+
+
+def _add_uploads(task, files):
+    """Put every uploaded file on ``task`` (not saved). All or nothing: the
+    first one that is refused takes the ones before it back off, and its
+    ``(error, status)`` is returned. Otherwise the list of stored files."""
+    from application.views.tasks import _add_note_file
+    stored = []
+    for fileobj in files:
+        result = _add_note_file(task, fileobj)
+        if isinstance(result, tuple):
+            for _ in stored:
+                task.note_files.pop()
+            name = getattr(fileobj, "filename", "") or "file"
+            return (f"{name}: {result[0]}", result[1])
+        stored.append(result)
+    return stored
+
+
+@api_v1_bp.post("/tasks/<task_id>/attachments")
+@token_required
+def upload_attachment(task_id):
+    """Attach a file of any type to a task (multipart, field ``file``).
+
+    A file nothing references is reaped a few minutes later
+    (``Item._prune_orphan_attachments``), so by default its link is appended
+    to the task note, as the app's "create then attach" flow does.
+    ``append_to_note=0`` skips that; the caller then has to put the returned
+    ``markdown`` into the note or a comment itself."""
+    user = g.current_user
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_edited_by(user):
+        return _bad_request("not found", 404)
+    fileobj = request.files.get("file")
+    if not fileobj:
+        return _bad_request("file is required (multipart field 'file')")
+    result = _add_uploads(task, [fileobj])
+    if isinstance(result, tuple):
+        return _bad_request(*result)
+    task.save()
+    payload = _attachment_payload(task, result[0])
+    if request.form.get("append_to_note", "1") != "0":
+        from application.views.tasks import _append_markdown_to_note
+        _append_markdown_to_note(task, payload["markdown"])
+    payload["storage"] = task.storage_info()
+    return jsonify(payload), 201
+
+
 @api_v1_bp.post("/tasks/<task_id>/comments")
 @token_required
 def add_comment(task_id):
+    """A comment, as JSON ``{"body": ...}`` or as multipart with a ``body``
+    field and any number of ``file`` parts. The files are attached to the task
+    and linked at the end of the comment; with files the body may be empty."""
     user = g.current_user
     task = Item.objects(pk=task_id).first()
     if not task or not task.can_be_viewed_by(user):
         return _bad_request("not found", 404)
-    data = request.get_json(silent=True) or {}
-    body = (data.get("body") or "").strip()
-    if not body:
+    if request.files or (request.mimetype or "").startswith("multipart/"):
+        body = (request.form.get("body") or "").strip()
+        files = [f for f in request.files.getlist("file") if f]
+    else:
+        data = request.get_json(silent=True) or {}
+        body = (data.get("body") or "").strip()
+        files = []
+    if not body and not files:
         return _bad_request("body is required")
+    if files:
+        stored = _add_uploads(task, files)
+        if isinstance(stored, tuple):
+            return _bad_request(*stored)
+        links = "\n".join(_attachment_markdown(task, s) for s in stored)
+        body = f"{body}\n\n{links}" if body else links
     task.add_comment(user, body)
     # Same notifications a comment written in the app fires — an answer posted
     # by an agent has to reach its reader the same way one typed into the form
@@ -644,7 +726,8 @@ def get_attachment(task_id, token):
         return Response(
             bytes(img.data),
             mimetype=img.content_type or "image/webp",
-            headers={"Cache-Control": "private, max-age=86400"},
+            headers={"Cache-Control": "private, max-age=86400",
+                     "X-Content-Type-Options": "nosniff"},
         )
     return _bad_request("not found", 404)
 

@@ -1275,20 +1275,80 @@ def build_openapi_spec() -> dict:
                 "post": {
                     "summary": "Add a comment",
                     "tags": ["tasks"],
+                    "description": ("JSON for a plain comment. Multipart to attach files: "
+                                    "a `body` field and any number of `file` parts, any "
+                                    "file type. The files are attached to the task and "
+                                    "linked at the end of the comment (a raster image as "
+                                    "an image, everything else as a download link); with "
+                                    "files the body may be empty. Limits: 10 MB per file, "
+                                    "15 MB of attachments per task; if one file is refused "
+                                    "(413) nothing is stored."),
                     "requestBody": {
                         "required": True,
-                        "content": {"application/json": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object", "required": ["body"],
+                                    "properties": {
+                                        "body": {"type": "string"},
+                                        "is_public": {"type": "boolean"},
+                                    },
+                                },
+                            },
+                            "multipart/form-data": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {"type": "string"},
+                                        "file": {"type": "array", "items": {
+                                            "type": "string", "format": "binary"}},
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    "responses": {
+                        "201": {"description": "Created, returns the task"},
+                        "400": {"description": "Neither body nor file"},
+                        "404": {"description": "Not found"},
+                        "413": {"description": "A file is too large or the task is full"},
+                    },
+                },
+            },
+            "/tasks/{task_id}/attachments": {
+                "parameters": [
+                    {"name": "task_id", "in": "path", "required": True, "schema": {"type": "string"}},
+                ],
+                "post": {
+                    "summary": "Attach a file to a task",
+                    "tags": ["tasks"],
+                    "description": ("Multipart upload, field `file`, any file type. By "
+                                    "default the returned `markdown` link is appended to "
+                                    "the task note. With `append_to_note=0` it is not, and "
+                                    "the caller must put `markdown` into the note or a "
+                                    "comment itself: a file nothing references is removed "
+                                    "after about five minutes. Limits: 10 MB per file, "
+                                    "15 MB of attachments per task."),
+                    "requestBody": {
+                        "required": True,
+                        "content": {"multipart/form-data": {
                             "schema": {
-                                "type": "object", "required": ["body"],
+                                "type": "object", "required": ["file"],
                                 "properties": {
-                                    "body": {"type": "string"},
-                                    "is_public": {"type": "boolean"},
+                                    "file": {"type": "string", "format": "binary"},
+                                    "append_to_note": {"type": "string", "enum": ["0", "1"],
+                                                       "default": "1"},
                                 },
                             },
                         }},
                     },
                     "responses": {
-                        "201": {"description": "Created"},
+                        "201": {"description": ("Stored: token, filename, content_type, size, "
+                                                "created_at, url (API download), markdown, "
+                                                "storage")},
+                        "400": {"description": "No file, or an empty one"},
+                        "404": {"description": "Not found"},
+                        "413": {"description": "File too large or task full"},
                     },
                 },
             },
@@ -1332,7 +1392,10 @@ def build_openapi_spec() -> dict:
                     "tags": ["tasks"],
                     "description": "Streams the raw bytes of a note file or pasted "
                                    "image. Tokens come from a task's `attachments[]` "
-                                   "/ `note_images[]`.",
+                                   "/ `note_images[]`. Served inline only for raster "
+                                   "images, PDF and plain text, with "
+                                   "`Content-Disposition: attachment` for every other "
+                                   "type; always `X-Content-Type-Options: nosniff`.",
                     "responses": {
                         "200": {
                             "description": "Binary content",
