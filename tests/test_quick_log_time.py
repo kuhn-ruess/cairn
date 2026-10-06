@@ -156,28 +156,67 @@ class QuickLogTimeTests(unittest.TestCase):
         self.assertIn('id="quickLogModal"', html)
         self.assertIn("quick-log.js", html)
 
-    def test_overlapping_clock_booking_is_saved_with_a_hint(self):
+    def test_overlap_with_the_same_customer_asks_and_saves_nothing(self):
         day = {"project_id": str(self.ops.pk), "spent_on": "2026-10-05"}
         first = self.client.post("/time/quick", data={
-            **day, "start_time": "10:00", "end_time": "11:00"}).get_json()
-        self.assertTrue(first["ok"])
-        self.assertEqual(first["warning"], "")
+            **day, "start_time": "10:00", "end_time": "11:00"})
+        self.assertTrue(first.get_json()["ok"])
+        # Website is another project of the same customer (Globex).
         second = self.client.post("/time/quick", data={
-            **day, "start_time": "10:30", "end_time": "11:30"}).get_json()
-        self.assertTrue(second["ok"])
-        self.assertIn("10:00 to 11:00", second["warning"])
+            **day, "project_id": str(self.web.pk),
+            "start_time": "10:30", "end_time": "11:30"})
+        self.assertEqual(second.status_code, 409)
+        self.assertFalse(second.get_json()["ok"])
+        self.assertIn("10:00 to 11:00", second.get_json()["confirm_overlap"])
+        self.assertEqual(len(self._entries()), 1)
+
+    def test_a_confirmed_overlap_is_saved(self):
+        day = {"project_id": str(self.ops.pk), "spent_on": "2026-10-05"}
+        self.client.post("/time/quick", data={
+            **day, "start_time": "10:00", "end_time": "11:00"})
+        again = self.client.post("/time/quick", data={
+            **day, "start_time": "10:30", "end_time": "11:30",
+            "overlap_ok": "1"})
+        self.assertTrue(again.get_json()["ok"])
         self.assertEqual(len(self._entries()), 2)
 
-    def test_task_log_answers_with_the_hint(self):
-        day = {"project_id": str(self.ops.pk), "spent_on": "2026-10-05"}
-        headers = {"X-Partial": "task"}
-        self.client.post(f"/time/log/{self.task.pk}", headers=headers, data={
-            **day, "start_time": "10:00", "end_time": "11:00"})
-        data = self.client.post(f"/time/log/{self.task.pk}", headers=headers, data={
-            **day, "start_time": "10:45", "end_time": "11:15"}).get_json()
-        self.assertIn("overlaps", data["warning"])
+    def test_overlap_with_another_customer_is_not_asked_about(self):
+        day = {"spent_on": "2026-10-05"}
+        self.client.post("/time/quick", data={
+            **day, "project_id": str(self.support.pk),
+            "start_time": "10:00", "end_time": "11:00"})
+        other = self.client.post("/time/quick", data={
+            **day, "project_id": str(self.ops.pk),
+            "start_time": "10:00", "end_time": "11:00"})
+        self.assertTrue(other.get_json()["ok"])
+        self.assertEqual(len(self._entries()), 2)
 
-    def test_edit_into_an_overlap_hints_and_equal_times_change_nothing(self):
+    def test_touching_entries_do_not_overlap(self):
+        day = {"project_id": str(self.ops.pk), "spent_on": "2026-10-05"}
+        self.client.post("/time/quick", data={
+            **day, "start_time": "10:00", "end_time": "11:00"})
+        next_one = self.client.post("/time/quick", data={
+            **day, "start_time": "11:00", "end_time": "12:00"})
+        self.assertTrue(next_one.get_json()["ok"])
+
+    def test_day_sheet_and_task_log_ask_then_save_when_confirmed(self):
+        day = {"project_id": str(self.ops.pk), "spent_on": "2026-10-05"}
+        self.client.post("/time/day/log", headers={"X-Partial": "day"}, data={
+            **day, "start_time": "10:00", "end_time": "11:00"})
+        for url, kind in (("/time/day/log", "day"),
+                          (f"/time/log/{self.task.pk}", "task")):
+            data = self.client.post(url, headers={"X-Partial": kind}, data={
+                **day, "start_time": "10:45", "end_time": "11:15"}).get_json()
+            self.assertIn("10:00 to 11:00", data["confirm_overlap"])
+        self.assertEqual(len(self._entries()), 1)
+        data = self.client.post("/time/day/log", headers={"X-Partial": "day"},
+                                data={**day, "start_time": "10:45",
+                                      "end_time": "11:15", "overlap_ok": "1"}
+                                ).get_json()
+        self.assertNotIn("confirm_overlap", data)
+        self.assertEqual(len(self._entries()), 2)
+
+    def test_edit_into_an_overlap_asks_and_equal_times_change_nothing(self):
         day = {"project_id": str(self.ops.pk), "spent_on": "2026-10-05"}
         for start, end in (("10:00", "11:00"), ("12:00", "13:00")):
             self.client.post("/time/quick", data={
@@ -186,9 +225,19 @@ class QuickLogTimeTests(unittest.TestCase):
         later = next(e for e in bucket.entries if e.start_time == "12:00")
         url = f"/time/entry/{bucket.pk}/{later.entry_id}/edit"
         headers = {"X-Partial": "day"}
+        moved = {"start_time": "10:30", "end_time": "11:30"}
+        data = self.client.post(url, headers=headers, data=moved).get_json()
+        self.assertIn("10:00 to 11:00", data["confirm_overlap"])
+        bucket.reload()
+        later = next(e for e in bucket.entries if e.entry_id == later.entry_id)
+        self.assertEqual(later.start_time, "12:00")
+        # Its own old span is never in the way of a correction.
         data = self.client.post(url, headers=headers, data={
-            "start_time": "10:30", "end_time": "11:30"}).get_json()
-        self.assertIn("10:00 to 11:00", data["warning"])
+            "start_time": "12:15", "end_time": "13:15"}).get_json()
+        self.assertNotIn("confirm_overlap", data)
+        data = self.client.post(url, headers=headers,
+                                data={**moved, "overlap_ok": "1"}).get_json()
+        self.assertNotIn("confirm_overlap", data)
         data = self.client.post(url, headers=headers, data={
             "start_time": "09:00", "end_time": "09:00"}).get_json()
         self.assertIn("Nothing was changed", data["warning"])

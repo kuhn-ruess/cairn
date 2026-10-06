@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 from application.models.item import Item
 from application.models.timetracking import Customer, TimeBucket, TimeTrackingProject
+from application.models.user import User
 from application.services.permissions import team_required
 from application.services.timetracking import (
     add_entry,
@@ -31,6 +32,7 @@ from application.services.timetracking import (
     edit_entry,
     may_edit_entry,
     may_touch_entry,
+    booking_overlap,
     overlap_warning,
     restore_entry,
     parse_clock,
@@ -390,6 +392,26 @@ def _ajax_payload(user, task=None):
 NO_BOOKING = "Enter a duration (1h30m, 1:30, 90) or a start and end time."
 
 
+def _unconfirmed_overlap(user, project, spent_on, start, end, exclude=()):
+    """The question to ask before saving ``start`` to ``end``, or ``""``.
+
+    An overlap with another entry of the same customer that day is asked
+    about, not refused: the page confirms and sends the booking again with
+    ``overlap_ok=1``, which saves it as it is."""
+    if request.form.get("overlap_ok") == "1":
+        return ""
+    return booking_overlap(user, project, spent_on, start, end,
+                           exclude=exclude)
+
+
+def _ask_overlap(user, task, question):
+    """Nothing saved: the page asks ``question`` and may send it again."""
+    if request.headers.get("X-Partial"):
+        return jsonify({"confirm_overlap": question})
+    return _capture_response(user, task,
+                             warning=f"{question} Nothing was saved.")
+
+
 def _capture_response(user, task=None, fallback=None, warning=""):
     """AJAX → JSON payload; plain POST → back where the user came from.
 
@@ -512,16 +534,19 @@ def log(task_id):
     if project is not None:
         minutes, start, end, custom = _booking(request.form, project)
         if minutes:
-            entry = add_entry(
+            spent_on = _spent_on(request.form.get("spent_on"), user)
+            question = _unconfirmed_overlap(user, project, spent_on, start, end)
+            if question:
+                return _ask_overlap(user, task, question)
+            add_entry(
                 project=project, user=user, minutes=minutes,
-                spent_on=_spent_on(request.form.get("spent_on"), user),
+                spent_on=spent_on,
                 start_time=start, end_time=end, custom=custom,
                 note=request.form.get("note") or "", source_item=task,
                 billable=request.form.get("billable") != "0",
             )
             user.tt_last_project = str(project.id)
             user.save()
-            warning = overlap_warning(entry)
         else:
             warning = NO_BOOKING
     return _capture_response(user, task, warning=warning)
@@ -535,23 +560,25 @@ def day_log():
     user = current_user._get_current_object()
     project = _resolve_project(user, None, request.form.get("project_id"))
     minutes = None
-    warning = ""
     if project is not None:
         minutes, start, end, custom = _booking(request.form, project)
         if minutes:
-            entry = add_entry(
+            spent_on = _spent_on(request.form.get("spent_on"), user)
+            question = _unconfirmed_overlap(user, project, spent_on, start, end)
+            if question:
+                return _ask_overlap(user, None, question)
+            add_entry(
                 project=project, user=user, minutes=minutes,
-                spent_on=_spent_on(request.form.get("spent_on"), user),
+                spent_on=spent_on,
                 start_time=start, end_time=end, custom=custom,
                 note=request.form.get("note") or "",
                 billable=request.form.get("billable") != "0",
             )
             user.tt_last_project = str(project.id)
             user.save()
-            warning = overlap_warning(entry)
     if not minutes:
         flash(NO_BOOKING, "warning")
-    return _capture_response(user, warning=warning)
+    return _capture_response(user)
 
 
 def _context_item(user, raw):
@@ -599,12 +626,17 @@ def quick_log():
     minutes, start, end, custom = _booking(request.form, project)
     if not minutes:
         return jsonify({"ok": False, "error": NO_BOOKING}), 400
+    spent_on = _spent_on(request.form.get("spent_on"), user)
+    question = _unconfirmed_overlap(user, project, spent_on, start, end)
+    if question:
+        # Not an error: the dialog asks and sends the same booking again.
+        return jsonify({"ok": False, "confirm_overlap": question}), 409
     source = None
     if request.form.get("link_item") == "1":
         source = _context_item(user, request.form.get("item_id"))
-    entry = add_entry(
+    add_entry(
         project=project, user=user, minutes=minutes,
-        spent_on=_spent_on(request.form.get("spent_on"), user),
+        spent_on=spent_on,
         start_time=start, end_time=end, custom=custom,
         note=(request.form.get("note") or "").strip(), source_item=source,
         billable=request.form.get("billable") != "0",
@@ -614,8 +646,7 @@ def quick_log():
     customer = project.customer.name if project.customer else ""
     out = _ajax_payload(user)
     out.update({"ok": True, "minutes": minutes,
-                "project": f"{customer} › {project.name}" if customer else project.name,
-                "warning": overlap_warning(entry)})
+                "project": f"{customer} › {project.name}" if customer else project.name})
     return jsonify(out)
 
 
@@ -761,11 +792,24 @@ def entry_edit(bucket_id, entry_id):
         return _capture_response(
             user, task, warning="Start and end must be two different times "
                                 "of day. Nothing was changed.")
+    # The corrected times on top of another entry of the same customer: asked
+    # first, before the move below changes anything.
+    target_id = (request.form.get("project_id") or "").strip()
+    target = project_for_user(user, target_id or entry.project_id)
+    if target is not None:
+        _, start, end, _ = _booking(request.form, target)
+        author = (User.objects(pk=entry.user_id).first()
+                  if entry.user_id else None) or user
+        spent_on = (_spent_on(request.form.get("spent_on"), author)
+                    if request.form.get("spent_on") else entry.spent_on)
+        question = _unconfirmed_overlap(author, target, spent_on, start, end,
+                                        exclude={entry_id})
+        if question:
+            return _ask_overlap(user, task, question)
     # Re-filing the entry onto another billing project — the per-row version of
     # "Move selected" on the report, and a biller's call for the same reason.
     # It happens *first*: a move to another customer moves the entry to that
     # customer's bucket, which is the bucket the correction below has to write.
-    target_id = (request.form.get("project_id") or "").strip()
     if target_id and target_id != entry.project_id:
         from application.services.timetracking import move_entries
         _billing_manager(team)
@@ -797,12 +841,7 @@ def entry_edit(bucket_id, entry_id):
                spent_on=spent_on, note=note, custom=custom,
                start_time=start, end_time=end,
                billable=request.form.get("billable") != "0")
-    # Read back what was saved: the times may be the form's or the old ones.
-    after = TimeBucket.objects(entries__entry_id=entry_id,
-                               team=team).first()
-    edited = next((e for e in (after.entries if after else [])
-                   if e.entry_id == entry_id and e.status == "active"), None)
-    return _capture_response(user, task, warning=overlap_warning(edited))
+    return _capture_response(user, task)
 
 
 # ---------------------------------------------------------------------------

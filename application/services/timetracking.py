@@ -2681,6 +2681,8 @@ def day_clock_spans(user, day, *, exclude=()) -> list[dict]:
     out = []
     for b in TimeBucket.objects(team__in=teams, period__gte=lo, period__lte=hi,
                                 entries__user_id=uid):
+        # The raw id, not ``b.customer``: that would load the customer.
+        customer_id = str(b.to_mongo().get("customer") or "")
         for e in b.entries:
             if (e.user_id != uid or e.status != "active"
                     or e.entry_id in exclude
@@ -2691,32 +2693,66 @@ def day_clock_spans(user, day, *, exclude=()) -> list[dict]:
                 continue
             out.append({"entry_id": e.entry_id, "lo": span[0], "hi": span[1],
                         "start_time": e.start_time, "end_time": e.end_time,
+                        "customer_id": customer_id,
                         "label": e.source_label or e.note or e.project_name or ""})
     return out
 
 
+def clock_overlaps(user, day, start, end, *, customer_id,
+                   exclude=()) -> list[dict]:
+    """``user``'s entries on ``day`` for the same customer that ``start`` to
+    ``end`` would sit on top of, earliest first.
+
+    Only the same customer: an hour for one customer during an hour for
+    another is a question for nobody's invoice, while the same hour twice on
+    one customer's sheet is the double booking this is meant to catch.
+    Touching spans (one ends where the next starts) do not overlap."""
+    span = clock_bounds(start, end)
+    if span is None or not customer_id:
+        return []
+    hits = [o for o in day_clock_spans(user, day, exclude=exclude)
+            if o["customer_id"] == str(customer_id)
+            and o["lo"] < span[1] and span[0] < o["hi"]]
+    hits.sort(key=lambda o: o["lo"])
+    return hits
+
+
+def overlap_text(start, end, hits) -> str:
+    """The sentence naming what ``start`` to ``end`` overlaps."""
+    parts = [f"{o['start_time']} to {o['end_time']}"
+             + (f" ({o['label'][:60]})" if o["label"] else "") for o in hits]
+    return (f"{start} to {end} overlaps another entry for this customer "
+            f"that day: {'; '.join(parts)}.")
+
+
+def booking_overlap(user, project, spent_on, start, end, *, exclude=()) -> str:
+    """The question to ask before booking ``start`` to ``end`` on
+    ``project``, else ``""``. The caller saves only once it was confirmed."""
+    if project is None or not start or not end:
+        return ""
+    customer = getattr(project, "customer", None)
+    hits = clock_overlaps(user, local_date(spent_on, user), start, end,
+                          customer_id=getattr(customer, "pk", customer),
+                          exclude=exclude)
+    return overlap_text(start, end, hits) if hits else ""
+
+
 def overlap_warning(entry) -> str:
-    """A hint when ``entry`` sits on top of another entry of the same person on
-    the same day, else ``""``. Never a refusal: two things at once happen (a
-    call during a deploy), the hint only makes sure it was meant."""
+    """A hint when ``entry`` sits on top of another entry of the same person,
+    customer and day, else ``""``. For what is saved without asking first
+    (the stopwatch): the time is real, the hint only makes sure it was meant."""
     from application.models.user import User
     span = clock_bounds(entry.start_time, entry.end_time) if entry else None
     if span is None or not entry.user_id:
         return ""
     author = User.objects(pk=entry.user_id).first()
-    if author is None:
+    oid = to_oid(entry.project_id)
+    project = TimeTrackingProject.objects(pk=oid).first() if oid else None
+    if author is None or project is None:
         return ""
-    day = local_date(entry.spent_on, author)
-    hits = [o for o in day_clock_spans(author, day, exclude={entry.entry_id})
-            if o["lo"] < span[1] and span[0] < o["hi"]]
-    if not hits:
-        return ""
-    hits.sort(key=lambda o: o["lo"])
-    parts = [f"{o['start_time']} to {o['end_time']}"
-             + (f" ({o['label'][:60]})" if o["label"] else "") for o in hits]
-    return (f"{entry.start_time} to {entry.end_time} overlaps another entry "
-            f"that day: {'; '.join(parts)}. Saved anyway, correct it if that "
-            f"was not meant.")
+    msg = booking_overlap(author, project, entry.spent_on, entry.start_time,
+                          entry.end_time, exclude={entry.entry_id})
+    return f"{msg} Saved anyway, correct it if that was not meant." if msg else ""
 
 
 def sync_external_entries(*, user, item, rows, project=None,

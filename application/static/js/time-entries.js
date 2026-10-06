@@ -114,6 +114,12 @@
     });
     if (!resp.ok) throw new Error(resp.status);
     const data = await resp.json();
+    // The times sit on top of another entry for the same customer that day.
+    // Nothing was saved: confirmed, the same booking goes again and is kept.
+    if (data && data.confirm_overlap) {
+      if (!window.confirm(`${data.confirm_overlap}\n\nSave anyway?`)) return data;
+      return post(action, Object.assign({}, fields, { overlap_ok: "1" }), ctx);
+    }
     applyPayload(data, ctx);
     return data;
   }

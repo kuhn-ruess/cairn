@@ -121,18 +121,25 @@
     const btn = form.querySelector('button[type="submit"]');
     btn.disabled = true;
     try {
-      const resp = await fetch(form.action, {
+      let resp = await fetch(form.action, {
         method: "POST", body: fd, credentials: "same-origin",
       });
-      const data = await resp.json().catch(() => ({}));
+      let data = await resp.json().catch(() => ({}));
+      // Overlaps another entry for the same customer that day: nothing was
+      // saved yet. Confirmed, the same booking goes again and is kept.
+      if (data.confirm_overlap) {
+        if (!window.confirm(`${data.confirm_overlap}\n\nSave anyway?`)) return;
+        fd.set("overlap_ok", "1");
+        resp = await fetch(form.action, {
+          method: "POST", body: fd, credentials: "same-origin",
+        });
+        data = await resp.json().catch(() => ({}));
+      }
       if (!resp.ok || !data.ok) {
         showError(data.error || `Server error: ${resp.status}`);
         return;
       }
-      // An overlap hint says "saved anyway" itself, and two banners would sit
-      // on top of each other.
-      if (data.warning && window.ttShowWarning) window.ttShowWarning(data.warning);
-      else showSuccess(data);
+      showSuccess(data);
       // Anything on the page that shows time (the day sheet, a task's time
       // section) is re-rendered in place.
       document.dispatchEvent(new Event("bktodo:refresh-needed"));
