@@ -51,6 +51,8 @@
 
   function monthOf(key) { return key.slice(0, 7); }
 
+  function todayKey() { return dayKey(new Date().toISOString()); }
+
   function monthShift(ym, delta) {
     var y = +ym.slice(0, 4);
     var m = +ym.slice(5, 7) - 1 + delta;
@@ -86,8 +88,11 @@
     // half-hours in one list is a wall that doesn't answer it.
     days = [];
     byDay = {};
+    // A page left open overnight still holds yesterday's times.
+    var today = todayKey();
     slots.forEach(function (iso) {
       var key = dayKey(iso);
+      if (key < today) { return; }
       if (!byDay[key]) { byDay[key] = { key: key, slots: [] }; days.push(byDay[key]); }
       byDay[key].slots.push(iso);
     });
@@ -158,10 +163,10 @@
       grid.appendChild(document.createElement("div"));
     }
     var last_day = new Date(y, m + 1, 0).getDate();
-    var today = dayKey(new Date().toISOString());
+    var today = todayKey();
     for (var d = 1; d <= last_day; d++) {
       var key = shownMonth + "-" + pad(d);
-      grid.appendChild(cell(key, d, key === today, slots));
+      grid.appendChild(cell(key, d, key === today, key < today, slots));
     }
     box.appendChild(grid);
 
@@ -173,9 +178,18 @@
     return box;
   }
 
-  function cell(key, number, isToday, slots) {
+  function cell(key, number, isToday, isPast, slots) {
     var wrap = document.createElement("div");
     wrap.className = "book-cal-cell";
+    if (isPast) {
+      // Gone, whatever it offered once: struck through, so it reads as over
+      // and not as one more day that merely has nothing free.
+      var gone = document.createElement("div");
+      gone.className = "book-cal-none book-cal-past";
+      gone.textContent = String(number);
+      wrap.appendChild(gone);
+      return wrap;
+    }
     var day = byDay[key];
     // Openable for the owner when there is something to say about it. A
     // weekday they simply don't work stays flat: they chose that, and a grid
@@ -362,11 +376,15 @@
     // An event is filed under every day it touches, in the SHOWN zone. An
     // all-day event ends at midnight on the following day — that day is not
     // blocked by it, hence the millisecond back.
+    // Days already over are left out: a week off that began last Monday
+    // would otherwise mark every day since then as one worth opening.
     busyByDay = {};
+    var today = todayKey();
     (events || []).forEach(function (ev) {
       var day = dayKey(ev.start);
       var lastDay = dayKey(new Date(Date.parse(ev.end) - 1).toISOString());
       if (lastDay < day) { lastDay = day; }
+      if (day < today) { day = today; }
       for (var i = 0; i < 400 && day <= lastDay; i++) {
         (busyByDay[day] = busyByDay[day] || []).push(ev);
         day = nextDay(day);
