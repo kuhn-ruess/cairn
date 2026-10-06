@@ -156,6 +156,54 @@ class QuickLogTimeTests(unittest.TestCase):
         self.assertIn('id="quickLogModal"', html)
         self.assertIn("quick-log.js", html)
 
+    def test_overlapping_clock_booking_is_saved_with_a_hint(self):
+        day = {"project_id": str(self.ops.pk), "spent_on": "2026-10-05"}
+        first = self.client.post("/time/quick", data={
+            **day, "start_time": "10:00", "end_time": "11:00"}).get_json()
+        self.assertTrue(first["ok"])
+        self.assertEqual(first["warning"], "")
+        second = self.client.post("/time/quick", data={
+            **day, "start_time": "10:30", "end_time": "11:30"}).get_json()
+        self.assertTrue(second["ok"])
+        self.assertIn("10:00 to 11:00", second["warning"])
+        self.assertEqual(len(self._entries()), 2)
+
+    def test_task_log_answers_with_the_hint(self):
+        day = {"project_id": str(self.ops.pk), "spent_on": "2026-10-05"}
+        headers = {"X-Partial": "task"}
+        self.client.post(f"/time/log/{self.task.pk}", headers=headers, data={
+            **day, "start_time": "10:00", "end_time": "11:00"})
+        data = self.client.post(f"/time/log/{self.task.pk}", headers=headers, data={
+            **day, "start_time": "10:45", "end_time": "11:15"}).get_json()
+        self.assertIn("overlaps", data["warning"])
+
+    def test_edit_into_an_overlap_hints_and_equal_times_change_nothing(self):
+        day = {"project_id": str(self.ops.pk), "spent_on": "2026-10-05"}
+        for start, end in (("10:00", "11:00"), ("12:00", "13:00")):
+            self.client.post("/time/quick", data={
+                **day, "start_time": start, "end_time": end})
+        bucket = self.Bucket.objects.first()
+        later = next(e for e in bucket.entries if e.start_time == "12:00")
+        url = f"/time/entry/{bucket.pk}/{later.entry_id}/edit"
+        headers = {"X-Partial": "day"}
+        data = self.client.post(url, headers=headers, data={
+            "start_time": "10:30", "end_time": "11:30"}).get_json()
+        self.assertIn("10:00 to 11:00", data["warning"])
+        data = self.client.post(url, headers=headers, data={
+            "start_time": "09:00", "end_time": "09:00"}).get_json()
+        self.assertIn("Nothing was changed", data["warning"])
+        bucket.reload()
+        later = next(e for e in bucket.entries if e.entry_id == later.entry_id)
+        self.assertEqual((later.start_time, later.end_time, later.minutes),
+                         ("10:30", "11:30", 60))
+
+    def test_same_start_and_end_books_nothing(self):
+        resp = self.client.post("/time/quick", data={
+            "project_id": str(self.ops.pk), "start_time": "09:43",
+            "end_time": "09:43"})
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(self._entries(), [])
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

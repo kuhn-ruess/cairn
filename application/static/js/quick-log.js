@@ -129,7 +129,10 @@
         showError(data.error || `Server error: ${resp.status}`);
         return;
       }
-      showSuccess(data);
+      // An overlap hint says "saved anyway" itself, and two banners would sit
+      // on top of each other.
+      if (data.warning && window.ttShowWarning) window.ttShowWarning(data.warning);
+      else showSuccess(data);
       // Anything on the page that shows time (the day sheet, a task's time
       // section) is re-rendered in place.
       document.dispatchEvent(new Event("bktodo:refresh-needed"));

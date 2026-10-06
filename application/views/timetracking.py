@@ -31,6 +31,7 @@ from application.services.timetracking import (
     edit_entry,
     may_edit_entry,
     may_touch_entry,
+    overlap_warning,
     restore_entry,
     parse_clock,
     parse_duration,
@@ -386,10 +387,21 @@ def _ajax_payload(user, task=None):
     return out
 
 
-def _capture_response(user, task=None, fallback=None):
-    """AJAX → JSON payload; plain POST → back where the user came from."""
+NO_BOOKING = "Enter a duration (1h30m, 1:30, 90) or a start and end time."
+
+
+def _capture_response(user, task=None, fallback=None, warning=""):
+    """AJAX → JSON payload; plain POST → back where the user came from.
+
+    ``warning`` is a hint that does not undo anything (the entry overlaps
+    another one): the page shows it as a banner, a plain POST as a flash."""
     if request.headers.get("X-Partial"):
-        return jsonify(_ajax_payload(user, task))
+        out = _ajax_payload(user, task)
+        if warning:
+            out["warning"] = warning
+        return jsonify(out)
+    if warning:
+        flash(warning, "warning")
     if task is not None:
         # Time books against any item — a note tracks its own hours too, and
         # sending that one back to the task page would 404.
@@ -496,10 +508,11 @@ def log(task_id):
     user = current_user._get_current_object()
     task = _viewable_task(user, task_id)
     project = _resolve_project(user, task, request.form.get("project_id"))
+    warning = ""
     if project is not None:
         minutes, start, end, custom = _booking(request.form, project)
         if minutes:
-            add_entry(
+            entry = add_entry(
                 project=project, user=user, minutes=minutes,
                 spent_on=_spent_on(request.form.get("spent_on"), user),
                 start_time=start, end_time=end, custom=custom,
@@ -508,7 +521,10 @@ def log(task_id):
             )
             user.tt_last_project = str(project.id)
             user.save()
-    return _capture_response(user, task)
+            warning = overlap_warning(entry)
+        else:
+            warning = NO_BOOKING
+    return _capture_response(user, task, warning=warning)
 
 
 @timetracking_bp.route("/day/log", methods=["POST"])
@@ -519,10 +535,11 @@ def day_log():
     user = current_user._get_current_object()
     project = _resolve_project(user, None, request.form.get("project_id"))
     minutes = None
+    warning = ""
     if project is not None:
         minutes, start, end, custom = _booking(request.form, project)
         if minutes:
-            add_entry(
+            entry = add_entry(
                 project=project, user=user, minutes=minutes,
                 spent_on=_spent_on(request.form.get("spent_on"), user),
                 start_time=start, end_time=end, custom=custom,
@@ -531,10 +548,10 @@ def day_log():
             )
             user.tt_last_project = str(project.id)
             user.save()
+            warning = overlap_warning(entry)
     if not minutes:
-        flash("Enter a duration (1h30m, 1:30, 90) or a start and end time.",
-              "warning")
-    return _capture_response(user)
+        flash(NO_BOOKING, "warning")
+    return _capture_response(user, warning=warning)
 
 
 def _context_item(user, raw):
@@ -581,12 +598,11 @@ def quick_log():
         return jsonify({"ok": False, "error": "Pick a billing project."}), 400
     minutes, start, end, custom = _booking(request.form, project)
     if not minutes:
-        return jsonify({"ok": False, "error":
-                        "Enter a duration (1h30m, 1:30, 90) or a start and end time."}), 400
+        return jsonify({"ok": False, "error": NO_BOOKING}), 400
     source = None
     if request.form.get("link_item") == "1":
         source = _context_item(user, request.form.get("item_id"))
-    add_entry(
+    entry = add_entry(
         project=project, user=user, minutes=minutes,
         spent_on=_spent_on(request.form.get("spent_on"), user),
         start_time=start, end_time=end, custom=custom,
@@ -598,7 +614,8 @@ def quick_log():
     customer = project.customer.name if project.customer else ""
     out = _ajax_payload(user)
     out.update({"ok": True, "minutes": minutes,
-                "project": f"{customer} › {project.name}" if customer else project.name})
+                "project": f"{customer} › {project.name}" if customer else project.name,
+                "warning": overlap_warning(entry)})
     return jsonify(out)
 
 
@@ -647,7 +664,7 @@ def timer_stop():
     if entry and not request.headers.get("X-Partial"):
         flash(f"Logged {entry.minutes // 60}h {entry.minutes % 60}m "
               f"on {entry.project_name}.", "success")
-    return _capture_response(user, task)
+    return _capture_response(user, task, warning=overlap_warning(entry))
 
 
 @timetracking_bp.route("/timer/discard", methods=["POST"])
@@ -732,6 +749,18 @@ def entry_edit(bucket_id, entry_id):
     entry = next((e for e in bucket.entries if e.entry_id == entry_id), None)
     if not may_edit_entry(user, team, entry):
         abort(403)
+    task = None
+    if entry.source_item_id:
+        task = Item.objects(pk=to_oid(entry.source_item_id) or ObjectId()).first()
+    # Both times typed but no span in them (the same twice, or unreadable):
+    # saving would quietly drop the times, so nothing is saved and it says why.
+    if ((request.form.get("start_time") or "").strip()
+            and (request.form.get("end_time") or "").strip()
+            and parse_clock(request.form.get("start_time"),
+                            request.form.get("end_time")) is None):
+        return _capture_response(
+            user, task, warning="Start and end must be two different times "
+                                "of day. Nothing was changed.")
     # Re-filing the entry onto another billing project — the per-row version of
     # "Move selected" on the report, and a biller's call for the same reason.
     # It happens *first*: a move to another customer moves the entry to that
@@ -768,10 +797,12 @@ def entry_edit(bucket_id, entry_id):
                spent_on=spent_on, note=note, custom=custom,
                start_time=start, end_time=end,
                billable=request.form.get("billable") != "0")
-    task = None
-    if entry.source_item_id:
-        task = Item.objects(pk=to_oid(entry.source_item_id) or ObjectId()).first()
-    return _capture_response(user, task)
+    # Read back what was saved: the times may be the form's or the old ones.
+    after = TimeBucket.objects(entries__entry_id=entry_id,
+                               team=team).first()
+    edited = next((e for e in (after.entries if after else [])
+                   if e.entry_id == entry_id and e.status == "active"), None)
+    return _capture_response(user, task, warning=overlap_warning(edited))
 
 
 # ---------------------------------------------------------------------------

@@ -30,7 +30,30 @@
     return { kind: "", block: null };
   }
 
+  // A hint the server attached to an answer (the entry overlaps another one
+  // that day): the same floating banner the "Log time" dialog confirms with,
+  // just yellow and long enough to read. Nothing was refused.
+  function showWarning(msg) {
+    const banner = document.createElement("div");
+    banner.className =
+      "alert alert-warning alert-dismissible position-fixed top-0 start-50 translate-middle-x mt-3 shadow tt-warning";
+    banner.style.zIndex = 2100;
+    banner.style.maxWidth = "min(40rem, calc(100vw - 2rem))";
+    banner.setAttribute("role", "status");
+    banner.textContent = msg;
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "btn-close";
+    close.setAttribute("aria-label", "Close");
+    close.addEventListener("click", () => banner.remove());
+    banner.appendChild(close);
+    document.body.appendChild(banner);
+    setTimeout(() => banner.remove(), 8000);
+  }
+  window.ttShowWarning = showWarning;
+
   function applyPayload(data, ctx) {
+    if (data && data.warning) showWarning(data.warning);
     const chip = document.getElementById("tt-chip");
     if (chip && typeof data.chip === "string") {
       chip.innerHTML = data.chip;

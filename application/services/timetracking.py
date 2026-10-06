@@ -2327,16 +2327,22 @@ def stop_timer(user):
         started = timer.started_at
         if started.tzinfo is None:
             started = started.replace(tzinfo=timezone.utc)
-        # The stopwatch knows exactly when it ran — record that as the
-        # entry's clock times, for free.
+        # The stopwatch knows exactly when it ran: record that as the
+        # entry's clock times, for free. The end is the start plus the minutes
+        # it logs, not the clock at the stop: both cut to the minute, a run
+        # under a minute read 09:43 to 09:43 for its one minute, and a longer
+        # one could disagree with its own duration by a minute.
         zone = user_zone(actor)
         local_start = started.astimezone(zone)
-        local_end = _utcnow().astimezone(zone)
+        minutes = timer.elapsed_minutes()
+        clock_start = (local_start + timedelta(seconds=30)).replace(
+            second=0, microsecond=0)
+        clock_end = clock_start + timedelta(minutes=minutes)
         entry = add_entry(
-            project=project, user=actor, minutes=timer.elapsed_minutes(),
+            project=project, user=actor, minutes=minutes,
             spent_on=local_start,
-            start_time=local_start.strftime("%H:%M"),
-            end_time=local_end.strftime("%H:%M"),
+            start_time=clock_start.strftime("%H:%M"),
+            end_time=clock_end.strftime("%H:%M"),
             custom=timer_custom_values(project, timer.custom),
             note=timer.note, billable=timer.billable,
             external_ref=timer.external_ref or "",
@@ -2581,7 +2587,63 @@ def imported_entry_ids(user, item) -> set:
     return out
 
 
-def clock_span(end: datetime, minutes: int) -> tuple[str, str] | None:
+def _hhmm(minute: int) -> str:
+    return f"{minute // 60:02d}:{minute % 60:02d}"
+
+
+def clock_bounds(start: str | None, end: str | None):
+    """``("09:00", "10:30")`` as minutes of the day, ``(540, 630)``.
+
+    An end before the start crosses midnight (as :func:`parse_clock` reads
+    it), so it lands past 1440. ``None`` when either time is missing or
+    unreadable, or both are the same: an entry without a real span has no
+    place on the day's timeline."""
+    def _m(raw):
+        try:
+            h, mi = str(raw or "").split(":")
+            return int(h) * 60 + int(mi)
+        except ValueError:
+            return None
+    lo, hi = _m(start), _m(end)
+    if lo is None or hi is None or lo == hi:
+        return None
+    if hi < lo:
+        hi += 24 * 60
+    return lo, hi
+
+
+def _free_slot(lo: int, hi: int, busy) -> tuple[int, int]:
+    """Where ``[lo, hi)`` goes so it overlaps none of ``busy``.
+
+    Earlier first: the span ends at the start of what it runs into, again and
+    again, as long as it still starts on the day. Only when that runs out of
+    day does it look later, after the end of what it runs into. No room either
+    way leaves it where it was, overlapping: a span that cannot fit anywhere
+    is better kept at its own time than squeezed or dropped."""
+    length = hi - lo
+    busy = sorted(busy)
+
+    def _hit(a, b):
+        return [x for x in busy if x[0] < b and a < x[1]]
+
+    a, b = lo, hi
+    while a >= 0:
+        hit = _hit(a, b)
+        if not hit:
+            return a, b
+        b = min(x[0] for x in hit)
+        a = b - length
+    a, b = lo, hi
+    while b < 24 * 60:
+        hit = _hit(a, b)
+        if not hit:
+            return a, b
+        a = max(x[1] for x in hit)
+        b = a + length
+    return lo, hi
+
+
+def clock_span(end: datetime, minutes: int, busy=()) -> tuple[str, str] | None:
     """Times of day for ``minutes`` of work that ended at ``end`` (local).
 
     For an import into a project booked by the clock: the source only knows
@@ -2589,14 +2651,72 @@ def clock_span(end: datetime, minutes: int) -> tuple[str, str] | None:
     so the work ends there and started ``minutes`` before, like a comment that
     books time. A span that would start on the day before is moved to begin at
     midnight instead: the entry is filed under ``end``'s day and must not read
-    23:30 to 00:15 there. A day or more has no times of day at all."""
+    23:30 to 00:15 there. A day or more has no times of day at all.
+
+    ``busy`` are the ``(start, end)`` minutes of the person's other entries
+    that day; the span is moved out of their way (:func:`_free_slot`), keeping
+    its length, so imported time never sits on top of time booked by hand."""
     if not 0 < minutes < 24 * 60:
         return None
-    start = end - timedelta(minutes=minutes)
-    if start.date() != end.date():
-        start = end.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start + timedelta(minutes=minutes)
-    return start.strftime("%H:%M"), end.strftime("%H:%M")
+    hi = end.hour * 60 + end.minute
+    lo = hi - minutes
+    if lo < 0:
+        lo, hi = 0, minutes
+    lo, hi = _free_slot(lo, hi, busy)
+    return _hhmm(lo), _hhmm(hi)
+
+
+def day_clock_spans(user, day, *, exclude=()) -> list[dict]:
+    """``user``'s active entries on ``day`` that have times of day.
+
+    Each as ``{entry_id, lo, hi, start_time, end_time, label}`` with ``lo`` /
+    ``hi`` from :func:`clock_bounds`. Across all their teams: a person's day is
+    one day, whichever customer an hour went to. ``exclude`` are entry ids to
+    leave out (the entry being placed or checked itself)."""
+    teams = user_teams(user)
+    if not teams:
+        return []
+    uid = str(user.id)
+    lo, hi = day_range_q(day, day)
+    out = []
+    for b in TimeBucket.objects(team__in=teams, period__gte=lo, period__lte=hi,
+                                entries__user_id=uid):
+        for e in b.entries:
+            if (e.user_id != uid or e.status != "active"
+                    or e.entry_id in exclude
+                    or local_date(e.spent_on, user) != day):
+                continue
+            span = clock_bounds(e.start_time, e.end_time)
+            if span is None:
+                continue
+            out.append({"entry_id": e.entry_id, "lo": span[0], "hi": span[1],
+                        "start_time": e.start_time, "end_time": e.end_time,
+                        "label": e.source_label or e.note or e.project_name or ""})
+    return out
+
+
+def overlap_warning(entry) -> str:
+    """A hint when ``entry`` sits on top of another entry of the same person on
+    the same day, else ``""``. Never a refusal: two things at once happen (a
+    call during a deploy), the hint only makes sure it was meant."""
+    from application.models.user import User
+    span = clock_bounds(entry.start_time, entry.end_time) if entry else None
+    if span is None or not entry.user_id:
+        return ""
+    author = User.objects(pk=entry.user_id).first()
+    if author is None:
+        return ""
+    day = local_date(entry.spent_on, author)
+    hits = [o for o in day_clock_spans(author, day, exclude={entry.entry_id})
+            if o["lo"] < span[1] and span[0] < o["hi"]]
+    if not hits:
+        return ""
+    hits.sort(key=lambda o: o["lo"])
+    parts = [f"{o['start_time']} to {o['end_time']}"
+             + (f" ({o['label'][:60]})" if o["label"] else "") for o in hits]
+    return (f"{entry.start_time} to {entry.end_time} overlaps another entry "
+            f"that day: {'; '.join(parts)}. Saved anyway, correct it if that "
+            f"was not meant.")
 
 
 def sync_external_entries(*, user, item, rows, project=None,
@@ -2638,7 +2758,11 @@ def sync_external_entries(*, user, item, rows, project=None,
     (``time_mode == "clock"``) gets start and end times from them, see
     :func:`clock_span`. An entry whose minutes change gets new times with them,
     since the old span no longer adds up; one whose minutes stay keeps whatever
-    times it has, so a hand correction survives the next sync."""
+    times it has, so a hand correction survives the next sync. The span steers
+    clear of the person's other timed entries that day (:func:`_free_slot`);
+    those are never moved, only the imported one is placed. Since the times are
+    only set when the minutes change, a placed entry stays where it is on every
+    later sync."""
     if not rows or not (team or has_team(user)):
         return 0, 0
     project = project or resolve_time_project(item)
@@ -2673,9 +2797,22 @@ def sync_external_entries(*, user, item, rows, project=None,
                 seen.setdefault(hit, []).append((b, e))
 
     by_clock = project.time_mode == "clock"
+    from application.models.user import User
+    authors: dict = {}
 
-    def _clock(end, minutes) -> dict:
-        span = clock_span(end, minutes) if by_clock and end else None
+    def _clock(end, minutes, uid, exclude=()) -> dict:
+        if not (by_clock and end):
+            return {}
+        # Out of the way of whatever else that person has on the day: an
+        # agent's time belongs to that agent's day, nobody else's.
+        busy = []
+        if uid:
+            if uid not in authors:
+                authors[uid] = User.objects(pk=uid).first()
+            if authors[uid] is not None:
+                busy = [(o["lo"], o["hi"]) for o in day_clock_spans(
+                    authors[uid], end.date(), exclude=set(exclude))]
+        span = clock_span(end, minutes, busy)
         return {"start_time": span[0], "end_time": span[1]} if span else {}
 
     added = fixed = 0
@@ -2695,7 +2832,8 @@ def sync_external_entries(*, user, item, rows, project=None,
                       actor={"user_id": r.get("user_id") or None,
                              "user_name": r.get("user_name") or ""},
                       source=src, external_id=ext, external_ids=covered,
-                      billable=True, **_clock(r.get("ends_at"), minutes))
+                      billable=True,
+                      **_clock(r.get("ends_at"), minutes, r.get("user_id")))
             added += 1
             continue
         # Whichever of them is the day's entry — prefer one that already is,
@@ -2719,7 +2857,7 @@ def sync_external_entries(*, user, item, rows, project=None,
                                  "user_name": r.get("user_name") or ""},
                           source=src, external_id=part, billable=True,
                           **_clock((r.get("part_ends") or {}).get(part),
-                                   part_minutes))
+                                   part_minutes, r.get("user_id")))
                 added += 1
             continue
         changes = _external_corrections(entry, r)
@@ -2728,7 +2866,9 @@ def sync_external_entries(*, user, item, rows, project=None,
         if entry.minutes != minutes:
             changes["set__entries__S__minutes"] = minutes
         if entry.minutes != minutes or not (entry.start_time or entry.end_time):
-            for k, v in _clock(r.get("ends_at"), minutes).items():
+            mine = {entry.entry_id} | {o.entry_id for _, o in rest}
+            for k, v in _clock(r.get("ends_at"), minutes, r.get("user_id"),
+                               mine).items():
                 if getattr(entry, k) != v:
                     changes[f"set__entries__S__{k}"] = v
         if entry.external_id != ext:
@@ -2965,7 +3105,9 @@ def parse_clock(start: str, end: str):
 
     Both ends must be real wall-clock times. An end before the start is read as
     crossing midnight rather than as an error — night work is real, and the
-    alternative is refusing a booking the user clearly meant."""
+    alternative is refusing a booking the user clearly meant. An end equal to
+    the start is not read as a whole day, though: that is a typo (or a "now"
+    pressed twice), and booking it as 24 hours would bill a day nobody worked."""
     import re
 
     def _minutes(raw):
@@ -2979,7 +3121,9 @@ def parse_clock(start: str, end: str):
     if a is None or b is None:
         return None
     span = b - a
-    if span <= 0:
+    if span == 0:
+        return None
+    if span < 0:
         span += 24 * 60
     if span <= 0 or span > 24 * 60:
         return None
