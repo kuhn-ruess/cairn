@@ -556,12 +556,42 @@ def _todo_ics(item, user):
     return cal.to_ical().decode("utf-8")
 
 
-def _apply_ics(item, raw, user=None):
+def _saw_close(item, todo, if_match=None):
+    """Did the client's copy already know that ``item`` is closed?
+
+    A NEEDS-ACTION from a client that never saw the close is not a reopen: the
+    task was ticked off in Cairn, and Reminders then wrote back its older open
+    copy (an alarm it acknowledged, any small edit) before it had fetched the
+    new state. That reopened finished tasks again and again.
+
+    The version a client edited is in ``If-Match``: our ETag carries the
+    ``updated_at`` second of the copy it holds (``_etag``). One second of slack,
+    because the close stamps ``updated_at`` just before ``completed_at``. A
+    client without that header is judged by its LAST-MODIFIED; one with neither
+    is believed, as before.
+    """
+    closed_at = _aware(item.completed_at)
+    if closed_at is None:
+        return True
+    m = re.search(r"-(\d+)\"?\s*$", (if_match or "").strip())
+    if m:
+        return int(m.group(1)) >= int(closed_at.timestamp()) - 1
+    try:
+        modified = _aware(getattr(todo.get("last-modified"), "dt", None))
+    except Exception:
+        modified = None
+    if not isinstance(modified, datetime):
+        return True
+    return modified >= closed_at
+
+
+def _apply_ics(item, raw, user=None, if_match=None):
     """Apply an inbound VTODO to ``item`` (unsaved). Returns False if the body
     can't be parsed at all. Every individual field is read defensively so an
     exotic client payload (Apple location reminders, alarms, X- props, odd
     dates) updates what it can instead of 500-ing the whole PUT. ``user``
-    supplies the timezone for floating (naive) dates."""
+    supplies the timezone for floating (naive) dates, ``if_match`` is the PUT's
+    header (see ``_saw_close``)."""
     try:
         cal = Calendar.from_ical(raw)
         todo = next((c for c in cal.walk("VTODO")), None)
@@ -660,6 +690,9 @@ def _apply_ics(item, raw, user=None):
     elif st == "CANCELLED":
         item.status = "dropped"
         item.completed_via = "caldav"
+    elif item.status in ("done", "dropped") and not _saw_close(
+            item, todo, if_match):
+        pass        # a stale open copy: the task stays closed
     else:
         item.status = "open"
 
@@ -1051,7 +1084,9 @@ def resource(username, colid, name):
                 request.path, user.username,
                 raw.decode("utf-8", "replace")[:6000],
             )
-        if not _apply_ics(item, raw, user):
+        if not _apply_ics(item, raw, user,
+                          if_match=None if created
+                          else request.headers.get("If-Match")):
             abort(400)
         item.save()
         resp = Response(status=201 if created else 204)
