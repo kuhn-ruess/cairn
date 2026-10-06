@@ -200,6 +200,13 @@ ticket into a Redis record (`services/sync_progress.py`, TTL 1h), the page polls
 off that record so the result card renders as if the sync had happened in the
 request. No broker → it still runs inline, as before.
 
+**A booking's two confirmation mails** go out through the worker too
+(`booking.send_mails`, `sync_tasks.enqueue_booking_mails`), so the visitor's
+confirmation page doesn't wait on two SMTP sessions. That producer is its own,
+with `max_retries` 0: the default reconnect loop spends about six seconds on a
+refused connection, and the visitor is waiting. No broker → sent inline.
+`BOOKING_MAILS_IN_BACKGROUND` (off in `TestConfig`) switches it.
+
 ### Tags are embedded on `User`, not a top-level collection
 
 Tags moved from a central `tags` collection into `User.tags`

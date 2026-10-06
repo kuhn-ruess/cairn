@@ -196,8 +196,18 @@
                   maxlength="2000"></textarea>
       </div>
     </div>
-    <button class="btn btn-primary btn-sm mt-3">Confirm booking</button>
+    <button class="btn btn-primary btn-sm mt-3" id="book-submit">
+      <span class="spinner-border spinner-border-sm me-1 d-none" aria-hidden="true"></span>
+      <span class="book-submit-label">Confirm booking</span>
+    </button>
     <button type="button" class="btn btn-link btn-sm mt-3" id="cancel">Pick another time</button>
+    {# Shown while the booking is being made: it writes the calendar entry
+       (and maybe a Teams meeting) before it answers, which takes seconds, and
+       a page that looks idle that long gets reloaded. #}
+    <div class="small text-muted mt-2 d-none" id="book-busy" role="status" aria-live="polite">
+      Booking your appointment, please wait. This can take a few seconds.
+      Please don't reload the page.
+    </div>
   </form>
 
   <p class="book-tz {{ 'mt-4' if embed else 'mt-5' }} mb-0">

@@ -345,7 +345,13 @@ def confirm(user, *, start: datetime, duration_minutes: int, name: str,
     start = start.astimezone(timezone.utc).replace(second=0, microsecond=0)
     end = start + timedelta(minutes=duration)
 
-    if start not in set(slots_for(user, duration, now=now)):
+    # The calendars are asked again only around THIS slot. Whether one start
+    # collides depends on nothing farther away than its buffer (a day either
+    # side covers an all-day entry in any zone), and asking for the whole
+    # booking window a second time is what made the click slow.
+    margin = timedelta(days=1, minutes=int(page.buffer_minutes or 0))
+    busy = busy_intervals(user, page, start - margin, end + margin)
+    if start not in set(slots_for(user, duration, now=now, busy=busy)):
         raise BookingError("That time was just taken — please pick another.")
 
     booking = Booking(owner=user, start=start, end=end, duration_minutes=duration,
@@ -371,6 +377,21 @@ def confirm(user, *, start: datetime, duration_minutes: int, name: str,
     _attach_meeting(user, page, booking, guest_link=meeting_url)
     _write_event(user, page, booking)
     return booking
+
+
+def recent_duplicate(user, *, start: datetime, name: str, email: str,
+                     now=None):
+    """The booking this same form made a moment ago, if it did.
+
+    Same slot, same name, same address, within half an hour: a resubmit, not a
+    second appointment. Anything else still goes through ``confirm``."""
+    from application.models.booking import Booking
+
+    now = now or datetime.now(timezone.utc)
+    start = start.astimezone(timezone.utc).replace(second=0, microsecond=0)
+    return Booking.objects(owner=user, start=start, name=name[:120],
+                           email=email[:255],
+                           created_at__gte=now - timedelta(minutes=30)).first()
 
 
 def _attach_customer(user, booking) -> None:
@@ -479,10 +500,9 @@ def announce(user, booking) -> None:
 
     Best effort on purpose: the appointment exists either way, and an SMTP
     box that isn't configured is the normal case on a fresh deployment."""
-    from flask import url_for
+    from flask import current_app, url_for
 
-    from application.services.booking_ics import attachment
-    from application.services.mail import send_email, smtp_configured
+    from application.services.mail import smtp_configured
     from application.services.tz import user_zone
 
     when_host = booking.start.astimezone(user_zone(user))
@@ -504,6 +524,35 @@ def announce(user, booking) -> None:
 
     if not smtp_configured():
         return
+    # The mails go out after the visitor has their answer: two SMTP sessions
+    # (connect, TLS, login) are seconds the confirmation page need not wait
+    # for. No broker, or none reachable, sends them right here as before.
+    if current_app.config.get("BOOKING_MAILS_IN_BACKGROUND"):
+        try:
+            from application.services.sync_tasks import enqueue_booking_mails
+            enqueue_booking_mails(str(booking.pk))
+            return
+        except Exception as exc:  # noqa: BLE001 (any broker failure means "send here")
+            log.info("booking %s: mails not queued (%s), sending inline",
+                     booking.pk, exc)
+    send_confirmations(user, booking)
+
+
+def send_confirmations(user, booking) -> None:
+    """The two confirmation mails, each with the appointment as an ``.ics``.
+
+    Called by ``announce`` when there is no broker, else by the worker
+    (``booking.send_mails``). Best effort, like ``announce``: ``send_email``
+    swallows what SMTP answers."""
+    from application.services.booking_ics import attachment
+    from application.services.mail import send_email, smtp_configured
+    from application.services.tz import user_zone
+
+    if not smtp_configured():
+        return
+    when_host = booking.start.astimezone(user_zone(user))
+    stamp = when_host.strftime("%a %d %b %Y, %H:%M")
+    who = booking.name or booking.email or "Someone"
     host_name = user.display_name or user.username
     # The same invitation goes to both sides — one appointment, one UID, so
     # whichever calendar it is dropped into shows the same entry.

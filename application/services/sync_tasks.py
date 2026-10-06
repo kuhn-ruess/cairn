@@ -34,6 +34,7 @@ def _redis():
 
 
 _producer = None
+_mail_producer = None
 
 
 def enqueue_team_sync(team_id: str, *, full: bool = False,
@@ -175,6 +176,45 @@ def sync_user_zammad(self, user_id: str):
     finally:
         r.delete(lock)
         r.delete(f"zammad:queued:{user_id}")
+
+
+# ---------------------------------------------------------------------------
+# Booking confirmations
+# ---------------------------------------------------------------------------
+
+def enqueue_booking_mails(booking_id: str) -> None:
+    """Hand a new booking's two confirmation mails to the worker, from the
+    **web** process (same producer as ``enqueue_team_sync``). Raises if the
+    broker can't be reached; ``booking.announce`` then sends them itself.
+
+    Its own producer, because it has to fail FAST: the visitor is waiting,
+    and the transport's default reconnect loop spends about six seconds on a
+    refused connection before it gives up (``max_retries`` 0 makes that
+    instant)."""
+    global _mail_producer
+    from celery import Celery
+
+    url = current_app.config["REDIS_URL"]
+    if _mail_producer is None or _mail_producer.conf.broker_url != url:
+        _mail_producer = Celery("cairn-producer-mail", broker=url)
+        _mail_producer.conf.task_default_queue = "zammad"
+        _mail_producer.conf.broker_transport_options = {"max_retries": 0}
+    _mail_producer.send_task("booking.send_mails", args=[booking_id],
+                             queue="zammad", retry=False)
+
+
+@shared_task(name="booking.send_mails")
+def send_booking_mails(booking_id: str) -> str:
+    """The confirmations of one booking. A booking called off before the
+    worker got to it gets none: its row is gone, and so is the appointment."""
+    from application.models.booking import Booking
+    from application.services.booking import send_confirmations
+
+    booking = Booking.objects(pk=booking_id).first()
+    if booking is None:
+        return "gone"
+    send_confirmations(booking.owner, booking)
+    return "sent"
 
 
 # ---------------------------------------------------------------------------

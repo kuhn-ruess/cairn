@@ -487,6 +487,37 @@
     slotsBox.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 
+  // Booking takes seconds (the calendar entry is written before the answer),
+  // and a page that looks idle that long gets reloaded or clicked twice. So
+  // the submit shows that it is working and cannot be sent again. It stays an
+  // ordinary form POST: the server answers with the confirmation, or with
+  // this page and the reason, which starts with a fresh form either way.
+  var submitBtn = document.getElementById("book-submit");
+  var busyNote = document.getElementById("book-busy");
+  var cancelBtn = document.getElementById("cancel");
+  var sending = false;
+
+  function setBusy(on) {
+    sending = on;
+    submitBtn.disabled = on;
+    cancelBtn.disabled = on;
+    submitBtn.querySelector(".spinner-border").classList.toggle("d-none", !on);
+    submitBtn.querySelector(".book-submit-label").textContent =
+      on ? "Booking…" : "Confirm booking";
+    busyNote.classList.toggle("d-none", !on);
+  }
+
+  form.addEventListener("submit", function (ev) {
+    if (sending) { ev.preventDefault(); return; }
+    setBusy(true);
+  });
+
+  // Back from the confirmation: the browser may hand over this page exactly
+  // as it was left, spinner and all.
+  window.addEventListener("pageshow", function (ev) {
+    if (ev.persisted) { setBusy(false); }
+  });
+
   var first = document.querySelector("#durations [data-duration]");
   duration = first ? parseInt(first.dataset.duration, 10) : 0;
   showZone();

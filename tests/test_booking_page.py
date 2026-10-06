@@ -332,7 +332,9 @@ class BookingPageTests(unittest.TestCase):
         self.save_page()
         start = self.first_slot()
         self.book(start)
-        resp = self.book(start)
+        # Somebody else: the same visitor again is a resubmit (see
+        # test_sending_the_same_booking_twice_books_it_once).
+        resp = self.book(start, name="Carol", email="carol@example.com")
         self.assertEqual(resp.status_code, 400)
         self.assertIn(b"just taken", resp.data)
         with self.app.app_context():
@@ -818,6 +820,112 @@ class BookingPageTests(unittest.TestCase):
             self.assertEqual((name, mimetype), ("appointment.ics", "text/calendar"))
             self.assertIn(b"BEGIN:VEVENT", data)
             self.assertIn(b"LOCATION:https://meet.example/alice", data)
+
+    def _capture_mail(self):
+        from application.services import mail
+
+        sent = []
+        self.app.config["SMTP_HOST"] = "smtp.example"
+        self.addCleanup(self.app.config.update, SMTP_HOST="")
+        real = mail.send_email
+        mail.send_email = lambda to, subject, body, html=None, attachments=None: (
+            sent.append(to) or True)
+        self.addCleanup(setattr, mail, "send_email", real)
+        return sent
+
+    def _background_mail(self, enqueue):
+        try:
+            from application.services import sync_tasks
+        except ImportError as exc:  # celery/redis not in this venv
+            self.skipTest(f"no Celery here: {exc}")
+
+        self.app.config["BOOKING_MAILS_IN_BACKGROUND"] = True
+        self.addCleanup(self.app.config.update, BOOKING_MAILS_IN_BACKGROUND=False)
+        real = sync_tasks.enqueue_booking_mails
+        sync_tasks.enqueue_booking_mails = enqueue
+        self.addCleanup(setattr, sync_tasks, "enqueue_booking_mails", real)
+
+    def test_the_mails_go_to_the_worker_not_into_the_request(self):
+        """Two SMTP sessions are seconds the confirmation page waited for."""
+        sent = self._capture_mail()
+        queued = []
+        self._background_mail(queued.append)
+        self.save_page()
+        self.assertEqual(self.book(self.first_slot()).status_code, 200)
+        self.assertEqual(sent, [])
+        with self.app.app_context():
+            booking = self.Booking.objects.get(owner=self.user)
+            self.assertEqual(queued, [str(booking.pk)])
+            # What the worker then runs sends both.
+            from application.services.sync_tasks import send_booking_mails
+            self.assertEqual(send_booking_mails(str(booking.pk)), "sent")
+        self.assertEqual(sent, ["b@example.com", "bob@example.com"])
+
+    def test_no_broker_sends_the_mails_inline(self):
+        sent = self._capture_mail()
+
+        def broken(_booking_id):
+            raise ConnectionError("no redis")
+        self._background_mail(broken)
+        self.save_page()
+        self.assertEqual(self.book(self.first_slot()).status_code, 200)
+        self.assertEqual(sent, ["b@example.com", "bob@example.com"])
+
+    def test_a_booking_called_off_before_the_worker_gets_no_mail(self):
+        sent = self._capture_mail()
+        self._background_mail(lambda _booking_id: None)
+        from application.services.sync_tasks import send_booking_mails
+        with self.app.app_context():
+            from bson import ObjectId
+            self.assertEqual(send_booking_mails(str(ObjectId())), "gone")
+        self.assertEqual(sent, [])
+
+    def test_the_booking_asks_the_calendars_only_around_its_slot(self):
+        """The page loaded the whole window already; the click re-checks one
+        slot, and whether that collides depends on nothing a day away."""
+        asked = []
+        fake = self.svc.busy_intervals
+        self.svc.busy_intervals = lambda user, page, since, until: (
+            asked.append((since, until)) or fake(user, page, since, until))
+        self.save_page()
+        start = self.first_slot()
+        asked.clear()
+        self.assertEqual(self.book(start).status_code, 200)
+        self.assertEqual(len(asked), 1)
+        since, until = asked[0]
+        self.assertLessEqual(until - since, timedelta(days=3))
+        when = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        self.assertLess(since, when)
+        self.assertGreater(until, when + timedelta(minutes=30))
+
+    def test_a_busy_calendar_beside_the_slot_still_refuses_it(self):
+        """The narrower question must still see an event that overlaps."""
+        self.save_page()
+        start = self.first_slot()
+        when = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        self.busy = [(when + timedelta(minutes=10), when + timedelta(minutes=20))]
+        resp = self.book(start)
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn(b"just taken", resp.data)
+
+    def test_sending_the_same_booking_twice_books_it_once(self):
+        """A reload of the confirmation, or a second click while the first
+        request still ran, posts the same form again: the visitor gets their
+        confirmation back, not "just taken", and nothing happens twice."""
+        sent = self._capture_mail()
+        self.save_page()
+        start = self.first_slot()
+        first = self.book(start)
+        again = self.book(start)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(again.status_code, 200)
+        self.assertIn(b"You're booked", again.data)
+        with self.app.app_context():
+            self.assertEqual(self.Booking.objects(owner=self.user).count(), 1)
+        self.assertEqual(len(self.written), 1)
+        self.assertEqual(sent, ["b@example.com", "bob@example.com"])
+        bell = [n for n in self.reload().notifications if n.kind == "booking"]
+        self.assertEqual(len(bell), 1)
 
     # -- the directory and the portrait -----------------------------------
     def test_the_directory_lists_a_live_page(self):

@@ -262,6 +262,15 @@ def book(slug):
     if len(meeting_url) > 500:
         return _error(user, "That meeting link is too long.")
 
+    # Sent twice: the confirmation reloaded, or the form submitted again while
+    # the first request was still at work. That slot is then the visitor's
+    # own, and "just taken" would tell them a booking that went through had
+    # failed. They see the confirmation again; nothing is booked or mailed.
+    from application.services.booking import recent_duplicate
+    again = recent_duplicate(user, start=start, name=name, email=email)
+    if again is not None:
+        return _done(user, again)
+
     try:
         # Last, because it is the only check that costs a query — and it sits
         # inside the same handler, so a ceiling reads like any other refusal.
@@ -275,6 +284,10 @@ def book(slug):
 
     from application.services.booking import announce
     announce(user, booking)
+    return _done(user, booking)
+
+
+def _done(user, booking):
     return render_template("public/booking_done.html", host=user,
                            host_name=user.display_name or user.username,
                            booking=booking,

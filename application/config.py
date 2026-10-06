@@ -90,6 +90,11 @@ class BaseConfig:
     # open; narrow it to your own sites via BKTODO_BOOKING_FRAME_ANCESTORS
     # (a space-separated source list, e.g. "https://example.com").
     BOOKING_FRAME_ANCESTORS = "*"
+    # The two confirmation mails of a booking go to the Celery worker, so the
+    # visitor's confirmation page doesn't wait on SMTP. Without a reachable
+    # broker they are sent inline, as before. BKTODO_BOOKING_MAILS_IN_BACKGROUND=false
+    # keeps them inline for a deployment that runs Redis but no worker.
+    BOOKING_MAILS_IN_BACKGROUND = True
 
     # IANA timezone name attached to Google Calendar events when the
     # task's datetime is naive (the datetime-local form input has no
@@ -209,3 +214,5 @@ class TestConfig(BaseConfig):
     # every other booking test would have to sleep three seconds to pass.
     # The ticket itself stays required — tests mint one like the page does.
     BOOKING_MIN_FORM_SECONDS = 0
+    # A local Redis must not swallow the mails a test is counting.
+    BOOKING_MAILS_IN_BACKGROUND = False
