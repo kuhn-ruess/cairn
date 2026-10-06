@@ -26,6 +26,7 @@
       {% if plan.closed %}<li>{{ plan.closed|length }} task{{ 's' if plan.closed|length != 1 }} will be closed: {{ plan.closed|join(', ') }}</li>{% endif %}
       {% if plan.closed_with %}<li>{{ plan.closed_with|length }} open sub-task{{ 's' if plan.closed_with|length != 1 }} not shown in the sketch will close with {{ 'their' if plan.closed_with|length != 1 else 'its' }} parent: {{ plan.closed_with|join(', ') }}</li>{% endif %}
       {% if plan.moved %}<li>{{ plan.moved|length }} task{{ 's' if plan.moved|length != 1 }} will be moved: {{ plan.moved|join(', ') }}</li>{% endif %}
+      {% if plan.updated %}<li>{{ plan.updated|length }} task{{ 's' if plan.updated|length != 1 }} will be assigned or tagged: {{ plan.updated|join(', ') }}</li>{% endif %}
       {% if plan.created %}<li>{{ plan.created|length }} task{{ 's' if plan.created|length != 1 }} will be created: {{ plan.created|join(', ') }}</li>{% endif %}
       {% if plan.refused %}<li>Left in place (a task can't go under its own sub-task): {{ plan.refused|join(', ') }}</li>{% endif %}
     </ul>
@@ -49,7 +50,9 @@
     there; a line removed closes its task (with its sub-tasks). Before
     anything is moved or closed you are asked to confirm. Sections are never
     renamed or removed.
-    <code>+tag</code>, <code>@person</code>, <code>p1</code> and dates work as in quick-add.
+    <code>+tag</code>, <code>@person</code>, <code>p1</code> and dates work as in quick-add,
+    and <code>@</code> / <code>+</code> open the same pick list. On an existing
+    task's line, <code>@person</code> assigns it and <code>+tag</code> adds the tag.
     Ctrl/Cmd-Enter saves.
   </div>
   <div class="mt-3 d-flex gap-2">
@@ -61,11 +64,59 @@
 </form>
 
 <script>
-(function () {
+// After DOMContentLoaded: the shared scripts (token-complete.js) load at the
+// end of the layout, below this block.
+document.addEventListener("DOMContentLoaded", function () {
   const ta = document.getElementById("project-sketch");
   if (!ta) return;
   const IND = "  ";
   ta.setSelectionRange(ta.value.length, ta.value.length);
+
+  // `@` and `+` open the Quick Add pick list (token-complete.js). Attached
+  // before the keys below, which leave alone a key the list took (Enter or
+  // Tab on a highlighted entry). The box floats under the caret's line: under
+  // the textarea it would be twenty lines away from what is being typed.
+  window.CairnTokenComplete.attach(ta, {
+    place: box => {
+      box.style.position = "fixed";
+      box.style.zIndex = "2200";
+      box.style.minWidth = "14rem";
+      document.body.appendChild(box);
+    },
+    position: (box) => {
+      const r = ta.getBoundingClientRect();
+      const at = caretOffset();
+      box.style.left = Math.min(r.left + at.left, r.right - 224) + "px";
+      box.style.top = (r.top + at.top + at.height + 2) + "px";
+    },
+  });
+
+  // Where the caret sits inside the textarea, measured on a hidden copy with
+  // the same font and wrapping (a textarea won't say).
+  function caretOffset() {
+    const cs = getComputedStyle(ta);
+    const div = document.createElement("div");
+    for (const p of ["fontFamily", "fontSize", "fontWeight", "lineHeight",
+                     "letterSpacing", "paddingTop", "paddingLeft",
+                     "paddingRight", "borderTopWidth", "borderLeftWidth",
+                     "boxSizing", "tabSize"]) {
+      div.style[p] = cs[p];
+    }
+    Object.assign(div.style, {
+      position: "absolute", visibility: "hidden", whiteSpace: "pre-wrap",
+      overflowWrap: "break-word", width: ta.offsetWidth + "px", top: "0",
+      left: "-9999px",
+    });
+    div.textContent = ta.value.slice(0, ta.selectionStart);
+    const mark = document.createElement("span");
+    mark.textContent = "\u200b";
+    div.appendChild(mark);
+    document.body.appendChild(div);
+    const out = { top: mark.offsetTop - ta.scrollTop, left: mark.offsetLeft,
+                  height: mark.offsetHeight };
+    div.remove();
+    return out;
+  }
 
   // The lines the selection touches, as [start, end) offsets into the value.
   function lineSpan() {
@@ -77,6 +128,7 @@
   }
 
   ta.addEventListener("keydown", (e) => {
+    if (e.defaultPrevented) return;
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       ta.form.requestSubmit();
@@ -115,6 +167,6 @@
       ta.setRangeText("\n" + m[1] + m[2], ta.selectionStart, ta.selectionEnd, "end");
     }
   });
-})();
+});
 </script>
 {% endblock %}

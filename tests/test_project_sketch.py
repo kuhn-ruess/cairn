@@ -6,7 +6,8 @@ database (``bktodo_test``); skipped when there isn't one.
 A sketch is a nested list typed into a project: new lines become tasks,
 indentation becomes sub-tasks, an existing task's line put elsewhere moves
 it, and a line the sketch opened with that is gone closes its task. Nothing
-on an existing item's fields is ever changed.
+on an existing item's fields is ever changed, except what an ``@person``
+or ``+tag`` typed on its line adds.
 """
 import unittest
 
@@ -52,10 +53,28 @@ class ProjectSketchTests(unittest.TestCase):
 
     def _wipe(self):
         from application.models.item import Item
+        from application.models.team import Team
         from application.models.user import User
-        for u in User.objects(username="sk-bastian"):
+        for t in Team.objects(name="sk-team"):
+            t.delete()
+        for u in User.objects(username__in=("sk-bastian", "sk-sven")):
             Item.all_objects(owner=u).delete()
             u.delete()
+
+    def _teammate_and_tag(self):
+        """A teammate ``sk-sven`` and the owner's tag ``Buchhaltung``: what
+        ``@sk-sven`` and ``+Buchhaltung`` on a line resolve to."""
+        from application.models.tag import Tag
+        from application.models.team import Team
+        from application.models.user import User
+        self.owner.tags = [Tag(name="Buchhaltung", color="#6c757d"),
+                           Tag(name="Alt", color="#6c757d")]
+        self.owner.save()
+        mate = User(username="sk-sven", email="sk-sven@example.com",
+                    display_name="Sven", password_hash="x").save()
+        mate.team = Team(name="sk-team", admin=self.owner).save()
+        mate.save()
+        return mate
 
     def _sketch(self, text, shown=None, apply=True):
         from application.services.capture import sketch_tasks
@@ -312,6 +331,62 @@ class ProjectSketchTests(unittest.TestCase):
         done.save()
         stats = self._sketch("## Phase 2\n- Testen")
         self.assertEqual(stats["tasks_created"], 1)
+
+    def test_person_and_tag_on_a_new_line(self):
+        mate = self._teammate_and_tag()
+        self._sketch("- Angebot @sk-sven +Buchhaltung\n  - Preise @sk-sven")
+        task = self._child(self.project, "Angebot")
+        self.assertEqual(task.assigned_to.pk, mate.pk)
+        self.assertEqual(task.tags, ["Buchhaltung"])
+        self.assertEqual(self._child(task, "Preise").assigned_to.pk, mate.pk)
+
+    def test_person_and_tag_on_an_existing_line(self):
+        mate = self._teammate_and_tag()
+        self._sketch("## Phase 1\n- Angebot +Alt\n- Rechnung")
+        task = self._child(self._child(self.project, "Phase 1"), "Angebot")
+        task.priority, task.flagged = 2, True
+        task.save()
+        text, shown = self._open()
+        self.assertIn("- Angebot\n", text + "\n")      # tokens are not prefilled
+        text = text.replace("- Angebot", "- Angebot @sk-sven +Buchhaltung")
+        stats = self._sketch(text, shown, apply=False)    # a plan writes nothing
+        self.assertEqual(self.last["updated"], ["Angebot"])
+        task.reload()
+        self.assertIsNone(task.assigned_to)
+        stats = self._sketch(text, shown)
+        self.assertEqual(stats, {"tasks_created": 0, "tasks_skipped": 2,
+                                 "sections_created": 0})
+        self.assertEqual(self.last["updated"], ["Angebot"])
+        task.reload()
+        self.assertEqual(task.assigned_to.pk, mate.pk)
+        self.assertEqual(task.tags, ["Alt", "Buchhaltung"])   # added, not replaced
+        self.assertEqual((task.priority, task.flagged, task.status), (2, True, "open"))
+        self.assertIsNone(self._child(self.project, "Rechnung"))
+        # Saved again: nothing left to do.
+        self._sketch(text, shown)
+        self.assertEqual(self.last["updated"], [])
+
+    def test_a_moved_line_takes_its_tokens_along(self):
+        mate = self._teammate_and_tag()
+        self._sketch("## Phase 1\n- Angebot\n## Phase 2")
+        text, shown = self._open()
+        text = "## Phase 1\n## Phase 2\n- Angebot @sk-sven"
+        self._sketch(text, shown)
+        task = self.Item.objects(title="Angebot").first()
+        self.assertEqual(task.parent.title, "Phase 2")
+        self.assertEqual(task.assigned_to.pk, mate.pk)
+        self.assertEqual(self.last["moved"], ["Angebot"])
+
+    def test_a_title_holding_a_token_is_left_alone(self):
+        self._teammate_and_tag()
+        task = self.Item(owner=self.owner, kind="task", parent=self.project,
+                         title="Call @sk-sven", status="open").save()
+        text, shown = self._open()
+        self.assertIn("- Call @sk-sven", text)
+        self._sketch(text, shown)
+        self.assertEqual(self.last["updated"], [])
+        task.reload()
+        self.assertIsNone(task.assigned_to)
 
     def test_page_and_post(self):
         client = self._client()

@@ -1689,8 +1689,8 @@ def sketch(project_id):
     if stats["sections_created"]:
         n = stats["sections_created"]
         parts.append(f"{n} section{'s' if n != 1 else ''} created")
-    for key, verb in (("created", "created"), ("moved", "moved"),
-                      ("closed", "closed")):
+    for key, verb in (("created", "created"), ("updated", "assigned or tagged"),
+                      ("moved", "moved"), ("closed", "closed")):
         if stats[key]:
             parts.append(_sketch_names(stats[key]) + " " + verb)
     if stats["closed_with"]:

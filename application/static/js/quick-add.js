@@ -210,178 +210,43 @@
   input.addEventListener("input", () => { preview(); updateProjectHint(); });
 
   // ----- Autocomplete for the @person and +tag tokens -----
-  // A small dropdown appears while typing either token at the caret; picking
-  // an entry replaces the partial token with the whole one. `@` opens the same
+  // `token-complete.js` (shared with the project sketch): `@` opens the same
   // teammate list as an @-mention in a comment, because `@` means a person
-  // everywhere. Tags share the box because typing one blind is how they
-  // silently ended up unassigned: the parser only takes a tag that exists, and
-  // a name with spaces has to be written quoted (`+"Review AI Work"`) — the
-  // list writes that for you.
-  // (`qa-assignee-ac` is also the comment @-mention box's class.)
-  //
-  // **Nothing in the list is highlighted until the user arrows into it.** This
-  // box completes a token inside a sentence the user is writing, and the two
-  // keys that would take the highlighted entry — Enter and Tab — already mean
-  // "create the task" and "leave the field" in this input. A pre-selected first
-  // row makes Enter hand over a tag or a person that was never picked, and it
-  // does it silently, because `+cair` is also perfectly good text on its own.
-  // A command bar is the other case and keeps its pre-selection: quickjump
-  // (`quickjump.js`), the `/` menu and the `[[ ]]` completion open BECAUSE a
-  // list was asked for, and there Enter can mean nothing else. So: `acIndex`
-  // stays -1 until ↓/↑ moves it, and while it is -1 the dropdown handles no
-  // key the field wanted for itself.
-  const acBox = document.createElement("div");
-  acBox.className = "qa-assignee-ac d-none";
-  (previewEl.parentNode || modalEl).insertBefore(acBox, previewEl);
-  let acItems = [];     // [{ token, html }]
-  let acIndex = -1;
-  let acToken = null;   // { start, end, query, kind }
-  let acSeq = 0;
-
-  const AC_SOURCES = {
-    user: {
-      // Either half of a quoted display name, or a bare word.
-      re: /(?:^|\s)(@"[^"\n]*|@[\w.\-äöüÄÖÜß]*)$/,
-      url: q => `/tasks/assignees?q=${encodeURIComponent(q)}`,
-      items: data => (data.users || []).map(u => ({
-        token: "@" + u.username,
-        html: '<i class="bi bi-person"></i> '
-          + (u.display_name && u.display_name !== u.username
-             ? `${escape(u.username)} <span class="text-muted">${escape(u.display_name)}</span>`
-             : escape(u.username))
-          + (u.is_me ? ' <span class="text-muted">(me)</span>' : ""),
-      })),
-    },
-    tag: {
-      // Either half of a quoted name, or a bare word — colons included, so the
-      // list keeps answering while `+AI:local` is being typed.
-      re: /(?:^|\s)(\+"[^"\n]*|\+[\w\-äöüÄÖÜß:]*)$/,
-      url: q => `/tasks/tag-names?q=${encodeURIComponent(q)}`,
-      items: data => (data.tags || []).map(t => ({
-        token: t.token,
-        // The tag's own colour, but only if it really is one — this goes in
-        // through innerHTML, so anything else is dropped rather than trusted.
-        html: `<i class="bi bi-tag"${/^#[0-9a-f]{3,8}$/i.test(t.color || "")
-                 ? ` style="color: ${t.color}"` : ""}></i> ${escape(t.name)}`,
-      })),
-    },
-    project: {
-      // `#` is a search in the project field below, straight away. The list
-      // is that field's own options (no round trip), and picking one sets the
-      // field and drops the `#query` from the title: a `#name` token only
-      // reaches projects whose name is one word, the picker reaches them all.
-      re: /(?:^|\s)(#"[^"\n]*|#[\w\-äöüÄÖÜß]*)$/,
-      local: q => {
-        const needle = q.trim().toLowerCase();
-        return Array.from(projectInput.options)
-          .filter(o => !needle || o.textContent.toLowerCase().includes(needle))
-          .slice(0, 20)
-          .map(o => ({
-            token: "",
-            pick: () => pickProject(o.value),
-            html: `<i class="bi bi-folder"></i> ${escape(o.textContent.trim())}`,
-          }));
+  // everywhere, and `+` lists tags, because typing one blind is how they
+  // silently ended up unassigned (the parser only takes a tag that exists, and
+  // a name with spaces has to be written quoted, `+"Review AI Work"`, which the
+  // list writes for you). Nothing is highlighted until the user arrows into
+  // the list: Enter and Tab already mean "create the task" and "leave the
+  // field" in this input. Quick Add adds one kind of its own: `#` searches the
+  // project field below, straight away. The list is that field's own options
+  // (no round trip), and picking one sets the field and drops the `#query`
+  // from the title: a `#name` token only reaches projects whose name is one
+  // word, the picker reaches them all.
+  window.CairnTokenComplete.attach(input, {
+    place: box => (previewEl.parentNode || modalEl).insertBefore(box, previewEl),
+    onApply: () => { preview(); updateProjectHint(); },
+    sources: {
+      project: {
+        re: /(?:^|\s)(#"[^"\n]*|#[\w\-äöüÄÖÜß]*)$/,
+        local: q => {
+          const needle = q.trim().toLowerCase();
+          return Array.from(projectInput.options)
+            .filter(o => !needle || o.textContent.toLowerCase().includes(needle))
+            .slice(0, 20)
+            .map(o => ({
+              token: "",
+              pick: () => pickProject(o.value),
+              html: `<i class="bi bi-folder"></i> ${escape(o.textContent.trim())}`,
+            }));
+        },
       },
     },
-  };
+  });
 
   function pickProject(value) {
     projectInput.value = value;
     projectInput.dispatchEvent(new Event("change", { bubbles: true }));
   }
-
-  function tokenAtCaret() {
-    const pos = input.selectionStart || 0;
-    const before = input.value.slice(0, pos);
-    for (const [kind, src] of Object.entries(AC_SOURCES)) {
-      const m = before.match(src.re);
-      if (!m) continue;
-      const raw = m[1];
-      const query = /^[@+#]"/.test(raw) ? raw.slice(2) : raw.slice(1);
-      return { start: pos - raw.length, end: pos, query, kind };
-    }
-    return null;
-  }
-
-  function hideAc() {
-    acBox.classList.add("d-none");
-    acBox.innerHTML = "";
-    acItems = []; acIndex = -1; acToken = null;
-  }
-
-  function renderAc() {
-    if (!acItems.length) { hideAc(); return; }
-    acBox.innerHTML = acItems.map((it, i) =>
-      `<button type="button" class="qa-ac-item${i === acIndex ? " active" : ""}" `
-      + `data-i="${i}">${it.html}</button>`).join("");
-    acBox.classList.remove("d-none");
-  }
-
-  async function refreshAc() {
-    const tok = tokenAtCaret();
-    if (!tok) { hideAc(); return; }
-    acToken = tok;
-    const src = AC_SOURCES[tok.kind];
-    const seq = ++acSeq;
-    if (src.local) {
-      acItems = src.local(tok.query);
-      acIndex = -1;
-      renderAc();
-      return;
-    }
-    try {
-      const resp = await fetch(src.url(tok.query), { credentials: "same-origin" });
-      if (!resp.ok || seq !== acSeq) return;
-      acItems = src.items(await resp.json());
-      acIndex = -1;
-      renderAc();
-    } catch (e) { hideAc(); }
-  }
-
-  function applyAc(i) {
-    const item = acItems[i];
-    if (!item || !acToken) return;
-    const v = input.value;
-    if (item.pick) item.pick();
-    const replacement = item.token ? item.token + " " : "";
-    input.value = v.slice(0, acToken.start) + replacement + v.slice(acToken.end);
-    const caret = acToken.start + replacement.length;
-    input.setSelectionRange(caret, caret);
-    hideAc();
-    preview();
-    updateProjectHint();
-    input.focus();
-  }
-
-  input.addEventListener("input", refreshAc);
-  input.addEventListener("keydown", (ev) => {
-    if (acBox.classList.contains("d-none") || !acItems.length) return;
-    if (ev.key === "ArrowDown") {
-      // From "nothing highlighted" (-1) this lands on the first entry.
-      ev.preventDefault(); acIndex = (acIndex + 1) % acItems.length; renderAc();
-    } else if (ev.key === "ArrowUp") {
-      // …and this one on the last, rather than one short of it.
-      ev.preventDefault(); acIndex = (acIndex <= 0 ? acItems.length : acIndex) - 1; renderAc();
-    } else if (ev.key === "Enter" || ev.key === "Tab") {
-      // ⌘/Ctrl+Enter is "add the task" and is never a completion, even with an
-      // entry highlighted — it is the one key that has to work from every field.
-      if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { hideAc(); return; }
-      // Only once an entry is actually highlighted. Otherwise Enter submits the
-      // task and Tab moves on, which is what the user pressed them for.
-      if (acIndex < 0) return;
-      ev.preventDefault(); ev.stopPropagation(); applyAc(acIndex);
-    } else if (ev.key === "Escape") {
-      // Closes the list, not the dialog: the next Escape does that.
-      ev.preventDefault(); ev.stopPropagation(); hideAc();
-    }
-  });
-  acBox.addEventListener("mousedown", (ev) => {
-    const btn = ev.target.closest(".qa-ac-item");
-    if (!btn) return;
-    ev.preventDefault();
-    applyAc(parseInt(btn.dataset.i, 10));
-  });
-  input.addEventListener("blur", () => setTimeout(hideAc, 120));
 
   // ----- Submit -----
   // The title field finishes the dialog on plain Enter, because it is a

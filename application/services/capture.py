@@ -189,9 +189,11 @@ def _create_task(tnode: TaskNode, parent_item, user, stats: dict, order: int,
 # The project page's Markdown view: the project typed as a nested list. The
 # same parser as a capture, but a different contract for what already exists.
 # A capture UPDATES a matching task (it re-applies the line's date, priority
-# and tags); a sketch never edits an item's fields. A line whose title matches
-# an item already sitting at that place in the tree is only an anchor: nothing
-# on it is changed, and the lines indented under it are filed beneath it.
+# and tags); a sketch does not. A line whose title matches an item already
+# sitting at that place in the tree is an anchor: the lines indented under it
+# are filed beneath it, and its fields stay as they are, except that an
+# ``@person`` typed on the line assigns the task and a ``+tag`` adds the tag
+# (``_sketch_tokens``, only adding, never removing).
 #
 # The sketch does change WHERE a task is and WHETHER it is open:
 #
@@ -291,12 +293,13 @@ def sketch_tasks(text: str, user, project, shown=None, apply: bool = True) -> di
     Returns the counts ``tasks_created``, ``tasks_skipped`` and
     ``sections_created``, and the titles ``created``, ``moved``, ``closed``
     (the missing lines), ``closed_with`` (open sub-tasks the sketch didn't
-    list that close with their parent) and ``refused`` (moves that would put
-    a task under its own sub-task, left where they are).
+    list that close with their parent), ``refused`` (moves that would put
+    a task under its own sub-task, left where they are) and ``updated``
+    (existing tasks given a person or a tag typed on their line).
     """
     stats = {"tasks_created": 0, "tasks_skipped": 0, "sections_created": 0,
              "created": [], "moved": [], "closed": [], "closed_with": [],
-             "refused": []}
+             "refused": [], "updated": []}
     by_title, open_items = _sketch_open_items(project)
     # Two passes over the same text: the first ("scan") only notes which
     # existing items are still at their own place, the second files the
@@ -430,6 +433,8 @@ def _sketch_level(nodes, parent, user, stats, ctx) -> None:
         if existing is not None:
             ctx["kept"].add(existing.pk)
             stats["tasks_skipped"] += 1
+            if node.title.strip().casefold() != (existing.title or "").strip().casefold():
+                _sketch_tokens(existing, parsed, user, stats, ctx)
             _sketch_level(node.children, existing, user, stats, ctx)
             continue
         stats["tasks_created"] += 1
@@ -449,6 +454,46 @@ def _sketch_level(nodes, parent, user, stats, ctx) -> None:
         order += 1
         by_title[title.strip().casefold()] = task
         _sketch_level(node.children, task, user, stats, ctx)
+
+
+def _sketch_tokens(item, parsed, user, stats, ctx) -> None:
+    """Hand an existing task the ``@person`` and ``+tag`` typed on its line.
+
+    Only those two tokens, and only adding: a tag is added, never removed, and
+    a person is assigned, never unassigned (the sketch doesn't show who has a
+    task, so a missing ``@`` says nothing). Date, priority and flag stay as
+    they are. Only called for a line that differs from the task's title, so
+    a title that itself contains an ``@`` or ``+`` changes nothing.
+    """
+    from application.models.item import Item
+
+    if item.kind != "task" or not (parsed.tags or parsed.assignee):
+        return
+    # The siblings were read with ``only()``: the tags and the assignee are
+    # read again in full.
+    task = Item.objects(pk=item.pk).first()
+    if task is None:
+        return
+    tags = [t for t in parsed.tags if t not in (task.tags or [])]
+    def _pk(field):
+        raw = task._data.get(field)
+        return getattr(raw, "id", None) or getattr(raw, "pk", None) or raw
+
+    person = parsed.assignee
+    current = _pk("assigned_to")
+    # Already theirs, or the owner on a task nobody else has: nothing to do.
+    if person is not None and (person.pk == current or (
+            current is None and person.pk == _pk("owner"))):
+        person = None
+    if not tags and person is None:
+        return
+    stats["updated"].append(task.title)
+    if ctx["mode"] != "apply":
+        return
+    task.tags = list(task.tags or []) + tags
+    if person is not None:
+        task.assign_to(person, by_user=user)
+    task.save()
 
 
 def _sketch_moved(keys, ctx):
