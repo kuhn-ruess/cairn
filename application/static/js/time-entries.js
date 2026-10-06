@@ -437,6 +437,51 @@
     }
   });
 
+  // ---- clock fields ----------------------------------------------------------
+  // Plain text fields (see _capture_macros.html for why not type="time"), so
+  // they take what people type: 9, 930, 0930, 9.30 and 09:30 all read 09:30.
+  // Returns "" for an empty field and null for one that is no time of day.
+  // Mirrors services.timetracking.parse_clock.
+  function normClock(raw) {
+    const s = (raw || "").trim();
+    if (!s) return "";
+    const m = /^(\d{1,2})(?:[:.]?([0-5]\d))?$/.exec(s);
+    if (!m || parseInt(m[1], 10) > 23) return null;
+    return `${m[1].padStart(2, "0")}:${m[2] || "00"}`;
+  }
+  window.ttNormClock = normClock;
+
+  // A field that can't be read is marked, focused and named, instead of the
+  // booking quietly not going out.
+  function clockProblem(fields) {
+    for (const el of fields) {
+      if (!el) continue;
+      const v = normClock(el.value);
+      if (!v) {
+        el.classList.add("is-invalid");
+        el.focus();
+        showWarning(v === null
+          ? `"${el.value.trim()}" is not a time of day. Type it as 09:30, 930 or 9.`
+          : "Enter a start and an end time.");
+        return true;
+      }
+      el.value = v;
+    }
+    return false;
+  }
+
+  document.addEventListener("focusout", (ev) => {
+    const el = ev.target.closest && ev.target.closest(".tt-clock");
+    if (!el) return;
+    const v = normClock(el.value);
+    if (v) el.value = v;
+    el.classList.toggle("is-invalid", v === null);
+  });
+  document.addEventListener("input", (ev) => {
+    const el = ev.target.closest && ev.target.closest(".tt-clock");
+    if (el) el.classList.remove("is-invalid");
+  });
+
   // ---- manual logging ------------------------------------------------------
   function addFields(add) {
     const val = (sel) => {
@@ -462,12 +507,14 @@
   }
 
   async function logTime(add, ctx) {
+    const clock = add.querySelector(".time-add-clock");
+    const byClock = clock && !clock.classList.contains("d-none");
+    if (byClock && clockProblem([add.querySelector(".time-add-start"),
+                                 add.querySelector(".time-add-end")])) return;
     const fields = addFields(add);
-    if (!fields.duration && !(fields.start_time && fields.end_time)) {
-      // Nothing to book yet — put the cursor in whichever input is showing.
-      const clock = add.querySelector(".time-add-clock");
-      const byClock = clock && !clock.classList.contains("d-none");
-      const first = add.querySelector(byClock ? ".time-add-start" : ".time-add-duration");
+    if (!byClock && !fields.duration) {
+      // Nothing to book yet: put the cursor where the length goes.
+      const first = add.querySelector(".time-add-duration");
       if (first) first.focus();
       return;
     }
@@ -669,6 +716,12 @@
       const billable = form.querySelector(".tt-edit-billable");
       const startEl = form.querySelector(".tt-edit-start");
       const endEl = form.querySelector(".tt-edit-end");
+      // Both optional here, but whatever is typed must be a time of day.
+      if ([startEl, endEl].some((el) => el && normClock(el.value) === null)) {
+        clockProblem([startEl, endEl].filter((el) => el && el.value.trim()));
+        return;
+      }
+      [startEl, endEl].forEach((el) => { if (el) el.value = normClock(el.value) || ""; });
       const projEl = form.querySelector(".tt-edit-project");
       const payload = {
         project_id: projEl ? projEl.value : "",

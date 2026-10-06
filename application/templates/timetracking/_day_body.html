@@ -139,10 +139,10 @@
                data-action="{{ url_for('timetracking.entry_edit', bucket_id=e.bucket_id, entry_id=e.entry_id) }}">
             <input type="text" class="form-control form-control-sm tt-edit-duration"
                    style="max-width: 7rem;" value="{{ e.minutes }}" title="Duration">
-            <input type="time" class="form-control form-control-sm tt-edit-start"
+            <input type="text" inputmode="numeric" autocomplete="off" placeholder="hh:mm" class="form-control form-control-sm tt-clock tt-edit-start"
                    style="max-width: 7rem;" value="{{ e.start_time }}" title="Start (optional)">
             {{ cap.time_buttons("start") }}
-            <input type="time" class="form-control form-control-sm tt-edit-end"
+            <input type="text" inputmode="numeric" autocomplete="off" placeholder="hh:mm" class="form-control form-control-sm tt-clock tt-edit-end"
                    style="max-width: 7rem;" value="{{ e.end_time }}" title="End (optional)">
             {{ cap.time_buttons("end") }}
             <input type="date" class="form-control form-control-sm tt-edit-date"

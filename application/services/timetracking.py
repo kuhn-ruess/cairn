@@ -3147,10 +3147,11 @@ def parse_clock(start: str, end: str):
     import re
 
     def _minutes(raw):
-        m = re.fullmatch(r"\s*(\d{1,2})[:.]?([0-5]\d)\s*", raw or "")
+        # "9" is 09:00: the clock fields are plain text and take it as typed.
+        m = re.fullmatch(r"\s*(\d{1,2})(?:[:.]?([0-5]\d))?\s*", raw or "")
         if not m:
             return None
-        h, mi = int(m.group(1)), int(m.group(2))
+        h, mi = int(m.group(1)), int(m.group(2) or 0)
         return h * 60 + mi if h < 24 else None
 
     a, b = _minutes(start), _minutes(end)

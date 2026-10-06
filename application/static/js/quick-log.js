@@ -85,8 +85,14 @@
     const clock = body.querySelector(".time-add-clock");
     const byClock = clock && !clock.classList.contains("d-none");
     if (byClock) {
-      fd.append("start_time", field(".time-add-start"));
-      fd.append("end_time", field(".time-add-end"));
+      // 930 or 9 as typed is read as 09:30 / 09:00 (time-entries.js);
+      // what can't be read goes as typed and the server says so.
+      const clockVal = (sel) => {
+        const raw = field(sel);
+        return (window.ttNormClock && window.ttNormClock(raw)) || raw;
+      };
+      fd.append("start_time", clockVal(".time-add-start"));
+      fd.append("end_time", clockVal(".time-add-end"));
     } else {
       fd.append("duration", field(".time-add-duration"));
     }

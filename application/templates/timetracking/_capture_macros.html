@@ -85,13 +85,18 @@
   </span>
   {# The start is pre-filled with where the last entry of the day ended, so a
      day booked by the clock chains without retyping. Each field also has a
-     "now" button, which is how most of these get filled in the first place. #}
+     "now" button, which is how most of these get filled in the first place.
+     Plain text, not type="time": Safari draws an empty or half typed time
+     field with placeholder digits that look like a real time ("12:00" while
+     only "12" was typed) and reports it as empty, so a booking looked complete
+     and was silently not sent. time-entries.js reads 9, 930, 9.30 and 09:30
+     alike (normClock). #}
   <span class="time-add-clock d-none align-items-center gap-1">
-    <input type="time" class="form-control form-control-sm time-add-start"
+    <input type="text" inputmode="numeric" autocomplete="off" placeholder="hh:mm" class="form-control form-control-sm tt-clock time-add-start"
            style="max-width: 7rem;" title="Start" value="{{ suggest_start }}">
     {{ time_buttons("start") }}
     <span class="text-muted">–</span>
-    <input type="time" class="form-control form-control-sm time-add-end"
+    <input type="text" inputmode="numeric" autocomplete="off" placeholder="hh:mm" class="form-control form-control-sm tt-clock time-add-end"
            style="max-width: 7rem;" title="End">
     {{ time_buttons("end") }}
   </span>
