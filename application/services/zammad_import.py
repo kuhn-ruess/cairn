@@ -579,6 +579,31 @@ def reconcile_tags(user: User, url: str, token: str, *, dry_run: bool = False) -
     return {"scanned": scanned, "changed": changed}
 
 
+def _drop_plan_on_answer(item: Item, was_status: str | None, user: User) -> bool:
+    """The answer went out, so the plan date that brought the task into Today goes.
+
+    True when it cleared ``plan_date`` (and the ``plan_note`` that belongs to
+    it); the caller saves and takes the mirrored calendar event along.
+
+    Only on the way IN to ``waiting_reply``, the sync pass that saw the reply:
+    a plan date set while the task was already waiting is a deliberate chase
+    and stays. Only a plan date today or earlier, timed or not: the block has
+    done its job, and left alone it would carry the task into tomorrow's Today
+    as overdue. A plan date after today is a plan for the future and stays.
+    Due date, flag and follow-up are not touched; they are reasons of their own.
+    """
+    if (item.kind != "task" or item.status != "waiting_reply"
+            or was_status == "waiting_reply" or item.plan_date is None):
+        return False
+    from application.services.tzutil import local_date, resolve_tz
+    tz = resolve_tz(user)
+    if local_date(item.plan_date, tz) > datetime.now(tz).date():
+        return False
+    item.plan_date = None
+    item.plan_note = ""
+    return True
+
+
 def _upsert_ticket(
     user: User,
     raw: dict,
@@ -729,6 +754,7 @@ def _upsert_ticket(
         ensure_user_has_tags(user, new_external, group="Zammad")
 
     if existing:
+        was_status = existing.status
         existing.title = title
         existing.note = note
         existing.source = "zammad"
@@ -779,6 +805,7 @@ def _upsert_ticket(
         # otherwise be dragged straight back out of done on every sync.
         if not keep_scheduled and cairn_status != "done":
             apply_label_rules(existing, user)
+        answered_unplanned = _drop_plan_on_answer(existing, was_status, user)
         _sync_article_comments(existing, articles, stats, user, me_id)
         _absorb_images(existing, articles, base, token, zid, stats)
         # Parent stays put either way: the user might have moved the
@@ -786,6 +813,15 @@ def _upsert_ticket(
         existing.save()
         _import_time_accounting(user, existing, base, token, zid, znum, stats,
                                 me_id, raw=raw, opts=opts)
+        if answered_unplanned:
+            # The mirrored plan event goes with the plan date, the same
+            # write-back the "clear plan" button does.
+            from application.services.calendar_writeback import (
+                sync_task_to_calendar,
+            )
+            stats.errors.extend(
+                f"calendar for {znum}: {w}"
+                for w in sync_task_to_calendar(existing, user) or [])
         stats.tickets_updated += 1
         return existing
     else:
