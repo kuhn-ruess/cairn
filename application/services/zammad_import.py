@@ -1285,6 +1285,11 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
                 # day's entry is already billed, so what it doesn't cover has
                 # to be booked on its own.
                 "part_minutes": {},
+                # When each booking was made, and the day's last one: a
+                # project booked by the clock derives start and end from them
+                # (``timetracking.clock_span``).
+                "part_ends": {},
+                "ends_at": when,
                 "spent_on": when,
                 "note": ticket_note,
                 "external_ref": znum,
@@ -1296,6 +1301,9 @@ def _import_time_accounting(user: User, item: "Item", base: str, token: str,
         row["minutes"] += minutes
         row["covered"].append(f"zammad:{booking.get('id')}")
         row["part_minutes"][f"zammad:{booking.get('id')}"] = minutes
+        row["part_ends"][f"zammad:{booking.get('id')}"] = when
+        if when > row["ends_at"]:
+            row["ends_at"] = when
         # The earliest booking of the day dates the entry — a day's work starts
         # when it starts.
         if when < row["spent_on"]:

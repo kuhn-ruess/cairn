@@ -2581,6 +2581,24 @@ def imported_entry_ids(user, item) -> set:
     return out
 
 
+def clock_span(end: datetime, minutes: int) -> tuple[str, str] | None:
+    """Times of day for ``minutes`` of work that ended at ``end`` (local).
+
+    For an import into a project booked by the clock: the source only knows
+    *when* time was booked, and booking is what happens when the work is done,
+    so the work ends there and started ``minutes`` before, like a comment that
+    books time. A span that would start on the day before is moved to begin at
+    midnight instead: the entry is filed under ``end``'s day and must not read
+    23:30 to 00:15 there. A day or more has no times of day at all."""
+    if not 0 < minutes < 24 * 60:
+        return None
+    start = end - timedelta(minutes=minutes)
+    if start.date() != end.date():
+        start = end.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + timedelta(minutes=minutes)
+    return start.strftime("%H:%M"), end.strftime("%H:%M")
+
+
 def sync_external_entries(*, user, item, rows, project=None,
                           team=None) -> tuple[int, int]:
     """Mirror an external system's time for ``item``. Returns ``(added, fixed)``.
@@ -2613,7 +2631,14 @@ def sync_external_entries(*, user, item, rows, project=None,
 
     ``project`` overrides where the time books; without it the item's subtree
     link is resolved, and no link means nothing happens — that link *is* the
-    opt-in."""
+    opt-in.
+
+    A row may carry ``ends_at`` (local datetime of its last booking) and
+    ``part_ends`` (the same per covered id). A project booked by the clock
+    (``time_mode == "clock"``) gets start and end times from them, see
+    :func:`clock_span`. An entry whose minutes change gets new times with them,
+    since the old span no longer adds up; one whose minutes stay keeps whatever
+    times it has, so a hand correction survives the next sync."""
     if not rows or not (team or has_team(user)):
         return 0, 0
     project = project or resolve_time_project(item)
@@ -2647,6 +2672,12 @@ def sync_external_entries(*, user, item, rows, project=None,
             if hit:
                 seen.setdefault(hit, []).append((b, e))
 
+    by_clock = project.time_mode == "clock"
+
+    def _clock(end, minutes) -> dict:
+        span = clock_span(end, minutes) if by_clock and end else None
+        return {"start_time": span[0], "end_time": span[1]} if span else {}
+
     added = fixed = 0
     src = source_snapshot(item)
     for ext, r in wanted.items():
@@ -2664,7 +2695,7 @@ def sync_external_entries(*, user, item, rows, project=None,
                       actor={"user_id": r.get("user_id") or None,
                              "user_name": r.get("user_name") or ""},
                       source=src, external_id=ext, external_ids=covered,
-                      billable=True)
+                      billable=True, **_clock(r.get("ends_at"), minutes))
             added += 1
             continue
         # Whichever of them is the day's entry — prefer one that already is,
@@ -2677,15 +2708,18 @@ def sync_external_entries(*, user, item, rows, project=None,
             # book only what it doesn't already stand for.
             known = {entry.external_id or ""} | set(entry.external_ids or [])
             for part in [c for c in covered if c not in known]:
+                part_minutes = int(r.get("part_minutes", {}).get(part, 0)) or 0
                 add_entry(project=project, user=user,
-                          minutes=int(r.get("part_minutes", {}).get(part, 0)) or 0,
+                          minutes=part_minutes,
                           spent_on=r["spent_on"], note=r.get("note", ""),
                           external_ref=r.get("external_ref", ""),
                           external_url=r.get("external_url", ""),
                           external_user=r.get("external_user", ""),
                           actor={"user_id": r.get("user_id") or None,
                                  "user_name": r.get("user_name") or ""},
-                          source=src, external_id=part, billable=True)
+                          source=src, external_id=part, billable=True,
+                          **_clock((r.get("part_ends") or {}).get(part),
+                                   part_minutes))
                 added += 1
             continue
         changes = _external_corrections(entry, r)
@@ -2693,6 +2727,10 @@ def sync_external_entries(*, user, item, rows, project=None,
         # parts are folded in — the one line that replaces them.
         if entry.minutes != minutes:
             changes["set__entries__S__minutes"] = minutes
+        if entry.minutes != minutes or not (entry.start_time or entry.end_time):
+            for k, v in _clock(r.get("ends_at"), minutes).items():
+                if getattr(entry, k) != v:
+                    changes[f"set__entries__S__{k}"] = v
         if entry.external_id != ext:
             changes["set__entries__S__external_id"] = ext
         if set(entry.external_ids or []) != set(covered):
