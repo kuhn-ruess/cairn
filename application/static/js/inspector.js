@@ -419,7 +419,10 @@
     const dueInput = form.querySelector('input[name="due_date"]');
     if (dueInput) {
       const date = parseDateKeyword(text);
-      if (date) dueInput.value = formatLocalDateTime(date);
+      if (date) {
+        dueInput.value = formatLocalDateTime(date);
+        dueInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }
     }
   }
 
@@ -1022,7 +1025,10 @@
       // Keep the inspector's own plan_date field in sync so a subsequent full
       // Save doesn't clobber what we just set (datetime-local wants YYYY-MM-DDTHH:MM).
       const planField = document.getElementById("plan_date");
-      if (planField) planField.value = data.plan_date ? data.plan_date.slice(0, 16) : "";
+      if (planField) {
+        planField.value = data.plan_date ? data.plan_date.slice(0, 16) : "";
+        planField.dispatchEvent(new Event("change", { bubbles: true }));
+      }
       if (status) {
         status.textContent = when === "clear" ? "Cleared" : "Planned ✓";
         status.hidden = false;

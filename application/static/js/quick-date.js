@@ -108,13 +108,42 @@
     if (el.value || el.disabled || el.readOnly) return;
     el.value = defaultValue();
     el.dataset[MARK] = el.value;
+    markEmpty(el);
   }
 
   function settle(el) {
     if (!el.dataset || !(MARK in el.dataset)) return;
     if (el.value === el.dataset[MARK]) el.value = "";
     delete el.dataset[MARK];
+    markEmpty(el);
   }
+
+  /* Safari draws an EMPTY datetime-local field with today's date and the
+   * current time in its segments, in the same colour as a real value. So
+   * after the clear button (×) the plan date looked like it had only jumped
+   * to today, and after a reload a task without a plan date looked planned
+   * for today. The value was empty all along, and so was what got saved.
+   *
+   * An empty field in the inspector carries .dt-empty, and app.css draws its
+   * segments transparent while it is not focused. Kept in step on input and
+   * change; code that sets one of these fields by hand dispatches "change"
+   * (the × above does). Only the inspector's fields: a field elsewhere that is
+   * filled by a script without an event would otherwise stay invisible. */
+  const EMPTY_SCOPE = 'form[data-inspector-form] input[type="datetime-local"]';
+
+  function markEmpty(el) {
+    if (el.matches && el.matches(EMPTY_SCOPE)) el.classList.toggle("dt-empty", !el.value);
+  }
+
+  function markAll() {
+    document.querySelectorAll(EMPTY_SCOPE).forEach(markEmpty);
+  }
+
+  document.addEventListener("input", (ev) => markEmpty(ev.target));
+  document.addEventListener("change", (ev) => markEmpty(ev.target));
+  document.addEventListener("inspector:loaded", markAll);
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", markAll);
+  else markAll();
 
   document.addEventListener("focusin", fill);
   document.addEventListener("focusout", (ev) => settle(ev.target));
