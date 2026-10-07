@@ -786,6 +786,23 @@ class Item(Document):
             out.append(r)
         return out
 
+    def related_for(self, user):
+        """``related_items`` as ``user`` may see them: a linked NOTE they can't
+        open is dropped (a task shared with a team must not show the others
+        its owner's private notes, not even by title). Their own notes pass on
+        the raw owner id, without a deref; only someone else's note goes
+        through ``can_be_viewed_by``. Other kinds are left as they were."""
+        uid = str(user.pk)
+        out = []
+        for r in self.related_items():
+            if r.kind == "note":
+                o = r._data.get("owner")
+                oid = getattr(o, "id", None) or getattr(o, "pk", None)
+                if str(oid) != uid and not r.can_be_viewed_by(user):
+                    continue
+            out.append(r)
+        return out
+
     def child_tasks(self):
         """Direct sub-tasks (``kind='task'`` children). A task can hold these
         while staying a task — it does NOT have to become a project."""

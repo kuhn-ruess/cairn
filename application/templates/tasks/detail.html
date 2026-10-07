@@ -236,6 +236,43 @@
       </section>
     {% endif %}
 
+    {# Linked notes, the same way: a card per note the viewer may open, with a
+       plain-text preview of its body (``linked_notes`` from views.tasks.detail,
+       filtered and previewed there, nothing queried per card). #}
+    {% if linked_notes %}
+      <section class="task-detail-section" id="linked-notes">
+        <h2 class="h6 text-muted small text-uppercase mb-2">
+          Linked notes <span class="text-muted">({{ linked_notes|length }})</span>
+        </h2>
+        {% for n in linked_notes %}
+          <div class="card mb-2">
+            <div class="card-body py-2">
+              <div class="d-flex align-items-start gap-2">
+                <i class="bi bi-journal-text text-muted fs-5"></i>
+                <div class="me-auto">
+                  <a class="fw-semibold text-decoration-none"
+                     href="{{ url_for('notes.detail', note_id=n.pk) }}">{{ n.title or 'Untitled' }}</a>
+                  {% if n.updated_at %}
+                    <div class="small text-muted mt-1">
+                      <i class="bi bi-clock-history"></i> {{ n.updated_at|localdt }}
+                    </div>
+                  {% endif %}
+                </div>
+                <a class="btn btn-sm btn-outline-secondary"
+                   href="{{ url_for('notes.detail', note_id=n.pk) }}" title="Open note">
+                  <i class="bi bi-box-arrow-up-right"></i></a>
+              </div>
+              {% if n._preview %}
+                <div class="small text-muted mt-2 ps-4 note-preview-snippet">{{ n._preview }}</div>
+              {% else %}
+                <div class="small text-muted fst-italic mt-2 ps-4">Empty note</div>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </section>
+    {% endif %}
+
     <section class="task-detail-section" id="comments" data-collapsible>
       <h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center">
         <button type="button" class="btn btn-sm btn-link text-muted p-0 me-1"

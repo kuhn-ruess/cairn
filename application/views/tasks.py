@@ -2132,10 +2132,22 @@ def detail(task_id):
         "tasks/detail.html",
         task=task,
         ancestors=_ancestor_chain(task, viewer=user),
+        linked_notes=_linked_notes(task, user),
         comment_form=CommentForm(),
         form=_build_task_form(task, user),
         form_action=url_for("tasks.edit", task_id=str(task.pk)),
     )
+
+def _linked_notes(task, user):
+    """The notes linked to ``task`` that ``user`` may open, each with a short
+    plain-text ``_preview`` for the detail page. The related refs resolve in
+    one ``$in`` query (``related_items``); ``related_for`` does the filtering."""
+    from application.views.notes import _note_preview
+    out = [r for r in task.related_for(user) if r.kind == "note"]
+    for n in out:
+        n._preview = _note_preview(n.note, 300)
+    return out
+
 
 @tasks_bp.route("/<task_id>/edit", methods=["GET", "POST"])
 @login_required

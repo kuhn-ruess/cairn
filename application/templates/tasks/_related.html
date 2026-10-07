@@ -6,7 +6,7 @@
    these never group or reorder anything. No nested <form> (the inspector wraps
    everything in one form); each action is a button carrying its endpoint in
    data-action, fetched by related.js. #}
-{% set rel = task.related_items() %}
+{% set rel = task.related_for(current_user) %}
 <h2 class="h6 text-muted small text-uppercase mb-2">
   Related
   <span class="text-muted">({{ rel|length }})</span>
@@ -15,11 +15,13 @@
 <ul class="related-list list-unstyled mb-2">
   {% for r in rel %}
     {% set is_container = r.kind in ["project", "folder"] %}
+    {% set is_note = r.kind == "note" %}
     <li class="d-flex align-items-center gap-2 py-1" data-related-id="{{ r.pk }}">
-      <i class="bi {{ 'bi-folder' if is_container else 'bi-check2-square' }} text-muted"></i>
+      <i class="bi {{ 'bi-folder' if is_container else ('bi-journal-text' if is_note else 'bi-check2-square') }} text-muted"></i>
       <a class="related-link text-truncate"
          href="{{ url_for('projects.detail', project_id=r.pk) if is_container
-                 else url_for('tasks.detail', task_id=r.pk) }}">{{ r.title }}</a>
+                 else (url_for('notes.detail', note_id=r.pk) if is_note
+                 else url_for('tasks.detail', task_id=r.pk)) }}">{{ r.title }}</a>
       {% if r.external_ref %}<code class="small text-muted">{{ r.external_ref }}</code>{% endif %}
       <button type="button" class="btn btn-link btn-sm p-0 text-muted ms-auto related-remove"
               data-action="{{ url_for('tasks.related_remove', task_id=task.pk, rel_id=r.pk) }}"
