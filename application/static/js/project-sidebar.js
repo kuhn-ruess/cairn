@@ -157,7 +157,9 @@
   // <ul class="ps-list"> body is swapped. Drag handlers are delegated on
   // the sidebar element so they keep working — we just re-flag the new
   // rows as draggable.
-  async function refreshList() {
+  async function refreshList(e) {
+    // The list views' refresh button only refreshes the list, in one request.
+    if (e && e.detail && e.detail.source === "refresh-button") return;
     const sidebar = document.getElementById("project-sidebar");
     if (!sidebar) return;
     const list = sidebar.querySelector(".ps-list");

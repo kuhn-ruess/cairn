@@ -321,6 +321,29 @@
   // wouldn't accept dropped tasks in the main list until a full reload.
   document.addEventListener("bktodo:refresh-needed", () => window.bktodoRefreshMain());
 
+  // The refresh button in each list view's header (tasks/_refresh_button.html).
+  // It goes through the same event as a save, so every view script that
+  // re-arms after a swap (plan timeline, pickers, ...) does so here too. The
+  // detail tells the project sidebar to sit this one out: it would fetch the
+  // whole page a second time just for its own list. Delegated on document
+  // because the button lives inside <main> and is replaced by the swap, which
+  // is also what ends the spinning.
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-refresh-list]");
+    if (!btn || btn.disabled) return;
+    e.preventDefault();
+    btn.disabled = true;
+    btn.classList.add("spinning");
+    document.dispatchEvent(new CustomEvent("bktodo:refresh-needed", {
+      detail: { source: "refresh-button" },
+    }));
+    // A failed fetch leaves the old button in place: hand it back.
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.classList.remove("spinning");
+    }, 8000);
+  });
+
   // ---- Generic item delete -------------------------------------------
   // Powers the hover-trash buttons on tasks / sections / projects /
   // folders and the ``d`` keyboard shortcut. The button or trigger

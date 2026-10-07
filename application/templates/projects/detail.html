@@ -241,6 +241,7 @@
       {% if project.next_review_at %}· Next review {{ project.next_review_at|localdt }}{% endif %}
     </div>
   </div>
+  <span class="me-2">{% include "tasks/_refresh_button.html" %}</span>
   <div class="btn-group view-mode-switch me-2">
     {% set view_modes = [('list', 'bi-list-ul', 'List'),
                          ('kanban', 'bi-kanban', 'Kanban'),

@@ -1,0 +1,10 @@
+{# Re-renders this view's list in place (sortable-tasks.js, data-refresh-list):
+   one fetch of the same URL, only <main> is swapped, so filters, scroll and
+   the open inspector stay. Done tasks and tasks taken out of the plan drop
+   out without a full page reload. #}
+<button type="button" class="btn btn-sm btn-outline-secondary btn-refresh-list"
+        data-refresh-list
+        title="Refresh this list (without reloading the page)"
+        aria-label="Refresh list">
+  <i class="bi bi-arrow-clockwise"></i>
+</button>

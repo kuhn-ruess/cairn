@@ -9,6 +9,7 @@
     {{ perspective.name }}
     <span class="text-muted small ms-2">{{ total }} task{{ '' if total == 1 else 's' }}</span>
   </h1>
+  <span class="me-2">{% include "tasks/_refresh_button.html" %}</span>
   {% with view_key='cp:' ~ perspective.pid, view_label=perspective.name %}
     {% include "tasks/_display_dropdown.html" %}
   {% endwith %}

@@ -143,6 +143,11 @@ body > .navbar {
    flight. It is one call to a live external system per click, so the button
    has to look like it landed — silence reads as a broken button and invites a
    second click. */
+/* The list views' refresh button turns until the swapped <main> replaces it. */
+.btn-refresh-list.spinning i {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
 [data-zammad-refresh-icon].spin {
   display: inline-block;
   animation: spin 1s linear infinite;

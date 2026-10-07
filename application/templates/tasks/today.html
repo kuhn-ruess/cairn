@@ -57,8 +57,9 @@
   }
   .today-next-item.is-dragging { opacity: .5; }
 </style>
-<div class="d-flex align-items-center mb-2">
+<div class="d-flex align-items-center mb-2 gap-2">
   <h1 class="h4 mb-0 me-auto">{{ title }} <span class="text-muted small">({{ tasks|length }})</span></h1>
+  {% include "tasks/_refresh_button.html" %}
   {# Quick-add straight into the Inbox but pre-planned for today, so the new
      task stays on this view. The modal's project picker still lets you file
      it elsewhere. #}

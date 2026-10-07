@@ -13,6 +13,7 @@
 {% set view_label = title %}
 <div class="d-flex align-items-center mb-3 gap-2">
   <h1 class="h4 mb-0 me-auto">{{ title }} <span class="text-muted small">({{ total }})</span></h1>
+  {% include "tasks/_refresh_button.html" %}
   {% include "tasks/_display_dropdown.html" %}
 </div>
 

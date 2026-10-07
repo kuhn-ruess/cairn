@@ -6,6 +6,7 @@
     <span class="tag-chip" style="--tag-color: {{ tag.color }}; padding: .35rem .75rem; font-size: 1rem;">{{ tag }}</span>
     {% if tag.on_hold %}<span class="badge text-bg-warning">on hold</span>{% endif %}
   </h1>
+  <span class="me-2">{% include "tasks/_refresh_button.html" %}</span>
   <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('tags.edit', tag_name=tag.name) }}">
     <i class="bi bi-pencil"></i> Edit
   </a>
