@@ -2127,6 +2127,12 @@ def detail(task_id):
     # so the same item never renders as both kinds.
     if task.kind != "task":
         return redirect(url_for("projects.detail", project_id=task_id))
+    # The inspector asks for a fragment. Handing it this full page would nest
+    # the whole app inside the panel, so answer with the fragment instead.
+    if _is_inspector():
+        if not task.can_be_edited_by(user):
+            abort(404)
+        return _render_task_inspector(task, user)
     from application.views.projects import _ancestor_chain
     return render_template(
         "tasks/detail.html",

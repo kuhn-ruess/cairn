@@ -171,6 +171,28 @@ class RefreshOneTicket(unittest.TestCase):
                       "the inspector no longer offers the Zammad refresh")
         self.assertIn(f"/tasks/{self.task.pk}", html)
 
+    def test_the_button_reopens_the_inspector_fragment_not_the_page(self):
+        # After a refresh the panel is re-fetched from this URL. The bare
+        # /tasks/<id> is the full detail page, which landed a whole Cairn
+        # inside the panel.
+        html = self.client.get(
+            f"/tasks/{self.task.pk}/edit?inspector=1").get_data(as_text=True)
+        self.assertIn(f'data-reopen-url="/tasks/{self.task.pk}/edit"', html)
+
+    def test_the_detail_url_answers_an_inspector_request_with_the_fragment(self):
+        for kw in ({"query_string": {"inspector": "1"}},
+                   {"headers": {"X-Inspector-Request": "1"}}):
+            with self.subTest(**kw):
+                resp = self.client.get(f"/tasks/{self.task.pk}", **kw)
+                self.assertEqual(resp.status_code, 200)
+                html = resp.get_data(as_text=True)
+                self.assertNotIn("<html", html.lower())
+                self.assertNotIn("<main", html)
+                self.assertIn("inspector-form", html)
+        # The plain detail page is still the page.
+        html = self.client.get(f"/tasks/{self.task.pk}").get_data(as_text=True)
+        self.assertIn("<main", html)
+
     def test_a_task_from_elsewhere_gets_no_button(self):
         with self.app.app_context():
             other = self.Item(owner=self.user, kind="task", title="hand-made",

@@ -502,6 +502,7 @@
           {% if task.zammad_ticket_id() and task.can_be_edited_by(current_user) %}
             <span data-zammad-refresh-block
                   data-task-id="{{ task.pk }}"
+                  data-reopen-url="{{ url_for('tasks.edit', task_id=task.pk) }}"
                   data-csrf="{{ csrf_token() }}">
               <button type="button" class="btn btn-link btn-sm p-0 align-baseline text-decoration-none"
                       data-zammad-refresh

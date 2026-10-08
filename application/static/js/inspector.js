@@ -906,7 +906,7 @@
             (reForm && reForm.getAttribute("action")) || "");
           // Skip the inspector reopen when we're about to navigate to the
           // full detail page (open-after-create) — that would be wasted work.
-          if (!stillNew && !openCreated) openInspector("/tasks/" + createdId, newTitle);
+          if (!stillNew && !openCreated) openInspector("/tasks/" + createdId + "/edit", newTitle);
         }
         if (openCreated && createdId) {
           window.location.href = "/tasks/" + createdId;
@@ -1117,7 +1117,11 @@
         // re-fetched; the inline inspector rides the <main> refresh, which also
         // updates the list behind it.
         if (inPanel && typeof window.bktodoOpenInspector === "function") {
-          window.bktodoOpenInspector("/tasks/" + taskId, data.title || "");
+          // The inspector fragment lives at /edit; the bare /tasks/<id> is
+          // the whole detail page and would nest the app inside the panel.
+          window.bktodoOpenInspector(
+            block.dataset.reopenUrl || ("/tasks/" + taskId + "/edit"),
+            data.title || "");
           document.dispatchEvent(new Event("bktodo:refresh-needed"));
         } else {
           document.dispatchEvent(new Event("bktodo:refresh-needed"));
