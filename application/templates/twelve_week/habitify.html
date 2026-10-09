@@ -1,0 +1,51 @@
+{% extends "layout/base.html" %}
+{% block title %}Habitify changes · {{ c.title }} · Cairn{% endblock %}
+{% block content %}
+<div class="mb-3">
+  <a class="text-muted text-decoration-none small" href="{{ url_for('twelve_week.detail', cycle_id=c.id) }}">
+    <i class="bi bi-arrow-left"></i> Back to {{ c.title }}
+  </a>
+</div>
+<h1 class="h4 mb-3"><i class="bi bi-arrow-left-right"></i> Set up the habits in Habitify</h1>
+<p class="text-muted small" style="max-width:720px;">
+  Your plan is saved in Cairn. These habits are managed by Cairn, so their
+  dates in Habitify follow the weeks you picked. Nothing is sent before you
+  press the button. Habitify has no schedule by calendar week: a habit runs
+  daily from its first planned week to its last one, and weeks left out in
+  between cannot be paused there.
+</p>
+<div class="table-responsive" style="max-width:900px;">
+<table class="table table-sm align-middle">
+  <thead class="small text-muted"><tr><th>Habit</th><th>Change in Habitify</th><th>Not possible there</th></tr></thead>
+  <tbody>
+  {% for ch in changes %}
+    <tr>
+      <td>{{ ch.title }}</td>
+      <td class="small">
+        {% if ch.action == 'create' %}
+          <span class="badge text-bg-success">create</span>
+          daily, from {{ ch.body.startDate }} to {{ ch.body.endCondition.date }}
+        {% else %}
+          <span class="badge text-bg-primary">update</span>
+          {% if ch.old.startDate %}from {{ ch.old.startDate }} to {{ ch.old.end }} becomes{% else %}set to{% endif %}
+          {{ ch.body.startDate }} to {{ ch.body.endCondition.date }}
+        {% endif %}
+      </td>
+      <td class="small text-muted">
+        {% if ch.gaps %}week{{ '' if ch.gaps|length == 1 else 's' }} {{ ch.gaps|join(', ') }} stay{{ 's' if ch.gaps|length == 1 else '' }} active in Habitify{% else %}nothing{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if has_key %}
+<form method="post" class="d-flex gap-2">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button type="submit" class="btn btn-primary"><i class="bi bi-send"></i> Apply to Habitify</button>
+  <a class="btn btn-outline-secondary" href="{{ url_for('twelve_week.detail', cycle_id=c.id) }}">Not now</a>
+</form>
+{% else %}
+<div class="alert alert-warning">No Habitify key is saved. <a href="{{ url_for('settings.habitify') }}">Connect Habitify</a> first.</div>
+{% endif %}
+{% endblock %}

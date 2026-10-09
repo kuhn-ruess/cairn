@@ -945,6 +945,32 @@ def sync_zammad_all_cmd(all_configured, concurrency, force):
     click.echo(f"Done — {ok} ok, {failed} failed.")
 
 
+@cairn_cli.command("migrate-habits-to-12wy")
+@click.option("--user", "username", default=None, help="Only this user.")
+@click.option("--dry-run", is_flag=True, help="Count, write nothing.")
+def migrate_habits_to_12wy_cmd(username, dry_run):
+    """Move the old rolling habits into the 12 Week Year.
+
+    The same core the page runs on a user's first visit
+    (services.habit_migration): habit documents are backed up into
+    habit_backups first, the habits collection itself is left untouched,
+    and a second run copies nothing twice."""
+    from application.models.habit import Habit
+    from application.models.user import User
+    from application.services.habit_migration import migrate_user
+
+    if username:
+        users = list(User.objects(username=username))
+    else:
+        users = list(User.objects(pk__in=Habit._get_collection().distinct("owner")))
+    for u in users:
+        st = migrate_user(u, dry_run=dry_run)
+        click.echo(f"{u.username}: {st['tactics']} habit target(s), "
+                   f"{st['checkins']} check-in(s), {st['skipped']} already moved"
+                   + (f", cycle {st['cycle']}" if st["cycle"] else "")
+                   + (" (dry run)" if dry_run else ""))
+
+
 @cairn_cli.command("sync-habitify")
 def sync_habitify_cmd():
     """Read Habitify for every running 12 week cycle that is due.

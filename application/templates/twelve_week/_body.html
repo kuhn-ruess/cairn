@@ -1,5 +1,36 @@
 {# The swappable body of one cycle: every in-place action answers with this. #}
 {% set fmt = '%d.%m.' %}
+{% macro tactic_item(x) %}
+{% set via_habitify = x.done and not x.manual and not x.counter %}
+<li class="list-group-item d-flex align-items-center gap-2">
+  {% if x.counter %}
+    <span class="badge rounded-pill {{ 'text-bg-success' if x.done else 'text-bg-secondary' }}" style="min-width:3rem;">{{ x.count }}/{{ x.t.per_week }}</span>
+    <span class="me-auto{% if x.done %} text-muted{% endif %}">{{ x.t.title }}</span>
+    <div class="btn-group btn-group-sm" role="group">
+      <button type="button" class="btn btn-outline-secondary" data-twy-log data-undo="1"
+              data-url="{{ url_for('twelve_week.log', cycle_id=c.id) }}" data-tid="{{ x.t.tid }}" data-week="{{ week }}"
+              {% if x.count == 0 %}disabled{% endif %} aria-label="Undo one {{ x.t.title }}">&minus;</button>
+      <button type="button" class="btn btn-outline-primary" data-twy-log
+              data-url="{{ url_for('twelve_week.log', cycle_id=c.id) }}" data-tid="{{ x.t.tid }}" data-week="{{ week }}"
+              aria-label="Log one {{ x.t.title }}">+1</button>
+    </div>
+  {% else %}
+    <input class="form-check-input mt-0" type="checkbox" id="twy-{{ x.t.tid }}"
+           data-twy-toggle data-url="{{ url_for('twelve_week.toggle', cycle_id=c.id) }}"
+           data-tid="{{ x.t.tid }}" data-week="{{ week }}"
+           {% if x.done %}checked{% endif %} {% if via_habitify %}disabled{% endif %}>
+    <label class="form-check-label me-auto{% if x.done %} text-decoration-line-through text-muted{% endif %}" for="twy-{{ x.t.tid }}">
+      {{ x.t.title }}
+    </label>
+  {% endif %}
+  {% if x.t.habitify_id %}
+    <span class="small {{ 'text-success' if x.count >= x.t.per_week else 'text-muted' }}"
+          title="Habitify: {{ x.t.habitify_name or x.t.habitify_id }}">
+      <i class="bi bi-link-45deg"></i> {{ x.count }}/{{ x.t.per_week }}
+    </span>
+  {% endif %}
+</li>
+{% endmacro %}
 <div class="twy-body" data-cycle-url="{{ url_for('twelve_week.detail', cycle_id=c.id) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
@@ -44,6 +75,12 @@
     </a>
   </div>
 
+  {% if pending %}
+  <div class="alert alert-info small py-2">
+    {{ pending }} change{{ '' if pending == 1 else 's' }} for Habitify {{ 'is' if pending == 1 else 'are' }} waiting.
+    <a href="{{ url_for('twelve_week.habitify_preview', cycle_id=c.id) }}">Review and apply</a>
+  </div>
+  {% endif %}
   {% if has_habitify and mapped %}
   <div class="d-flex align-items-center gap-2 small mb-3">
     <form data-twy-form method="post" action="{{ url_for('twelve_week.sync', cycle_id=c.id) }}">
@@ -66,39 +103,29 @@
           <span class="badge {{ 'text-bg-success' if this_week.score >= board.target else 'text-bg-secondary' }} fs-6">{{ this_week.score }}&nbsp;%</span>
         {% endif %}
       </div>
-      {% if not c.goals %}
-        <p class="text-muted">No goals yet. <a href="{{ url_for('twelve_week.plan', cycle_id=c.id) }}">Plan the cycle</a>.</p>
+      {% if not c.goals and not habits %}
+        <p class="text-muted">Nothing planned for this week. <a href="{{ url_for('twelve_week.plan', cycle_id=c.id) }}">Plan the cycle</a>.</p>
       {% endif %}
       {% for r in rows %}
         <div class="mb-3">
           <div class="small text-muted text-uppercase fw-semibold mb-1">{{ r.g.title }}</div>
           {% if r.tactics %}
           <ul class="list-group">
-            {% for x in r.tactics %}
-            {% set via_habitify = x.done and not x.manual %}
-            <li class="list-group-item d-flex align-items-center gap-2">
-              <input class="form-check-input mt-0" type="checkbox" id="twy-{{ x.t.tid }}"
-                     data-twy-toggle data-url="{{ url_for('twelve_week.toggle', cycle_id=c.id) }}"
-                     data-tid="{{ x.t.tid }}" data-week="{{ week }}"
-                     {% if x.done %}checked{% endif %} {% if via_habitify %}disabled{% endif %}>
-              <label class="form-check-label me-auto{% if x.done %} text-decoration-line-through text-muted{% endif %}" for="twy-{{ x.t.tid }}">
-                {{ x.t.title }}
-                {% if x.t.recurring %}<span class="badge text-bg-light border ms-1">weekly</span>{% endif %}
-              </label>
-              {% if x.t.habitify_id %}
-                <span class="small {{ 'text-success' if x.count >= x.t.per_week else 'text-muted' }}"
-                      title="Habitify: {{ x.t.habitify_name or x.t.habitify_id }}">
-                  <i class="bi bi-link-45deg"></i> {{ x.count }}/{{ x.t.per_week }} days
-                </span>
-              {% endif %}
-            </li>
-            {% endfor %}
+            {% for x in r.tactics %}{{ tactic_item(x) }}{% endfor %}
           </ul>
           {% else %}
             <div class="small text-muted">Nothing planned for this week.</div>
           {% endif %}
         </div>
       {% endfor %}
+      {% if habits %}
+        <div class="mb-3">
+          <div class="small text-muted text-uppercase fw-semibold mb-1"><i class="bi bi-arrow-repeat"></i> Habits</div>
+          <ul class="list-group">
+            {% for x in habits %}{{ tactic_item(x) }}{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
       {% else %}
       <h2 class="h5">Week 13: review</h2>
       <p class="small text-muted">
@@ -133,11 +160,13 @@
             <input type="hidden" name="gid" value="{{ r.g.gid }}">
             <input type="hidden" name="week" value="{{ week }}">
             <span class="text-muted">now</span>
-            <input type="text" inputmode="decimal" name="lag_current" class="form-control form-control-sm" style="width:6rem;"
-                   value="{{ r.g.lag_current|string if r.g.lag_current is not none else '' }}">
-            {% if r.g.lag_target %}<span class="text-muted">of {{ r.g.lag_target|string }} {{ r.g.lag_unit }}</span>{% else %}<span class="text-muted">{{ r.g.lag_unit }}</span>{% endif %}
+            {% set lerr = lag_errors.get(r.g.gid) %}
+            <input type="text" inputmode="decimal" name="lag_current" class="form-control form-control-sm{% if lerr %} is-invalid{% endif %}" style="width:6rem;"
+                   value="{{ lerr[0] if lerr else ('%g'|format(r.g.lag_current) if r.g.lag_current is not none else '') }}">
+            {% if r.g.lag_target %}<span class="text-muted">of {{ '%g'|format(r.g.lag_target) }} {{ r.g.lag_unit }}</span>{% else %}<span class="text-muted">{{ r.g.lag_unit }}</span>{% endif %}
             <button type="submit" class="btn btn-sm btn-link p-0">update</button>
           </form>
+          {% if lag_errors.get(r.g.gid) %}<div class="small text-danger">{{ lag_errors[r.g.gid][1] }}</div>{% endif %}
         </div>
       </div>
       {% endfor %}

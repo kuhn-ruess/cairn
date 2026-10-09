@@ -25,7 +25,9 @@ ORGANIZE_ITEMS = {
     "timetracking": {"label": "Time tracking", "icon": "bi-stopwatch", "endpoint": "timetracking.day"},
     "customers": {"label": "Customers", "icon": "bi-person-vcard", "endpoint": "timetracking.index"},
     "bookings": {"label": "Bookings", "icon": "bi-calendar-check", "endpoint": "bookings.index"},
-    "habits": {"label": "Habits", "icon": "bi-arrow-repeat", "endpoint": "habits.index"},
+    # The old Habits area lives on inside the 12 Week Year; a star set on it
+    # before keeps working and leads there.
+    "habits": {"label": "12 Week Year", "icon": "bi-bullseye", "endpoint": "twelve_week.index"},
     "twelve_week": {"label": "12 Week Year", "icon": "bi-bullseye", "endpoint": "twelve_week.index"},
     "templates": {"label": "Templates", "icon": "bi-files", "endpoint": "templates.index"},
     "review": {"label": "Review", "icon": "bi-arrow-clockwise", "endpoint": "review.index"},

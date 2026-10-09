@@ -13,8 +13,8 @@ page of the feature. Nothing per week is stored apart from what was ticked,
 the Habitify counts and the review note; the week a day falls in is computed
 from ``start`` (see ``application/services/twelve_week.py``).
 
-This sits beside the rolling cycle habits (``models/habit.py``), it does not
-replace them: their data is untouched.
+It is also where the habits live: the rolling habits of the old Habits area
+(``models/habit.py``, now read only) moved in as tactics without a goal.
 """
 import secrets
 from datetime import datetime, timezone
@@ -58,18 +58,31 @@ class TwyGoal(EmbeddedDocument):
 
 
 class TwyTactic(EmbeddedDocument):
-    """An action under a goal, planned for some weeks or for every week."""
+    """An action under a goal, planned for the weeks picked for it.
+
+    A tactic without a goal (``gid == ""``) is a plain habit: the rolling
+    habits of the old Habits area live on as these (see
+    ``services/habit_migration.py``)."""
 
     tid = StringField(required=True, default=_short_id)
-    gid = StringField(required=True)                # -> TwyGoal.gid
+    gid = StringField(default="")                   # -> TwyGoal.gid, "" = habit
     title = StringField(required=True, max_length=200)
-    recurring = BooleanField(default=False)         # every week 1..12
+    recurring = BooleanField(default=False)         # all weeks 1..12 picked
     weeks = ListField(IntField(min_value=1, max_value=WEEKS))
-    # Mapped to a Habitify habit: the week counts as done when Habitify
-    # reports at least ``per_week`` completed days in it.
+    # Done in a week when it is ticked, or counted ``per_week`` times there:
+    # by "+1" (``log``, one ISO date per time) or by Habitify (completed days).
+    per_week = IntField(min_value=1, max_value=7, default=1)
+    log = ListField(StringField(max_length=10))
+    # Mapped to a Habitify habit.
     habitify_id = StringField(max_length=100, default="")
     habitify_name = StringField(max_length=200, default="")
-    per_week = IntField(min_value=1, max_value=7, default=1)
+    # Cairn keeps the habit's start and end date in Habitify in line with the
+    # weeks picked here (on the user's confirmation); the dates last written.
+    habitify_manage = BooleanField(default=False)
+    habitify_start = StringField(max_length=10, default="")
+    habitify_end = StringField(max_length=10, default="")
+    # Where a migrated tactic came from: "habit:<habit id>:<target tid>".
+    source = StringField(max_length=80, default="")
 
 
 class TwelveWeekYear(Document):

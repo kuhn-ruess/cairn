@@ -92,6 +92,7 @@ commands beyond the user-facing ones in the README:
 - `./cairn sync-zammad-team [--team <id>] [--full] [--force] [--dry-run]` — the **team** sync (`services/zammad_team.py`): one connection (`Team.zammad_url` + service token) reads the instance once, files each ticket under the Cairn user its Zammad owner maps to (roster → that user's `zammad_sync_project`) and books all agents' time into the team. Replaces per-member syncs; configured under Team → Zammad (`views/teams.py`), because the connection belongs to the team, not to the billing module
 - `./cairn refile-zammad-owners --team <id> [--dry-run]` — one-off: hand imported tickets to the Cairn account their Zammad owner maps to. The first run on a new connection has an empty agent roster, so everything lands with the team's admin, and a sync never re-files an imported ticket afterwards. Only touches tasks still sitting where the import put them
 - `./cairn sync-zammad-all [--all-configured] [--force] [--concurrency N]` — the older **per-user** sync for all opted-in users in a thread pool. No-broker fallback / local-test equivalent of the Celery worker+beat (shares `application/services/zammad_auto.py`)
+- `./cairn migrate-habits-to-12wy [--user <name>] [--dry-run]`: move the old rolling habits into the 12 Week Year (the same core the page runs on a user's first visit; backs up into `habit_backups`, idempotent)
 - `./cairn sync-habitify`: one background round of the Habitify read for the 12 Week Year (no-broker equivalent of the `habitify.sync_due` beat task)
 - `./cairn rename-scratchpad-field [--dry-run]` — one-shot: the Braindump became the Scratchpad; moves `users.braindump` to `users.scratchpad` and the `org:braindump` favourite along with it
 - `./cairn migrate-tags-to-embedded` / `./cairn wipe-legacy-collections` — one-shot migrations from the older schema (see Architecture)
@@ -534,17 +535,32 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   guess here surfaces as a wrong invoice. Reachable from the sidebar
   (`Customers` → `timetracking.index`), which is the same page the time module
   manages — one customer list, not two
-- `twelve_week.py` / `habitify.py`: **the 12 Week Year**, a tab of the Habits
-  area (`views/twelve_week.py`, `/habits/12-week-year`), beside the rolling
-  goals, which it does not touch. One `TwelveWeekYear` document per cycle with
-  goals, tactics, manual ticks (`done`, `"<tid>:<week>"`), the Habitify counts
-  and the weekly notes embedded, so each page is one read. The week math and
-  the execution score are pure functions in `twelve_week.py`. Habitify is read
-  only, against its API v2 (`X-API-Key`, `GET /habits/{id}/statistics`, one
-  request per mapped habit for any range); the key is `User.habitify_api_key`,
-  encrypted, set under Settings > Habitify. Read on demand from the cycle page
-  and hourly by the `habitify.sync_due` beat task. Tests replace
-  `habitify._fetch`, nothing reaches Habitify
+- `twelve_week.py` / `twelve_week_form.py` / `habitify.py` /
+  `habit_migration.py`: **the 12 Week Year, which is also where habits live**
+  (`views/twelve_week.py`, `/habits/12-week-year`; every old `/habits/...`
+  address redirects there). One `TwelveWeekYear` document per cycle with
+  goals, tactics, manual ticks (`done`, `"<tid>:<week>"`), "+1" logs
+  (`TwyTactic.log`, ISO dates), the Habitify counts and the weekly notes
+  embedded, so each page is one read. A tactic without a goal is a habit.
+  Week math and the execution score are pure functions in `twelve_week.py`.
+  The plan form is rendered from a plain state (`twelve_week_form`), so a
+  submit with a mistake comes back with every value kept and the error beside
+  its field (422); tactic rows are keyed by a page index (`row`, `t-<i>-…`)
+  because rows are added in the browser and the week grid is checkboxes.
+  **Habitify** (API v2, `X-API-Key`): read via `GET /habits/{id}/statistics`
+  (one request per mapped habit, on demand and hourly by the
+  `habitify.sync_due` beat task); written only for tactics marked "managed",
+  only after the user confirms the preview page (`POST /habits` to create,
+  `PUT /habits/{id}` for `startDate` + an `endCondition` of type `date`).
+  Habitify has no schedule by calendar week, so gaps between picked weeks
+  cannot be paused there and the preview says so; archive is never used (no
+  unarchive in the API). Key in `User.habitify_api_key`, encrypted, Settings >
+  Habitify. Tests replace `habitify._fetch` / `_send`. **The old rolling
+  habits** were moved in by `habit_migration.migrate_user` (once per user on
+  the first visit, or `./cairn migrate-habits-to-12wy`): each target became a
+  goal-less tactic with its check-ins as dates; the raw documents were copied
+  to `habit_backups` first, and the `habits` collection is left untouched and
+  read only until it is dropped by hand
 - `todoist_import.py` — Todoist API ingest used by the CLI command
 - `zammad_billing.py` — where Zammad's time lands (one entry per ticket, day and agent: the day's bookings are summed into a single entry whose `external_ids` list the bookings it covers, so a re-sync updates the total instead of adding the parts beside it): customers auto-created from Zammad organisations (`external_id="zammad:org:<id>"`, one `intake` project per customer) and the team-level agent roster (`Team.zammad_agents`) that maps Zammad agents to Cairn accounts; assigning one re-attributes the time already booked
 - `reminders.py` — **the whole of Cairn's reminder story**, because it owns no

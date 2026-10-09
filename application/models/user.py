@@ -152,6 +152,10 @@ class User(UserMixin, Document):
     # completions of mapped habits from it (services/habitify.py). Encrypted
     # like every secret here. Empty = no Habitify, the feature works without.
     habitify_api_key = StringField(default="")
+    # The rolling habits of the old Habits area were moved into the 12 Week
+    # Year for this user (services/habit_migration.py); set once, so the
+    # check costs nothing afterwards.
+    habits_migrated = BooleanField(default=False)
 
     # ---- Microsoft (Entra) — connected only to create Teams meetings for
     # booking-page appointments. Delegated consent per user, because a Teams

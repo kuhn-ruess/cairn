@@ -51,11 +51,6 @@ class WeekMathTests(unittest.TestCase):
         self.assertEqual(tw.as_date(c.start), START)
         self.assertEqual(tw.monday_of(date(2026, 10, 9)), START)
 
-    def test_parse_and_format_weeks(self):
-        self.assertEqual(tw.parse_weeks("1-4, 6;9, x, 0, 13, 12-11"), [1, 2, 3, 4, 6, 9, 11, 12])
-        self.assertEqual(tw.parse_weeks(""), [])
-        self.assertEqual(tw.format_weeks([6, 1, 2, 3, 9, 10]), "1-3, 6, 9-10")
-
 
 class ScoringTests(unittest.TestCase):
 
@@ -245,7 +240,7 @@ class TwelveWeekDbTests(unittest.TestCase):
     def test_pages_render_without_habitify(self):
         with mock.patch.object(habitify, "_fetch") as fetch:
             for url in ("/habits/12-week-year/", self._url(), self._url("?week=13"),
-                        self._url("/plan"), "/habits/12-week-year/new", "/habits/",
+                        self._url("/plan"), "/habits/12-week-year/new",
                         "/settings/habitify"):
                 resp = self.client.get(url)
                 self.assertEqual(resp.status_code, 200, url)
@@ -273,29 +268,140 @@ class TwelveWeekDbTests(unittest.TestCase):
         self.assertEqual(other.post(self._url("/delete")).status_code, 404)
         self.assertEqual(TwelveWeekYear.objects.count(), 1)
 
-    def test_plan_save_keeps_ids_and_drops_removed_tactics(self):
-        self.cycle.done = ["plan:1", "run:1"]
-        self.cycle.save()
+    def _plan_data(self, **over):
         data = {
             "title": "Q4 new", "vision": "v", "start": "2026-10-05",
             "goal_gid": ["g1", "new2", "new3"], "goal_title": ["Fit", "Write", ""],
             "goal_lag_target": ["6", "", ""], "goal_lag_current": ["2,5", "", ""],
             "goal_lag_unit": ["kg", "", ""],
-            "tactic_tid": ["run", "", ""], "tactic_title": ["Run", "Draft", ""],
-            "tactic_goal": ["g1", "new2", "g1"], "tactic_mode": ["recurring", "weeks", "weeks"],
-            "tactic_weeks": ["", "2-3", ""], "tactic_habitify": ["", "", ""],
-            "tactic_per_week": ["1", "1", "1"],
+            "row": ["0", "7", "9"],
+            "t-0-tid": "run", "t-0-title": "Run", "t-0-goal": "g1",
+            "t-0-week": [str(w) for w in range(1, 13)], "t-0-per_week": "1",
+            "t-7-tid": "", "t-7-title": "Draft", "t-7-goal": "new2",
+            "t-7-week": ["2", "3"], "t-7-per_week": "1",
+            "t-9-title": "", "t-9-goal": "", "t-9-per_week": "1",
         }
-        resp = self.client.post(self._url("/plan"), data=data)
+        data.update(over)
+        return data
+
+    def test_plan_save_keeps_ids_and_drops_removed_tactics(self):
+        self.cycle.done = ["plan:1", "run:1"]
+        self.cycle.save()
+        resp = self.client.post(self._url("/plan"), data=self._plan_data())
         self.assertEqual(resp.status_code, 302)
         self.cycle.reload()
         self.assertEqual(self.cycle.title, "Q4 new")
         self.assertEqual([g.title for g in self.cycle.goals], ["Fit", "Write"])
         self.assertEqual(self.cycle.goals[0].lag_current, 2.5)
         self.assertEqual([t.tid for t in self.cycle.tactics][0], "run")
+        self.assertTrue(self.cycle.tactics[0].recurring)
         self.assertEqual(self.cycle.tactics[1].weeks, [2, 3])
+        self.assertFalse(self.cycle.tactics[1].recurring)
         self.assertEqual(self.cycle.tactics[1].gid, "new2")
+        self.assertEqual(len(self.cycle.tactics), 2)
         self.assertEqual(self.cycle.done, ["run:1"])
+
+    def test_a_mistake_keeps_everything_typed(self):
+        data = self._plan_data(**{"t-7-week": [], "goal_lag_target": ["six", "", ""],
+                                  "vision": "my long vision"})
+        resp = self.client.post(self._url("/plan"), data=data)
+        self.assertEqual(resp.status_code, 422)
+        html = resp.get_data(as_text=True)
+        for kept in ("Q4 new", "my long vision", "Draft", 'value="six"', 'value="2,5"', "Write"):
+            self.assertIn(kept, html)
+        self.assertIn("Click the week(s) it is planned for.", html)
+        self.assertIn("A number, please.", html)
+        # The weeks picked on the other rows are still picked.
+        self.assertIn('name="t-0-week" value="12" id="t-0-w12" autocomplete="off" checked', html)
+        self.cycle.reload()
+        self.assertEqual(self.cycle.title, "Q4")
+        self.assertEqual([t.tid for t in self.cycle.tactics], ["run", "plan", "gym"])
+
+    def test_new_cycle_mistake_keeps_values(self):
+        resp = self.client.post("/habits/12-week-year/new",
+                                data={"title": "", "vision": "keep me", "start": "2026-10-12"})
+        self.assertEqual(resp.status_code, 200)
+        html = resp.get_data(as_text=True)
+        self.assertIn("keep me", html)
+        self.assertIn('value="2026-10-12"', html)
+        self.assertIn("Give the cycle a name.", html)
+
+    def test_lag_mistake_keeps_value(self):
+        resp = self.client.post(self._url("/lag"), data={"gid": "g1", "lag_current": "abc"})
+        self.assertEqual(resp.status_code, 422)
+        self.assertIn('value="abc"', resp.get_data(as_text=True))
+        self.cycle.reload()
+        self.assertEqual(self.cycle.goals[0].lag_current, 1.5)
+
+    def test_habit_counter(self):
+        self.cycle.tactics.append(TwyTactic(tid="read", gid="", title="Read", recurring=True,
+                                            weeks=list(range(1, 13)), per_week=2))
+        self.cycle.save()
+        with mock.patch("application.views.twelve_week._today", return_value=date(2026, 10, 6)):
+            for _ in range(2):
+                self.client.post(self._url("/log"), data={"tid": "read", "week": "1"})
+            self.client.post(self._url("/log"), data={"tid": "read", "week": "2"})
+            self.client.post(self._url("/log"), data={"tid": "read", "week": "2", "undo": "1"})
+        self.cycle.reload()
+        t = self.cycle.tactic("read")
+        self.assertEqual(t.log, ["2026-10-06", "2026-10-06"])
+        self.assertTrue(tw.is_done(self.cycle, t, 1))
+        self.assertFalse(tw.is_done(self.cycle, t, 2))
+
+    def test_picker_lists_habitify_habits_and_writes_only_after_confirming(self):
+        from application.services.crypto import encrypt_for_user
+        self.user.habitify_api_key = encrypt_for_user(self.user, "SECRET")
+        self.user.save()
+        listing = {"data": [{"id": "h-gym", "name": "Gym"}, {"id": "h-es", "name": "Spanisch"}]}
+        with mock.patch.object(habitify, "_fetch", return_value=listing), \
+                mock.patch.object(habitify, "_send") as send:
+            html = self.client.get(self._url("/plan")).get_data(as_text=True)
+            self.assertIn('<option value="h-es"', html)
+            self.assertIn("Create it in Habitify", html)
+            data = self._plan_data(**{"t-7-habit": "__new__", "t-7-week": ["2", "3", "5"]})
+            resp = self.client.post(self._url("/plan"), data=data)
+            self.assertEqual(resp.status_code, 302)
+            self.assertTrue(resp.headers["Location"].endswith("/habitify"))
+            send.assert_not_called()
+            preview = self.client.get(self._url("/habitify")).get_data(as_text=True)
+            self.assertIn("2026-10-12", preview)      # week 2 starts
+            self.assertIn("2026-11-08", preview)      # week 5 ends
+            self.assertIn("week 4 stays active", preview)
+            send.return_value = {"id": "h-new", "name": "Draft"}
+            resp = self.client.post(self._url("/habitify"))
+            self.assertEqual(resp.status_code, 302)
+        method, path, key, body = send.call_args[0]
+        self.assertEqual((method, path, key), ("POST", "/habits", "SECRET"))
+        self.assertEqual(body, {"name": "Draft", "type": "good", "startDate": "2026-10-12",
+                                "occurrence": {"type": "daily"},
+                                "endCondition": {"type": "date", "date": "2026-11-08"}})
+        self.cycle.reload()
+        t = [t for t in self.cycle.tactics if t.title == "Draft"][0]
+        self.assertEqual((t.habitify_id, t.habitify_start, t.habitify_end),
+                         ("h-new", "2026-10-12", "2026-11-08"))
+        self.assertEqual(habitify.pending_changes(self.cycle), [])
+
+    def test_moving_weeks_updates_a_managed_habit(self):
+        t = self.cycle.tactic("gym")
+        t.habitify_manage, t.habitify_start, t.habitify_end = True, "2026-10-05", "2026-12-27"
+        t.recurring, t.weeks = False, [1, 2, 3]
+        changes = habitify.pending_changes(self.cycle)
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["action"], "update")
+        self.assertEqual(changes[0]["body"]["endCondition"]["date"], "2026-10-25")
+        from application.services.crypto import encrypt_for_user
+        self.user.habitify_api_key = encrypt_for_user(self.user, "SECRET")
+        with mock.patch.object(habitify, "_send",
+                               side_effect=habitify.HabitifyError("nope")) as send:
+            done, errs = habitify.apply_changes(self.cycle, self.user, changes)
+        self.assertEqual((done, errs), (0, ["Gym: nope"]))
+        self.assertEqual(send.call_args[0][:2], ("PUT", "/habits/h-gym"))
+        self.assertEqual(len(habitify.pending_changes(self.cycle)), 1)
+
+    def test_creating_in_habitify_needs_a_key(self):
+        resp = self.client.post(self._url("/plan"), data=self._plan_data(**{"t-7-habit": "__new__"}))
+        self.assertEqual(resp.status_code, 422)
+        self.assertIn("Connect Habitify first", resp.get_data(as_text=True))
 
     def test_sync_reads_habitify_and_scores(self):
         from application.services.crypto import encrypt_for_user

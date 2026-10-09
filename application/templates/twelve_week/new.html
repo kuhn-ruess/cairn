@@ -8,23 +8,33 @@
 </div>
 <h1 class="h3 mb-4"><i class="bi bi-bullseye"></i> New cycle</h1>
 
-<form method="post" style="max-width:640px;">
+<form method="post" style="max-width:640px;" novalidate>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="mb-3">
     <label class="form-label" for="title">Name</label>
-    <input type="text" class="form-control" id="title" name="title" required maxlength="200"
-           placeholder="e.g. Q1 2027">
+    <input type="text" class="form-control{% if errors.title %} is-invalid{% endif %}" id="title" name="title" maxlength="200"
+           placeholder="e.g. Q1 2027" value="{{ values.title }}">
+    {% if errors.title %}<div class="invalid-feedback">{{ errors.title }}</div>{% endif %}
   </div>
   <div class="mb-3">
     <label class="form-label" for="vision">Vision</label>
     <textarea class="form-control" id="vision" name="vision" rows="4"
-              placeholder="Where do you want to be in three years, and what does that ask of the next twelve weeks?"></textarea>
+              placeholder="Where do you want to be in three years, and what does that ask of the next twelve weeks?">{{ values.vision }}</textarea>
   </div>
-  <div class="mb-4" style="max-width:220px;">
+  <div class="mb-3" style="max-width:220px;">
     <label class="form-label" for="start">Week 1 starts on</label>
-    <input type="date" class="form-control" id="start" name="start" value="{{ default_start.isoformat() }}" required>
-    <div class="form-text">Usually a Monday.</div>
+    <input type="date" class="form-control{% if errors.start %} is-invalid{% endif %}" id="start" name="start" value="{{ values.start }}">
+    {% if errors.start %}<div class="invalid-feedback">{{ errors.start }}</div>{% else %}<div class="form-text">Usually a Monday.</div>{% endif %}
   </div>
+  {% if carry %}
+  <div class="form-check mb-4">
+    <input class="form-check-input" type="checkbox" id="carry" name="carry" value="1" {% if values.carry %}checked{% endif %}>
+    <label class="form-check-label" for="carry">
+      Carry over the {{ carry|length }} habit{{ '' if carry|length == 1 else 's' }} of “{{ latest.title }}”
+      <span class="text-muted small">({{ carry|map(attribute='title')|join(', ') }})</span>
+    </label>
+  </div>
+  {% endif %}
   <button type="submit" class="btn btn-primary">Create and plan</button>
 </form>
 {% endblock %}

@@ -1,30 +1,38 @@
-"""The 12 Week Year, inside the Habits area (premium, like the habits).
+"""The 12 Week Year (premium). It is also where the habits live now: the
+rolling habits of the old Habits area moved in as habit tactics, see
+``services/habit_migration.py``, which runs once per user on the first visit.
 
 One cycle is one document (``models/twelve_week.py``), so every page here is a
-single read. Ticks, the week note, the lag measures and the Habitify sync all
-answer with the cycle body partial, which ``twelve-week.js`` swaps in place:
-Back stays clean and the page keeps its scroll position.
+single read. Ticks, "+1", the week note, the lag measures and the Habitify
+read all answer with the cycle body partial, which ``twelve-week.js`` swaps in
+place: Back stays clean and the page keeps its scroll position.
+
+Forms never lose what was typed: a submit with a mistake is rendered again
+from what it carried, with the error beside the field
+(``services/twelve_week_form.py``).
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 
 from flask import (
-    Blueprint, abort, flash, redirect, render_template, request, url_for,
+    Blueprint, abort, flash, g, redirect, render_template, request, url_for,
 )
 from flask_login import current_user, login_required
 
 from application.models.twelve_week import (
-    MAX_GOALS, WEEKS, TwelveWeekYear, TwyGoal, TwyTactic, _short_id,
+    MAX_GOALS, WEEKS, TwelveWeekYear, TwyTactic,
 )
+from application.services import habitify
 from application.services import twelve_week as tw
+from application.services import twelve_week_form as twf
 from application.services.permissions import premium_required
 from application.services.tz import user_zone
 
 twelve_week_bp = Blueprint("twelve_week", __name__,
                            url_prefix="/habits/12-week-year")
 
-BLANK_TACTIC_ROWS = 4
+BLANK_TACTIC_ROWS = 2
 
 
 def _today() -> date:
@@ -48,37 +56,51 @@ def _shown_week(cycle, today: date) -> int:
     return min(max(tw.week_of(cycle, today), 1), tw.REVIEW_WEEK)
 
 
-def _body_context(cycle, week: int, today: date) -> dict:
+def _row(cycle, t, week):
+    return {"t": t, "done": tw.is_done(cycle, t, week),
+            "manual": tw.key(t.tid, week) in (cycle.done or []),
+            "count": tw.count(cycle, t, week),
+            "counter": tw.counted(t) and not t.habitify_id}
+
+
+def _body_context(cycle, week: int, today: date, lag_errors=None) -> dict:
     board = tw.scoreboard(cycle, today)
     rows = []
-    for g in cycle.goals:
-        tactics = [
-            {"t": t, "done": tw.is_done(cycle, t, week),
-             "manual": tw.key(t.tid, week) in (cycle.done or []),
-             "count": int((cycle.habitify_counts or {}).get(tw.key(t.tid, week), 0))}
-            for t in cycle.tactics if t.gid == g.gid and tw.planned(t, week)
-        ]
-        rows.append({"g": g, "progress": tw.goal_progress(g), "tactics": tactics})
+    for goal in cycle.goals:
+        rows.append({"g": goal, "progress": tw.goal_progress(goal), "tactics": [
+            _row(cycle, t, week) for t in cycle.tactics
+            if t.gid == goal.gid and tw.planned(t, week)]})
+    named = {goal.gid for goal in cycle.goals}
+    habits = [_row(cycle, t, week) for t in cycle.tactics
+              if t.gid not in named and tw.planned(t, week)]
     first, last = tw.week_range(cycle, week)
     return {
-        "c": cycle, "week": week, "board": board, "rows": rows,
+        "c": cycle, "week": week, "board": board, "rows": rows, "habits": habits,
         "this_week": tw.week_score(cycle, week) if week <= WEEKS else None,
         "first": first, "last": last, "end": tw.end_date(cycle),
         "review_week": tw.REVIEW_WEEK, "weeks": WEEKS,
         "has_habitify": bool(current_user.habitify_api_key),
         "mapped": any(t.habitify_id for t in cycle.tactics),
+        "lag_errors": lag_errors or {},
+        "pending": len(habitify.pending_changes(cycle)) if current_user.habitify_api_key else 0,
     }
 
 
-def _body(cycle, week: int):
+def _body(cycle, week: int, **kw):
     return render_template("twelve_week/_body.html",
-                           **_body_context(cycle, week, _today()))
+                           **_body_context(cycle, week, _today(), **kw))
 
 
 @twelve_week_bp.route("/")
 @login_required
 @premium_required
 def index():
+    from application.services.habit_migration import ensure_migrated
+    stats = ensure_migrated(current_user._get_current_object())
+    if stats and stats["tactics"]:
+        flash(f"Your {stats['tactics']} habit(s) moved in here, with "
+              f"{stats['checkins']} check-in(s), as habits of the cycle below.",
+              "info")
     today = _today()
     cycles = list(TwelveWeekYear.objects(
         owner=current_user._get_current_object()).only(
@@ -88,32 +110,45 @@ def index():
                            review_week=tw.REVIEW_WEEK)
 
 
-def _read_start(raw: str, fallback: date) -> date:
-    try:
-        return date.fromisoformat((raw or "").strip())
-    except ValueError:
-        return fallback
-
-
 @twelve_week_bp.route("/new", methods=["GET", "POST"])
 @login_required
 @premium_required
 def create():
     today = _today()
-    default_start = tw.monday_of(today)
+    owner = current_user._get_current_object()
+    latest = TwelveWeekYear.objects(owner=owner).order_by("-start").first()
+    carry = [t for t in (latest.tactics if latest else [])
+             if not latest.goal(t.gid)]
+    values = {"title": "", "vision": "", "start": tw.monday_of(today).isoformat(),
+              "carry": True}
+    errors = {}
     if request.method == "POST":
-        title = (request.form.get("title") or "").strip()
-        if not title:
-            flash("Give the cycle a name.", "warning")
-        else:
-            start = _read_start(request.form.get("start"), default_start)
-            cycle = TwelveWeekYear(
-                owner=current_user._get_current_object(), title=title[:200],
-                vision=(request.form.get("vision") or "").strip(),
-                start=tw.to_start(start)).save()
+        values = {"title": (request.form.get("title") or "").strip(),
+                  "vision": (request.form.get("vision") or "").strip(),
+                  "start": (request.form.get("start") or "").strip(),
+                  "carry": bool(request.form.get("carry"))}
+        if not values["title"]:
+            errors["title"] = "Give the cycle a name."
+        try:
+            start = date.fromisoformat(values["start"])
+        except ValueError:
+            errors["start"] = "Pick the day week 1 starts on."
+        if not errors:
+            cycle = TwelveWeekYear(owner=owner, title=values["title"][:200],
+                                   vision=values["vision"], start=tw.to_start(start))
+            if values["carry"]:
+                # The habits go on: same habit, same Habitify link, fresh weeks.
+                cycle.tactics = [TwyTactic(
+                    gid="", title=t.title, recurring=True,
+                    weeks=list(range(1, WEEKS + 1)), per_week=t.per_week,
+                    habitify_id=t.habitify_id, habitify_name=t.habitify_name,
+                    habitify_manage=t.habitify_manage, source=t.source)
+                    for t in carry]
+            cycle.save()
             flash("Cycle created. Now set its goals and tactics.", "success")
             return redirect(url_for("twelve_week.plan", cycle_id=cycle.pk))
-    return render_template("twelve_week/new.html", default_start=default_start)
+    return render_template("twelve_week/new.html", values=values, errors=errors,
+                           carry=carry, latest=latest)
 
 
 @twelve_week_bp.route("/<cycle_id>")
@@ -126,77 +161,14 @@ def detail(cycle_id):
     return render_template("twelve_week/detail.html", **ctx)
 
 
-def _read_plan(cycle) -> tuple[list[TwyGoal], list[TwyTactic], str | None]:
-    """Goals and tactics from the plan form. Goal slots carry their gid (a
-    fresh one for an empty slot), so a tactic row can name its goal before
-    that goal was ever saved. An empty goal title drops the goal and the
-    tactics filed under it."""
-    goals: list[TwyGoal] = []
-    titles = request.form.getlist("goal_title")
-    gids = request.form.getlist("goal_gid")
-    targets = request.form.getlist("goal_lag_target")
-    currents = request.form.getlist("goal_lag_current")
-    units = request.form.getlist("goal_lag_unit")
-    for i, title in enumerate(titles[:MAX_GOALS]):
-        title = (title or "").strip()
-        if not title:
-            continue
-        goals.append(TwyGoal(
-            gid=(gids[i] if i < len(gids) and gids[i] else _short_id()),
-            title=title[:200],
-            lag_target=_num(targets, i), lag_current=_num(currents, i),
-            lag_unit=((units[i] if i < len(units) else "") or "").strip()[:40]))
-    if not goals:
-        return [], [], "Set at least one goal."
-    known = {g.gid for g in goals}
-
-    tactics: list[TwyTactic] = []
-    f = request.form
-    rows = zip(f.getlist("tactic_tid"), f.getlist("tactic_title"),
-               f.getlist("tactic_goal"), f.getlist("tactic_mode"),
-               f.getlist("tactic_weeks"), f.getlist("tactic_habitify"),
-               f.getlist("tactic_per_week"))
-    names = _habit_names()
-    for tid, title, gid, mode, weeks, hab, per_week in rows:
-        title = (title or "").strip()
-        if not title or gid not in known:
-            continue
-        recurring = mode == "recurring"
-        week_list = [] if recurring else tw.parse_weeks(weeks)
-        if not recurring and not week_list:
-            return goals, tactics, f"Tactic “{title}” needs its week(s), or make it weekly."
-        hab = (hab or "").strip()[:100]
-        old = cycle.tactic(tid) if tid else None
-        try:
-            pw = min(7, max(1, int(per_week)))
-        except (TypeError, ValueError):
-            pw = 1
-        tactics.append(TwyTactic(
-            tid=tid or _short_id(), gid=gid, title=title[:200],
-            recurring=recurring, weeks=week_list, habitify_id=hab,
-            habitify_name=names.get(hab) or (old.habitify_name if old and old.habitify_id == hab else ""),
-            per_week=pw))
-    return goals, tactics, None
-
-
-def _num(values, i):
-    try:
-        raw = (values[i] or "").strip().replace(",", ".")
-        return float(raw) if raw else None
-    except (IndexError, ValueError):
-        return None
-
-
 def _habit_names() -> dict:
-    """Names of the user's Habitify habits for the picker, cached on the
-    request. Empty when no key is set or Habitify does not answer: the plan
-    form then keeps the ids it already has and says so."""
-    from flask import g
+    """The user's Habitify habits for the picker, read from Habitify once per
+    request. Empty when no key is set or Habitify does not answer; the
+    picker then offers the manual id field and says why."""
     if "habitify_habits" not in g:
         g.habitify_habits, g.habitify_error = {}, ""
         key = _api_key()
         if key:
-            from application.services import habitify
             try:
                 g.habitify_habits = {h["id"]: h["name"]
                                      for h in habitify.list_habits(key)}
@@ -210,45 +182,84 @@ def _api_key() -> str:
     return decrypt_for_user(current_user, current_user.habitify_api_key)
 
 
+def _render_plan(cycle, state, errors, status=200):
+    habits = _habit_names()
+    named_goals = [x for x in state["goals"] if x["title"]]
+    next_idx = max([int(t["idx"]) for t in state["tactics"] if t["idx"].isdigit()] + [-1]) + 1
+    tactics = list(state["tactics"])
+    if not errors:
+        for i in range(BLANK_TACTIC_ROWS):
+            tactics.append(twf.blank_tactic(str(next_idx + i)))
+        next_idx += BLANK_TACTIC_ROWS
+    return render_template(
+        "twelve_week/plan.html", c=cycle, s=state, tactics=tactics,
+        errors=errors, named_goals=named_goals, next_idx=next_idx,
+        habits=habits, habitify_error=g.get("habitify_error", ""),
+        has_habitify=bool(current_user.habitify_api_key),
+        weeks=WEEKS, new_habit=twf.NEW_HABIT, max_goals=MAX_GOALS), status
+
+
 @twelve_week_bp.route("/<cycle_id>/plan", methods=["GET", "POST"])
 @login_required
 @premium_required
 def plan(cycle_id):
-    from flask import g
     cycle = _owned(cycle_id)
+    if request.method == "GET":
+        return _render_plan(cycle, twf.state_from_cycle(cycle, tw.as_date(cycle.start)), {})
+
+    state, errors, parsed = twf.read_form(
+        request.form, cycle, _habit_names(),
+        has_key=bool(current_user.habitify_api_key))
+    if errors:
+        return _render_plan(cycle, state, errors, status=422)
+    cycle.title = parsed["title"]
+    cycle.vision = parsed["vision"]
+    cycle.start = tw.to_start(parsed["start"])
+    cycle.goals = parsed["goals"]
+    cycle.tactics = parsed["tactics"]
+    # Ticks and counts of tactics that no longer exist go with them.
+    live = {t.tid for t in cycle.tactics}
+    cycle.done = [k for k in (cycle.done or []) if k.split(":")[0] in live]
+    cycle.habitify_counts = {k: v for k, v in (cycle.habitify_counts or {}).items()
+                             if k.split(":")[0] in live}
+    cycle.save()
+
+    if habitify.pending_changes(cycle):
+        flash("Plan saved. Check what goes to Habitify.", "success")
+        return redirect(url_for("twelve_week.habitify_preview", cycle_id=cycle.pk))
+    flash("Plan saved.", "success")
+    return redirect(url_for("twelve_week.detail", cycle_id=cycle.pk))
+
+
+@twelve_week_bp.route("/<cycle_id>/habitify", methods=["GET", "POST"])
+@login_required
+@premium_required
+def habitify_preview(cycle_id):
+    """What the saved plan would change in Habitify, and the button that does
+    it. Nothing is written to Habitify without this page's POST."""
+    cycle = _owned(cycle_id)
+    changes = habitify.pending_changes(cycle)
     if request.method == "POST":
-        title = (request.form.get("title") or "").strip()
-        goals, tactics, error = _read_plan(cycle)
-        if not title:
-            error = "Give the cycle a name."
-        if error:
-            flash(error, "warning")
-        else:
-            cycle.title = title[:200]
-            cycle.vision = (request.form.get("vision") or "").strip()
-            cycle.start = tw.to_start(_read_start(request.form.get("start"),
-                                                  tw.as_date(cycle.start)))
-            cycle.goals = goals
-            cycle.tactics = tactics
-            # Ticks and counts of tactics that no longer exist go with them.
-            live = {t.tid for t in tactics}
-            cycle.done = [k for k in (cycle.done or []) if k.split(":")[0] in live]
-            cycle.habitify_counts = {k: v for k, v in (cycle.habitify_counts or {}).items()
-                                     if k.split(":")[0] in live}
-            cycle.save()
-            flash("Plan saved.", "success")
-            if request.form.get("again"):
-                return redirect(url_for("twelve_week.plan", cycle_id=cycle.pk))
-            return redirect(url_for("twelve_week.detail", cycle_id=cycle.pk))
-    habits = _habit_names()
-    slots = list(cycle.goals) + [None] * (MAX_GOALS - len(cycle.goals))
-    goal_slots = [{"g": g_, "gid": g_.gid if g_ else _short_id()} for g_ in slots]
-    return render_template(
-        "twelve_week/plan.html", c=cycle, goal_slots=goal_slots,
-        tactic_rows=list(cycle.tactics) + [None] * BLANK_TACTIC_ROWS,
-        habits=habits, habitify_error=g.get("habitify_error", ""),
-        has_habitify=bool(current_user.habitify_api_key),
-        format_weeks=tw.format_weeks, start=tw.as_date(cycle.start))
+        done, errs = habitify.apply_changes(
+            cycle, current_user._get_current_object(), changes)
+        for e in errs:
+            flash(e, "danger")
+        if done:
+            flash(f"Habitify updated: {done} habit(s).", "success")
+        if errs:
+            return redirect(url_for("twelve_week.habitify_preview", cycle_id=cycle.pk))
+        return redirect(url_for("twelve_week.detail", cycle_id=cycle.pk))
+    if not changes:
+        return redirect(url_for("twelve_week.detail", cycle_id=cycle.pk))
+    return render_template("twelve_week/habitify.html", c=cycle, changes=changes,
+                           has_key=bool(current_user.habitify_api_key))
+
+
+def _week_arg() -> int:
+    try:
+        return int(request.form.get("week", ""))
+    except ValueError:
+        abort(400)
 
 
 @twelve_week_bp.route("/<cycle_id>/toggle", methods=["POST"])
@@ -256,12 +267,27 @@ def plan(cycle_id):
 @premium_required
 def toggle(cycle_id):
     cycle = _owned(cycle_id)
-    try:
-        week = int(request.form.get("week", ""))
-    except ValueError:
-        abort(400)
+    week = _week_arg()
     if tw.toggle_done(cycle, request.form.get("tid", ""), week) is None:
         abort(400)
+    cycle.save()
+    return _body(cycle, week)
+
+
+@twelve_week_bp.route("/<cycle_id>/log", methods=["POST"])
+@login_required
+@premium_required
+def log(cycle_id):
+    """"+1" or "undo" on a counted tactic (a habit done several times a week)."""
+    cycle = _owned(cycle_id)
+    week = _week_arg()
+    tactic = cycle.tactic(request.form.get("tid", ""))
+    if tactic is None or not tw.planned(tactic, week):
+        abort(400)
+    if request.form.get("undo"):
+        tw.undo_log(cycle, tactic, week)
+    else:
+        tw.add_log(cycle, tactic, week, _today())
     cycle.save()
     return _body(cycle, week)
 
@@ -271,10 +297,7 @@ def toggle(cycle_id):
 @premium_required
 def note(cycle_id):
     cycle = _owned(cycle_id)
-    try:
-        week = int(request.form.get("week", ""))
-    except ValueError:
-        abort(400)
+    week = _week_arg()
     if not 1 <= week <= tw.REVIEW_WEEK:
         abort(400)
     notes = dict(cycle.week_notes or {})
@@ -292,14 +315,20 @@ def note(cycle_id):
 @login_required
 @premium_required
 def lag(cycle_id):
-    """Update where a goal's lag measure stands now."""
+    """Update where a goal's lag measure stands now. Something that is not a
+    number is said beside the field and stays in it."""
     cycle = _owned(cycle_id)
     goal = cycle.goal(request.form.get("gid", ""))
     if goal is None:
         abort(400)
-    goal.lag_current = _num([request.form.get("lag_current", "")], 0)
+    raw = (request.form.get("lag_current") or "").strip()
+    value, bad = twf._parse_num(raw)
+    week = _shown_week(cycle, _today())
+    if bad:
+        return _body(cycle, week, lag_errors={goal.gid: (raw, "A number, please.")}), 422
+    goal.lag_current = value
     cycle.save()
-    return _body(cycle, _shown_week(cycle, _today()))
+    return _body(cycle, week)
 
 
 @twelve_week_bp.route("/<cycle_id>/sync", methods=["POST"])
@@ -307,7 +336,6 @@ def lag(cycle_id):
 @premium_required
 def sync(cycle_id):
     """Pull completions from Habitify now: the whole cycle so far."""
-    from application.services import habitify
     cycle = _owned(cycle_id)
     habitify.sync_cycle(cycle, current_user._get_current_object(),
                         today=_today(), full=True)

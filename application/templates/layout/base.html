@@ -246,10 +246,6 @@
         {% endfor %}
         {% if current_user.is_premium %}
         <li class="nav-fav-row d-flex align-items-center">
-          <a class="nav-link py-1 flex-grow-1" href="{{ url_for('habits.index') }}"><i class="bi bi-trophy"></i> Habits</a>
-          {{ fav.star("org:habits", "fav-star-hover") }}
-        </li>
-        <li class="nav-fav-row d-flex align-items-center">
           <a class="nav-link py-1 flex-grow-1" href="{{ url_for('twelve_week.index') }}"><i class="bi bi-bullseye"></i> 12 Week Year</a>
           {{ fav.star("org:twelve_week", "fav-star-hover") }}
         </li>

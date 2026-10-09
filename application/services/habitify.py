@@ -17,13 +17,18 @@ Two calls are all this needs:
   any range, so a whole cycle costs as many requests as there are mapped
   tactics.
 
-Nothing is written to Habitify. The API could (``POST
-/habits/{id}/logs/complete``), but a tick in Cairn says "done this week", not
-"done on this day", and guessing the day would put invented entries into the
-user's streaks.
+Writing happens only for tactics the user asked Cairn to manage
+(``habitify_manage``), only on the user's confirmation after a plan save, and
+only what the API offers: ``POST /habits`` creates a habit (name, type,
+``startDate``, ``occurrence`` and an ``endCondition`` of type ``date``) and
+``PUT /habits/{id}`` moves an existing one's ``startDate`` and end date.
+Habitify has no schedule by calendar week, so a tactic picked for weeks 1-4
+and 6 runs in Habitify from the start of week 1 to the end of week 6; the
+gap is said in the preview, not hidden. Archiving is never used: it cannot be
+undone through the API.
 
-The HTTP call is :func:`_fetch`, one small function, so tests replace it and
-never reach Habitify.
+The HTTP calls are :func:`_fetch` and :func:`_send`, two small functions,
+so tests replace them and never reach Habitify.
 """
 from __future__ import annotations
 
@@ -57,6 +62,25 @@ def _fetch(path: str, api_key: str, params: dict | None = None):
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             return json.loads(resp.read().decode("utf-8") or "null")
+    except urllib.error.HTTPError as exc:
+        raise HabitifyError(_http_message(exc)) from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise HabitifyError(f"Habitify did not answer ({exc}).") from exc
+    except ValueError as exc:
+        raise HabitifyError("Habitify sent something that is not JSON.") from exc
+
+
+def _send(method: str, path: str, api_key: str, body: dict):
+    """A write. Same errors as :func:`_fetch`."""
+    req = urllib.request.Request(
+        BASE_URL + path, method=method,
+        data=json.dumps(body).encode("utf-8"),
+        headers={"X-API-Key": api_key, "Accept": "application/json",
+                 "Content-Type": "application/json", "User-Agent": "Cairn"})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            raw = resp.read().decode("utf-8")
+            return json.loads(raw) if raw.strip() else None
     except urllib.error.HTTPError as exc:
         raise HabitifyError(_http_message(exc)) from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -182,6 +206,75 @@ def sync_cycle(cycle, user, *, today: date, full: bool = False) -> int | None:
     cycle.habitify_synced_at = datetime.now(timezone.utc)
     cycle.save()
     return len(days_by_habit)
+
+
+# ---- writing the plan into Habitify ---------------------------------------
+
+def pending_changes(cycle) -> list[dict]:
+    """What saving the plan would change in Habitify, one entry per managed
+    tactic whose habit is missing or whose dates moved:
+    ``{"tid", "title", "action": "create"|"update", "body", "gaps"}``.
+    Pure: reads the cycle, asks nobody."""
+    from application.services import twelve_week as tw
+
+    changes = []
+    for t in cycle.tactics:
+        if not t.habitify_manage:
+            continue
+        start, end = tw.habitify_window(t, cycle)
+        if not start:
+            continue
+        gaps = tw.gaps(t)
+        if not t.habitify_id:
+            changes.append({
+                "tid": t.tid, "title": t.title, "action": "create", "gaps": gaps,
+                "body": {"name": t.title, "type": "good", "startDate": start,
+                         "occurrence": {"type": "daily"},
+                         "endCondition": {"type": "date", "date": end}}})
+        elif (t.habitify_start, t.habitify_end) != (start, end):
+            changes.append({
+                "tid": t.tid, "title": t.habitify_name or t.title,
+                "action": "update", "gaps": gaps,
+                "old": {"startDate": t.habitify_start, "end": t.habitify_end},
+                "body": {"startDate": start,
+                         "endCondition": {"type": "date", "date": end}}})
+    return changes
+
+
+def apply_changes(cycle, user, changes: list[dict]) -> tuple[int, list[str]]:
+    """Write ``changes`` (from :func:`pending_changes`) with the user's key.
+    Each success is recorded on its tactic right away, so a failure halfway
+    leaves the rest pending for the next try instead of creating twice.
+    Returns (done, errors)."""
+    from application.services.crypto import decrypt_for_user
+
+    key = decrypt_for_user(user, user.habitify_api_key)
+    if not key:
+        return 0, ["No Habitify key is saved (Settings > Habitify)."]
+    done, errors = 0, []
+    for ch in changes:
+        t = cycle.tactic(ch["tid"])
+        if t is None:
+            continue
+        body = ch["body"]
+        try:
+            if ch["action"] == "create":
+                created = _data(_send("POST", "/habits", key, body)) or {}
+                hid = str(created.get("id") or "") if isinstance(created, dict) else ""
+                if not hid:
+                    raise HabitifyError("Habitify created the habit but sent no id back.")
+                t.habitify_id, t.habitify_name = hid, body["name"]
+            else:
+                _send("PUT", f"/habits/{urllib.parse.quote(t.habitify_id, safe='')}",
+                      key, body)
+        except HabitifyError as exc:
+            errors.append(f"{ch['title']}: {exc}")
+            continue
+        t.habitify_start = body["startDate"]
+        t.habitify_end = body["endCondition"]["date"]
+        cycle.save()
+        done += 1
+    return done, errors
 
 
 # ---- background ----------------------------------------------------------

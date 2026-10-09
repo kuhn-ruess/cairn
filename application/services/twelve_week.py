@@ -65,14 +65,84 @@ def key(tid: str, week: int) -> str:
     return f"{tid}:{week}"
 
 
-def is_done(cycle, tactic, week: int) -> bool:
-    """Ticked by hand, or Habitify reports enough completed days that week."""
+def logged(cycle, tactic, week: int) -> int:
+    """How often "+1" was logged for ``tactic`` in ``week``."""
+    n = 0
+    for raw in tactic.log or []:
+        try:
+            if week_of(cycle, date.fromisoformat(raw)) == week:
+                n += 1
+        except ValueError:
+            continue
+    return n
+
+
+def count(cycle, tactic, week: int) -> int:
+    """The times counted in ``week``: "+1" logs plus Habitify's days."""
     k = key(tactic.tid, week)
-    if k in (cycle.done or []):
+    return logged(cycle, tactic, week) + int((cycle.habitify_counts or {}).get(k, 0))
+
+
+def is_done(cycle, tactic, week: int) -> bool:
+    """Ticked by hand, or counted ``per_week`` times that week ("+1" logs
+    and Habitify's completed days together)."""
+    if key(tactic.tid, week) in (cycle.done or []):
         return True
-    if tactic.habitify_id:
-        return int((cycle.habitify_counts or {}).get(k, 0)) >= (tactic.per_week or 1)
+    if tactic.habitify_id or tactic.log:
+        return count(cycle, tactic, week) >= (tactic.per_week or 1)
     return False
+
+
+def counted(tactic) -> bool:
+    """Shown as a "+1" counter rather than a checkbox."""
+    return (tactic.per_week or 1) > 1
+
+
+def add_log(cycle, tactic, week: int, today: date) -> bool:
+    """One more time in ``week``: dated today when today is in that week,
+    else the week's first day."""
+    if not planned(tactic, week):
+        return False
+    first, last = week_range(cycle, week)
+    day = today if first <= today <= last else first
+    tactic.log = list(tactic.log or []) + [day.isoformat()]
+    return True
+
+
+def undo_log(cycle, tactic, week: int) -> bool:
+    """Take back the latest "+1" of ``week``; other weeks stay untouched."""
+    entries = list(tactic.log or [])
+    for i in range(len(entries) - 1, -1, -1):
+        try:
+            if week_of(cycle, date.fromisoformat(entries[i])) == week:
+                del entries[i]
+                tactic.log = entries
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+ALL_WEEKS = list(range(1, WEEKS + 1))
+
+
+def habitify_window(tactic, cycle) -> tuple[str, str]:
+    """First day of the first picked week and last day of the last one, as
+    Habitify wants them (``YYYY-MM-DD``)."""
+    weeks = ALL_WEEKS if tactic.recurring else sorted(tactic.weeks or [])
+    if not weeks:
+        return "", ""
+    return (week_range(cycle, weeks[0])[0].isoformat(),
+            week_range(cycle, weeks[-1])[1].isoformat())
+
+
+def gaps(tactic) -> list[int]:
+    """Weeks inside the tactic's span that are NOT picked. Habitify has no
+    schedule by calendar week, so these cannot be paused there."""
+    weeks = sorted(set(ALL_WEEKS if tactic.recurring else (tactic.weeks or [])))
+    if not weeks:
+        return []
+    return [w for w in range(weeks[0], weeks[-1] + 1) if w not in weeks]
 
 
 def week_score(cycle, week: int) -> dict:
@@ -128,43 +198,3 @@ def toggle_done(cycle, tid: str, week: int) -> bool | None:
         state = True
     cycle.done = done
     return state
-
-
-def parse_weeks(raw: str) -> list[int]:
-    """``"1-4, 6, 9"`` -> ``[1, 2, 3, 4, 6, 9]``; anything outside 1..12 or
-    unreadable is dropped."""
-    out: set[int] = set()
-    for part in (raw or "").replace(";", ",").split(","):
-        part = part.strip()
-        if not part:
-            continue
-        if "-" in part:
-            a, _, b = part.partition("-")
-            try:
-                lo, hi = int(a), int(b)
-            except ValueError:
-                continue
-            if lo > hi:
-                lo, hi = hi, lo
-            out.update(range(max(1, lo), min(WEEKS, hi) + 1))
-        else:
-            try:
-                n = int(part)
-            except ValueError:
-                continue
-            if 1 <= n <= WEEKS:
-                out.add(n)
-    return sorted(out)
-
-
-def format_weeks(weeks) -> str:
-    """The inverse of :func:`parse_weeks`, collapsing runs: ``1-4, 6``."""
-    weeks = sorted(set(weeks or []))
-    parts, i = [], 0
-    while i < len(weeks):
-        j = i
-        while j + 1 < len(weeks) and weeks[j + 1] == weeks[j] + 1:
-            j += 1
-        parts.append(str(weeks[i]) if i == j else f"{weeks[i]}-{weeks[j]}")
-        i = j + 1
-    return ", ".join(parts)

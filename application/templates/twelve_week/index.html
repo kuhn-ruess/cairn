@@ -1,7 +1,6 @@
 {% extends "layout/base.html" %}
 {% block title %}12 Week Year · Cairn{% endblock %}
 {% block content %}
-{% with active="twelve_week" %}{% include "habits/_tabs.html" %}{% endwith %}
 <div class="d-flex align-items-center mb-3">
   <h1 class="h3 mb-0 me-auto"><i class="bi bi-bullseye"></i> 12 Week Year</h1>
   <a class="btn btn-primary" href="{{ url_for('twelve_week.create') }}">
@@ -11,10 +10,11 @@
 
 <p class="text-muted small mb-4">
   Twelve weeks are your year: a vision, one to three goals, and the tactics
-  that get you there, each planned for its week(s) or for every week. Tick
-  what you did; the share of the week's plan you executed is your score, and
-  85&nbsp;% is a win. Week 13 is for the review and the next plan.
-  Recurring tactics can follow a habit in Habitify
+  that get you there, each planned for the weeks you click. Your habits live
+  here too, as tactics without a goal, counted every week. Tick what you did;
+  the share of the week's plan you executed is your score, and 85&nbsp;% is a
+  win. Week 13 is for the review and the next plan. Tactics and habits can
+  follow a habit in Habitify, and Cairn can set it up there
   (<a href="{{ url_for('settings.habitify') }}">connect it in Settings</a>).
 </p>
 
