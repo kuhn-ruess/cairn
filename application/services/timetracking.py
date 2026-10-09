@@ -919,21 +919,24 @@ def reachable_project_ids(user, team) -> set:
     # bounded by the containers they own or are a member of.
     if team.is_managed_by(actor) or actor in (team.billers or []):
         return {str(p.id) for p in TimeTrackingProject.objects(team=team).only("id")}
+    # ``all_objects``: a folder in the trash still bounds what its owner may
+    # see. Its time is still booked and still billed, and trashing the folder
+    # must not take that time out of anyone's report.
     container_ids, frontier = set(), [
-        it.id for it in Item.objects(
+        it.id for it in Item.all_objects(
             (Q(owner=actor) | Q(members=actor)) & Q(kind__in=["project", "folder"])
         ).only("id")
     ]
     while frontier:
         container_ids.update(frontier)
         frontier = [
-            it.id for it in Item.objects(
+            it.id for it in Item.all_objects(
                 parent__in=frontier, kind__in=["project", "folder"]
             ).only("id") if it.id not in container_ids
         ]
     if not container_ids:
         return set()
-    projs = Item.objects(id__in=list(container_ids)).distinct("time_project")
+    projs = Item.all_objects(id__in=list(container_ids)).distinct("time_project")
     return {str(p.id) for p in projs if p}
 
 
@@ -981,6 +984,44 @@ def current_project_names(teams) -> dict:
     return {str(p["_id"]): p["name"]
             for p in TimeTrackingProject.objects(team__in=teams)
             .only("id", "name").as_pymongo() if p.get("name")}
+
+
+# What a time entry's marker says about the item it was booked on.
+SOURCE_STATE_LABELS = {"trashed": "task in trash", "deleted": "task deleted"}
+
+
+def mark_source_states(rows) -> None:
+    """Add ``source_state`` to each row: ``"trashed"`` while the task the time
+    was booked on sits in the trash, ``"deleted"`` once it is gone for good,
+    ``""`` otherwise.
+
+    Booked time never follows its task anywhere: trashing, restoring and
+    purging an item leave the entries exactly as they are, and every reader
+    keeps listing them. This only lets a reader *say* where the task went, so
+    an hour on the sheet whose link leads nowhere explains itself. One
+    projected query for all rows; bookings (``source_kind="booking"``) point
+    at another collection and are left unmarked."""
+    from bson import ObjectId
+    from bson.errors import InvalidId
+    ids = set()
+    for r in rows:
+        sid = r.get("source_item_id")
+        if sid and r.get("source_kind") != "booking":
+            try:
+                ids.add(ObjectId(sid))
+            except (InvalidId, TypeError):
+                pass
+    found = {}
+    if ids:
+        for d in Item.all_objects(pk__in=list(ids)).only(
+                "id", "trashed_at").as_pymongo():
+            found[str(d["_id"])] = "trashed" if d.get("trashed_at") else ""
+    for r in rows:
+        sid = r.get("source_item_id")
+        if not sid or r.get("source_kind") == "booking":
+            r["source_state"] = ""
+        else:
+            r["source_state"] = found.get(sid, "deleted")
 
 
 def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
@@ -1062,6 +1103,8 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
                 # the task a column of its own instead (views._report_cell) —
                 # the same choice the customer's sheet offers.
                 "source_label": e.source_label or "",
+                "source_item_id": e.source_item_id or "",
+                "source_kind": e.source_kind or "",
                 "service": e.service or "",
                 "start_time": e.start_time or "",
                 "end_time": e.end_time or "",
@@ -1069,6 +1112,7 @@ def build_report_rows(*, team, scope_ids, date_from, date_to, customer_id=None,
                 "external_ref": e.external_ref or "",
                 "external_url": e.external_url or "",
             })
+    mark_source_states(rows)
     return rows
 
 
@@ -2570,6 +2614,7 @@ def day_sheet(user, day: date) -> dict:
         return (1, "", "", stamp)
 
     entries.sort(key=_in_the_day)
+    mark_source_states(entries)
     removed.sort(key=lambda r: r["cancelled_at"] or _utcnow(), reverse=True)
     # The shortlist for the capture bar, with the preselected project pinned
     # into it; anything else is found by typing (project_search).

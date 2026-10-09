@@ -203,6 +203,10 @@
                 {% else %}<span class="text-muted">{{ e.external_ref|ticketref }}</span>{% endif %}
               {% endif %}
               {{ e.description }}
+              {% if e.source_state == 'trashed' %}<span class="badge text-bg-warning"
+                  title="{{ e.source_label }}: the task is in the trash, the time stays">task in trash</span>
+              {% elif e.source_state == 'deleted' %}<span class="badge text-bg-warning"
+                  title="{{ e.source_label }}: the task was deleted, the time stays">task deleted</span>{% endif %}
             </td>
             {# One column per custom field — a "Ticket-Nr." you can read down
                the page, instead of a badge buried in the description. #}

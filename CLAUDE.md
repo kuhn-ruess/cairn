@@ -88,6 +88,7 @@ commands beyond the user-facing ones in the README:
 - `./cairn sync-notes [--user <name>] [--dry-run] [--force]` — one round of the notes ⇄ WebDAV mirror. Cron-friendly / no-broker equivalent of the background round (shares `services/notes_sync.py`)
 - `./cairn reopen-csv-closed <user> --since <iso> [--until <iso>] [--source jira|helix|csv] [--apply]` — reopen imported tasks a CSV import closed as "missing from the file" in that window (dry run unless `--apply`). The repair for the close-missing step that, before it was scoped to the file's project and ticket system, closed every other import's tasks
 - `./cairn cleanup-completed-tasks [--dry-run] [--user <name>]` — cron-friendly sweep of done/dropped tasks past each user's retention window
+- `./cairn check-trash-time [--user <name>] [--apply]`: read only report of what the trash left around booked time: time on trashed/deleted tasks, Zammad tickets that got a second task while the first sat in the trash (the sync looks tickets up through `Item.objects`), restored items that lost their parent. `--apply` only re-links the duplicate tasks' entries onto the oldest task for that ticket; nothing is deleted, idempotent
 - `./cairn cleanup-trash [--dry-run] [--user <name>]` — cron-friendly purge of trashed items past each user's `trash_retention_days` (default 30; `0` = keep until emptied)
 - `./cairn sync-zammad-team [--team <id>] [--full] [--force] [--dry-run]` — the **team** sync (`services/zammad_team.py`): one connection (`Team.zammad_url` + service token) reads the instance once, files each ticket under the Cairn user its Zammad owner maps to (roster → that user's `zammad_sync_project`) and books all agents' time into the team. Replaces per-member syncs; configured under Team → Zammad (`views/teams.py`), because the connection belongs to the team, not to the billing module
 - `./cairn refile-zammad-owners --team <id> [--dry-run]` — one-off: hand imported tickets to the Cairn account their Zammad owner maps to. The first run on a new connection has an empty agent roster, so everything lands with the team's admin, and a sync never re-files an imported ticket afterwards. Only touches tasks still sitting where the import put them
@@ -173,6 +174,13 @@ Implications when writing queries or features:
   `tests/test_trash_view.py` scans the code for any caller or write that
   skips it. `/trash/<id>` shows a trashed item read only to its owner or
   assignee (restore stays the owner's).
+  **Booked time is never part of a cascade.** Trashing, restoring, purging,
+  emptying the trash and `cleanup.delete_project_cascade` leave every
+  `TimeBucket` entry exactly as it is (soft `source_item_id`, name
+  snapshots); the day sheet and the report keep listing the time and mark it
+  "task in trash" / "task deleted" (`timetracking.mark_source_states`).
+  `tests/test_trash_keeps_time.py` scans the trash/delete code for any
+  reference to the time collections and checks every path end to end.
 
 ### Background workers (Celery + Redis)
 

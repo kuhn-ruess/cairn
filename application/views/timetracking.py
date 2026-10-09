@@ -444,6 +444,16 @@ def _viewable_task(user, task_id):
     return task
 
 
+def _live_task(user, task_id):
+    """The task a running stopwatch points at, or ``None`` when it is in the
+    trash, gone or not this user's to see. Unlike :func:`_viewable_task` this
+    never answers 404: the stopwatch has to stop and log its time whatever
+    happened to the task meanwhile (the entry keeps the task's id)."""
+    tid = to_oid(task_id)
+    task = Item.objects(pk=tid).first() if tid is not None else None
+    return task if task is not None and task.can_be_viewed_by(user) else None
+
+
 def _resolve_project(user, task=None, explicit=None):
     """The billing project a capture action targets: an explicitly picked one,
     else the task's inherited/last-used default. ``None`` when nothing fits."""
@@ -689,9 +699,7 @@ def timer_stop():
     timer = user.running_timer
     task = None
     if timer and timer.source_item_id:
-        task = _viewable_task(user, timer.source_item_id)
-        if task is not None and not task.can_be_viewed_by(user):
-            task = None
+        task = _live_task(user, timer.source_item_id)
     entry = stop_timer(user)
     if entry and not request.headers.get("X-Partial"):
         flash(f"Logged {entry.minutes // 60}h {entry.minutes % 60}m "
@@ -708,9 +716,7 @@ def timer_discard():
     timer = user.running_timer
     task = None
     if timer and timer.source_item_id:
-        task = _viewable_task(user, timer.source_item_id)
-        if task is not None and not task.can_be_viewed_by(user):
-            task = None
+        task = _live_task(user, timer.source_item_id)
     discard_timer(user)
     return _capture_response(user, task)
 

@@ -574,6 +574,51 @@ def cleanup_trash(dry_run, username):
             click.echo(f"  {name}: {verb} {n} item(s)")
     click.echo(f"total: {verb} {total} item(s) across {len(results)} user(s)")
 
+@cairn_cli.command("check-trash-time")
+@click.option("--user", "username", help="Only this user (by username).")
+@click.option("--apply", "do_apply", is_flag=True,
+              help="Re-link time of duplicate Zammad tasks onto the oldest "
+                   "task for that ticket. Without it nothing is written.")
+def check_trash_time(username, do_apply):
+    """Report what the trash left around booked time (dry run unless --apply).
+
+    Booked time itself is never touched by trashing, restoring or purging.
+    Lists time on trashed/deleted tasks, Zammad tickets that got a second task
+    while the first was in the trash (and the time split between them), and
+    restored items that lost their parent. ``--apply`` only re-links the
+    duplicate tasks' entries; nothing is ever deleted. Idempotent.
+    """
+    from application.services.trash_time_check import check
+    from application.services.timetracking import fmt_duration
+    users = User.objects(username=username) if username else User.objects
+    if username and not users.first():
+        raise click.ClickException(f"no user '{username}'")
+    mode = "APPLY" if do_apply else "DRY RUN (nothing is written)"
+    click.echo(f"check-trash-time: {mode}")
+    for u in users:
+        r = check(u, apply=do_apply)
+        if not (r["on_trashed"][0] or r["on_deleted"][0] or r["duplicates"]
+                or r["rerooted"]):
+            continue
+        click.echo(f"\n== {r['user']}")
+        for key, label in (("on_trashed", "task in trash"),
+                           ("on_deleted", "task deleted")):
+            n, m = r[key]
+            if n:
+                click.echo(f"  time on {label}: {n} entries, {fmt_duration(m)} "
+                           "(intact, listed on day sheet and report)")
+        for d in r["duplicates"]:
+            verb = "re-linked" if do_apply else "would re-link"
+            click.echo(f"  duplicate tasks for {d['ticket']} \"{d['title']}\": "
+                       f"keep {d['keep']}, duplicates {', '.join(d['dupes'])}; "
+                       f"{verb} {d['entries']} entries ({fmt_duration(d['minutes'])})")
+        for x in r["rerooted"]:
+            click.echo(f"  restored without its parent: {x['kind']} {x['id']} "
+                       f"\"{x['title']}\" ({x['via']})")
+        if do_apply:
+            click.echo(f"  re-linked: {r['relinked']} entries")
+
+
 @cairn_cli.command("set-level")
 @click.argument("email_or_username")
 @click.argument("level", type=click.Choice(["free", "premium", "team_admin", "global_admin"]))

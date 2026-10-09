@@ -102,7 +102,17 @@
               {% for c in e.custom %}
                 <span title="{{ c.label }}">{{ c.label }}: {{ c.value }}</span>
               {% endfor %}
-              {% if e.source_item_id %}
+              {% if e.source_item_id and e.source_state == 'deleted' %}
+                <span title="The task this was logged on was deleted; the time stays">
+                  <i class="bi bi-link-45deg"></i>{{ e.source_label or 'task' }}
+                  <span class="badge tt-chip-warn">task deleted</span></span>
+              {% elif e.source_item_id and e.source_state == 'trashed' %}
+                <a class="text-decoration-none"
+                   href="{{ url_for('trash.view', item_id=e.source_item_id) }}"
+                   title="The task this was logged on is in the trash; the time stays">
+                  <i class="bi bi-link-45deg"></i>{{ e.source_label or 'task' }}
+                  <span class="badge tt-chip-warn">task in trash</span></a>
+              {% elif e.source_item_id %}
                 <a class="text-decoration-none"
                    href="{{ url_for('tasks.detail', task_id=e.source_item_id) }}"
                    title="Logged from this task">

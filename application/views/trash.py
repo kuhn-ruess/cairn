@@ -205,9 +205,13 @@ def view(item_id):
     depends = [d for d in (item.depends_on or [])
                if isinstance(d, Item) and d.can_be_viewed_by(user)]
     names = _user_names([_raw_id(item, "trashed_by")])
+    # The time booked on it, read through the billing module's own reader:
+    # trashing never touches booked time, and this page must not suggest it.
+    from application.services.timetracking import item_entries
     return render_template(
         "trash/view.html",
         item=item,
+        time_rows=item_entries(user, item),
         note_html_src=_local_file_urls(item, item.note or ""),
         place=_place_labels([item]).get(item.pk, ""),
         children=children,
@@ -256,7 +260,24 @@ def restore_selected():
     user = current_user._get_current_object()
     ids = request.form.getlist("item_ids")
     items = list(Item.all_objects(pk__in=ids, owner=user, trashed_at__ne=None))
-    n = sum(trash_svc.restore_item(i) for i in items)
+    # Parents before their children, whatever order the page or the database
+    # gives: a child restored first finds its parent still in the trash and is
+    # re-filed at the top level (restore_item), out of the tree it came from.
+    parent_of = {i.pk: _raw_id(i, "parent") for i in items}
+
+    def depth(pk):
+        d, seen = 0, set()
+        while parent_of.get(pk) in parent_of and pk not in seen:
+            seen.add(pk)
+            pk = parent_of[pk]
+            d += 1
+        return d
+    items.sort(key=lambda i: depth(i.pk))
+    n = 0
+    for i in items:
+        fresh = Item.all_objects(pk=i.pk, trashed_at__ne=None).first()
+        if fresh is not None:   # already back with an ancestor restored above
+            n += trash_svc.restore_item(fresh)
     flash(f"Restored: {n} item(s).", "success" if n else "warning")
     return redirect(url_for("trash.index", source=request.form.get("source") or None))
 
