@@ -550,7 +550,12 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   address redirects there). One `TwelveWeekYear` document per cycle with
   goals, tactics, manual ticks (`done`, `"<tid>:<week>"`), "+1" logs
   (`TwyTactic.log`, ISO dates), the Habitify counts and the weekly notes
-  embedded, so each page is one read. A tactic without a goal is a habit.
+  embedded, so each page is one read. A tactic serves 0..n goals
+  (`TwyTactic.gids`; none = a habit): it is listed and scored under each
+  goal it serves (`goal_week_score`), but the week's execution score counts
+  it once (`week_score` walks tactics, not goals). The first version's single
+  `gid` is read only, read by `goal_ids` until `goals_listed` is set and
+  copied into `gids` on the next read of the cycle (`backfill_goal_ids`).
   Week math and the execution score are pure functions in `twelve_week.py`.
   The plan form is rendered from a plain state (`twelve_week_form`), so a
   submit with a mistake comes back with every value kept and the error beside

@@ -44,6 +44,9 @@ def _owned(cycle_id: str) -> TwelveWeekYear:
         id=cycle_id, owner=current_user._get_current_object()).first()
     if cycle is None:
         abort(404)
+    # The single goal link of the first version becomes the goal list.
+    if tw.backfill_goal_ids(cycle):
+        cycle.save()
     return cycle
 
 
@@ -67,12 +70,17 @@ def _body_context(cycle, week: int, today: date, lag_errors=None) -> dict:
     board = tw.scoreboard(cycle, today)
     rows = []
     for goal in cycle.goals:
-        rows.append({"g": goal, "progress": tw.goal_progress(goal), "tactics": [
-            _row(cycle, t, week) for t in cycle.tactics
-            if t.gid == goal.gid and tw.planned(t, week)]})
+        # A habit serving several goals is listed under each of them and
+        # counts in each goal's score; the week's score counts it once.
+        rows.append({"g": goal, "progress": tw.goal_progress(goal),
+                     "score": tw.goal_week_score(cycle, goal.gid, week) if week <= WEEKS else None,
+                     "average": tw.goal_average(cycle, goal.gid, today),
+                     "tactics": [_row(cycle, t, week) for t in cycle.tactics
+                                 if tw.serves(t, goal.gid) and tw.planned(t, week)]})
     named = {goal.gid for goal in cycle.goals}
     habits = [_row(cycle, t, week) for t in cycle.tactics
-              if t.gid not in named and tw.planned(t, week)]
+              if not named.intersection(tw.goal_ids(t)) and tw.planned(t, week)]
+    goal_titles = {goal.gid: goal.title for goal in cycle.goals}
     first, last = tw.week_range(cycle, week)
     return {
         "c": cycle, "week": week, "board": board, "rows": rows, "habits": habits,
@@ -81,7 +89,7 @@ def _body_context(cycle, week: int, today: date, lag_errors=None) -> dict:
         "review_week": tw.REVIEW_WEEK, "weeks": WEEKS,
         "has_habitify": bool(current_user.habitify_api_key),
         "mapped": any(t.habitify_id for t in cycle.tactics),
-        "lag_errors": lag_errors or {},
+        "lag_errors": lag_errors or {}, "goal_titles": goal_titles,
         "pending": len(habitify.pending_changes(cycle)) if current_user.habitify_api_key else 0,
     }
 
@@ -118,7 +126,7 @@ def create():
     owner = current_user._get_current_object()
     latest = TwelveWeekYear.objects(owner=owner).order_by("-start").first()
     carry = [t for t in (latest.tactics if latest else [])
-             if not latest.goal(t.gid)]
+             if not any(latest.goal(gid) for gid in tw.goal_ids(t))]
     values = {"title": "", "vision": "", "start": tw.monday_of(today).isoformat(),
               "carry": True}
     errors = {}
@@ -139,7 +147,7 @@ def create():
             if values["carry"]:
                 # The habits go on: same habit, same Habitify link, fresh weeks.
                 cycle.tactics = [TwyTactic(
-                    gid="", title=t.title, recurring=True,
+                    gids=[], goals_listed=True, title=t.title, recurring=True,
                     weeks=list(range(1, WEEKS + 1)), per_week=t.per_week,
                     habitify_id=t.habitify_id, habitify_name=t.habitify_name,
                     habitify_manage=t.habitify_manage, source=t.source)

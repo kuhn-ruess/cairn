@@ -96,6 +96,29 @@ class ScoringTests(unittest.TestCase):
         self.assertIsNone(tw.toggle_done(c, "plan", 5))
         self.assertIsNone(tw.toggle_done(c, "nope", 1))
 
+    def test_a_habit_serving_two_goals_counts_once_in_the_week(self):
+        c = _cycle()
+        c.goals.append(TwyGoal(gid="g2", title="Calm"))
+        run = c.tactic("run")
+        run.gids, run.goals_listed = ["g1", "g2"], True
+        c.done = ["run:1"]
+        self.assertEqual(tw.week_score(c, 1)["planned"], 3)
+        self.assertEqual(tw.week_score(c, 1)["done"], 1)
+        self.assertEqual(tw.goal_week_score(c, "g2", 1),
+                         {"week": 1, "planned": 1, "done": 1, "score": 100})
+        self.assertEqual(tw.goal_week_score(c, "g1", 1)["planned"], 3)
+        self.assertEqual(tw.goal_average(c, "g2", date(2026, 10, 14)), 100)
+
+    def test_old_single_goal_link_is_read_and_backfilled(self):
+        c = _cycle()
+        t = c.tactic("plan")
+        self.assertEqual(tw.goal_ids(t), ["g1"])
+        self.assertTrue(tw.backfill_goal_ids(c))
+        self.assertEqual((t.gids, t.gid, t.goals_listed), (["g1"], "g1", True))
+        self.assertFalse(tw.backfill_goal_ids(c))
+        t.gids = []                     # unpicked later: no goal, gid not revived
+        self.assertEqual(tw.goal_ids(t), [])
+
     def test_goal_progress(self):
         c = _cycle()
         self.assertEqual(tw.goal_progress(c.goals[0]), 25)
@@ -277,9 +300,9 @@ class TwelveWeekDbTests(unittest.TestCase):
             "row": ["0", "7", "9"],
             "t-0-tid": "run", "t-0-title": "Run", "t-0-goal": "g1",
             "t-0-week": [str(w) for w in range(1, 13)], "t-0-per_week": "1",
-            "t-7-tid": "", "t-7-title": "Draft", "t-7-goal": "new2",
+            "t-7-tid": "", "t-7-title": "Draft", "t-7-goal": ["new2"],
             "t-7-week": ["2", "3"], "t-7-per_week": "1",
-            "t-9-title": "", "t-9-goal": "", "t-9-per_week": "1",
+            "t-9-title": "", "t-9-per_week": "1",
         }
         data.update(over)
         return data
@@ -297,7 +320,8 @@ class TwelveWeekDbTests(unittest.TestCase):
         self.assertTrue(self.cycle.tactics[0].recurring)
         self.assertEqual(self.cycle.tactics[1].weeks, [2, 3])
         self.assertFalse(self.cycle.tactics[1].recurring)
-        self.assertEqual(self.cycle.tactics[1].gid, "new2")
+        self.assertEqual(self.cycle.tactics[1].gids, ["new2"])
+        self.assertEqual(self.cycle.tactics[0].gid, "g1")       # old field untouched
         self.assertEqual(len(self.cycle.tactics), 2)
         self.assertEqual(self.cycle.done, ["run:1"])
 
@@ -397,6 +421,28 @@ class TwelveWeekDbTests(unittest.TestCase):
         self.assertEqual((done, errs), (0, ["Gym: nope"]))
         self.assertEqual(send.call_args[0][:2], ("PUT", "/habits/h-gym"))
         self.assertEqual(len(habitify.pending_changes(self.cycle)), 1)
+
+    def test_plan_links_a_habit_to_two_goals(self):
+        data = self._plan_data(**{"t-0-goal": ["g1", "new2"]})
+        self.assertEqual(self.client.post(self._url("/plan"), data=data).status_code, 302)
+        self.cycle.reload()
+        self.assertEqual(self.cycle.tactic("run").gids, ["g1", "new2"])
+        html = self.client.get(self._url("?week=1")).get_data(as_text=True)
+        self.assertEqual(html.count('data-tid="run"'), 2)     # under both goals
+        self.assertIn('id="twy-g1-run"', html)
+        self.assertIn('id="twy-new2-run"', html)
+        # Ticked once, done under both; the week counts it once.
+        self.client.post(self._url("/toggle"), data={"tid": "run", "week": "1"})
+        self.cycle.reload()
+        self.assertEqual(tw.week_score(self.cycle, 1), {"week": 1, "planned": 1, "done": 1, "score": 100})
+
+    def test_unnamed_goal_pick_keeps_the_form(self):
+        data = self._plan_data(**{"t-0-goal": ["g1", "new3"]})
+        resp = self.client.post(self._url("/plan"), data=data)
+        self.assertEqual(resp.status_code, 422)
+        html = resp.get_data(as_text=True)
+        self.assertIn("A picked goal has no name", html)
+        self.assertIn('value="new3" id="t-0-g2" autocomplete="off"\n                   checked', html)
 
     def test_creating_in_habitify_needs_a_key(self):
         resp = self.client.post(self._url("/plan"), data=self._plan_data(**{"t-7-habit": "__new__"}))

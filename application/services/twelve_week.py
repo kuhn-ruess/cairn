@@ -55,6 +55,30 @@ def end_date(cycle) -> date:
     return week_range(cycle, REVIEW_WEEK)[1]
 
 
+def goal_ids(tactic) -> list[str]:
+    """The goals a tactic serves: ``gids``, or the old single ``gid``."""
+    if tactic.goals_listed or tactic.gids:
+        return list(tactic.gids or [])
+    return [tactic.gid] if tactic.gid else []
+
+
+def backfill_goal_ids(cycle) -> bool:
+    """Copy the old single goal link into ``gids`` where that list is still
+    empty. ``gid`` itself is left as it is. Returns whether anything changed
+    (the caller saves)."""
+    changed = False
+    for t in cycle.tactics:
+        if not t.goals_listed:
+            t.gids = goal_ids(t)
+            t.goals_listed = True
+            changed = True
+    return changed
+
+
+def serves(tactic, gid: str) -> bool:
+    return gid in goal_ids(tactic)
+
+
 def planned(tactic, week: int) -> bool:
     if not 1 <= week <= WEEKS:
         return False
@@ -156,6 +180,29 @@ def week_score(cycle, week: int) -> dict:
                 done += 1
     score = round(done / total * 100) if total else None
     return {"week": week, "planned": total, "done": done, "score": score}
+
+
+def goal_week_score(cycle, gid: str, week: int) -> dict:
+    """The execution score of ONE goal's tactics in ``week``: a habit that
+    serves several goals counts in each of them here, and once in
+    :func:`week_score`."""
+    total = done = 0
+    for t in cycle.tactics:
+        if serves(t, gid) and planned(t, week):
+            total += 1
+            if is_done(cycle, t, week):
+                done += 1
+    return {"week": week, "planned": total, "done": done,
+            "score": round(done / total * 100) if total else None}
+
+
+def goal_average(cycle, gid: str, today: date):
+    """A goal's average execution over the finished weeks, or None."""
+    current = week_of(cycle, today)
+    scores = [goal_week_score(cycle, gid, w)["score"]
+              for w in range(1, min(current, REVIEW_WEEK))]
+    scores = [s for s in scores if s is not None]
+    return round(sum(scores) / len(scores)) if scores else None
 
 
 def scoreboard(cycle, today: date) -> dict:

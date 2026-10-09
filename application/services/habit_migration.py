@@ -96,7 +96,7 @@ def migrate_user(user, *, dry_run: bool = False, now: datetime | None = None) ->
                 log.append(at.astimezone(zone).date().isoformat())
             title = h.name if len(h.targets) == 1 else f"{h.name}: {t.name}"
             cycle.tactics.append(TwyTactic(
-                gid="", title=title[:200], recurring=True,
+                gids=[], goals_listed=True, title=title[:200], recurring=True,
                 weeks=list(range(1, WEEKS + 1)),
                 per_week=per_week(t.count, h.period_days),
                 log=sorted(log), source=_source(h, t)))

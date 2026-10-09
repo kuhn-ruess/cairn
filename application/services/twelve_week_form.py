@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import date
 
 from application.models.twelve_week import MAX_GOALS, WEEKS, TwyGoal, TwyTactic, _short_id
+from application.services.twelve_week import goal_ids
 
 NEW_HABIT = "__new__"   # the picker's "create it in Habitify" choice
 
@@ -36,7 +37,7 @@ def state_from_cycle(cycle, start: date) -> dict:
     tactics = []
     for i, t in enumerate(cycle.tactics):
         tactics.append({
-            "idx": str(i), "tid": t.tid, "title": t.title, "gid": t.gid or "",
+            "idx": str(i), "tid": t.tid, "title": t.title, "gids": goal_ids(t),
             "weeks": list(range(1, WEEKS + 1)) if t.recurring else sorted(t.weeks or []),
             "habit": t.habitify_id or "", "habit_manual": "",
             "habit_name": t.habitify_name or "",
@@ -45,8 +46,8 @@ def state_from_cycle(cycle, start: date) -> dict:
             "start": start.isoformat(), "goals": goals, "tactics": tactics}
 
 
-def blank_tactic(idx: str, gid: str = "") -> dict:
-    return {"idx": idx, "tid": "", "title": "", "gid": gid, "weeks": [],
+def blank_tactic(idx: str) -> dict:
+    return {"idx": idx, "tid": "", "title": "", "gids": [], "weeks": [],
             "habit": "", "habit_manual": "", "habit_name": "", "manage": False,
             "per_week": "1"}
 
@@ -119,7 +120,8 @@ def read_form(form, cycle, habit_names: dict, *, has_key: bool):
                         if str(w).isdigit() and 1 <= int(w) <= WEEKS})
         row = {"idx": idx, "tid": (form.get(p + "tid") or "").strip(),
                "title": (form.get(p + "title") or "").strip(),
-               "gid": (form.get(p + "goal") or "").strip(), "weeks": weeks,
+               "gids": list(dict.fromkeys(g.strip() for g in form.getlist(p + "goal")
+                                          if g and g.strip())), "weeks": weeks,
                "habit": (form.get(p + "habit") or "").strip(),
                "habit_manual": (form.get(p + "habit_manual") or "").strip(),
                "habit_name": (form.get(p + "habit_name") or "").strip(),
@@ -133,8 +135,8 @@ def read_form(form, cycle, habit_names: dict, *, has_key: bool):
             errors[p + "title"] = "Name the tactic."
         if not weeks:
             errors[p + "weeks"] = "Click the week(s) it is planned for."
-        if row["gid"] and row["gid"] not in named:
-            errors[p + "goal"] = "That goal has no name (any more); pick another."
+        if any(g not in named for g in row["gids"]):
+            errors[p + "goal"] = "A picked goal has no name (any more); name it or unpick it."
         try:
             per_week = int(row["per_week"])
             if not 1 <= per_week <= 7:
@@ -156,7 +158,8 @@ def read_form(form, cycle, habit_names: dict, *, has_key: bool):
         if not habit and not manage:
             name = ""
         tactics.append(TwyTactic(
-            tid=row["tid"] or _short_id(), gid=row["gid"] if row["gid"] in named else "",
+            tid=row["tid"] or _short_id(), gids=[g for g in row["gids"] if g in named],
+            gid=old.gid if old else "", goals_listed=True,
             title=row["title"][:200], recurring=len(weeks) == WEEKS, weeks=weeks,
             per_week=per_week, log=list(old.log) if old else [],
             source=old.source if old else "",

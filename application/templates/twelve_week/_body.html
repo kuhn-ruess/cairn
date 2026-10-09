@@ -1,11 +1,13 @@
 {# The swappable body of one cycle: every in-place action answers with this. #}
 {% set fmt = '%d.%m.' %}
-{% macro tactic_item(x) %}
+{# The other goals a habit also serves, beside its title. #}
+{% macro also(x, here) %}{% set others = x.t.gids|reject('equalto', here)|select('in', goal_titles)|list %}{% for gid in others %} <span class="badge text-bg-light border fw-normal" title="Also serves this goal">{{ goal_titles[gid] }}</span>{% endfor %}{% endmacro %}
+{% macro tactic_item(x, here="") %}
 {% set via_habitify = x.done and not x.manual and not x.counter %}
 <li class="list-group-item d-flex align-items-center gap-2">
   {% if x.counter %}
     <span class="badge rounded-pill {{ 'text-bg-success' if x.done else 'text-bg-secondary' }}" style="min-width:3rem;">{{ x.count }}/{{ x.t.per_week }}</span>
-    <span class="me-auto{% if x.done %} text-muted{% endif %}">{{ x.t.title }}</span>
+    <span class="me-auto{% if x.done %} text-muted{% endif %}">{{ x.t.title }}{{ also(x, here) }}</span>
     <div class="btn-group btn-group-sm" role="group">
       <button type="button" class="btn btn-outline-secondary" data-twy-log data-undo="1"
               data-url="{{ url_for('twelve_week.log', cycle_id=c.id) }}" data-tid="{{ x.t.tid }}" data-week="{{ week }}"
@@ -15,12 +17,12 @@
               aria-label="Log one {{ x.t.title }}">+1</button>
     </div>
   {% else %}
-    <input class="form-check-input mt-0" type="checkbox" id="twy-{{ x.t.tid }}"
+    <input class="form-check-input mt-0" type="checkbox" id="twy-{{ here or 'h' }}-{{ x.t.tid }}"
            data-twy-toggle data-url="{{ url_for('twelve_week.toggle', cycle_id=c.id) }}"
            data-tid="{{ x.t.tid }}" data-week="{{ week }}"
            {% if x.done %}checked{% endif %} {% if via_habitify %}disabled{% endif %}>
-    <label class="form-check-label me-auto{% if x.done %} text-decoration-line-through text-muted{% endif %}" for="twy-{{ x.t.tid }}">
-      {{ x.t.title }}
+    <label class="form-check-label me-auto{% if x.done %} text-decoration-line-through text-muted{% endif %}" for="twy-{{ here or 'h' }}-{{ x.t.tid }}">
+      {{ x.t.title }}{{ also(x, here) }}
     </label>
   {% endif %}
   {% if x.t.habitify_id %}
@@ -108,10 +110,13 @@
       {% endif %}
       {% for r in rows %}
         <div class="mb-3">
-          <div class="small text-muted text-uppercase fw-semibold mb-1">{{ r.g.title }}</div>
+          <div class="d-flex align-items-center mb-1">
+            <div class="small text-muted text-uppercase fw-semibold me-auto">{{ r.g.title }}</div>
+            {% if r.score and r.score.score is not none %}<span class="small text-muted" title="This goal's tactics this week">{{ r.score.done }}/{{ r.score.planned }} · {{ r.score.score }}&nbsp;%</span>{% endif %}
+          </div>
           {% if r.tactics %}
           <ul class="list-group">
-            {% for x in r.tactics %}{{ tactic_item(x) }}{% endfor %}
+            {% for x in r.tactics %}{{ tactic_item(x, r.g.gid) }}{% endfor %}
           </ul>
           {% else %}
             <div class="small text-muted">Nothing planned for this week.</div>
@@ -150,7 +155,10 @@
       {% for r in rows %}
       <div class="card mb-2">
         <div class="card-body py-2">
-          <div class="fw-semibold">{{ r.g.title }}</div>
+          <div class="d-flex align-items-center">
+            <div class="fw-semibold me-auto">{{ r.g.title }}</div>
+            {% if r.average is not none %}<span class="small {{ 'text-success' if r.average >= board.target else 'text-muted' }}" title="Average execution of this goal's tactics over the finished weeks">{{ r.average }}&nbsp;%</span>{% endif %}
+          </div>
           {% if r.g.lag_target %}
             <div class="progress my-1" style="height:6px;" role="progressbar" aria-valuenow="{{ r.progress }}" aria-valuemin="0" aria-valuemax="100">
               <div class="progress-bar{% if r.progress >= 100 %} bg-success{% endif %}" style="width:{{ r.progress }}%;"></div>

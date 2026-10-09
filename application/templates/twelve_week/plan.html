@@ -20,13 +20,16 @@
         {{ feedback(p ~ 'title') }}
       </div>
       <div class="col-md-4">
-        <select class="form-select form-select-sm{{ invalid(p ~ 'goal') }}" name="{{ p }}goal" aria-label="Goal">
-          <option value="" {% if not t.gid %}selected{% endif %}>Habit (no goal)</option>
+        <div class="d-flex flex-wrap align-items-center gap-1{% if errors.get(p ~ 'goal') %} border border-danger rounded p-1{% endif %}" role="group" aria-label="Goals it serves">
+          <span class="small text-muted me-1">Serves</span>
           {% for gl in s.goals %}
-            <option value="{{ gl.gid }}" data-goal-slot="{{ loop.index0 }}" {% if t.gid == gl.gid %}selected{% endif %}>
-              {{ gl.title or 'Goal ' ~ loop.index }}</option>
+            <input type="checkbox" class="btn-check" name="{{ p }}goal" value="{{ gl.gid }}" id="{{ p }}g{{ loop.index0 }}" autocomplete="off"
+                   {% if gl.gid in t.gids %}checked{% endif %}>
+            <label class="btn btn-sm btn-outline-success rounded-pill py-0" for="{{ p }}g{{ loop.index0 }}"
+                   data-goal-slot="{{ loop.index0 }}" {% if not gl.title and gl.gid not in t.gids %}hidden{% endif %}>{{ gl.title or 'Goal ' ~ loop.index }}</label>
           {% endfor %}
-        </select>
+          <span class="small text-muted" data-twy-nogoal {% if t.gids %}hidden{% endif %}>no goal: a habit</span>
+        </div>
         {{ feedback(p ~ 'goal') }}
       </div>
       <div class="col-md-3 d-flex align-items-center gap-1">
@@ -149,8 +152,9 @@
 
   <h2 class="h5">Tactics and habits</h2>
   <p class="small text-muted mb-2">
-    Click the weeks each one is planned for. A habit has no goal and usually
-    runs every week; with "times / week" above 1 you count it with +1.
+    Click the weeks each one is planned for and the goals it serves; one
+    habit can serve several goals, or none. With "times / week" above 1 you
+    count it with +1.
     {% if not has_habitify %}<a href="{{ url_for('settings.habitify') }}">Connect Habitify</a> to link habits there.{% endif %}
   </p>
   {% if has_habitify and habitify_error %}
@@ -160,7 +164,7 @@
   <div id="twy-rows">
     {% for t in tactics %}{{ tactic_row(t) }}{% endfor %}
   </div>
-  <template id="twy-row-template">{{ tactic_row({'idx': '__IDX__', 'tid': '', 'title': '', 'gid': '', 'weeks': [], 'habit': '', 'habit_manual': '', 'habit_name': '', 'manage': False, 'per_week': '1'}) }}</template>
+  <template id="twy-row-template">{{ tactic_row({'idx': '__IDX__', 'tid': '', 'title': '', 'gids': [], 'weeks': [], 'habit': '', 'habit_manual': '', 'habit_name': '', 'manage': False, 'per_week': '1'}) }}</template>
   <button type="button" class="btn btn-sm btn-outline-secondary mb-4" data-twy-add><i class="bi bi-plus-lg"></i> Add tactic</button>
 
   <div>

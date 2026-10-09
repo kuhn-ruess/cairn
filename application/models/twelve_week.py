@@ -58,14 +58,23 @@ class TwyGoal(EmbeddedDocument):
 
 
 class TwyTactic(EmbeddedDocument):
-    """An action under a goal, planned for the weeks picked for it.
+    """An action serving zero or more goals, planned for the weeks picked.
 
-    A tactic without a goal (``gid == ""``) is a plain habit: the rolling
-    habits of the old Habits area live on as these (see
-    ``services/habit_migration.py``)."""
+    A tactic without a goal is a plain habit: the rolling habits of the old
+    Habits area live on as these (see ``services/habit_migration.py``). One
+    habit can serve several goals (``gids``); it is still ONE action, so the
+    weekly execution score counts it once, while each linked goal counts it
+    in its own progress."""
 
     tid = StringField(required=True, default=_short_id)
-    gid = StringField(default="")                   # -> TwyGoal.gid, "" = habit
+    gids = ListField(StringField(max_length=20))    # -> TwyGoal.gid, 0..n
+    # The single goal link of the first version. Read only: never written
+    # any more, read by ``services.twelve_week.goal_ids`` while ``goals_listed`` is
+    # unset and copied into ``gids`` on the next read of the cycle.
+    gid = StringField(default="")
+    # Set once ``gids`` is the answer (written by the form, or filled from
+    # ``gid``); from then on an empty ``gids`` means "no goal".
+    goals_listed = BooleanField(default=False)
     title = StringField(required=True, max_length=200)
     recurring = BooleanField(default=False)         # all weeks 1..12 picked
     weeks = ListField(IntField(min_value=1, max_value=WEEKS))
