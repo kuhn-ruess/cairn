@@ -1,0 +1,54 @@
+{% extends "layout/base.html" %}
+{% block title %}12 Week Year · Cairn{% endblock %}
+{% block content %}
+{% with active="twelve_week" %}{% include "habits/_tabs.html" %}{% endwith %}
+<div class="d-flex align-items-center mb-3">
+  <h1 class="h3 mb-0 me-auto"><i class="bi bi-bullseye"></i> 12 Week Year</h1>
+  <a class="btn btn-primary" href="{{ url_for('twelve_week.create') }}">
+    <i class="bi bi-plus-lg"></i> New cycle
+  </a>
+</div>
+
+<p class="text-muted small mb-4">
+  Twelve weeks are your year: a vision, one to three goals, and the tactics
+  that get you there, each planned for its week(s) or for every week. Tick
+  what you did; the share of the week's plan you executed is your score, and
+  85&nbsp;% is a win. Week 13 is for the review and the next plan.
+  Recurring tactics can follow a habit in Habitify
+  (<a href="{{ url_for('settings.habitify') }}">connect it in Settings</a>).
+</p>
+
+{% if cards %}
+<div class="row g-3">
+  {% for c, w, board in cards %}
+  <div class="col-12 col-md-6 col-xl-4">
+    <a class="card text-decoration-none text-body shadow-sm h-100" href="{{ url_for('twelve_week.detail', cycle_id=c.id) }}">
+      <div class="card-body">
+        <div class="d-flex align-items-start mb-2">
+          <h2 class="h5 mb-0 me-auto">{{ c.title }}</h2>
+          {% if w == 0 %}<span class="badge text-bg-secondary">starts {{ c.start.strftime('%d.%m.%Y') }}</span>
+          {% elif w <= 12 %}<span class="badge text-bg-primary">week {{ w }} of 12</span>
+          {% elif w == review_week %}<span class="badge text-bg-warning">week 13 · review</span>
+          {% else %}<span class="badge text-bg-dark">done</span>{% endif %}
+        </div>
+        <div class="small text-muted mb-2">{{ c.goals|length }} goal{{ '' if c.goals|length == 1 else 's' }} · {{ c.tactics|length }} tactic{{ '' if c.tactics|length == 1 else 's' }}</div>
+        <div class="small">
+          Average score:
+          {% if board.average is none %}<span class="text-muted">no finished week yet</span>
+          {% else %}<strong class="{{ 'text-success' if board.on_track else 'text-danger' }}">{{ board.average }}&nbsp;%</strong>{% endif %}
+        </div>
+      </div>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-center text-muted py-5">
+  <i class="bi bi-bullseye fs-1 d-block mb-3"></i>
+  <p class="mb-3">No cycle yet. Start one with your vision and up to three goals.</p>
+  <a class="btn btn-primary" href="{{ url_for('twelve_week.create') }}">
+    <i class="bi bi-plus-lg"></i> New cycle
+  </a>
+</div>
+{% endif %}
+{% endblock %}

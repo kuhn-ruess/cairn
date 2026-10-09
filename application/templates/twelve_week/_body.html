@@ -1,0 +1,146 @@
+{# The swappable body of one cycle: every in-place action answers with this. #}
+{% set fmt = '%d.%m.' %}
+<div class="twy-body" data-cycle-url="{{ url_for('twelve_week.detail', cycle_id=c.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="small text-muted mb-3">
+    {{ c.start.strftime('%d.%m.%Y') }} to {{ end.strftime('%d.%m.%Y') }}
+    &middot;
+    {% if board.current == 0 %}starts soon
+    {% elif board.current <= weeks %}<strong class="text-body">week {{ board.current }} of {{ weeks }}</strong>
+    {% elif board.current == review_week %}<strong class="text-body">week 13: review and plan the next cycle</strong>
+    {% else %}finished{% endif %}
+    &middot; average score
+    {% if board.average is none %}<span>none yet</span>
+    {% else %}<strong class="{{ 'text-success' if board.on_track else 'text-danger' }}">{{ board.average }}&nbsp;%</strong>{% endif %}
+    (target {{ board.target }}&nbsp;%)
+  </div>
+
+  {% if c.vision %}
+  <blockquote class="border-start border-3 ps-3 mb-3 text-body-secondary" style="white-space:pre-line;">{{ c.vision }}</blockquote>
+  {% endif %}
+
+  {# Scoreboard: one cell per week, the trend at a glance. #}
+  <div class="d-flex gap-1 mb-4 flex-wrap twy-board" role="list" aria-label="Weekly execution scores">
+    {% for w in board.weeks %}
+      {% set s = w.score if w.week <= board.current else none %}
+      <a role="listitem" href="?week={{ w.week }}"
+         class="twy-cell text-decoration-none text-center rounded border{% if w.week == week %} border-primary border-2{% endif %}"
+         title="Week {{ w.week }}: {{ w.done }} of {{ w.planned }} done"
+         style="width:3.2rem;">
+        <div class="small text-muted">W{{ w.week }}{% if w.week == board.current %}<i class="bi bi-dot"></i>{% endif %}</div>
+        <div class="twy-bar mx-auto mb-1" style="height:42px;width:12px;display:flex;align-items:flex-end;background:var(--bs-tertiary-bg);">
+          <div style="width:100%;height:{{ s or 0 }}%;" class="{{ 'bg-success' if s is not none and s >= board.target else ('bg-warning' if s is not none and s >= 60 else 'bg-danger') }}"></div>
+        </div>
+        <div class="small fw-semibold">{{ s ~ '%' if s is not none else '·' }}</div>
+      </a>
+    {% endfor %}
+    <a role="listitem" href="?week={{ review_week }}"
+       class="twy-cell text-decoration-none text-center rounded border{% if week == review_week %} border-primary border-2{% endif %}"
+       title="Week 13: review" style="width:3.2rem;">
+      <div class="small text-muted">W13</div>
+      <div class="py-2"><i class="bi bi-flag"></i></div>
+      <div class="small">review</div>
+    </a>
+  </div>
+
+  {% if has_habitify and mapped %}
+  <div class="d-flex align-items-center gap-2 small mb-3">
+    <form data-twy-form method="post" action="{{ url_for('twelve_week.sync', cycle_id=c.id) }}">
+      <input type="hidden" name="week" value="{{ week }}">
+      <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat"></i> Read Habitify</button>
+    </form>
+    {% if c.habitify_error %}<span class="text-danger">{{ c.habitify_error }}</span>
+    {% elif c.habitify_synced_at %}<span class="text-muted">read {{ c.habitify_synced_at|localdt }}</span>
+    {% else %}<span class="text-muted">not read yet</span>{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="row g-3">
+    <div class="col-lg-7">
+      {% if week <= weeks %}
+      {% set first_s = first.strftime(fmt) %}
+      <div class="d-flex align-items-center mb-2">
+        <h2 class="h5 mb-0 me-auto">Week {{ week }} <small class="text-muted fw-normal">{{ first_s }} to {{ last.strftime(fmt) }}</small></h2>
+        {% if this_week.score is not none %}
+          <span class="badge {{ 'text-bg-success' if this_week.score >= board.target else 'text-bg-secondary' }} fs-6">{{ this_week.score }}&nbsp;%</span>
+        {% endif %}
+      </div>
+      {% if not c.goals %}
+        <p class="text-muted">No goals yet. <a href="{{ url_for('twelve_week.plan', cycle_id=c.id) }}">Plan the cycle</a>.</p>
+      {% endif %}
+      {% for r in rows %}
+        <div class="mb-3">
+          <div class="small text-muted text-uppercase fw-semibold mb-1">{{ r.g.title }}</div>
+          {% if r.tactics %}
+          <ul class="list-group">
+            {% for x in r.tactics %}
+            {% set via_habitify = x.done and not x.manual %}
+            <li class="list-group-item d-flex align-items-center gap-2">
+              <input class="form-check-input mt-0" type="checkbox" id="twy-{{ x.t.tid }}"
+                     data-twy-toggle data-url="{{ url_for('twelve_week.toggle', cycle_id=c.id) }}"
+                     data-tid="{{ x.t.tid }}" data-week="{{ week }}"
+                     {% if x.done %}checked{% endif %} {% if via_habitify %}disabled{% endif %}>
+              <label class="form-check-label me-auto{% if x.done %} text-decoration-line-through text-muted{% endif %}" for="twy-{{ x.t.tid }}">
+                {{ x.t.title }}
+                {% if x.t.recurring %}<span class="badge text-bg-light border ms-1">weekly</span>{% endif %}
+              </label>
+              {% if x.t.habitify_id %}
+                <span class="small {{ 'text-success' if x.count >= x.t.per_week else 'text-muted' }}"
+                      title="Habitify: {{ x.t.habitify_name or x.t.habitify_id }}">
+                  <i class="bi bi-link-45deg"></i> {{ x.count }}/{{ x.t.per_week }} days
+                </span>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+            <div class="small text-muted">Nothing planned for this week.</div>
+          {% endif %}
+        </div>
+      {% endfor %}
+      {% else %}
+      <h2 class="h5">Week 13: review</h2>
+      <p class="small text-muted">
+        Look back before the next cycle: which goals did you reach, which
+        tactics carried them, which weeks fell under 85&nbsp;% and why. Then
+        celebrate, and plan the next twelve weeks.
+      </p>
+      {% endif %}
+
+      <form data-twy-form method="post" action="{{ url_for('twelve_week.note', cycle_id=c.id) }}" class="mt-3">
+        <input type="hidden" name="week" value="{{ week }}">
+        <label class="form-label small" for="twy-note">
+          {{ 'Review notes' if week == review_week else 'Weekly accountability: what worked, what did not, what changes next week' }}
+        </label>
+        <textarea class="form-control" id="twy-note" name="note" rows="4">{{ c.week_notes.get(week|string, '') if c.week_notes else '' }}</textarea>
+        <button type="submit" class="btn btn-sm btn-outline-primary mt-2">Save note</button>
+      </form>
+    </div>
+
+    <div class="col-lg-5">
+      <h2 class="h5">Goals</h2>
+      {% for r in rows %}
+      <div class="card mb-2">
+        <div class="card-body py-2">
+          <div class="fw-semibold">{{ r.g.title }}</div>
+          {% if r.g.lag_target %}
+            <div class="progress my-1" style="height:6px;" role="progressbar" aria-valuenow="{{ r.progress }}" aria-valuemin="0" aria-valuemax="100">
+              <div class="progress-bar{% if r.progress >= 100 %} bg-success{% endif %}" style="width:{{ r.progress }}%;"></div>
+            </div>
+          {% endif %}
+          <form data-twy-form method="post" action="{{ url_for('twelve_week.lag', cycle_id=c.id) }}" class="d-flex align-items-center gap-2 small">
+            <input type="hidden" name="gid" value="{{ r.g.gid }}">
+            <input type="hidden" name="week" value="{{ week }}">
+            <span class="text-muted">now</span>
+            <input type="text" inputmode="decimal" name="lag_current" class="form-control form-control-sm" style="width:6rem;"
+                   value="{{ r.g.lag_current|string if r.g.lag_current is not none else '' }}">
+            {% if r.g.lag_target %}<span class="text-muted">of {{ r.g.lag_target|string }} {{ r.g.lag_unit }}</span>{% else %}<span class="text-muted">{{ r.g.lag_unit }}</span>{% endif %}
+            <button type="submit" class="btn btn-sm btn-link p-0">update</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>

@@ -148,6 +148,11 @@ class User(UserMixin, Document):
     show_todoist_sync = BooleanField(default=False)
     last_todoist_sync_at = DateTimeField()
 
+    # Habitify (habitify.me) API key, read only use: the 12 Week Year pulls
+    # completions of mapped habits from it (services/habitify.py). Encrypted
+    # like every secret here. Empty = no Habitify, the feature works without.
+    habitify_api_key = StringField(default="")
+
     # ---- Microsoft (Entra) — connected only to create Teams meetings for
     # booking-page appointments. Delegated consent per user, because a Teams
     # meeting has an organiser and that is whoever owns the page; the app

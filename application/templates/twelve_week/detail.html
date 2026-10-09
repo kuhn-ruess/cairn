@@ -1,0 +1,25 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ c.title }} · 12 Week Year · Cairn{% endblock %}
+{% block content %}
+{% with active="twelve_week" %}{% include "habits/_tabs.html" %}{% endwith %}
+<div class="d-flex align-items-center mb-2 gap-2">
+  <h1 class="h3 mb-0 me-auto"><i class="bi bi-bullseye"></i> {{ c.title }}</h1>
+  <a class="btn btn-outline-primary btn-sm" href="{{ url_for('twelve_week.plan', cycle_id=c.id) }}"><i class="bi bi-pencil"></i> Plan</a>
+  <div class="dropdown">
+    <button class="btn btn-sm btn-link text-muted" data-bs-toggle="dropdown" aria-label="Cycle menu"><i class="bi bi-three-dots-vertical"></i></button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li>
+        <form method="post" action="{{ url_for('twelve_week.delete', cycle_id=c.id) }}"
+              onsubmit="return confirm('Delete this cycle with its plan and scores?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="dropdown-item text-danger"><i class="bi bi-trash"></i> Delete cycle</button>
+        </form>
+      </li>
+    </ul>
+  </div>
+</div>
+<div id="twy-body">
+{% include "twelve_week/_body.html" %}
+</div>
+<script src="{{ asset('js/twelve-week.js') }}"></script>
+{% endblock %}

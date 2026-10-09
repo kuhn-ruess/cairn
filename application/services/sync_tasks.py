@@ -312,3 +312,19 @@ def sync_user_notes_mirror(self, user_id: str, trigger: str = "background"):
     finally:
         r.delete(lock)
         r.delete(f"mirror:queued:{user_id}")
+
+
+@shared_task(name="habitify.sync_due")
+def sync_due_habitify() -> int:
+    """Read Habitify for every running 12 week cycle whose last read is an
+    hour old (services.habitify.sync_due). One request per mapped habit, so
+    the round stays small and runs here instead of fanning out per user."""
+    from application.services import habitify
+
+    r = _redis()
+    if not r.set("habitify:lock", "1", nx=True, ex=_LOCK_TTL):
+        return 0
+    try:
+        return habitify.sync_due()
+    finally:
+        r.delete("habitify:lock")

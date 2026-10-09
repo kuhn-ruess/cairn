@@ -43,6 +43,12 @@ celery.conf.update(
             "task": "notes_mirror.enqueue_due",
             "schedule": 60.0,
         },
+        # 12 Week Year: completions of habits mapped to Habitify. Every
+        # quarter hour; each cycle is read at most once an hour.
+        "sync-due-habitify": {
+            "task": "habitify.sync_due",
+            "schedule": 900.0,
+        },
     },
 )
 

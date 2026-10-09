@@ -696,6 +696,39 @@ def todoist():
     return render_template("settings/todoist.html", form=form, stats=stats)
 
 
+@settings_bp.route("/habitify", methods=["GET", "POST"])
+@login_required
+def habitify():
+    """The Habitify API key for the 12 Week Year. Saving tries it once
+    (one habit list request), so a wrong key is said here and not on the
+    first sync; it is kept either way, encrypted like every secret here."""
+    from application.services import habitify as hb
+    from application.services.crypto import decrypt_for_user, encrypt_for_user
+
+    user = current_user._get_current_object()
+    habits = None
+    if request.method == "POST":
+        if request.form.get("action") == "remove":
+            user.habitify_api_key = ""
+            user.save()
+            flash("Habitify disconnected.", "success")
+            return redirect(url_for("settings.habitify"))
+        key = (request.form.get("api_key") or "").strip() \
+            or decrypt_for_user(user, user.habitify_api_key)
+        if not key:
+            flash("Paste your Habitify API key.", "warning")
+        else:
+            user.habitify_api_key = encrypt_for_user(user, key)
+            user.save()
+            try:
+                habits = hb.list_habits(key)
+            except hb.HabitifyError as exc:
+                flash(f"Key saved, but Habitify said: {exc}", "warning")
+            else:
+                flash(f"Habitify connected: {len(habits)} habit(s) found.", "success")
+    return render_template("settings/habitify.html", habits=habits)
+
+
 @settings_bp.route("/import/zammad", methods=["GET", "POST"])
 @login_required
 def zammad():

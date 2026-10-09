@@ -1,0 +1,30 @@
+{% extends "layout/base.html" %}
+{% block title %}New 12 week cycle · Cairn{% endblock %}
+{% block content %}
+<div class="mb-3">
+  <a class="text-muted text-decoration-none small" href="{{ url_for('twelve_week.index') }}">
+    <i class="bi bi-arrow-left"></i> Back to the 12 Week Year
+  </a>
+</div>
+<h1 class="h3 mb-4"><i class="bi bi-bullseye"></i> New cycle</h1>
+
+<form method="post" style="max-width:640px;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="mb-3">
+    <label class="form-label" for="title">Name</label>
+    <input type="text" class="form-control" id="title" name="title" required maxlength="200"
+           placeholder="e.g. Q1 2027">
+  </div>
+  <div class="mb-3">
+    <label class="form-label" for="vision">Vision</label>
+    <textarea class="form-control" id="vision" name="vision" rows="4"
+              placeholder="Where do you want to be in three years, and what does that ask of the next twelve weeks?"></textarea>
+  </div>
+  <div class="mb-4" style="max-width:220px;">
+    <label class="form-label" for="start">Week 1 starts on</label>
+    <input type="date" class="form-control" id="start" name="start" value="{{ default_start.isoformat() }}" required>
+    <div class="form-text">Usually a Monday.</div>
+  </div>
+  <button type="submit" class="btn btn-primary">Create and plan</button>
+</form>
+{% endblock %}

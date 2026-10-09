@@ -28,7 +28,7 @@ MODEL_GROUPS = (
     ("Tasks & notes", ("item",)),
     ("Time tracking", ("timetracking", "timer")),
     ("People & teams", ("user", "team")),
-    ("Organising", ("tag", "perspective", "habit")),
+    ("Organising", ("tag", "perspective", "habit", "twelve_week")),
     ("Integrations", ("calendar", "sync_run", "notification")),
 )
 

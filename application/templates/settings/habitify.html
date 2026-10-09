@@ -1,0 +1,48 @@
+{% extends "layout/base.html" %}
+{% block title %}Habitify · Cairn{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-lg-7">
+    <h1 class="h4 mb-3">Habitify</h1>
+    <p class="text-muted small">
+      The <a href="{{ url_for('twelve_week.index') }}">12 Week Year</a> can follow
+      your habits in <a href="https://www.habitify.me" target="_blank" rel="noopener">Habitify</a>:
+      a weekly tactic mapped to a habit counts as done when Habitify has it
+      completed on enough days of that week. Cairn only reads from Habitify,
+      it never writes to it.
+    </p>
+    <p class="text-muted small">
+      Make a key in the Habitify app under <strong>Settings &rsaquo; API</strong>
+      (Habitify's API needs a paid plan; a new key replaces the old one there).
+      It is stored encrypted.
+    </p>
+
+    <form method="post" autocomplete="off">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="mb-3">
+        <label class="form-label" for="api_key">API key</label>
+        <input type="password" class="form-control" id="api_key" name="api_key" autocomplete="off"
+               placeholder="{{ 'Leave empty to test the saved key' if current_user.habitify_api_key else 'Paste your Habitify API key' }}">
+        {% if current_user.habitify_api_key %}
+          <div class="form-text text-success"><i class="bi bi-shield-check"></i> A key is saved for this account.</div>
+        {% endif %}
+      </div>
+      <button type="submit" class="btn btn-primary" name="action" value="save">
+        {{ 'Save and test' if not current_user.habitify_api_key else 'Save / test' }}
+      </button>
+      {% if current_user.habitify_api_key %}
+      <button type="submit" class="btn btn-outline-danger" name="action" value="remove"
+              onclick="return confirm('Remove the Habitify key? Counts already read stay on your cycles.');">Disconnect</button>
+      {% endif %}
+      <a href="{{ url_for('settings.index') }}" class="btn btn-outline-secondary">Back</a>
+    </form>
+
+    {% if habits %}
+      <h2 class="h6 mt-4">Your habits</h2>
+      <ul class="small">
+        {% for h in habits %}<li>{{ h.name }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

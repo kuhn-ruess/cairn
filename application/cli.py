@@ -945,6 +945,16 @@ def sync_zammad_all_cmd(all_configured, concurrency, force):
     click.echo(f"Done — {ok} ok, {failed} failed.")
 
 
+@cairn_cli.command("sync-habitify")
+def sync_habitify_cmd():
+    """Read Habitify for every running 12 week cycle that is due.
+
+    The no-broker equivalent of the ``habitify.sync_due`` beat task, same
+    core (application.services.habitify.sync_due)."""
+    from application.services import habitify
+    click.echo(f"Synced {habitify.sync_due()} cycle(s).")
+
+
 @cairn_cli.command("sync-notes")
 @click.option("--user", "username", default=None,
               help="Limit to one user; omit to run every due mirror.")

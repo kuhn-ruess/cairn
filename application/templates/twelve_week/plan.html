@@ -1,0 +1,138 @@
+{% extends "layout/base.html" %}
+{% block title %}Plan · {{ c.title }} · Cairn{% endblock %}
+{% block content %}
+<div class="mb-3">
+  <a class="text-muted text-decoration-none small" href="{{ url_for('twelve_week.detail', cycle_id=c.id) }}">
+    <i class="bi bi-arrow-left"></i> Back to {{ c.title }}
+  </a>
+</div>
+<h1 class="h3 mb-3"><i class="bi bi-bullseye"></i> Plan: {{ c.title }}</h1>
+
+<form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-8">
+      <label class="form-label" for="title">Name</label>
+      <input type="text" class="form-control" id="title" name="title" required maxlength="200" value="{{ c.title }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label" for="start">Week 1 starts on</label>
+      <input type="date" class="form-control" id="start" name="start" value="{{ start.isoformat() }}" required>
+    </div>
+    <div class="col-12">
+      <label class="form-label" for="vision">Vision</label>
+      <textarea class="form-control" id="vision" name="vision" rows="3">{{ c.vision }}</textarea>
+    </div>
+  </div>
+
+  <h2 class="h5">Goals <small class="text-muted fw-normal">one to three, measurable by week 12</small></h2>
+  <div class="vstack gap-2 mb-4">
+    {% for slot in goal_slots %}
+    {% set g = slot.g %}
+    <div class="row g-2 align-items-end">
+      <input type="hidden" name="goal_gid" value="{{ slot.gid }}">
+      <div class="col-md-6">
+        <label class="form-label small mb-0">Goal {{ loop.index }}</label>
+        <input type="text" class="form-control" name="goal_title" maxlength="200"
+               placeholder="{{ 'e.g. Lose 6 kg' if loop.first else 'optional' }}" value="{{ g.title if g else '' }}">
+      </div>
+      <div class="col-4 col-md-2">
+        <label class="form-label small mb-0">Lag target</label>
+        <input type="text" inputmode="decimal" class="form-control" name="goal_lag_target"
+               value="{{ (g.lag_target|string) if g and g.lag_target is not none else '' }}">
+      </div>
+      <div class="col-4 col-md-2">
+        <label class="form-label small mb-0">Now at</label>
+        <input type="text" inputmode="decimal" class="form-control" name="goal_lag_current"
+               value="{{ (g.lag_current|string) if g and g.lag_current is not none else '' }}">
+      </div>
+      <div class="col-4 col-md-2">
+        <label class="form-label small mb-0">Unit</label>
+        <input type="text" class="form-control" name="goal_lag_unit" maxlength="40" placeholder="kg"
+               value="{{ g.lag_unit if g else '' }}">
+      </div>
+    </div>
+    {% endfor %}
+    <div class="form-text">Emptying a goal's name removes the goal and its tactics.</div>
+  </div>
+
+  <h2 class="h5">Tactics <small class="text-muted fw-normal">the actions you control, each in its week(s) or every week</small></h2>
+  {% if has_habitify and habitify_error %}
+    <div class="alert alert-warning small">Habitify's habit list could not be read: {{ habitify_error }}</div>
+  {% endif %}
+  <div class="table-responsive mb-2">
+  <table class="table table-sm align-middle twy-plan">
+    <thead class="small text-muted">
+      <tr>
+        <th style="min-width:14rem;">Tactic</th>
+        <th style="min-width:9rem;">Goal</th>
+        <th style="min-width:9rem;">When</th>
+        <th style="min-width:7rem;">Weeks</th>
+        {% if has_habitify %}<th style="min-width:11rem;">Habitify habit</th><th>Days/week</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+    {% for t in tactic_rows %}
+      <tr>
+        <td>
+          <input type="hidden" name="tactic_tid" value="{{ t.tid if t else '' }}">
+          {% if not has_habitify %}
+          <input type="hidden" name="tactic_habitify" value="{{ t.habitify_id if t else '' }}">
+          <input type="hidden" name="tactic_per_week" value="{{ t.per_week if t else 1 }}">
+          {% endif %}
+          <input type="text" class="form-control form-control-sm" name="tactic_title" maxlength="200"
+                 placeholder="{{ 'new tactic' if not t else '' }}" value="{{ t.title if t else '' }}">
+        </td>
+        <td>
+          <select class="form-select form-select-sm" name="tactic_goal">
+            {% for slot in goal_slots %}
+              <option value="{{ slot.gid }}" {% if t and t.gid == slot.gid %}selected{% endif %}>
+                {{ slot.g.title if slot.g else 'Goal ' ~ loop.index }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td>
+          <select class="form-select form-select-sm" name="tactic_mode">
+            <option value="weeks" {% if not t or not t.recurring %}selected{% endif %}>In week(s)</option>
+            <option value="recurring" {% if t and t.recurring %}selected{% endif %}>Every week</option>
+          </select>
+        </td>
+        <td>
+          <input type="text" class="form-control form-control-sm" name="tactic_weeks" placeholder="e.g. 1-4, 6"
+                 value="{{ format_weeks(t.weeks) if t else '' }}">
+        </td>
+        {% if has_habitify %}
+        <td>
+          <select class="form-select form-select-sm" name="tactic_habitify">
+            <option value="">(none)</option>
+            {% if t and t.habitify_id and t.habitify_id not in habits %}
+              <option value="{{ t.habitify_id }}" selected>{{ t.habitify_name or t.habitify_id }}</option>
+            {% endif %}
+            {% for hid, hname in habits|dictsort(by='value') %}
+              <option value="{{ hid }}" {% if t and t.habitify_id == hid %}selected{% endif %}>{{ hname }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td style="max-width:5rem;">
+          <input type="number" class="form-control form-control-sm" name="tactic_per_week" min="1" max="7"
+                 value="{{ t.per_week if t else 1 }}">
+        </td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="form-text mb-4">
+    Weeks: a list like <code>1-4, 6, 9</code>. Empty the name to remove a tactic.
+    {% if has_habitify %}A tactic mapped to a Habitify habit counts as done in a
+    week when Habitify has it completed on at least "days/week" days.
+    {% else %}<a href="{{ url_for('settings.habitify') }}">Connect Habitify</a> to let weekly tactics follow your habits there.{% endif %}
+  </p>
+
+  <button type="submit" class="btn btn-primary">Save plan</button>
+  <button type="submit" class="btn btn-outline-primary" name="again" value="1">Save and add more tactics</button>
+  <a class="btn btn-outline-secondary" href="{{ url_for('twelve_week.detail', cycle_id=c.id) }}">Cancel</a>
+</form>
+{% endblock %}
