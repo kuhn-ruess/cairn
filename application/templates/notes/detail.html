@@ -95,7 +95,7 @@
           {% if can_delete %}
           <li>
             <form method="post" action="{{ url_for('notes.delete', note_id=note.pk) }}" class="m-0"
-                  onsubmit="return confirm('Move this note to the trash?');">
+                  onsubmit="return cairnTrashSubmit(this, 'Move this note to the trash?');">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="dropdown-item text-danger">
                 <i class="bi bi-trash"></i> Delete

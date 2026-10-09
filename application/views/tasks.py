@@ -2322,7 +2322,7 @@ def toggle_flag(task_id):
 @login_required
 def delete(task_id):
     from flask import jsonify
-    from application.services.trash import trash_item
+    from application.services.trash import trash_item, web_trash_args
     user = current_user._get_current_object()
     task = Item.objects(pk=task_id).first()
     if not task or task.owner != user:
@@ -2330,7 +2330,7 @@ def delete(task_id):
     # Soft-delete: move the task (and any sub-tasks) to the trash. Restorable
     # for trash_retention_days, then purged. Sub-tasks ride along so restore
     # brings the whole thing back intact.
-    trash_item(task)
+    trash_item(task, **web_trash_args(request.form, user, "button"))
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return jsonify({"ok": True})
     flash("Moved to trash.", "info")
@@ -3463,10 +3463,11 @@ def bulk():
     skipped = 0
 
     if action == "delete":
-        from application.services.trash import trash_item
+        from application.services.trash import trash_item, web_trash_args
+        why = web_trash_args(request.form, user, "bulk")
         for t in tasks:
             if t.owner == user:
-                trash_item(t)
+                trash_item(t, **why)
                 count += 1
             else:
                 skipped += 1

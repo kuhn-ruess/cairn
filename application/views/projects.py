@@ -2056,9 +2056,10 @@ def bulk():
     count = 0
 
     if action == "delete":
-        from application.services.trash import trash_item
+        from application.services.trash import trash_item, web_trash_args
+        why = web_trash_args(request.form, user, "bulk")
         for p in projects:
-            trash_item(p)
+            trash_item(p, **why)
             count += 1
     elif action == "complete":
         for p in projects:
@@ -2815,14 +2816,14 @@ def unwrap(project_id):
 @login_required
 def delete(project_id):
     from flask import jsonify
-    from application.services.trash import trash_item
+    from application.services.trash import trash_item, web_trash_args
     user = current_user._get_current_object()
     project = Item.objects(pk=project_id).first()
     if not project or not project.can_be_deleted_by(user):
         abort(404)
     # Soft-delete the whole subtree (sub-projects, sections, tasks) into the
     # trash; restorable until purged.
-    n = trash_item(project)
+    n = trash_item(project, **web_trash_args(request.form, user, "button"))
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return jsonify({"ok": True, "trashed": n})
     flash(f"Moved to trash — {n} item(s) incl. contents.", "info")

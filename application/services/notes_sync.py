@@ -1205,8 +1205,11 @@ class _Round:
     def trash(self, note) -> None:
         from application.services.trash import trash_item
         if not self.dry_run:
+            path = note.mirror_path or ""
             self.remember(note, "", "", "")
-            trash_item(note)
+            trash_item(note, source="notes_mirror",
+                       via="Notes mirror: file deleted on the share",
+                       reason=path)
         self.stats.notes_trashed += 1
 
     def conflict(self, note, path: str, remote_text: str) -> None:

@@ -164,6 +164,15 @@ Implications when writing queries or features:
   Reference dereferences (`parent`/`owner`/`assigned_to`) bypass the manager, so
   a trashed parent still resolves. Purge logic lives in
   `application/services/trash.py` (`./cairn cleanup-trash`).
+  **Everything goes in through `trash.trash_item(item, *, source, via, by,
+  reason)`** and nothing else writes `trashed_at`: `source` (a key of
+  `trash.SOURCES`: web / api / caldav / notes_mirror / parent) and `via` are
+  required, so every item in the trash says what put it there
+  (`trashed_source` / `trashed_via` / `trashed_by` / `trashed_reason`; web
+  routes build them with `web_trash_args`, the API with `api_trash_args`).
+  `tests/test_trash_view.py` scans the code for any caller or write that
+  skips it. `/trash/<id>` shows a trashed item read only to its owner or
+  assignee (restore stays the owner's).
 
 ### Background workers (Celery + Redis)
 

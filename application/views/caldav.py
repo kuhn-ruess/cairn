@@ -107,6 +107,27 @@ def _utcnow():
 
 # ---------------------------------------------------------------- auth ----
 
+# Which CalDAV client sent a request, for the trash reason. Apple's daemons
+# name themselves in the User-Agent, other clients by their product token.
+_CLIENT_HINTS = (
+    ("remindd", "Apple Reminders"),
+    ("Reminders", "Apple Reminders"),
+    ("dataaccessd", "Apple Reminders"),
+    ("CalendarAgent", "Apple Calendar"),
+    ("DAVx5", "DAVx5"),
+    ("Thunderbird", "Thunderbird"),
+)
+
+
+def _client_label() -> str:
+    ua = request.headers.get("User-Agent", "") or ""
+    for needle, label in _CLIENT_HINTS:
+        if needle in ua:
+            return label
+    head = ua.split("/", 1)[0].strip()[:40]
+    return head or "unknown client"
+
+
 def _authenticate():
     hdr = request.headers.get("Authorization", "")
     if not hdr.startswith("Basic "):
@@ -1114,8 +1135,9 @@ def resource(username, colid, name):
         # client is catching up with a disappearance, not deleting a task.
         if _nearest_colid(item) != colid or _held_back(item):
             return Response(status=204)
-        item.trashed_at = _utcnow()
-        item.save()
+        from application.services.trash import trash_item
+        trash_item(item, source="caldav",
+                   via=f"CalDAV ({_client_label()})", by=user)
         return Response(status=204)
 
     abort(405)

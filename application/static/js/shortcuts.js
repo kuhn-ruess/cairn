@@ -228,12 +228,15 @@
         e.preventDefault();
         // A task asks too: one key next to ``s`` and ``f`` is not enough to
         // throw work away. Containers ask in bktodoDeleteRow already.
+        const opts = { via: "shortcut" };
         if (row.dataset.taskId) {
           const title = (row.dataset.title || "").trim();
-          if (!window.confirm(title ? `Move the task “${title}” to the trash?`
-                                    : "Move this task to the trash?")) return;
+          opts.reason = window.cairnTrashAsk(
+            title ? `Move the task “${title}” to the trash?`
+                  : "Move this task to the trash?");
+          if (opts.reason === null) return;
         }
-        window.bktodoDeleteRow(row);
+        window.bktodoDeleteRow(row, opts);
       }
     }
   });

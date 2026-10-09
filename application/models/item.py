@@ -295,6 +295,16 @@ class Item(Document):
     # Soft-delete: when set, the item is in the trash — hidden everywhere via
     # the default ``objects`` manager (see below) until restored or purged.
     trashed_at = DateTimeField()
+    # Why it is in the trash, written by ``services.trash.trash_item`` and by
+    # nothing else: ``trashed_source`` is the channel (a key of
+    # ``trash.SOURCES``, what the trash page groups and filters by),
+    # ``trashed_via`` the readable detail ("Web: shortcut d", "API (token
+    # cli)"), ``trashed_by`` the acting account when there is one and
+    # ``trashed_reason`` what the user typed into the confirm dialog.
+    trashed_source = StringField()
+    trashed_via = StringField()
+    trashed_by = ReferenceField(User)
+    trashed_reason = StringField()
     completed_at = DateTimeField()
     # Who/what closed this task (done or dropped). ``completed_by`` is the
     # acting user when known (manual completion); ``completed_via`` records

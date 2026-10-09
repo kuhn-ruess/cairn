@@ -38,15 +38,94 @@ def _subtree_pks(root_pk) -> list:
     return pks
 
 
-def trash_item(item) -> int:
+# The channels an item can reach the trash through. ``trashed_source`` is
+# always one of these keys: it is what the trash page groups and filters by,
+# so a free-form value here would split one channel into several groups.
+SOURCES = {
+    "web": "Web",
+    "api": "API",
+    "caldav": "CalDAV",
+    "notes_mirror": "Notes mirror",
+    "parent": "With parent",
+}
+
+# What an item trashed before the reason was recorded says instead.
+UNKNOWN_REASON = "Reason unknown (trashed before reasons were recorded)"
+
+# The web gestures that trash, as the form field ``trash_via`` names them.
+# Whitelisted: the label is shown back to the user, and it is not the
+# client's to write.
+WEB_VIA = {
+    "button": "Web: trash button",
+    "shortcut": "Web: shortcut d",
+    "bulk": "Web: bulk action",
+    "inspector": "Web: inspector",
+    "detail": "Web: task page",
+    "inbox": "Web: process inbox",
+    "menu": "Web: note menu",
+}
+
+REASON_MAX = 500
+
+
+def web_trash_args(form, user, default: str) -> dict:
+    """``trash_item`` keywords for a trash request from the web UI: which
+    gesture it was (``trash_via``, falling back to what the route knows) and
+    the optional reason typed into the confirm dialog (``trash_reason``)."""
+    via = WEB_VIA.get((form.get("trash_via") or "").strip()) or WEB_VIA[default]
+    return {"source": "web", "via": via, "by": user,
+            "reason": form.get("trash_reason") or ""}
+
+
+def api_trash_args(user, token) -> dict:
+    """``trash_item`` keywords for a trash request over the REST API."""
+    name = (getattr(token, "name", "") or "").strip() or "unnamed"
+    return {"source": "api", "via": f"API (token {name})", "by": user}
+
+
+def trash_item(item, *, source: str, via: str, by=None, reason: str = "") -> int:
     """Soft-delete ``item`` and its subtree. Best-effort removes any mirrored
-    calendar events for the affected tasks. Returns the number trashed."""
+    calendar events for the affected tasks. Returns the number trashed.
+
+    ``source`` and ``via`` are required on purpose: this is the one place an
+    item goes into the trash (a test holds every caller to it), and an item in
+    the trash always says what put it there. ``source`` is a key of
+    :data:`SOURCES`, ``via`` the readable detail, ``by`` the acting account if
+    any, ``reason`` what the user typed. Everything that goes in along with
+    ``item`` is marked as trashed with its parent."""
     from application.models.item import Item
+    if source not in SOURCES:
+        raise ValueError(f"unknown trash source: {source!r}")
+    via = (via or "").strip()
+    if not via:
+        raise ValueError("trash_item needs a via")
+    reason = (reason or "").strip()[:REASON_MAX]
     pks = _subtree_pks(item.pk)
     _clear_calendar_events(pks, item.owner)
-    return Item.all_objects(pk__in=pks, trashed_at=None).update(
-        set__trashed_at=_now()
-    )
+    now = _now()
+    common = {"set__trashed_at": now, "set__trashed_reason": reason}
+    if by is not None:
+        common["set__trashed_by"] = by
+    else:
+        common["unset__trashed_by"] = True
+    n = Item.all_objects(pk=item.pk, trashed_at=None).update(
+        set__trashed_source=source, set__trashed_via=via[:200], **common)
+    rest = [p for p in pks if p != item.pk]
+    if rest:
+        title = (getattr(item, "title", "") or "")[:120]
+        n += Item.all_objects(pk__in=rest, trashed_at=None).update(
+            set__trashed_source="parent",
+            set__trashed_via=f"With parent ({title}): {via}"[:200], **common)
+    return n
+
+
+def reason_label(item) -> str:
+    """One line saying why ``item`` is in the trash."""
+    via = getattr(item, "trashed_via", None)
+    if not via:
+        return UNKNOWN_REASON
+    reason = getattr(item, "trashed_reason", None)
+    return f"{via}: {reason}" if reason else via
 
 
 def _reroot_children_of(pks) -> int:
@@ -98,6 +177,8 @@ def restore_item(item) -> int:
     stamp = item.trashed_at
     if stamp is None:
         return 0
+    # The reason fields stay: they are history, and the next trash_item
+    # overwrites them anyway.
     n = Item.all_objects(pk__in=pks, trashed_at=stamp).update(
         unset__trashed_at=True
     )
@@ -138,6 +219,7 @@ def trashed_roots(user):
     from application.models.item import Item
     items = list(
         Item.all_objects(owner=user, trashed_at__ne=None)
+        .exclude("note_images", "note_files")
         .order_by("-trashed_at")
     )
     stamps = {i.pk: i.trashed_at for i in items}

@@ -128,8 +128,9 @@
         </button>
       </form>
       <form method="post" action="{{ url_for('tasks.delete', task_id=task.pk) }}"
-            class="m-0" onsubmit="return confirm('Delete this task?');">
+            class="m-0" onsubmit="return cairnTrashSubmit(this, 'Delete this task?');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="trash_via" value="detail">
         <button class="btn btn-outline-danger" type="submit" title="Delete">
           <i class="bi bi-trash"></i>
         </button>

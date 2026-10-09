@@ -351,11 +351,14 @@
   // (CSS selector for the DOM row to fade out on success). No confirm
   // dialog — instant action, the row animates out so the feedback is
   // immediate.
-  async function deleteItem(url, rowSelector) {
+  async function deleteItem(url, rowSelector, extra = {}) {
     if (!url) return false;
     const row = rowSelector ? document.querySelector(rowSelector) : null;
     const fd = new FormData();
     fd.append("csrf_token", csrfToken());
+    // Why it went: the gesture (``trash_via``) and what the user typed into
+    // the confirm dialog (``trash_reason``). The trash page shows both.
+    for (const [k, v] of Object.entries(extra)) if (v) fd.append(k, v);
     try {
       const resp = await fetch(url, {
         method: "POST",
@@ -433,15 +436,43 @@
     }
     return null;
   }
-  window.bktodoDeleteRow = function (row) {
+  // The confirm dialog of a trash action, with room for an optional reason.
+  // ``null`` = cancelled, otherwise the (possibly empty) reason.
+  window.cairnTrashAsk = function (msg) {
+    const r = window.prompt(`${msg}\n\nReason (optional):`, "");
+    return r === null ? null : r.trim();
+  };
+  // ``onsubmit`` of a plain trash form: ask, put the reason into the form.
+  window.cairnTrashSubmit = function (form, msg) {
+    const r = window.cairnTrashAsk(msg);
+    if (r === null) return false;
+    let f = form.querySelector('input[name="trash_reason"]');
+    if (!f) {
+      f = document.createElement("input");
+      f.type = "hidden";
+      f.name = "trash_reason";
+      form.appendChild(f);
+    }
+    f.value = r;
+    return true;
+  };
+  // ``opts.via`` names the gesture; ``opts.reason`` set means the caller
+  // already asked, so the container question is not asked twice.
+  window.bktodoDeleteRow = function (row, opts = {}) {
     const spec = _deleteSpecFor(row);
     if (!spec) return false;
-    if (spec.confirm && !window.confirm(spec.confirm)) return false;
-    return deleteItem(spec.url, spec.selector);
+    let reason = opts.reason;
+    if (spec.confirm && reason == null) {
+      reason = window.cairnTrashAsk(spec.confirm);
+      if (reason === null) return false;
+    }
+    return deleteItem(spec.url, spec.selector,
+                      { trash_via: opts.via || "button", trash_reason: reason });
   };
   // Keep the older API around for the ``d`` shortcut in shortcuts.js.
   window.bktodoDeleteTask = function (id, _title) {
-    return deleteItem(`/tasks/${id}/delete`, `[data-task-id="${id}"]`);
+    return deleteItem(`/tasks/${id}/delete`, `[data-task-id="${id}"]`,
+                      { trash_via: "shortcut" });
   };
 
   document.addEventListener("click", (ev) => {
@@ -459,13 +490,15 @@
     })();
     // The trash button on a container asks the same question the ``d``
     // shortcut does — see _deleteSpecFor.
+    let reason = "";
     if (btn.dataset.projectId && !btn.dataset.taskId) {
       const spec = _deleteSpecFor(btn.closest("[data-project-id]")) || {};
       const ask = spec.confirm
         || "Move this container and everything filed under it to the trash?";
-      if (!window.confirm(ask)) return;
+      reason = window.cairnTrashAsk(ask);
+      if (reason === null) return;
     }
-    deleteItem(url, selector);
+    deleteItem(url, selector, { trash_via: "button", trash_reason: reason });
   });
 
   // ---- Unwrap: drop the container, keep the contents ----------------

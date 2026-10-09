@@ -946,7 +946,14 @@
   }
 
   async function onSideSubmit(ev) {
-    if (!confirm(ev.currentTarget.dataset.confirm || "Are you sure?")) {
+    const ask = ev.currentTarget.dataset.confirm || "Are you sure?";
+    // A trash form asks for an optional reason in the same dialog.
+    if ("trashReason" in ev.currentTarget.dataset && window.cairnTrashSubmit) {
+      if (!window.cairnTrashSubmit(ev.currentTarget, ask)) {
+        ev.preventDefault();
+        return;
+      }
+    } else if (!confirm(ask)) {
       ev.preventDefault();
       return;
     }

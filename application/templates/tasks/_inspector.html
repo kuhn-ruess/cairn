@@ -611,8 +611,9 @@
       </button>
     </form>
     <form method="post" action="{{ url_for('tasks.delete', task_id=task.pk) }}"
-          class="m-0" data-inspector-side data-confirm="Delete this task?">
+          class="m-0" data-inspector-side data-trash-reason data-confirm="Delete this task?">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="trash_via" value="inspector">
       <button type="submit" class="btn btn-sm btn-outline-danger">
         <i class="bi bi-trash"></i> Delete
       </button>

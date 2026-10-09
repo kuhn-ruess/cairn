@@ -12,7 +12,7 @@
       {% endif %}
     </p>
   </div>
-  {% if items %}
+  {% if total %}
     <form method="post" action="{{ url_for('trash.empty') }}" class="m-0"
           onsubmit="return confirm('Permanently delete everything in the trash? This cannot be undone.');">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -21,34 +21,80 @@
   {% endif %}
 </div>
 
-{% if not items %}
+{% if not total %}
   <p class="text-muted">Trash is empty.</p>
 {% else %}
-  <div class="list-group">
-    {% for it in items %}
-      <div class="list-group-item d-flex align-items-center">
-        <span class="me-2">{{ item_icon(it) }}</span>
-        <span class="me-auto">
-          <span class="fw-semibold">{{ it.title }}</span>
-          <span class="d-block small text-muted">
-            {{ it.kind }}
-            {% if it.parent %}· in {{ it.parent.title }}{% endif %}
-            · trashed {{ it.trashed_at|relativedate }}
-          </span>
-        </span>
-        <div class="d-flex gap-2">
-          <form method="post" action="{{ url_for('trash.restore', item_id=it.pk) }}" class="m-0">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-sm btn-outline-success"><i class="bi bi-arrow-counterclockwise"></i> Restore</button>
-          </form>
-          <form method="post" action="{{ url_for('trash.delete_permanent', item_id=it.pk) }}" class="m-0"
-                onsubmit="return confirm('Permanently delete “{{ it.title }}”{% if not it.is_task %} and its contents{% endif %}? This cannot be undone.');">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-lg"></i></button>
-          </form>
-        </div>
-      </div>
+  {# Filter by where the deletion came from. #}
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3 trash-sources">
+    <a class="btn btn-sm {% if not source %}btn-secondary{% else %}btn-outline-secondary{% endif %}"
+       href="{{ url_for('trash.index') }}">All <span class="badge text-bg-dark">{{ total }}</span></a>
+    {% for key, n in counts|dictsort %}
+      <a class="btn btn-sm {% if source == key %}btn-secondary{% else %}btn-outline-secondary{% endif %}"
+         href="{{ url_for('trash.index', source=key) }}" data-source="{{ key }}">
+        {{ source_labels.get(key, key) }} <span class="badge text-bg-dark">{{ n }}</span></a>
     {% endfor %}
+    <form method="post" action="{{ url_for('trash.restore_selected') }}" id="trash-restore-selected"
+          class="m-0 ms-auto">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="source" value="{{ source }}">
+      <button class="btn btn-sm btn-outline-success" type="submit">
+        <i class="bi bi-arrow-counterclockwise"></i> Restore selected
+      </button>
+    </form>
   </div>
+
+  {% for g in groups %}
+    <div class="trash-group mb-3">
+      <div class="d-flex align-items-center small text-muted mb-1">
+        <input type="checkbox" class="form-check-input me-2 trash-group-check"
+               title="Select this group">
+        <span class="me-2"><i class="bi bi-clock-history"></i>
+          {{ g.at|localdt }}{% if g.rows|length > 1 %} · {{ g.rows|length }} items trashed together{% endif %}</span>
+        {% for s in g.sources %}<span class="badge text-bg-secondary me-1">{{ source_labels.get(s, s) }}</span>{% endfor %}
+      </div>
+      <div class="list-group">
+        {% for row in g.rows %}{% set it = row.item %}
+          <div class="list-group-item d-flex align-items-start trash-row" data-item-id="{{ it.pk }}">
+            <input type="checkbox" class="form-check-input me-2 mt-1 trash-check" name="item_ids"
+                   value="{{ it.pk }}" form="trash-restore-selected">
+            <span class="me-2">{% if it.kind == 'task' %}<i class="bi bi-check2-square"></i>{% else %}{{ item_icon(it) }}{% endif %}</span>
+            <span class="me-auto">
+              <a class="fw-semibold" href="{{ url_for('trash.view', item_id=it.pk) }}">{{ it.title or '(untitled)' }}</a>
+              <span class="d-block small text-muted">
+                <span class="badge text-bg-light">{{ it.kind }}</span>
+                {% if row.place %}· in {{ row.place }}{% endif %}
+                · trashed {{ it.trashed_at|localdt }}
+                {% if row.by %}by {{ row.by }}{% endif %}
+                {% if row.along %}· with {{ row.along }} item(s) under it{% endif %}
+              </span>
+              <span class="d-block small trash-reason"><i class="bi bi-info-circle"></i> {{ row.reason }}</span>
+              {% if row.excerpt %}<span class="d-block small text-muted fst-italic">{{ row.excerpt }}</span>{% endif %}
+            </span>
+            <div class="d-flex gap-2">
+              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('trash.view', item_id=it.pk) }}"
+                 title="Look at it"><i class="bi bi-eye"></i></a>
+              <form method="post" action="{{ url_for('trash.restore', item_id=it.pk) }}" class="m-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-success"><i class="bi bi-arrow-counterclockwise"></i> Restore</button>
+              </form>
+              <form method="post" action="{{ url_for('trash.delete_permanent', item_id=it.pk) }}" class="m-0"
+                    onsubmit="return confirm('Permanently delete “{{ it.title }}”{% if not it.is_task %} and its contents{% endif %}? This cannot be undone.');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-lg"></i></button>
+              </form>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+  <script>
+    document.addEventListener("change", (ev) => {
+      const box = ev.target.closest(".trash-group-check");
+      if (!box) return;
+      box.closest(".trash-group").querySelectorAll(".trash-check")
+        .forEach((c) => { c.checked = box.checked; });
+    });
+  </script>
 {% endif %}
 {% endblock %}

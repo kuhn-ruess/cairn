@@ -1,0 +1,115 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ item.title or 'Trashed item' }} (in trash) · Cairn{% endblock %}
+{% block content %}
+{# Read only on purpose: an item in the trash is looked at, then restored.
+   Restore is the only thing on this page that posts. #}
+<div class="trash-view" data-readonly="1">
+  <div class="alert alert-warning d-flex align-items-start gap-3 mb-3">
+    <i class="bi bi-trash fs-4"></i>
+    <div class="me-auto">
+      <strong>In the trash</strong> since {{ item.trashed_at|localdt }}{% if by %}, by {{ by }}{% endif %}.
+      <div class="small"><span class="badge text-bg-secondary">{{ source_label }}</span>
+        <span class="trash-reason">{{ reason }}</span></div>
+      {% if not is_owner %}
+        <div class="small text-muted">Only the owner can restore it.</div>
+      {% endif %}
+    </div>
+    {% if is_owner %}
+      <form method="post" action="{{ url_for('trash.restore', item_id=item.pk) }}" class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-success btn-sm"><i class="bi bi-arrow-counterclockwise"></i> Restore</button>
+      </form>
+    {% endif %}
+  </div>
+
+  <a class="small" href="{{ url_for('trash.index') }}"><i class="bi bi-arrow-left"></i> Back to the trash</a>
+
+  <h1 class="h4 mt-2 mb-1">{{ item.title or '(untitled)' }}</h1>
+  <div class="small text-muted mb-3">
+    <span class="badge text-bg-light">{{ item.kind }}</span>
+    {% if place %}· in {{ place }}{% endif %}
+    {% if item.kind == 'task' %}
+      · {{ item.status|status_label }}
+      {% if item.assigned_to %}· assigned to {{ item.assigned_to.display_name or item.assigned_to.username }}{% endif %}
+      {% if item.due_date %}· due {{ item.due_date|localdate }}{% endif %}
+    {% endif %}
+    · created {{ item.created_at|localdt }}
+  </div>
+
+  {% if item.tags %}
+    <div class="mb-3">
+      {% for t in item.tags %}<span class="badge text-bg-secondary me-1">+{{ t }}</span>{% endfor %}
+    </div>
+  {% endif %}
+
+  <section class="mb-4">
+    <h2 class="h6 text-muted">{% if item.kind == 'task' %}Note{% else %}Content{% endif %}</h2>
+    {% if note_html_src %}
+      <div class="md-body border rounded p-3">{{ note_html_src|markdown }}</div>
+    {% else %}
+      <p class="text-muted small fst-italic">Empty.</p>
+    {% endif %}
+  </section>
+
+  {% if item.checklist %}
+    <section class="mb-4">
+      <h2 class="h6 text-muted">Checklist</h2>
+      <ul class="list-unstyled mb-0">
+        {% for c in item.checklist %}
+          <li><i class="bi {% if c.done %}bi-check-square{% else %}bi-square{% endif %}"></i> {{ c.text }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if children %}
+    <section class="mb-4">
+      <h2 class="h6 text-muted">Trashed with it ({{ children|length }})</h2>
+      <ul class="mb-0">
+        {% for c in children %}
+          <li><a href="{{ url_for('trash.view', item_id=c.pk) }}">{{ c.title or '(untitled)' }}</a>
+            <span class="small text-muted">{{ c.kind }}</span></li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if related or depends %}
+    <section class="mb-4">
+      <h2 class="h6 text-muted">Linked items</h2>
+      <ul class="mb-0">
+        {% for r in depends %}<li>depends on: {{ r.title }}{% if r.trashed_at %} <span class="small text-muted">(in trash)</span>{% endif %}</li>{% endfor %}
+        {% for r in related %}<li>{{ r.kind }}: {{ r.title }}{% if r.trashed_at %} <span class="small text-muted">(in trash)</span>{% endif %}</li>{% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if item.note_files %}
+    <section class="mb-4">
+      <h2 class="h6 text-muted">Attachments ({{ item.note_files|length }})</h2>
+      <ul class="mb-0">
+        {% for f in item.note_files %}
+          <li><a href="{{ url_for('trash.note_file', item_id=item.pk, token=f.token) }}">{{ f.filename }}</a>
+            <span class="small text-muted">{{ (f.data|length / 1024)|round(1) }} KB</span></li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if item.comments %}
+    <section class="mb-4">
+      <h2 class="h6 text-muted">Comments ({{ item.comments|length }})</h2>
+      {% for c in item.comments|reverse %}
+        <div class="task-detail-comment mb-2">
+          <div class="comment-header small">
+            <strong>{{ c.author_name }}</strong>
+            <span class="text-muted">{{ c.created_at|localdt }}</span>
+            {% if c.is_public %}<span class="badge text-bg-success">public</span>{% endif %}
+          </div>
+          <div class="comment-text md-body">{{ c.body|markdown }}</div>
+        </div>
+      {% endfor %}
+    </section>
+  {% endif %}
+</div><!-- /trash-view -->
+{% endblock %}

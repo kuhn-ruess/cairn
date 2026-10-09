@@ -98,7 +98,7 @@
                  you sure?" about an amount the reader cannot see. #}
               <form method="post" class="m-0"
                     action="{{ url_for('notes.delete', note_id=folder.pk) }}"
-                    onsubmit="return confirm({% if children %}'Move \'{{ folder.name }}\' and the {{ children|length }} item(s) filed under it to the trash?'{% else %}'Move the empty folder \'{{ folder.name }}\' to the trash?'{% endif %});">
+                    onsubmit="return cairnTrashSubmit(this, {% if children %}'Move \'{{ folder.name }}\' and the {{ children|length }} item(s) filed under it to the trash?'{% else %}'Move the empty folder \'{{ folder.name }}\' to the trash?'{% endif %});">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="dropdown-item text-danger">
                   <i class="bi bi-trash"></i> Delete folder

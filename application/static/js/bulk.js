@@ -124,8 +124,8 @@
   function submitBulkFlag(taskIds = null) {
     submitBulk("toggle_flag", {}, taskIds);
   }
-  function submitBulkDelete(taskIds = null) {
-    submitBulk("delete", {}, taskIds);
+  function submitBulkDelete(taskIds = null, reason = "") {
+    submitBulk("delete", { trash_via: "bulk", trash_reason: reason || "" }, taskIds);
   }
 
   // ---- Hover-target tracking so shortcuts work without first selecting ----
@@ -206,7 +206,10 @@
       submitBulkFlag(ids);
     } else if (k === "delete" || ev.key === "Backspace") {
       ev.preventDefault();
-      if (confirm(`Delete ${ids.length} task(s)?`)) submitBulkDelete(ids);
+      const reason = window.cairnTrashAsk
+        ? window.cairnTrashAsk(`Delete ${ids.length} task(s)?`)
+        : (confirm(`Delete ${ids.length} task(s)?`) ? "" : null);
+      if (reason !== null) submitBulkDelete(ids, reason);
     }
   });
 
@@ -285,6 +288,13 @@
     if (btn) {
       const action = btn.dataset.bulkAction;
       const confirmMsg = btn.dataset.bulkConfirm;
+      if (action === "delete") {
+        const reason = confirmMsg && window.cairnTrashAsk
+          ? window.cairnTrashAsk(confirmMsg) : "";
+        if (reason === null) return;
+        submitBulk(action, { trash_via: "bulk", trash_reason: reason });
+        return;
+      }
       if (confirmMsg && !confirm(confirmMsg)) return;
       submitBulk(action);
       return;

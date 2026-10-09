@@ -830,8 +830,8 @@ def delete(note_id):
     item = Item.objects(pk=note_id, kind__in=["note", "folder"]).first()
     if not item or not item.can_be_deleted_by(user):
         abort(404)
-    from application.services.trash import trash_item
-    trash_item(item)
+    from application.services.trash import trash_item, web_trash_args
+    trash_item(item, **web_trash_args(request.form, user, "menu"))
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return jsonify({"ok": True})
     flash("Moved to trash.", "info")

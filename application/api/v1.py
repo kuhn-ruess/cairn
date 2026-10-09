@@ -415,14 +415,14 @@ def update_task(task_id):
 @api_v1_bp.delete("/tasks/<task_id>")
 @token_required
 def delete_task(task_id):
-    from application.services.trash import trash_item
+    from application.services.trash import api_trash_args, trash_item
     user = g.current_user
     task = Item.objects(pk=task_id).first()
     if not task or task.owner != user:
         return _bad_request("not found", 404)
     # Soft-delete with subtree cascade (same as the web) so sub-tasks ride
     # along and aren't orphaned by a raw delete.
-    trash_item(task)
+    trash_item(task, **api_trash_args(user, g.api_token))
     return "", 204
 
 @api_v1_bp.post("/tasks/<task_id>/complete")
@@ -482,10 +482,12 @@ def bulk_tasks():
     affected, skipped = [], 0
 
     if action == "delete":
-        from application.services.trash import trash_item
+        from application.services.trash import api_trash_args, trash_item
+        why = api_trash_args(user, g.api_token)
+        why["via"] += ", bulk"
         for t in tasks:
             if t.owner == user:
-                trash_item(t)  # subtree cascade — no orphaned sub-tasks
+                trash_item(t, **why)  # subtree cascade — no orphaned sub-tasks
                 affected.append(str(t.pk))
             else:
                 skipped += 1
@@ -1258,11 +1260,11 @@ def update_note(note_id):
 def delete_note(note_id):
     """Into the trash, with the subtree — the same soft delete the UI does, so
     it can be restored there. ``cleanup-trash`` purges it later."""
-    from application.services.trash import trash_item
+    from application.services.trash import api_trash_args, trash_item
     item = _note_by_id(note_id, own=True)
     if not item:
         return _bad_request("not found", 404)
-    trash_item(item)
+    trash_item(item, **api_trash_args(g.current_user, g.api_token))
     return "", 204
 
 
