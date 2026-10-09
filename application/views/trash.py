@@ -7,7 +7,7 @@ read only (``/trash/<id>``): the normal pages cannot show it (``Item.objects``
 hides the trash), and nothing on that page can change it except Restore.
 """
 import re
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from flask import (
     Blueprint, Response, abort, flash, redirect, render_template, request,
@@ -42,6 +42,30 @@ def _excerpt(text: str) -> str:
         return ""
     flat = " ".join(_MD_NOISE.sub(" ", text).split())
     return flat if len(flat) <= EXCERPT_LEN else flat[:EXCERPT_LEN - 1] + "…"
+
+
+def _aware(dt):
+    return dt.replace(tzinfo=timezone.utc) if dt and dt.tzinfo is None else dt
+
+
+def reply_since_trashed(item):
+    """When the newest outside reply arrived after the item went to the trash.
+
+    A Zammad ticket's task stays in the trash when its ticket moves on (the
+    sync updates it where it lies), so the row has to say that something came
+    in. ``None`` when nothing did. Public replies by someone other than the
+    user only, the same ones that ring the bell."""
+    trashed = _aware(item.trashed_at)
+    if trashed is None:
+        return None
+    newest = None
+    for c in item.comments or []:
+        at = _aware(c.created_at)
+        if (c.external_id and c.is_public and c.author is None
+                and at is not None and at > trashed
+                and (newest is None or at > newest)):
+            newest = at
+    return newest
 
 
 def _place_labels(items) -> dict:
@@ -146,6 +170,7 @@ def index():
             "by": names.get(_raw_id(it, "trashed_by"), ""),
             "reason": trash_svc.reason_label(it),
             "along": along.get(it.pk, 0),
+            "reply_since": reply_since_trashed(it),
         })
     return render_template(
         "trash/index.html",
@@ -219,6 +244,7 @@ def view(item_id):
         depends=depends,
         by=names.get(_raw_id(item, "trashed_by"), ""),
         reason=trash_svc.reason_label(item),
+        reply_since=reply_since_trashed(item),
         source_label=trash_svc.SOURCES.get(item.trashed_source or "", "Unknown"),
         is_owner=item.owner == user,
     )

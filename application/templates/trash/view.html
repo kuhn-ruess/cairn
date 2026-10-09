@@ -10,6 +10,7 @@
       <strong>In the trash</strong> since {{ item.trashed_at|localdt }}{% if by %}, by {{ by }}{% endif %}.
       <div class="small"><span class="badge text-bg-secondary">{{ source_label }}</span>
         <span class="trash-reason">{{ reason }}</span></div>
+      {% if reply_since %}<div class="small trash-reply"><i class="bi bi-chat-left-dots"></i> New reply in the ticket since it was trashed ({{ reply_since|localdt }}). The task stays in the trash until you restore it.</div>{% endif %}
       {% if not is_owner %}
         <div class="small text-muted">Only the owner can restore it.</div>
       {% endif %}

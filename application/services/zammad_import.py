@@ -634,8 +634,13 @@ def _upsert_ticket(
     todoist_key = f"zammad:{zid}"
     title = (raw.get("title") or f"Zammad ticket {zid}").strip()[:500]
 
-    # Identification is strictly via the Zammad-stamped external_id.
-    existing = Item.objects(owner=user, external_id=todoist_key).first()
+    # Identification is strictly via the Zammad-stamped external_id, and the
+    # trash counts: a trashed task is still this ticket's task. Looked up
+    # through ``Item.objects`` it was invisible, so the next update created a
+    # second task. It is updated where it lies and stays in the trash; a new
+    # customer reply is announced instead (see ``_tell_trashed_reply``).
+    existing = Item.all_objects(owner=user, external_id=todoist_key,
+                                template__ne=True).first()
     # Priority is intentionally NOT imported — every Zammad ticket carries a
     # default priority ("2 normal"), which would stamp a Cairn priority on
     # every task. Leave it to the user.
@@ -806,6 +811,8 @@ def _upsert_ticket(
         if not keep_scheduled and cairn_status != "done":
             apply_label_rules(existing, user)
         answered_unplanned = _drop_plan_on_answer(existing, was_status, user)
+        known_articles = {c.external_id for c in (existing.comments or [])
+                          if c.external_id}
         _sync_article_comments(existing, articles, stats, user, me_id)
         _absorb_images(existing, articles, base, token, zid, stats)
         # Parent stays put either way: the user might have moved the
@@ -813,6 +820,8 @@ def _upsert_ticket(
         existing.save()
         _import_time_accounting(user, existing, base, token, zid, znum, stats,
                                 me_id, raw=raw, opts=opts)
+        if existing.trashed_at is not None:
+            _tell_trashed_reply(existing, known_articles)
         if answered_unplanned:
             # The mirrored plan event goes with the plan date, the same
             # write-back the "clear plan" button does.
@@ -1432,6 +1441,25 @@ def _sync_article_comments(item: Item, articles: list[dict], stats: ZammadStats,
                 is_public=is_public,
             ))
             stats.comments_imported += 1
+
+
+def _tell_trashed_reply(item: Item, known_articles: set) -> None:
+    """A trashed ticket task got a new customer reply: say so, leave it trashed.
+
+    The task stays where the user put it: the trash is a decision, and a
+    sync that pulled tasks back out of it would overrule that every time a
+    customer writes. But nobody reads the trash, so a public reply that was
+    not written by the user themselves (an article this pass added, with no
+    Cairn author) goes to the bell of whoever works the task, linked to its
+    read only trash page. Internal notes and the user's own answers stay
+    quiet, exactly as they do on a live task.
+    """
+    if not any(c.external_id and c.external_id not in known_articles
+               and c.is_public and c.author is None
+               for c in (item.comments or [])):
+        return
+    from application.services.notifications import notify_trashed_reply
+    notify_trashed_reply(item)
 
 
 # --- images out of Zammad ---------------------------------------------------

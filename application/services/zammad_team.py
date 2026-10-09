@@ -159,8 +159,13 @@ def _reconcile_assignments(members, owners: dict, roster_pks: set,
 
 
 def _existing_task(team_members, external_id):
-    """The task for this ticket, whoever in the team happens to own it."""
-    return Item.objects(owner__in=team_members, external_id=external_id).first()
+    """The task for this ticket, whoever in the team happens to own it.
+
+    The trash counts: a trashed task is still this ticket's task and is
+    updated where it lies (see ``zammad_import._upsert_ticket``). Through
+    ``Item.objects`` it was invisible, and the ticket got a second task."""
+    return Item.all_objects(owner__in=team_members, external_id=external_id,
+                            template__ne=True).first()
 
 
 def sync_team(team, *, full: bool = False, dry_run: bool = False,

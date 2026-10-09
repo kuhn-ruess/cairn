@@ -8,6 +8,8 @@ save them. Fired from explicit, user-facing choke points only:
 - team invite of an existing account → tell the invitee  (notify_team_invite)
 - ``@name`` in a comment → tell the mentioned teammate  (notify_mention)
 - a comment posted by a person → tell the task's own cast  (notify_commented)
+- a customer reply on a Zammad ticket whose task is in the trash → tell its
+  assignee or owner  (notify_trashed_reply)
 
 A notification must never break the action that triggered it, so every push
 is best-effort (failures are swallowed). ``url_for`` is used for links, which
@@ -99,6 +101,23 @@ def notify_handed_back(task, *, by_user, to_users) -> None:
             actor=str(by_user),
             item_id=task.pk,
         )
+
+
+def notify_trashed_reply(task) -> None:
+    """A ticket whose task sits in the trash got a new reply from outside.
+
+    Goes to the assignee, else the owner: the one who would otherwise have
+    seen the reply on the live task. Links to the trash page, because the
+    task's own page answers 404 for anything in the trash."""
+    recipient = task.assigned_to or task.owner
+    _push(
+        recipient,
+        kind="trashed_reply",
+        text=f"New reply on “{task.title}”, which is in the trash",
+        link=f"/trash/{task.pk}" if getattr(task, "pk", None) else "",
+        icon="bi-trash",
+        item_id=task.pk,
+    )
 
 
 def notify_mention(recipient, *, by_user, task) -> None:

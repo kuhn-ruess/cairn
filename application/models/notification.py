@@ -8,6 +8,8 @@ most recent ``NOTIFICATION_CAP`` entries on write (see ``User.add_notification``
 Notifications are fired from explicit, user-facing choke points — assignment
 (``Item.assign_to``), completion (``Item.complete``) and team invites — never
 from ``Item.save`` or background sync, so imports/cron never spam the bell.
+One narrow exception: a customer reply on a Zammad ticket whose task sits in
+the trash (``notify_trashed_reply``), because the trash is read by nobody.
 """
 from datetime import datetime, timezone
 
@@ -30,6 +32,7 @@ class Notification(EmbeddedDocument):
     pk_ref = ObjectIdField(default=lambda: ObjectId())
     kind = StringField()              # assigned | unassigned | completed
                                       # | mention | comment | team_invite
+                                      # | trashed_reply
     text = StringField()              # human-readable message
     link = StringField()              # where clicking the entry navigates
     icon = StringField(default="bi-bell")   # Bootstrap-icon class

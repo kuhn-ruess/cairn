@@ -68,6 +68,7 @@
                 {% if row.along %}· with {{ row.along }} item(s) under it{% endif %}
               </span>
               <span class="d-block small trash-reason"><i class="bi bi-info-circle"></i> {{ row.reason }}</span>
+              {% if row.reply_since %}<span class="d-block small text-warning trash-reply"><i class="bi bi-chat-left-dots"></i> New reply in the ticket since it was trashed ({{ row.reply_since|localdt }})</span>{% endif %}
               {% if row.excerpt %}<span class="d-block small text-muted fst-italic">{{ row.excerpt }}</span>{% endif %}
             </span>
             <div class="d-flex gap-2">
