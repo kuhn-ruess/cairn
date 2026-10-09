@@ -195,9 +195,6 @@
     if (k === "n") {
       ev.preventDefault();
       submitBulkStatus("next", ids);
-    } else if (k === "d") {
-      ev.preventDefault();
-      submitBulkStatus("done", ids);
     } else if (k === "w") {
       ev.preventDefault();
       submitBulkStatus("waiting", ids);

@@ -31,8 +31,13 @@
     );
     if (row) lastHoveredRow = row;
   });
-  document.addEventListener("mouseout", () => {
-    if (lastHoveredRow && !lastHoveredRow.isConnected) {
+  // Leaving the row ends it. A row the pointer passed minutes ago is not the
+  // one a key press means, and ``d`` acting on it put tasks in the trash that
+  // nobody had pointed at.
+  document.addEventListener("mouseout", (ev) => {
+    if (!lastHoveredRow) return;
+    const to = ev.relatedTarget;
+    if (!lastHoveredRow.isConnected || !to || !lastHoveredRow.contains(to)) {
       lastHoveredRow = null;
     }
   });
@@ -221,6 +226,13 @@
       if (!row) return;
       if (typeof window.bktodoDeleteRow === "function") {
         e.preventDefault();
+        // A task asks too: one key next to ``s`` and ``f`` is not enough to
+        // throw work away. Containers ask in bktodoDeleteRow already.
+        if (row.dataset.taskId) {
+          const title = (row.dataset.title || "").trim();
+          if (!window.confirm(title ? `Move the task “${title}” to the trash?`
+                                    : "Move this task to the trash?")) return;
+        }
         window.bktodoDeleteRow(row);
       }
     }
