@@ -135,6 +135,100 @@ class QuickLogTimeTests(unittest.TestCase):
         self.assertEqual(entry.note, "call")
         self.assertEqual(entry.source_item_id, str(self.task.pk))
 
+    def test_the_link_is_ticked_only_when_the_item_chose_the_project(self):
+        _, html = self._selected(item=str(self.task.pk))
+        self.assertRegex(html, r'name="link_item"[^>]*data-project="%s"\s*checked'
+                         % self.support.pk)
+        # A task that bills nowhere (a private one left open in a pinned
+        # inspector) is offered, but unticked: booking a meeting must not
+        # quietly link to it.
+        from application.models.item import Item
+        loose = Item(owner=self.user, kind="task", title="private").save()
+        pid, html = self._selected(item=str(loose.pk))
+        self.assertEqual(pid, str(self.web.pk))
+        self.assertIn('name="link_item"', html)
+        self.assertNotRegex(html, r'name="link_item"[^>]*checked')
+
+    # ---- changing an entry's task link from the day sheet editor ----------
+
+    def _linked_entry(self, **extra):
+        self.task.external_ref = "4711"
+        self.task.save()
+        self.client.post("/time/quick", data={
+            "project_id": str(self.ops.pk), "duration": "1h", "note": "talk",
+            "spent_on": "2026-10-05", "link_item": "1",
+            "item_id": str(self.task.pk), **extra})
+        bucket = self.Bucket.objects.first()
+        [entry] = bucket.entries
+        self.assertEqual(entry.source_item_id, str(self.task.pk))
+        self.assertEqual(entry.external_ref, "4711")
+        return bucket, entry
+
+    def _edit(self, bucket, entry, **data):
+        return self.client.post(
+            f"/time/entry/{bucket.pk}/{entry.entry_id}/edit",
+            headers={"X-Partial": "day"}, data=data)
+
+    def test_edit_removes_the_task_link(self):
+        bucket, entry = self._linked_entry()
+        resp = self._edit(bucket, entry, source_item_id="none")
+        self.assertEqual(resp.status_code, 200)
+        [entry] = self._entries()
+        self.assertIsNone(entry.source_item_id)
+        self.assertFalse(entry.source_label)
+        # The ticket number came from that task, so it goes with it.
+        self.assertFalse(entry.external_ref)
+        self.assertEqual((entry.minutes, entry.note), (60, "talk"))
+        self.assertNotIn("bi-link-45deg\"></i>fix it", resp.get_json()["block"])
+
+    def test_edit_moves_the_link_to_another_task(self):
+        from application.models.item import Item
+        bucket, entry = self._linked_entry()
+        other = Item(owner=self.user, kind="task", title="sizing call").save()
+        self._edit(bucket, entry, source_item_id=str(other.pk))
+        [entry] = self._entries()
+        self.assertEqual(entry.source_item_id, str(other.pk))
+        self.assertEqual(entry.source_label, "sizing call")
+        self.assertEqual(entry.source_kind, "task")
+        self.assertFalse(entry.external_ref)
+
+    def test_edit_moving_the_day_takes_the_new_link_along(self):
+        from application.models.item import Item
+        bucket, entry = self._linked_entry()
+        other = Item(owner=self.user, kind="task", title="sizing call").save()
+        self._edit(bucket, entry, source_item_id=str(other.pk),
+                   spent_on="2026-10-06")
+        [entry] = [e for e in self._entries() if e.status == "active"]
+        self.assertEqual(entry.source_item_id, str(other.pk))
+
+    def test_edit_without_the_field_keeps_the_link(self):
+        bucket, entry = self._linked_entry()
+        self._edit(bucket, entry, note="talked")
+        [entry] = self._entries()
+        self.assertEqual(entry.source_item_id, str(self.task.pk))
+        self.assertEqual(entry.external_ref, "4711")
+        self.assertEqual(entry.note, "talked")
+
+    def test_edit_cannot_link_to_a_task_the_user_cannot_see(self):
+        from application.models.item import Item
+        from application.models.user import User
+        bucket, entry = self._linked_entry()
+        stranger = User(username="other", email="other@test.invalid",
+                        password_hash="x").save()
+        hidden = Item(owner=stranger, kind="task", title="not yours").save()
+        resp = self._edit(bucket, entry, source_item_id=str(hidden.pk))
+        self.assertEqual(resp.status_code, 404)
+        [entry] = self._entries()
+        self.assertEqual(entry.source_item_id, str(self.task.pk))
+
+    def test_the_day_sheet_editor_offers_unlink_and_relink(self):
+        self._linked_entry()
+        html = self.client.get("/time/day", query_string={"d": "2026-10-05"}
+                               ).get_data(as_text=True)
+        self.assertIn("tt-edit-unlink", html)
+        self.assertIn("tt-edit-link-search", html)
+        self.assertIn('data-original="%s"' % self.task.pk, html)
+
     def test_unticked_link_books_without_a_source(self):
         self.client.post("/time/quick", data={
             "project_id": str(self.web.pk), "duration": "30",

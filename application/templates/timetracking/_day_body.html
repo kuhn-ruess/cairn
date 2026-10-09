@@ -150,6 +150,23 @@
             <input type="text" class="form-control form-control-sm tt-edit-note"
                    style="min-width: 12rem; flex: 1 1 12rem;" value="{{ e.note }}"
                    maxlength="200" placeholder="Note">
+            {# The task this entry is linked to: × removes the link, the
+               search moves it onto another task. Sent only when changed. #}
+            <div class="tt-edit-link position-relative d-flex align-items-center gap-1"
+                 data-search="{{ url_for('tasks.quickjump') }}">
+              <input type="hidden" class="tt-edit-source"
+                     value="{{ e.source_item_id or '' }}" data-original="{{ e.source_item_id or '' }}">
+              <span class="tt-edit-link-label small text-nowrap {{ '' if e.source_item_id else 'd-none' }}">
+                <i class="bi bi-link-45deg"></i><span class="tt-edit-link-text">{{ e.source_label or 'task' }}</span>
+                <button type="button" class="btn btn-sm btn-link p-0 tt-edit-unlink"
+                        title="Remove the link to this task"><i class="bi bi-x-lg"></i></button>
+              </span>
+              <input type="text" class="form-control form-control-sm tt-edit-link-search"
+                     style="max-width: 12rem;" autocomplete="off"
+                     placeholder="{{ 'Link to another task' if e.source_item_id else 'Link to a task' }}">
+              <div class="tt-edit-link-results list-group position-absolute shadow-sm"
+                   style="z-index: 1080; display: none; top: 100%; left: 0; min-width: 16rem; max-height: 16rem; overflow-y: auto;"></div>
+            </div>
             {# The project's fields, prefilled with what this entry carries. #}
             {% set _defs = d.fields_by_project.get(e.project_id, []) %}
             {% for f in _defs %}

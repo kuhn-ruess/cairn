@@ -112,6 +112,16 @@
     return { fd, byClock };
   }
 
+  // The link to the open item follows the project: picking another project
+  // than the one the item bills to means this time is about something else.
+  body.addEventListener("change", (ev) => {
+    if (!ev.target.closest(".time-add-project")) return;
+    const link = body.querySelector('input[name="link_item"]');
+    if (link && link.dataset.project) {
+      link.checked = ev.target.value === link.dataset.project;
+    }
+  });
+
   let submitting = false;
   async function submit() {
     if (submitting || !body.querySelector(".time-add")) return;

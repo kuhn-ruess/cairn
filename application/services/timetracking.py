@@ -692,11 +692,13 @@ def quick_log_context(user, *, item=None, project_id: str = "",
     rows = pickable_projects(user)
     ids = {r["id"] for r in rows}
     chosen, why = "", ""
+    item_project = ""
     if item is not None:
         tp = resolve_time_project(item)
         for pid in (last_entry_project_id(user, item), str(tp.id) if tp else ""):
             if pid in ids:
                 chosen, why = pid, item.title or "this item"
+                item_project = pid
                 break
     elif project_id in ids:
         chosen = project_id
@@ -719,6 +721,11 @@ def quick_log_context(user, *, item=None, project_id: str = "",
         "default_project_id": chosen,
         "context": why,
         "source": source,
+        # The link is offered ticked only when the item also chose the
+        # project. An item that bills nowhere is just whatever was open in the
+        # inspector (a pinned one stays open while you book something else),
+        # and a ticked box there linked the time to it unnoticed.
+        "link_project": item_project if source is not None else "",
     }
 
 
@@ -2388,10 +2395,34 @@ def may_edit_entry(user, team, entry) -> bool:
     return may_touch_entry(user, team, entry)
 
 
+def relinked_source(entry, item, user=None) -> dict:
+    """The source fields an entry takes when its task link is changed by hand:
+    ``item`` is the task it now belongs to, ``None`` removes the link.
+
+    The ticket reference follows the link only on time logged in Cairn: there
+    it was copied from the old task, so it was just as wrong. An imported
+    entry (it has an ``external_id``) got its reference from the ticket system
+    itself, and that stays whatever the link says."""
+    snap = source_snapshot(item, user) if item is not None else {}
+    out = {"source_item_id": snap.get("source_item_id"),
+           "source_kind": snap.get("source_kind"),
+           "source_label": snap.get("source_label", "")}
+    if entry.external_id:
+        out["external_ref"] = entry.external_ref or ""
+        out["external_url"] = entry.external_url or ""
+    else:
+        out["external_ref"] = snap.get("external_ref", "")
+        out["external_url"] = snap.get("external_url", "")
+    return out
+
+
 def edit_entry(*, bucket: TimeBucket, entry_id: str, user, minutes=None,
                spent_on=None, note=None, billable=None, custom=None,
-               start_time=None, end_time=None) -> bool:
+               start_time=None, end_time=None, source=None) -> bool:
     """Update a logged entry in place (duration / date / note / billable).
+
+    ``source`` changes the task link (see ``relinked_source``); ``None``
+    leaves it as it is.
 
     Money is recomputed from the rate frozen on the entry, so editing never
     silently reprices old work at today's rate. Moving an entry into another
@@ -2410,6 +2441,13 @@ def edit_entry(*, bucket: TimeBucket, entry_id: str, user, minutes=None,
     new_end = entry.end_time if end_time is None else (end_time or None)
     new_custom = ([TimeEntryValue(**c) for c in custom] if custom is not None
                   else list(entry.custom or []))
+    new_source = source if source is not None else {
+        "source_item_id": entry.source_item_id,
+        "source_kind": entry.source_kind,
+        "source_label": entry.source_label,
+        "external_ref": entry.external_ref or "",
+        "external_url": entry.external_url or "",
+    }
 
     # Moved to another day → re-file into that day's bucket instead of
     # corrupting this one. Append-only, so that means cancel here, add there.
@@ -2424,9 +2462,7 @@ def edit_entry(*, bucket: TimeBucket, entry_id: str, user, minutes=None,
                   start_time=new_start or "", end_time=new_end or "",
                   custom=[{"key": c.key, "label": c.label, "value": c.value}
                           for c in new_custom],
-                  source={"source_item_id": entry.source_item_id,
-                          "source_kind": entry.source_kind,
-                          "source_label": entry.source_label})
+                  source=new_source)
         return True
 
     rate = entry.hourly_rate_cents
@@ -2443,6 +2479,11 @@ def edit_entry(*, bucket: TimeBucket, entry_id: str, user, minutes=None,
         set__entries__S__end_time=new_end,
         set__entries__S__custom=new_custom,
         set__entries__S__amount_cents=amount,
+        set__entries__S__source_item_id=new_source.get("source_item_id"),
+        set__entries__S__source_kind=new_source.get("source_kind"),
+        set__entries__S__source_label=new_source.get("source_label") or "",
+        set__entries__S__external_ref=new_source.get("external_ref") or None,
+        set__entries__S__external_url=new_source.get("external_url") or None,
         inc__total_minutes=new_minutes - (entry.minutes or 0),
         set__updated_at=_utcnow(),
     )

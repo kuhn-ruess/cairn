@@ -735,6 +735,12 @@
       form.querySelectorAll(".tt-edit-cf").forEach((el) => {
         payload["cf_" + el.dataset.key] = el.value.trim();
       });
+      // The task link travels only when it was changed. "none" removes it
+      // (post() drops empty values, so an empty one would never arrive).
+      const src = form.querySelector(".tt-edit-source");
+      if (src && src.value !== src.dataset.original) {
+        payload.source_item_id = src.value || "none";
+      }
       post(form.dataset.action, payload, contextFor(save)).catch(() => {});
       return;
     }
@@ -779,6 +785,89 @@
     if (!all) return;
     const scope = all.closest("form") || document;
     scope.querySelectorAll(".tt-pick").forEach((cb) => { cb.checked = all.checked; });
+  });
+
+  // ---- an entry's task link (day sheet editor) ----------------------------
+  // × clears it, the search (the quickjump JSON, tasks only) picks another
+  // one. Nothing is sent until Save, like every other field of the editor.
+  function linkResults(box, results) {
+    box.innerHTML = "";
+    (results || []).forEach((r) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "list-group-item list-group-item-action small tt-edit-link-pick";
+      b.dataset.id = r.id;
+      b.dataset.title = r.title || "";
+      b.textContent = r.title || "";
+      if (r.subtitle) {
+        const sub = document.createElement("span");
+        sub.className = "text-muted ms-1";
+        sub.textContent = "· " + r.subtitle;
+        b.appendChild(sub);
+      }
+      box.appendChild(b);
+    });
+    box.style.display = box.children.length ? "block" : "none";
+  }
+
+  function setLink(wrap, id, title) {
+    wrap.querySelector(".tt-edit-source").value = id;
+    wrap.querySelector(".tt-edit-link-text").textContent = title || "task";
+    wrap.querySelector(".tt-edit-link-label").classList.toggle("d-none", !id);
+    const input = wrap.querySelector(".tt-edit-link-search");
+    input.value = "";
+    linkResults(wrap.querySelector(".tt-edit-link-results"), []);
+  }
+
+  let linkTimer = null;
+  document.addEventListener("input", (ev) => {
+    const input = ev.target.closest(".tt-edit-link-search");
+    if (!input) return;
+    const wrap = input.closest(".tt-edit-link");
+    const box = wrap.querySelector(".tt-edit-link-results");
+    clearTimeout(linkTimer);
+    linkTimer = setTimeout(() => {
+      const q = input.value.trim();
+      if (q.length < 2) { linkResults(box, []); return; }
+      fetch(`${wrap.dataset.search}?kinds=task&q=${encodeURIComponent(q)}`,
+            { credentials: "same-origin" })
+        .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+        .then((data) => linkResults(box, data.results))
+        .catch(() => linkResults(box, []));
+    }, 200);
+  });
+
+  document.addEventListener("click", (ev) => {
+    const pick = ev.target.closest(".tt-edit-link-pick");
+    if (pick) {
+      ev.preventDefault();
+      setLink(pick.closest(".tt-edit-link"), pick.dataset.id, pick.dataset.title);
+      return;
+    }
+    const unlink = ev.target.closest(".tt-edit-unlink");
+    if (unlink) {
+      ev.preventDefault();
+      setLink(unlink.closest(".tt-edit-link"), "", "");
+      return;
+    }
+    document.querySelectorAll(".tt-edit-link-results").forEach((box) => {
+      if (!box.closest(".tt-edit-link").contains(ev.target)) linkResults(box, []);
+    });
+  });
+
+  document.addEventListener("keydown", (ev) => {
+    const input = ev.target.closest(".tt-edit-link-search");
+    if (!input) return;
+    const wrap = input.closest(".tt-edit-link");
+    if (ev.key === "Enter") {
+      // Enter takes the first match; it never saves the half-picked entry.
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      const first = wrap.querySelector(".tt-edit-link-pick");
+      if (first) setLink(wrap, first.dataset.id, first.dataset.title);
+    } else if (ev.key === "Escape") {
+      linkResults(wrap.querySelector(".tt-edit-link-results"), []);
+    }
   });
 
   // Enter in any capture input logs the entry instead of submitting the

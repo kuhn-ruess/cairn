@@ -30,6 +30,7 @@ from application.services.timetracking import (
     default_project_id,
     discard_timer,
     edit_entry,
+    relinked_source,
     may_edit_entry,
     may_touch_entry,
     booking_overlap,
@@ -837,9 +838,21 @@ def entry_edit(bucket_id, entry_id):
     note = request.form.get("note")
     if note is not None and not note.strip():
         note = ""
+    # The task link: only sent when the user changed it. "none" (or empty)
+    # removes it, an id moves the entry onto that task (one the user can see).
+    source = None
+    if "source_item_id" in request.form:
+        raw = (request.form.get("source_item_id") or "").strip()
+        linked = None
+        if raw and raw != "none":
+            linked = _viewable_task(user, raw)
+            if linked is None or linked.kind not in ("task", "note"):
+                abort(400)
+        if (str(linked.pk) if linked else None) != entry.source_item_id:
+            source = relinked_source(entry, linked, user)
     edit_entry(bucket=bucket, entry_id=entry_id, user=user, minutes=minutes,
                spent_on=spent_on, note=note, custom=custom,
-               start_time=start, end_time=end,
+               start_time=start, end_time=end, source=source,
                billable=request.form.get("billable") != "0")
     return _capture_response(user, task)
 

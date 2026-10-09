@@ -34,7 +34,8 @@
   <div class="d-flex flex-wrap gap-1 mt-2">{{ cap.custom_fields() }}</div>
   {% if q.source %}
     <div class="form-check mt-2 small">
-      <input type="checkbox" class="form-check-input" id="quickLogLink" name="link_item" value="1" checked>
+      <input type="checkbox" class="form-check-input" id="quickLogLink" name="link_item" value="1"
+             data-project="{{ q.link_project }}" {% if q.link_project %}checked{% endif %}>
       <input type="hidden" name="item_id" value="{{ q.source.pk }}">
       <label class="form-check-label text-muted" for="quickLogLink">
         <i class="bi bi-link-45deg"></i> Link to <strong>{{ q.source.title or 'this item' }}</strong>
