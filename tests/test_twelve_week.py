@@ -142,6 +142,27 @@ class HabitifyParsingTests(unittest.TestCase):
         self.assertEqual(habitify.parse_completed_days({"data": None}), set())
         self.assertEqual(habitify.parse_completed_days("nonsense"), set())
 
+    def test_weekly_goal_counts_the_days_logged(self):
+        stats = {"data": {"periodicity": "weekly", "dailyProgress": [
+            {"date": "2026-10-05", "totalLog": 1, "status": "inprogress"},
+            {"date": "2026-10-06", "totalLog": 0, "status": "inprogress"},
+            {"date": "2026-10-08", "totalLog": 1, "status": "completed"},
+            {"date": "2026-10-09", "totalLog": 0, "status": "completed"},
+            {"date": "2026-10-10", "totalLog": 1, "status": "skipped"},
+        ]}}
+        self.assertEqual(habitify.parse_completed_days(stats),
+                         {date(2026, 10, 5), date(2026, 10, 8)})
+
+    def test_frequency(self):
+        self.assertEqual(habitify.frequency(7), {
+            "occurrence": {"type": "daily"},
+            "goal": {"periodicity": "daily", "value": 1, "unit": "rep"}})
+        for n in (1, 3, 6):
+            self.assertEqual(habitify.frequency(n), {
+                "occurrence": {"type": "daily"},
+                "goal": {"periodicity": "weekly", "value": n, "unit": "rep"}})
+        self.assertEqual(habitify.frequency(0)["goal"]["value"], 1)
+
     def test_count_by_week_ignores_days_outside_the_execution_weeks(self):
         c = _cycle()
         days = {date(2026, 10, 5), date(2026, 10, 7), date(2026, 10, 12),
@@ -382,7 +403,8 @@ class TwelveWeekDbTests(unittest.TestCase):
             html = self.client.get(self._url("/plan")).get_data(as_text=True)
             self.assertIn('<option value="h-es"', html)
             self.assertIn("Create it in Habitify", html)
-            data = self._plan_data(**{"t-7-habit": "__new__", "t-7-week": ["2", "3", "5"]})
+            data = self._plan_data(**{"t-7-habit": "__new__", "t-7-week": ["2", "3", "5"],
+                                      "t-7-per_week": "3"})
             resp = self.client.post(self._url("/plan"), data=data)
             self.assertEqual(resp.status_code, 302)
             self.assertTrue(resp.headers["Location"].endswith("/habitify"))
@@ -391,6 +413,7 @@ class TwelveWeekDbTests(unittest.TestCase):
             self.assertIn("2026-10-12", preview)      # week 2 starts
             self.assertIn("2026-11-08", preview)      # week 5 ends
             self.assertIn("week 4 stays active", preview)
+            self.assertIn("3&times; per week", preview)
             send.return_value = {"id": "h-new", "name": "Draft"}
             resp = self.client.post(self._url("/habitify"))
             self.assertEqual(resp.status_code, 302)
@@ -398,11 +421,46 @@ class TwelveWeekDbTests(unittest.TestCase):
         self.assertEqual((method, path, key), ("POST", "/habits", "SECRET"))
         self.assertEqual(body, {"name": "Draft", "type": "good", "startDate": "2026-10-12",
                                 "occurrence": {"type": "daily"},
+                                "goal": {"periodicity": "weekly", "value": 3, "unit": "rep"},
                                 "endCondition": {"type": "date", "date": "2026-11-08"}})
         self.cycle.reload()
         t = [t for t in self.cycle.tactics if t.title == "Draft"][0]
-        self.assertEqual((t.habitify_id, t.habitify_start, t.habitify_end),
-                         ("h-new", "2026-10-12", "2026-11-08"))
+        self.assertEqual((t.habitify_id, t.habitify_start, t.habitify_end, t.habitify_per_week),
+                         ("h-new", "2026-10-12", "2026-11-08", 3))
+        self.assertEqual(habitify.pending_changes(self.cycle), [])
+        # Saving the plan again with the same habit keeps what was written.
+        data = self._plan_data(**{"t-7-tid": t.tid, "t-7-habit": "h-new",
+                                  "t-7-manage": "1", "t-7-week": ["2", "3", "5"],
+                                  "t-7-per_week": "3"})
+        with mock.patch.object(habitify, "_fetch", return_value=listing):
+            self.client.post(self._url("/plan"), data=data)
+        self.cycle.reload()
+        self.assertEqual(self.cycle.tactic(t.tid).habitify_per_week, 3)
+        self.assertEqual(habitify.pending_changes(self.cycle), [])
+
+    def test_a_habit_created_daily_before_gets_its_frequency(self):
+        # Created by an older Cairn: the dates are right, the frequency was
+        # never sent, so Habitify runs it every day.
+        t = self.cycle.tactic("gym")
+        t.per_week = 2
+        t.habitify_manage = True
+        t.habitify_start, t.habitify_end = tw.habitify_window(t, self.cycle)
+        changes = habitify.pending_changes(self.cycle)
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["action"], "update")
+        self.assertEqual(changes[0]["body"]["goal"],
+                         {"periodicity": "weekly", "value": 2, "unit": "rep"})
+        self.assertEqual(changes[0]["body"]["startDate"], t.habitify_start)
+        from application.services.crypto import encrypt_for_user
+        self.user.habitify_api_key = encrypt_for_user(self.user, "SECRET")
+        with mock.patch.object(habitify, "_send", return_value=None) as send:
+            done, errs = habitify.apply_changes(self.cycle, self.user, changes)
+        self.assertEqual((done, errs), (1, []))
+        self.assertEqual(send.call_args[0][:2], ("PUT", "/habits/h-gym"))
+        self.assertEqual(t.habitify_per_week, 2)
+        self.assertEqual(habitify.pending_changes(self.cycle), [])
+        # A habit only mapped, not managed by Cairn, is never touched.
+        t.habitify_manage, t.per_week = False, 5
         self.assertEqual(habitify.pending_changes(self.cycle), [])
 
     def test_moving_weeks_updates_a_managed_habit(self):

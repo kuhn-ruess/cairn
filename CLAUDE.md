@@ -573,7 +573,11 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   (one request per mapped habit, on demand and hourly by the
   `habitify.sync_due` beat task); written only for tactics marked "managed",
   only after the user confirms the preview page (`POST /habits` to create,
-  `PUT /habits/{id}` for `startDate` + an `endCondition` of type `date`).
+  `PUT /habits/{id}` for `startDate` + an `endCondition` of type `date`, and
+  the frequency: `per_week` 7 is daily, fewer is repeat daily with a weekly
+  `goal` of N `rep`, Habitify's own "N times per week"; `habitify_per_week`
+  is what was last written, 0 for habits made before that, which therefore
+  show up as an update). A weekly goal habit's days count by `totalLog > 0`.
   Habitify has no schedule by calendar week, so gaps between picked weeks
   cannot be paused there and the preview says so; archive is never used (no
   unarchive in the API). Key in `User.habitify_api_key`, encrypted, Settings >

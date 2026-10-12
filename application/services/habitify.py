@@ -13,15 +13,20 @@ Two calls are all this needs:
 * ``GET /habits`` (paged, ``limit`` up to 100) for the picker on the plan page;
 * ``GET /habits/{id}/statistics?startDate&endDate`` for the completions, whose
   ``data.dailyProgress`` lists ``{date, totalLog, status}`` per day. A day
-  with ``status == "completed"`` counts. One request per mapped habit covers
+  with ``status == "completed"`` counts; for a habit whose goal is weekly
+  (``data.periodicity``), a day counts once anything was logged on it, since
+  Habitify judges such a habit by the week, not by the day. One request per mapped habit covers
   any range, so a whole cycle costs as many requests as there are mapped
   tactics.
 
 Writing happens only for tactics the user asked Cairn to manage
 (``habitify_manage``), only on the user's confirmation after a plan save, and
 only what the API offers: ``POST /habits`` creates a habit (name, type,
-``startDate``, ``occurrence`` and an ``endCondition`` of type ``date``) and
-``PUT /habits/{id}`` moves an existing one's ``startDate`` and end date.
+``startDate``, ``occurrence``, ``goal`` and an ``endCondition`` of type
+``date``) and ``PUT /habits/{id}`` moves an existing one's ``startDate``, end
+date and frequency. The frequency is the tactic's ``per_week``: 7 is a daily
+habit, fewer is Habitify's own "N times per week" (repeat daily with a weekly
+goal of N), see :func:`frequency`.
 Habitify has no schedule by calendar week, so a tactic picked for weeks 1-4
 and 6 runs in Habitify from the start of week 1 to the end of week 6; the
 gap is said in the preview, not hidden. Archiving is never used: it cannot be
@@ -143,9 +148,21 @@ def completed_days(api_key: str, habit_id: str, first: date, last: date) -> set[
 def parse_completed_days(payload) -> set[date]:
     data = _data(payload)
     progress = (data or {}).get("dailyProgress") if isinstance(data, dict) else None
+    # A weekly goal is completed by the week: the single days on the way
+    # there are "inprogress", so the days with a log are what counts.
+    weekly = isinstance(data, dict) and data.get("periodicity") == "weekly"
     days: set[date] = set()
     for row in progress or []:
-        if not isinstance(row, dict) or row.get("status") != "completed":
+        if not isinstance(row, dict):
+            continue
+        if weekly:
+            try:
+                logged = float(row.get("totalLog") or 0) > 0
+            except (TypeError, ValueError):
+                logged = False
+            if not logged or row.get("status") in ("skipped", "failed"):
+                continue
+        elif row.get("status") != "completed":
             continue
         try:
             days.add(date.fromisoformat(str(row.get("date", ""))[:10]))
@@ -210,6 +227,21 @@ def sync_cycle(cycle, user, *, today: date, full: bool = False) -> int | None:
 
 # ---- writing the plan into Habitify ---------------------------------------
 
+def frequency(per_week: int) -> dict:
+    """``occurrence`` and ``goal`` for a habit done ``per_week`` times a week.
+
+    7 is every day. Anything less is how Habitify itself says "3 times per
+    week": it repeats daily (any day may be the one) with a weekly goal of 3
+    times. A fixed set of weekdays would be the other way, but Cairn does not
+    know which days."""
+    n = max(1, min(7, int(per_week or 1)))
+    if n == 7:
+        return {"occurrence": {"type": "daily"},
+                "goal": {"periodicity": "daily", "value": 1, "unit": "rep"}}
+    return {"occurrence": {"type": "daily"},
+            "goal": {"periodicity": "weekly", "value": n, "unit": "rep"}}
+
+
 def pending_changes(cycle) -> list[dict]:
     """What saving the plan would change in Habitify, one entry per managed
     tactic whose habit is missing or whose dates moved:
@@ -225,18 +257,22 @@ def pending_changes(cycle) -> list[dict]:
         if not start:
             continue
         gaps = tw.gaps(t)
+        per_week = max(1, min(7, t.per_week or 1))
         if not t.habitify_id:
             changes.append({
                 "tid": t.tid, "title": t.title, "action": "create", "gaps": gaps,
+                "per_week": per_week,
                 "body": {"name": t.title, "type": "good", "startDate": start,
-                         "occurrence": {"type": "daily"},
+                         **frequency(per_week),
                          "endCondition": {"type": "date", "date": end}}})
-        elif (t.habitify_start, t.habitify_end) != (start, end):
+        elif (t.habitify_start, t.habitify_end, t.habitify_per_week) \
+                != (start, end, per_week):
             changes.append({
                 "tid": t.tid, "title": t.habitify_name or t.title,
-                "action": "update", "gaps": gaps,
-                "old": {"startDate": t.habitify_start, "end": t.habitify_end},
-                "body": {"startDate": start,
+                "action": "update", "gaps": gaps, "per_week": per_week,
+                "old": {"startDate": t.habitify_start, "end": t.habitify_end,
+                        "per_week": t.habitify_per_week},
+                "body": {"startDate": start, **frequency(per_week),
                          "endCondition": {"type": "date", "date": end}}})
     return changes
 
@@ -272,6 +308,7 @@ def apply_changes(cycle, user, changes: list[dict]) -> tuple[int, list[str]]:
             continue
         t.habitify_start = body["startDate"]
         t.habitify_end = body["endCondition"]["date"]
+        t.habitify_per_week = ch["per_week"]
         cycle.save()
         done += 1
     return done, errors

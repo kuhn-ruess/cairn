@@ -90,6 +90,10 @@ class TwyTactic(EmbeddedDocument):
     habitify_manage = BooleanField(default=False)
     habitify_start = StringField(max_length=10, default="")
     habitify_end = StringField(max_length=10, default="")
+    # The ``per_week`` last written there. 0: never written, which is every
+    # habit created before Cairn sent the frequency (they all run daily), so
+    # the next confirmation sets it right.
+    habitify_per_week = IntField(min_value=0, max_value=7, default=0)
     # Where a migrated tactic came from: "habit:<habit id>:<target tid>".
     source = StringField(max_length=80, default="")
 

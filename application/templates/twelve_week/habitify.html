@@ -1,6 +1,7 @@
 {% extends "layout/base.html" %}
 {% block title %}Habitify changes · {{ c.title }} · Cairn{% endblock %}
 {% block content %}
+{% macro freq(n) %}{% if n == 7 %}daily{% else %}{{ n }}&times; per week{% endif %}{% endmacro %}
 <div class="mb-3">
   <a class="text-muted text-decoration-none small" href="{{ url_for('twelve_week.detail', cycle_id=c.id) }}">
     <i class="bi bi-arrow-left"></i> Back to {{ c.title }}
@@ -11,8 +12,9 @@
   Your plan is saved in Cairn. These habits are managed by Cairn, so their
   dates in Habitify follow the weeks you picked. Nothing is sent before you
   press the button. Habitify has no schedule by calendar week: a habit runs
-  daily from its first planned week to its last one, and weeks left out in
-  between cannot be paused there.
+  from its first planned week to its last one, and weeks left out in between
+  cannot be paused there. A habit planned fewer than 7 times a week gets
+  Habitify's weekly goal ("3 times per week"), on whichever days you do it.
 </p>
 <div class="table-responsive" style="max-width:900px;">
 <table class="table table-sm align-middle">
@@ -24,11 +26,12 @@
       <td class="small">
         {% if ch.action == 'create' %}
           <span class="badge text-bg-success">create</span>
-          daily, from {{ ch.body.startDate }} to {{ ch.body.endCondition.date }}
+          {{ freq(ch.per_week) }}, from {{ ch.body.startDate }} to {{ ch.body.endCondition.date }}
         {% else %}
           <span class="badge text-bg-primary">update</span>
           {% if ch.old.startDate %}from {{ ch.old.startDate }} to {{ ch.old.end }} becomes{% else %}set to{% endif %}
-          {{ ch.body.startDate }} to {{ ch.body.endCondition.date }}
+          {{ ch.body.startDate }} to {{ ch.body.endCondition.date }},
+          {% set was = ch.old.per_week or 7 %}{% if was != ch.per_week %}{{ freq(was) }} becomes {% endif %}{{ freq(ch.per_week) }}
         {% endif %}
       </td>
       <td class="small text-muted">

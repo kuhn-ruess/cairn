@@ -153,8 +153,10 @@ def read_form(form, cycle, habit_names: dict, *, has_key: bool):
         if old is not None and old.habitify_id and old.habitify_id == habit:
             name = habit_names.get(habit) or old.habitify_name
             hstart, hend = old.habitify_start, old.habitify_end
+            hfreq = old.habitify_per_week
         else:
             name, hstart, hend = habit_names.get(habit, ""), "", ""
+            hfreq = 0
         if not habit and not manage:
             name = ""
         tactics.append(TwyTactic(
@@ -164,7 +166,8 @@ def read_form(form, cycle, habit_names: dict, *, has_key: bool):
             per_week=per_week, log=list(old.log) if old else [],
             source=old.source if old else "",
             habitify_id=habit[:100], habitify_name=name[:200],
-            habitify_manage=manage, habitify_start=hstart, habitify_end=hend))
+            habitify_manage=manage, habitify_start=hstart, habitify_end=hend,
+            habitify_per_week=hfreq))
 
     if not goals and not tactics:
         errors["goals"] = "Set at least one goal or one habit."
