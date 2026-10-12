@@ -796,7 +796,7 @@ class BookingPageTests(unittest.TestCase):
         self.book(self.first_slot())
         self.assertEqual(wrote["location"], "")
 
-    def test_both_confirmations_carry_the_invitation(self):
+    def _capture_attachments(self):
         from application.services import mail
 
         sent = []
@@ -806,20 +806,67 @@ class BookingPageTests(unittest.TestCase):
         mail.send_email = lambda to, subject, body, html=None, attachments=None: (
             sent.append((to, body, attachments)) or True)
         self.addCleanup(setattr, mail, "send_email", real)
+        return sent
 
+    def test_the_guest_is_invited_to_the_hosts_meeting(self):
+        """The guest's invitation is a REQUEST from the host, for the UID of
+        the event in the host's calendar, so the acceptance matches it."""
+        sent = self._capture_attachments()
         self.save_page(meeting_mode="link",
                        meeting_link="https://meet.example/alice")
         self.book(self.first_slot())
 
         self.assertEqual([to for to, _b, _a in sent],
                          ["b@example.com", "bob@example.com"])
-        for _to, body, attachments in sent:
+        for _to, body, _attachments in sent:
             self.assertIn("https://meet.example/alice", body)
-            self.assertEqual(len(attachments), 1)
-            name, mimetype, data = attachments[0]
-            self.assertEqual((name, mimetype), ("appointment.ics", "text/calendar"))
-            self.assertIn(b"BEGIN:VEVENT", data)
-            self.assertIn(b"LOCATION:https://meet.example/alice", data)
+        _to, _body, attachments = sent[1]
+        self.assertEqual(len(attachments), 1)
+        name, mimetype, data = attachments[0]
+        self.assertEqual((name, mimetype),
+                         ("appointment.ics", "text/calendar; method=REQUEST"))
+        data = data.replace(b"\r\n ", b"")
+        self.assertIn(b"METHOD:REQUEST", data)
+        self.assertIn(b"LOCATION:https://meet.example/alice", data)
+        self.assertIn(b"ORGANIZER;CN=book-test:mailto:b@example.com", data)
+        self.assertIn(b"mailto:bob@example.com", data)
+        with self.app.app_context():
+            booking = self.Booking.objects.get(owner=self.user)
+            self.assertIn(f"UID:cairn-booking-{booking.pk}@cairn".encode(), data)
+
+    def test_the_host_gets_no_second_copy_of_an_event_already_written(self):
+        """A second copy, dropped into another calendar, is a second event."""
+        sent = self._capture_attachments()
+        self.save_page()
+        self.book(self.first_slot())
+        self.assertIsNone(sent[0][2])
+
+    def test_the_host_gets_the_file_when_the_calendar_write_failed(self):
+        sent = self._capture_attachments()
+        self.svc._write_event = lambda user, page, booking: None
+        self.save_page()
+        self.book(self.first_slot())
+        self.assertEqual(len(sent[0][2]), 1)
+
+    def test_the_hosts_event_is_the_same_meeting(self):
+        from application.services import calendar_writeback
+
+        wrote = {}
+        real = calendar_writeback.create_event
+        calendar_writeback.create_event = lambda cal, user, **kw: (
+            wrote.update(kw) or {"id": kw["uid"]})
+        self.addCleanup(setattr, calendar_writeback, "create_event", real)
+        self.svc._write_event = self._write
+
+        self.save_page()
+        self.book(self.first_slot())
+        with self.app.app_context():
+            booking = self.Booking.objects.get(owner=self.user)
+            self.assertEqual(wrote["uid"], f"cairn-booking-{booking.pk}@cairn")
+            self.assertEqual(booking.event_id, wrote["uid"])
+        self.assertEqual(wrote["organizer"], ("book-test", "b@example.com"))
+        self.assertEqual([p["email"] for p in wrote["attendees"]],
+                         ["b@example.com", "bob@example.com"])
 
     def _capture_mail(self):
         from application.services import mail

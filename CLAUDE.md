@@ -399,10 +399,17 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   moves an appointment somebody was already told to turn up at; a Teams call
   that fails is `Booking.meeting_error` and never the visitor's problem, same
   rule as a failed event write. Both confirmation mails carry the appointment
-  as an **`.ics` attachment** (`services/booking_ics.py` — `build_ics` is pure
-  for the same reason `free_slots` is; `METHOD:PUBLISH`, not `REQUEST`,
-  because nothing is being asked, and one UID per booking so a second mail
-  updates the entry instead of doubling it). The public page shows DAYS first and that day's times second, as a
+  as an **`.ics` attachment** (`services/booking_ics.py`: `build_ics` is pure
+  for the same reason `free_slots` is). It is ONE meeting everywhere: one UID
+  per booking (`booking_uid`), the same in the guest's invitation, in the event
+  `_write_event` puts into the host's calendar and in the cancellation; the
+  host is ORGANIZER and both sides are ATTENDEEs; the mail is an iMIP
+  `METHOD:REQUEST` (`text/calendar; method=REQUEST`). It was `PUBLISH` with a
+  host event under its own random UID, and the guest's acceptance then arrived
+  for an event the host's calendar did not have. The host's CalDAV copy marks
+  everybody `SCHEDULE-AGENT=CLIENT` so a scheduling server sends no second
+  invitation; Google gets `iCalUID` and `sendUpdates=none`. The host's own
+  mail carries the file only when the calendar write failed. The public page shows DAYS first and that day's times second, as a
   MONTH GRID beside the slot list (`static/js/booking-page.js`): the question
   a visitor arrives with is "which day can I even have", and a fortnight of
   half-hours in one list does not answer it. A day with something free is a

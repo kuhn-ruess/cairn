@@ -275,13 +275,38 @@ def google_create_event(calendar, user, *, title: str, when: datetime,
                         all_day: bool = True, description: str = "",
                         duration_minutes: int = 30,
                         timezone: str | None = None,
-                        location: str = "", alarm_minutes: int = 0) -> dict:
-    """Push a task to a Google calendar as a single all-day or timed event."""
+                        location: str = "", alarm_minutes: int = 0,
+                        uid: str = "", organizer=None, attendees=()) -> dict:
+    """Push a task to a Google calendar as a single all-day or timed event.
+
+    A booking passes ``uid`` and ``attendees``: Google keeps the iCalUID the
+    guest's invitation carries, so the guest's reply finds this event. The
+    organizer is the calendar's owner by definition, and ``sendUpdates=none``
+    keeps Google from mailing a second invitation of its own. Should Google
+    refuse the iCalUID, the event is written without it rather than not at
+    all."""
     token = _ensure_google_access_token(calendar, user)
     cal_id = calendar.calendar_id or "primary"
     body = _event_body(title, when, all_day, description, duration_minutes,
                        timezone, location, alarm_minutes)
-    url = f"{GOOGLE_API_URL}/calendars/{urllib.parse.quote(cal_id)}/events"
+    people = [{"email": p["email"], "displayName": p.get("name") or "",
+               "responseStatus": "accepted" if p.get("partstat") == "ACCEPTED"
+               else "needsAction"} for p in attendees if p.get("email")]
+    if people:
+        body["attendees"] = people
+    url = (f"{GOOGLE_API_URL}/calendars/{urllib.parse.quote(cal_id)}/events"
+           "?sendUpdates=none")
+    if uid:
+        try:
+            return _google_insert(url, token, dict(body, iCalUID=uid))
+        except CalendarError as exc:
+            if " 400:" not in str(exc):
+                raise
+            log.info("Google refused iCalUID %s, inserting without: %s", uid, exc)
+    return _google_insert(url, token, body)
+
+
+def _google_insert(url: str, token: str, body: dict) -> dict:
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST")
     req.add_header("Authorization", f"Bearer {token}")
@@ -1001,7 +1026,8 @@ def _fetch_caldav(calendar, user, since: datetime, until: datetime) -> list[Cale
 def _caldav_event_ics(uid: str, title: str, when: datetime, all_day: bool,
                       description: str, duration_minutes: int,
                       tz_name: str | None, location: str = "",
-                      alarm_minutes: int = 0) -> str:
+                      alarm_minutes: int = 0, organizer=None,
+                      attendees=()) -> str:
     from icalendar import Calendar as ICalendar, Event as IEvent
     cal = ICalendar()
     cal.add("prodid", "-//Cairn//Calendar//EN")
@@ -1029,6 +1055,13 @@ def _caldav_event_ics(uid: str, title: str, when: datetime, all_day: bool,
     # if it is dragged elsewhere in the calendar. ``0`` adds nothing at all.
     from application.services.reminders import add_alarm
     add_alarm(ev, alarm_minutes, title or "Reminder")
+    if organizer:
+        # A booking: the host's own copy of the meeting the guest was invited
+        # to. SCHEDULE-AGENT=CLIENT, because Cairn mails the invitation and a
+        # scheduling server must not send a second one.
+        from application.services.booking_ics import add_participants
+        add_participants(ev, organizer[0], organizer[1], attendees,
+                         schedule_agent="CLIENT")
     cal.add_component(ev)
     return cal.to_ical().decode("utf-8")
 
@@ -1037,13 +1070,19 @@ def caldav_create_event(calendar, user, *, title: str, when: datetime,
                         all_day: bool = True, description: str = "",
                         duration_minutes: int = 30,
                         timezone: str | None = None,
-                        location: str = "", alarm_minutes: int = 0) -> dict:
+                        location: str = "", alarm_minutes: int = 0,
+                        uid: str = "", organizer=None, attendees=()) -> dict:
     """Create an event by PUTting a fresh ``<uid>.ics`` resource. Returns
-    ``{"id": uid}`` so the caller stores the UID like a Google event id."""
+    ``{"id": uid}`` so the caller stores the UID like a Google event id.
+
+    ``uid``/``organizer``/``attendees`` are the booking page's: its event must
+    carry the UID of the invitation the guest got, or the guest's reply
+    matches nothing in the host's calendar."""
     import uuid
-    uid = f"cairn-{uuid.uuid4().hex}"
+    uid = uid or f"cairn-{uuid.uuid4().hex}"
     ics = _caldav_event_ics(uid, title, when, all_day, description,
-                            duration_minutes, timezone, location, alarm_minutes)
+                            duration_minutes, timezone, location, alarm_minutes,
+                            organizer=organizer, attendees=attendees)
     _caldav_request("PUT", _caldav_href(calendar, uid), calendar=calendar, user=user,
                     body=ics, headers={"Content-Type": "text/calendar; charset=utf-8",
                                        "If-None-Match": "*"})

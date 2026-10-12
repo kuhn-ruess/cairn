@@ -10,7 +10,14 @@ import unittest
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from application.services.booking_ics import build_ics
+from types import SimpleNamespace
+
+from application.services.booking_ics import (
+    attachment,
+    build_ics,
+    booking_uid,
+    participants,
+)
 
 BERLIN = ZoneInfo("Europe/Berlin")
 START = datetime(2026, 9, 21, 9, 0, tzinfo=timezone.utc)
@@ -44,17 +51,17 @@ class CancellationTests(unittest.TestCase):
 
     def test_an_invitation_says_none_of_that(self):
         text = unfolded(ics())
-        self.assertIn("METHOD:PUBLISH", text)
+        self.assertIn("METHOD:REQUEST", text)
         self.assertNotIn("STATUS:CANCELLED", text)
         self.assertNotIn("SEQUENCE", text)
 
 
 class IcsTests(unittest.TestCase):
 
-    def test_it_is_one_publishable_event(self):
+    def test_it_is_one_event_with_a_request(self):
         out = ics()
         self.assertIn("BEGIN:VCALENDAR", out)
-        self.assertIn("METHOD:PUBLISH", out)
+        self.assertIn("METHOD:REQUEST", out)
         self.assertEqual(out.count("BEGIN:VEVENT"), 1)
         self.assertTrue(out.endswith("END:VCALENDAR\r\n"))
 
@@ -87,10 +94,11 @@ class IcsTests(unittest.TestCase):
 
     def test_both_sides_are_named(self):
         out = unfolded(ics(organizer_name="Alice", organizer_email="a@example.com",
-                           attendee_name="Bob", attendee_email="bob@example.com"))
-        self.assertIn("ORGANIZER;CN=Alice:MAILTO:a@example.com", out)
-        self.assertIn("ATTENDEE;CN=Bob;ROLE=REQ-PARTICIPANT:MAILTO:bob@example.com",
-                      out)
+                           attendees=[{"name": "Bob", "email": "bob@example.com",
+                                       "rsvp": True}]))
+        self.assertIn("ORGANIZER;CN=Alice:mailto:a@example.com", out)
+        self.assertIn("ATTENDEE;CN=Bob;PARTSTAT=NEEDS-ACTION;ROLE=REQ-PARTICIPANT;"
+                      "RSVP=TRUE:mailto:bob@example.com", out)
 
     def test_nothing_is_written_for_what_was_not_given(self):
         out = ics()
@@ -103,6 +111,100 @@ class IcsTests(unittest.TestCase):
 
     def test_umlauts_survive(self):
         self.assertIn("Müller", unfolded(ics(summary="Alice · Müller")))
+
+
+def booking(**over):
+    kw = dict(pk="abc123", start=START, end=END, name="Bob",
+              email="bob@example.com", note="", meeting_url="")
+    kw.update(over)
+    return SimpleNamespace(**kw)
+
+
+class OneMeetingTests(unittest.TestCase):
+    """The invitation the guest gets and the event in the host's calendar are
+    ONE meeting: same UID, the host as organizer, everybody as attendee. Any
+    reply then lands with the host and matches the host's entry."""
+
+    def invite(self, cancel=False, **over):
+        name, mimetype, data = attachment(booking(**over), host_name="Alice",
+                                          host_email="alice@example.com",
+                                          cancel=cancel)
+        return mimetype, unfolded(data.decode("utf-8"))
+
+    def test_the_host_organizes_and_both_attend(self):
+        _mt, text = self.invite()
+        self.assertIn("ORGANIZER;CN=Alice:mailto:alice@example.com", text)
+        self.assertIn("ATTENDEE;CN=Alice;PARTSTAT=ACCEPTED;ROLE=CHAIR:"
+                      "mailto:alice@example.com", text)
+        self.assertIn("ATTENDEE;CN=Bob;PARTSTAT=NEEDS-ACTION;ROLE=REQ-PARTICIPANT;"
+                      "RSVP=TRUE:mailto:bob@example.com", text)
+        self.assertEqual(text.count("BEGIN:VEVENT"), 1)
+
+    def test_it_is_an_imip_request(self):
+        """RFC 5546: a PUBLISH must not carry ATTENDEEs. RFC 6047: the
+        method rides on the MIME type too, Outlook and Gmail read it there."""
+        mimetype, text = self.invite()
+        self.assertEqual(mimetype, "text/calendar; method=REQUEST")
+        self.assertIn("METHOD:REQUEST", text)
+        self.assertIn(f"UID:{booking_uid(booking())}", text)
+
+    def test_the_cancellation_names_the_same_people(self):
+        mimetype, text = self.invite(cancel=True)
+        self.assertEqual(mimetype, "text/calendar; method=CANCEL")
+        self.assertIn(f"UID:{booking_uid(booking())}", text)
+        self.assertIn("ORGANIZER;CN=Alice:mailto:alice@example.com", text)
+        self.assertIn("mailto:bob@example.com", text)
+
+    def test_a_host_booking_themselves_is_one_attendee(self):
+        people = participants(booking(email="Alice@example.com"),
+                              host_name="Alice", host_email="alice@example.com")
+        self.assertEqual([p["email"] for p in people], ["alice@example.com"])
+
+    def test_without_a_host_address_only_the_guest_attends(self):
+        people = participants(booking(), host_name="Alice", host_email="")
+        self.assertEqual([p["email"] for p in people], ["bob@example.com"])
+
+
+class HostCalendarCopyTests(unittest.TestCase):
+    """The event PUT into the host's CalDAV calendar is the same meeting."""
+
+    def test_it_carries_the_invitation_uid_and_the_people(self):
+        from application.services.calendar_sync import _caldav_event_ics
+
+        b = booking()
+        people = participants(b, host_name="Alice", host_email="alice@example.com")
+        text = unfolded(_caldav_event_ics(
+            booking_uid(b), "Bob (30 min)", START, False, "", 30, None,
+            organizer=("Alice", "alice@example.com"), attendees=people))
+        self.assertIn(f"UID:{booking_uid(b)}", text)
+        # SCHEDULE-AGENT=CLIENT (RFC 6638): Cairn mails the invitation, the
+        # server must not send a second one.
+        self.assertIn("ORGANIZER;CN=Alice;SCHEDULE-AGENT=CLIENT:"
+                      "mailto:alice@example.com", text)
+        self.assertIn("RSVP=TRUE;SCHEDULE-AGENT=CLIENT:mailto:bob@example.com",
+                      text)
+        self.assertNotIn("METHOD", text)   # a stored object, not a message
+
+    def test_a_plain_task_event_has_nobody_in_it(self):
+        from application.services.calendar_sync import _caldav_event_ics
+
+        text = _caldav_event_ics("cairn-x", "Task", START, False, "", 30, None)
+        self.assertNotIn("ORGANIZER", text)
+        self.assertNotIn("ATTENDEE", text)
+
+
+class MailPartTests(unittest.TestCase):
+
+    def test_the_method_reaches_the_mime_part(self):
+        from application.services import mail
+
+        msg = mail._build(  # noqa: SLF001
+            "cairn@example.com", "bob@example.com", "s", "b", None,
+            [("appointment.ics", "text/calendar; method=REQUEST", b"X")])
+        part = msg.get_payload()[-1]
+        self.assertEqual(part.get_content_type(), "text/calendar")
+        self.assertEqual(part.get_param("method"), "REQUEST")
+        self.assertEqual(part.get_param("charset"), "utf-8")
 
 
 if __name__ == "__main__":

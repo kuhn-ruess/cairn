@@ -99,9 +99,16 @@ def _build(sender: str, to: str, subject: str, body: str, html, attachments):
     if html:
         msg.add_alternative(html, subtype="html")
     for filename, mimetype, data in (attachments or []):
+        # ``text/calendar; method=REQUEST``: the parameters after the type
+        # ride along, iMIP needs ``method`` on the part.
+        mimetype, *params = [p.strip() for p in mimetype.split(";")]
         maintype, _, subtype = mimetype.partition("/")
         msg.add_attachment(data, maintype=maintype, subtype=subtype or "plain",
                            filename=filename)
+        for param in params:
+            key, _, value = param.partition("=")
+            if key and value:
+                msg.get_payload()[-1].set_param(key.strip(), value.strip())
         # Attached bytes carry no charset of their own, so a text part would
         # be read as us-ascii — and a guest called Müller comes out broken in
         # the calendar entry.

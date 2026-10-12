@@ -458,6 +458,7 @@ def _write_event(user, page, booking) -> None:
     """Put the appointment in the user's calendar. Never fatal to the booking:
     a visitor who has already been told "confirmed" must not see an error
     because an ics PUT timed out — the owner sees it, on the booking."""
+    from application.services.booking_ics import booking_uid, participants
     from application.services.calendar_sync import CalendarError
     from application.services.calendar_writeback import create_event
 
@@ -477,6 +478,7 @@ def _write_event(user, page, booking) -> None:
         body.append(f"Their timezone: {booking.guest_timezone}")
     if booking.note:
         body.extend(["", booking.note])
+    host_name = user.display_name or user.username
     try:
         created = create_event(
             cal, user,
@@ -486,7 +488,14 @@ def _write_event(user, page, booking) -> None:
             timezone=(user.timezone or None),
             # The meeting link belongs in LOCATION: that is the field a
             # calendar turns into a join button, on the lock screen too.
-            location=booking.meeting_url or "")
+            location=booking.meeting_url or "",
+            # The same event the guest is invited to: same UID, the host as
+            # organizer, both as attendees. Otherwise the guest's acceptance
+            # arrives for a UID this calendar has never seen.
+            uid=booking_uid(booking),
+            organizer=(host_name, user.email) if user.email else None,
+            attendees=participants(booking, host_name=host_name,
+                                   host_email=user.email or ""))
         booking.calendar_id = str(cal.pk_ref)
         booking.event_id = created.get("id") or ""
     except CalendarError as exc:
@@ -554,9 +563,13 @@ def send_confirmations(user, booking) -> None:
     stamp = when_host.strftime("%a %d %b %Y, %H:%M")
     who = booking.name or booking.email or "Someone"
     host_name = user.display_name or user.username
-    # The same invitation goes to both sides — one appointment, one UID, so
-    # whichever calendar it is dropped into shows the same entry.
+    # One appointment, one UID: the guest's invitation names the host as
+    # organizer, and the host's calendar already holds that very event
+    # (``_write_event``). The host only gets the file when that write failed:
+    # a second copy, dropped into some other calendar, is a second event the
+    # replies then may or may not find.
     invite = [attachment(booking, host_name=host_name, host_email=user.email or "")]
+    host_invite = invite if not booking.event_id else None
     where = f"Where: {booking.meeting_url}\n" if booking.meeting_url else ""
     # The host is the one who needs to know whose room this is: a link they
     # didn't set is the guest's, and it is worth a look before the day.
@@ -570,7 +583,7 @@ def send_confirmations(user, booking) -> None:
         + theirs +
         f"Email: {booking.email or '—'}\n"
         f"Note: {booking.note or '—'}\n",
-        attachments=invite,
+        attachments=host_invite,
     )
     if booking.email:
         guest_stamp = stamp
