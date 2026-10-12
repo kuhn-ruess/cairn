@@ -23,6 +23,9 @@ Mapping
 * State "closed"/"merged"/"pending close" → ``status=done`` with
   ``completed_at`` stamped; every other state → ``status=open`` (a
   ticket that leaves "pending close" again reopens its Cairn task).
+  Of an open ticket, whose move it is refines that (:func:`_turn_status`):
+  answered last → ``waiting_reply`` (and a plan date up to today is dropped,
+  so the task leaves Today), the customer wrote back → ``next``.
 * ``ticket.url`` (if Zammad exposes one) is appended to the note as a
   back-link.
 """
@@ -42,6 +45,7 @@ from typing import Any
 
 from application.models.item import Comment, Item
 from application.models.user import User
+from application.services.tzutil import local_date, resolve_tz
 
 log = logging.getLogger(__name__)
 
@@ -242,6 +246,25 @@ _DONE_STATES = {
     "closed", "merged",
     "pending close", "warten auf schließen", "warten auf schliessen",
 }
+
+
+def _turn_status(raw: dict) -> str | None:
+    """Whose move it is, as a task status — or ``None`` when that says nothing.
+
+    Zammad stamps ``last_contact_agent_at`` / ``last_contact_customer_at`` only
+    for what the customer sees, so an internal note moves neither. The answer
+    went out last → ``waiting_reply``: the work is done until they write back.
+    They wrote back after an answer → ``next``. A ticket nobody has answered yet
+    is new inbound work and stays where the state mapping put it (``open``) —
+    it has not been triaged, so it is not a next action yet.
+    """
+    agent = _stamp(raw.get("last_contact_agent_at"))
+    if agent is None:
+        return None
+    customer = _stamp(raw.get("last_contact_customer_at"))
+    if customer is not None and customer > agent:
+        return "next"
+    return "waiting_reply"
 
 
 # How far back an incremental run reaches beyond the last sync. Clocks drift,
@@ -788,9 +811,26 @@ def _upsert_ticket(
         # ``cairn_status`` we compute from Zammad's state only fits
         # tasks. For a project the user has clearly chosen to manage
         # the lifecycle locally; don't clobber their status / priority.
+        plan_dropped = False
         if existing.kind == "task":
             if not keep_scheduled:
+                was = existing.status
                 existing.status = cairn_status
+                if cairn_status != "done":
+                    existing.status = _turn_status(raw) or cairn_status
+                # The answer is out: the ticket's plan block has done its job
+                # (the time is logged on it) and must not carry the task into
+                # tomorrow's Today as "planned, overdue". Only on the way IN to
+                # waiting — a block planned while already waiting is a
+                # deliberate chase — and only today or earlier; a later one
+                # is a plan for the future.
+                if (existing.status == "waiting_reply" and was != "waiting_reply"
+                        and existing.plan_date is not None):
+                    tz = resolve_tz(user)
+                    if (local_date(existing.plan_date, tz)
+                            <= datetime.now(tz).date()):
+                        existing.plan_date = None
+                        plan_dropped = True
             # Priority left untouched — not imported from Zammad (see above),
             # and a re-sync must never clobber a priority the user set.
             # Record the close channel when Zammad's state closed it, so
@@ -818,6 +858,15 @@ def _upsert_ticket(
         # Parent stays put either way: the user might have moved the
         # task / project into a specific place after the first import.
         existing.save()
+        if plan_dropped:
+            # The mirrored plan event goes with the plan date — the same
+            # write-back the "clear plan" button does.
+            from application.services.calendar_writeback import (
+                sync_task_to_calendar,
+            )
+            stats.errors.extend(
+                f"calendar for {znum}: {w}"
+                for w in sync_task_to_calendar(existing, user) or [])
         _import_time_accounting(user, existing, base, token, zid, znum, stats,
                                 me_id, raw=raw, opts=opts)
         if existing.trashed_at is not None:
@@ -839,7 +888,8 @@ def _upsert_ticket(
             kind="task",
             title=title,
             note=note,
-            status=cairn_status,
+            status=(cairn_status if cairn_status == "done"
+                    else _turn_status(raw) or cairn_status),
             parent=project,
             external_id=todoist_key,
             external_ref=znum,
