@@ -727,8 +727,15 @@ def _plan_mine_q(user):
     stays out — unless ``plan_show_delegated`` is on, which brings back the
     ones I OWN (the same switch as the Next rail, so a delegated task dragged
     from that rail onto the day doesn't vanish there). Shared by the timeline,
-    "Plan my day" and "Carry over", so all three agree on what's on the day."""
-    mine = Q(assigned_to=None) | Q(assigned_to=user)
+    "Plan my day" and "Carry over", so all three agree on what's on the day.
+
+    "Unassigned" only counts on a task I OWN. The callers run on the wide
+    ``_scope``, which also reaches tasks I am merely a member of, and handing
+    the ownership of a task to somebody else leaves me in ``members`` on
+    purpose (see ``_apply_form``). A bare ``assigned_to=None`` let exactly that
+    task, now owned by someone else and assigned to nobody, keep coming back
+    onto my day."""
+    mine = (Q(owner=user) & Q(assigned_to=None)) | Q(assigned_to=user)
     if user.plan_show_delegated:
         mine = mine | Q(owner=user)
     return mine
@@ -871,7 +878,9 @@ def _next_actions_pool(user, now, seen_pks, limit=None):
     """
     candidates = list(
         Item.objects(_scope(user), kind="task", status="next")
-        .filter(Q(assigned_to=None) | Q(assigned_to=user) | Q(owner=user))
+        # Mine or assigned to me. Not "unassigned" on its own: that matched a
+        # task whose ownership I handed away (I stay a member of it).
+        .filter(Q(owner=user) | Q(assigned_to=user))
         .order_by("+sort_order", "+due_date")
     )
     _prefetch_refs(candidates)
@@ -1318,7 +1327,9 @@ def today():
             })
         # Completed/dropped tasks that were planned in this window stay on the
         # grid, struck through (filtered excludes them as it drives the list).
-        for t in Item.objects(_scope(user), kind="task",
+        # Same scope as ``qs`` above, so a finished task shows up only where
+        # the open one would have.
+        for t in Item.objects(_perspective_scope(user), kind="task",
                               status__in=["done", "completed", "dropped"],
                               plan_date__gte=start_dt, plan_date__lt=end_dt):
             dt = _to_user(t.plan_date)
