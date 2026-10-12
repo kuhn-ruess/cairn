@@ -67,10 +67,28 @@ class ScoringTests(unittest.TestCase):
         c.done = ["run:1"]
         c.habitify_counts = {"gym:1": 3, "gym:2": 2}
         self.assertEqual(tw.week_score(c, 1), {"week": 1, "planned": 3, "done": 2, "score": 67})
-        # Two Habitify days of three is not done.
-        self.assertEqual(tw.week_score(c, 2)["done"], 0)
+        # Two Habitify days of three is not done, but two thirds executed.
+        self.assertEqual(tw.week_score(c, 2), {"week": 2, "planned": 3, "done": 0, "score": 22})
         # Week 3: run and gym planned, nothing done.
         self.assertEqual(tw.week_score(c, 3)["planned"], 2)
+
+    def test_a_habit_partly_done_counts_its_share(self):
+        c = _cycle()
+        c.tactics = [TwyTactic(tid="read", gid="g1", title="Read", recurring=True,
+                               habitify_id="h-read", per_week=4)]
+        c.habitify_counts = {"read:1": 1}
+        self.assertEqual(tw.week_score(c, 1), {"week": 1, "planned": 1, "done": 0, "score": 25})
+        self.assertEqual(tw.goal_week_score(c, "g1", 1)["score"], 25)
+        self.assertEqual(tw.goal_average(c, "g1", date(2026, 10, 14)), 25)
+        # "+1" logs count the same way; more than planned is still 100 %.
+        c.tactics.append(TwyTactic(tid="walk", gid="g1", title="Walk", recurring=True,
+                                   per_week=2, log=["2026-10-06"]))
+        self.assertEqual(tw.week_score(c, 1)["score"], 38)  # (1/4 + 1/2) / 2
+        c.habitify_counts = {"read:1": 6}
+        self.assertAlmostEqual(tw.credit(c, c.tactic("read"), 1), 1.0)
+        # A manual tick is the whole tactic.
+        c.done = ["walk:1"]
+        self.assertEqual(tw.week_score(c, 1), {"week": 1, "planned": 2, "done": 2, "score": 100})
 
     def test_empty_week_has_no_score(self):
         c = _cycle()

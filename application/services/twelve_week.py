@@ -117,6 +117,17 @@ def is_done(cycle, tactic, week: int) -> bool:
     return False
 
 
+def credit(cycle, tactic, week: int) -> float:
+    """The share of ``tactic`` executed in ``week``, 0 to 1: a tick is all
+    of it, a habit counted 1 of 4 times is a quarter. Scores add these up,
+    so a week begun is not shown as 0 % until every habit is complete."""
+    if key(tactic.tid, week) in (cycle.done or []):
+        return 1.0
+    if tactic.habitify_id or tactic.log:
+        return min(1.0, count(cycle, tactic, week) / (tactic.per_week or 1))
+    return 0.0
+
+
 def counted(tactic) -> bool:
     """Shown as a "+1" counter rather than a checkbox."""
     return (tactic.per_week or 1) > 1
@@ -172,13 +183,16 @@ def gaps(tactic) -> list[int]:
 def week_score(cycle, week: int) -> dict:
     """``{"planned", "done", "score"}`` for one week; ``score`` is None when
     nothing was planned, because 0 of 0 is not a failed week."""
-    total = done = 0
-    for t in cycle.tactics:
-        if planned(t, week):
-            total += 1
-            if is_done(cycle, t, week):
-                done += 1
-    score = round(done / total * 100) if total else None
+    return _score(cycle, [t for t in cycle.tactics if planned(t, week)], week)
+
+
+def _score(cycle, tactics, week: int) -> dict:
+    """``done`` counts the tactics executed in full, ``score`` the share of
+    the plan executed, partly done habits included (see :func:`credit`)."""
+    total = len(tactics)
+    done = sum(1 for t in tactics if is_done(cycle, t, week))
+    executed = sum(credit(cycle, t, week) for t in tactics)
+    score = round(executed / total * 100) if total else None
     return {"week": week, "planned": total, "done": done, "score": score}
 
 
@@ -186,14 +200,8 @@ def goal_week_score(cycle, gid: str, week: int) -> dict:
     """The execution score of ONE goal's tactics in ``week``: a habit that
     serves several goals counts in each of them here, and once in
     :func:`week_score`."""
-    total = done = 0
-    for t in cycle.tactics:
-        if serves(t, gid) and planned(t, week):
-            total += 1
-            if is_done(cycle, t, week):
-                done += 1
-    return {"week": week, "planned": total, "done": done,
-            "score": round(done / total * 100) if total else None}
+    return _score(cycle, [t for t in cycle.tactics
+                          if serves(t, gid) and planned(t, week)], week)
 
 
 def goal_average(cycle, gid: str, today: date):
