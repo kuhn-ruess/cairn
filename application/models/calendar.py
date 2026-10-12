@@ -11,8 +11,10 @@ from bson import ObjectId
 from mongoengine import (
     BooleanField,
     DateTimeField,
+    Document,
     EmbeddedDocument,
     ObjectIdField,
+    ReferenceField,
     StringField,
 )
 
@@ -98,3 +100,26 @@ class ExternalCalendar(EmbeddedDocument):
 
     def __str__(self) -> str:
         return self.name
+
+
+class EventCustomer(Document):
+    """Whose meeting a calendar event is — said by hand, per user.
+
+    Events are not stored in Cairn (they are read from the calendars on every
+    page), so the answer is kept beside them, keyed by the event's SERIES uid
+    (``services/event_customers.series_uid``): a weekly jour fixe is filed
+    once, not every Monday. ``customer`` empty means "no customer" said on
+    purpose, which is what silences a wrong suggestion from the title; no row
+    at all means nobody said anything, and the title is asked.
+    """
+
+    meta = {"collection": "event_customers",
+            "indexes": [{"fields": ["owner", "uid"], "unique": True}]}
+
+    owner = ReferenceField("User", required=True)
+    uid = StringField(required=True, max_length=1024)
+    customer = ReferenceField("Customer")
+    # What the event was called when it was filed — for whoever reads the
+    # collection; nothing looks it up.
+    title = StringField(default="", max_length=500)
+    updated_at = DateTimeField(default=_utcnow)

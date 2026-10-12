@@ -5,7 +5,7 @@
    is --plan-ppm (px per minute); items are absolutely positioned by time.
    Interactions (drag to reschedule, resize, "Plan my day") are wired by the
    inline plan-view JS in today.html. #}
-{% from "tasks/_event_note_macros.html" import event_note_btn, event_log_btn, task_note_btn with context %}
+{% from "tasks/_event_note_macros.html" import event_note_btn, event_log_btn, event_customer_btn, task_note_btn with context %}
 {# Row colours for everything on this page in ONE resolve: the timed task cards
    and both rails. ``task_colors`` caches per item, so asking for the union here
    costs the same as asking three times and keeps the three shapes in step. #}
@@ -144,13 +144,14 @@
                   {% if it.obj.url %}<a href="{{ it.obj.url }}" target="_blank" rel="noopener">{{ it.title }}</a>
                   {% else %}{{ it.title }}{% endif %}
                 </div>
-                <div class="plan-card-meta">{{ tspan }}{% if it.obj.location %} · <i class="bi bi-geo-alt"></i> {{ it.obj.location }}{% endif %}</div>
+                {% set _cust = event_customers.get(it.obj.uid) if it.obj.uid else None %}
+                <div class="plan-card-meta">{{ tspan }} {{ event_customer_btn(it.obj, _cust) }}{% if it.obj.location %} · <i class="bi bi-geo-alt"></i> {{ it.obj.location }}{% endif %}</div>
                 {# "## Briefing" of a linked note; clipped by the card height #}
                 {% set brief = event_briefings.get(it.obj.uid) if it.obj.uid else None %}
                 {% if brief %}<div class="plan-card-brief md-body">{{ brief|markdown }}</div>{% endif %}
               </div>
               {% if it.obj.uid %}{{ event_note_btn(it.obj, event_note_counts.get(it.obj.uid, 0)) }}{% endif %}
-              {{ event_log_btn(it.obj) }}
+              {{ event_log_btn(it.obj, _cust) }}
             </div>
           {% else %}
             {% set _c = _rc.get(it.obj.pk|string) %}

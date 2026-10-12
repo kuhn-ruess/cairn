@@ -45,7 +45,7 @@
 
   let loaded = Promise.resolve();
   // What a calendar event's "Log time" button hands over (event_log_btn):
-  // title, day, start, end, minutes. Taken by the next load and dropped, so a
+  // title, day, start, end, minutes, customer. Taken by the next load and dropped, so a
   // later `t` opens the dialog empty again.
   let prefill = null;
 
@@ -71,8 +71,11 @@
     const taken = prefill;
     prefill = null;
     body.innerHTML = '<p class="text-muted small mb-0">Loading…</p>';
-    // An event is not about the task that happens to be open beside it.
-    const url = modalEl.dataset.formUrl + "?" + new URLSearchParams(taken ? {} : detectContext());
+    // An event is not about the task that happens to be open beside it; its
+    // own customer (the chip on the event) is the context, if it has one.
+    const ctx = taken ? (taken.logCustomer ? { customer: taken.logCustomer } : {})
+                      : detectContext();
+    const url = modalEl.dataset.formUrl + "?" + new URLSearchParams(ctx);
     loaded = fetch(url, { credentials: "same-origin" })
       .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
       .then((html) => {

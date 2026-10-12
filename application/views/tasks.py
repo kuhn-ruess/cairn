@@ -1170,6 +1170,15 @@ def today():
         # Two notes briefing the same event → both, in one block.
         event_briefings = {u: "\n\n".join(b) for u, b in event_briefings.items()}
 
+    # Whose meeting each event is — filed by hand per series, else suggested
+    # from the title (services/event_customers). Two queries for the window.
+    event_customers = {}
+    if events:
+        from application.services.timetracking import has_team
+        if has_team(user):
+            from application.services.event_customers import for_events
+            event_customers = for_events(user, events)
+
     # How many linked NOTES each shown task has, for its note button badge
     # (one batched query — see Item.note_counts_for).
     task_note_counts = Item.note_counts_for(filtered + projects_with_dates)
@@ -1556,6 +1565,7 @@ def today():
         plan_data=plan_data,
         event_note_counts=event_note_counts,
         event_briefings=event_briefings,
+        event_customers=event_customers,
         task_note_counts=task_note_counts,
     )
 
@@ -3141,6 +3151,19 @@ def auto_plan():
     seen = {c["obj"].pk for c in cands} | {it["obj"].pk for it in timed_tasks}
     next_cands, _ = _next_actions_pool(user, now, seen)
     next_cands.sort(key=order)
+    # The day's meetings say whose work is on today: the Next actions of a
+    # customer the user meets come before the rest (prep and follow-up for
+    # the meeting), in their own order. Due tasks stay first — they are due.
+    meet = set()
+    if next_cands and events:
+        from application.services.timetracking import has_team
+        if has_team(user):
+            from application.services.event_customers import for_events
+            meet = {i["name"] for i in for_events(user, events).values()}
+    if meet:
+        from application.services.containers import customer_labels
+        labels = customer_labels([c["obj"] for c in next_cands])
+        next_cands.sort(key=lambda c: labels.get(str(c["obj"].pk)) not in meet)
     cands = [(c, False) for c in cands] + [(c, True) for c in next_cands]
     cands, starts = _plan_grouped(cands, user.plan_grouping, busy,
                                   window_start, window_end, gap)
@@ -3173,6 +3196,61 @@ def auto_plan():
     return jsonify({"ok": True, "planned": planned, "skipped": skipped,
                     "next_left": next_left, "carried": carried,
                     "warnings": warnings})
+
+
+@tasks_bp.route("/event-customer")
+@login_required
+def event_customer_panel():
+    """What the customer chip on a calendar event opens: who it is filed under
+    (or suggested), every customer it could be, and that customer's open
+    tasks. ``uid`` + ``title`` come from the chip; nothing is written."""
+    from flask import jsonify
+    from types import SimpleNamespace
+    from application.services import event_customers as ec
+    from application.services.customers import customer_choices
+
+    user = current_user._get_current_object()
+    uid = (request.args.get("uid") or "").strip()
+    title = (request.args.get("title") or "").strip()
+    if not uid:
+        return jsonify({"error": "no event"}), 400
+    info = ec.for_events(user, [SimpleNamespace(uid=uid, title=title)]).get(uid)
+    from application.models.calendar import EventCustomer
+    filed = EventCustomer.objects(owner=user, uid=ec.series_uid(uid)).first() is not None
+    tasks, total = ec.open_tasks(user, info["name"]) if info else ([], 0)
+    return jsonify({
+        "current": info,
+        "filed": filed,
+        "customers": [{"id": cid, "label": label}
+                      for cid, label in customer_choices(user)],
+        "tasks": [{"title": t.title, "next": t.status == "next",
+                   "url": url_for("tasks.detail", task_id=str(t.pk)),
+                   "edit_url": url_for("tasks.edit", task_id=str(t.pk))}
+                  for t in tasks],
+        "tasks_total": total,
+    })
+
+
+@tasks_bp.route("/event-customer", methods=["POST"])
+@login_required
+def event_customer_assign():
+    """File a calendar event's series under a customer (``customer`` = id),
+    under none on purpose (``none``), or back to the title's suggestion
+    (empty). Answers what the chip shows now."""
+    from flask import jsonify
+    from types import SimpleNamespace
+    from application.services import event_customers as ec
+
+    user = current_user._get_current_object()
+    uid = (request.form.get("uid") or "").strip()
+    title = (request.form.get("title") or "").strip()
+    try:
+        ec.assign(user, uid, (request.form.get("customer") or "").strip(), title)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    info = ec.for_events(user, [SimpleNamespace(uid=uid, title=title)]).get(uid)
+    return jsonify({"ok": True, "current": info,
+                    "series": ec.series_uid(uid)})
 
 
 @tasks_bp.route("/<task_id>/move-options")

@@ -36,8 +36,9 @@
    way the picked project books, the meeting is already in it. Times are the
    user's wall-clock, the same ``localdt`` the row prints. All-day events and
    users without a team get no button: there is no length to book, or nowhere
-   to book it. #}
-{% macro event_log_btn(ev) -%}
+   to book it. ``cust`` is the event's customer (``event_customers``), which
+   the dialog preselects a billing project of. #}
+{% macro event_log_btn(ev, cust=None) -%}
 {% if not ev.all_day and ev.start and ev.end and (current_user.team or current_user.is_team_admin) -%}
 {% set _s = ev.start|localdt %}{% set _e = ev.end|localdt -%}
 <button type="button" class="event-log-btn"
@@ -46,8 +47,30 @@
         data-log-date="{{ _s[:10] }}"
         data-log-start="{{ _s[11:16] }}"
         data-log-end="{{ _e[11:16] }}"
-        data-log-minutes="{{ ((ev.end - ev.start).total_seconds() // 60)|int }}">
+        data-log-minutes="{{ ((ev.end - ev.start).total_seconds() // 60)|int }}"
+        data-log-customer="{{ cust.id if cust else '' }}">
   <i class="bi bi-stopwatch"></i>
+</button>
+{%- endif %}
+{%- endmacro %}
+
+
+{# Whose meeting this is: the customer the event's series was filed under,
+   or the one its title suggests (dashed, with a "?"), or a bare icon. Opens
+   the panel in event-customer.js to file it and to see that customer's open
+   tasks (services/event_customers.py). The dot is the customer's row colour
+   and only shows where rows are coloured by customer. #}
+{% macro event_customer_btn(ev, cust=None) -%}
+{% if ev.uid and (current_user.team or current_user.is_team_admin) -%}
+<button type="button"
+        class="event-cust-btn{% if cust %} has-customer{% if cust.suggested %} is-suggested{% endif %}{% endif %}"
+        title="{% if cust and cust.suggested %}Suggested from the title: {{ cust.name }} — click to confirm or change{% elif cust %}Customer: {{ cust.name }}{% else %}Assign a customer{% endif %}"
+        aria-label="Customer of this event"
+        data-event-uid="{{ ev.uid }}"
+        data-event-title="{{ ev.title }}"
+        data-dot="{{ '1' if current_user.color_by == 'customer' else '' }}">
+  {%- if cust and current_user.color_by == 'customer' %}<span class="event-cust-dot" style="--dot: {{ cust.color }};"></span>{% else %}<i class="bi bi-building"></i>{% endif -%}
+  {%- if cust %}<span class="event-cust-name">{{ cust.name }}{% if cust.suggested %}?{% endif %}</span>{% endif -%}
 </button>
 {%- endif %}
 {%- endmacro %}

@@ -1,5 +1,5 @@
 {% extends "layout/base.html" %}
-{% from "tasks/_event_note_macros.html" import event_note_btn, event_log_btn, task_note_btn with context %}
+{% from "tasks/_event_note_macros.html" import event_note_btn, event_log_btn, event_customer_btn, task_note_btn with context %}
 {% set page_project_sidebar = true %}
 {% set _ns = namespace(pks=[]) %}
 {% for t in tasks %}
@@ -38,6 +38,7 @@
   .cal-pill-event .event-log-btn { vertical-align: baseline; }
   .plan-card-event .event-log-btn { position: absolute; top: 2px; right: 4px; }
   .plan-card-event .event-notes-btn ~ .event-log-btn { right: 2rem; }
+  .cal-pill-event .event-cust-btn { vertical-align: baseline; }
 
   /* "Next actions" drop strip — only visible while a next-action pill is
      being dragged (class toggled on <body> by today-next.js). */
@@ -218,8 +219,10 @@
       </span>
       {% if ev.location %}<span class="cal-event-loc"><i class="bi bi-geo-alt"></i> {{ ev.location }}</span>{% endif %}
       <span class="cal-event-cal" style="color: {{ ev.calendar_color }};">{{ ev.calendar_name }}</span>
+      {% set _cust = event_customers.get(ev.uid) if ev.uid else None %}
+      {{ event_customer_btn(ev, _cust) }}
       {% if ev.uid %}{{ event_note_btn(ev, event_note_counts.get(ev.uid, 0)) }}{% endif %}
-      {{ event_log_btn(ev) }}
+      {{ event_log_btn(ev, _cust) }}
     </div>
     {# "## Briefing" section of a linked note — prep for this event #}
     {% set brief = event_briefings.get(ev.uid) if ev.uid else None %}
@@ -237,8 +240,10 @@
         {% if it.start %}<span class="cal-pill-time">{{ '%02d:%02d'|format(it.start.hour, it.start.minute) }}</span>{% endif %}
         {% if it.obj.url %}<a href="{{ it.obj.url }}" target="_blank" rel="noopener">{{ it.title }}</a>
         {% else %}{{ it.title }}{% endif %}
+        {% set _cust = event_customers.get(it.obj.uid) if it.obj.uid else None %}
+        {{ event_customer_btn(it.obj, _cust) }}
         {% if it.obj.uid %}{{ event_note_btn(it.obj, event_note_counts.get(it.obj.uid, 0)) }}{% endif %}
-        {{ event_log_btn(it.obj) }}
+        {{ event_log_btn(it.obj, _cust) }}
       </span>
     {% else %}
       <span class="cal-pill cal-pill-task{% if it.done %} is-done{% endif %}"

@@ -609,6 +609,17 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   local **midnight** (which the whole app reads as "this day" — an alarm there
   rings at 23:50 the evening before) and skips a closed task. The booking `.ics`
   deliberately carries none: the guest's calendar has its own default
+- `event_customers.py` — **whose meeting a calendar event is.** Events are
+  never stored, so the answer sits beside them (`EventCustomer`, keyed by the
+  SERIES uid — `series_uid` strips CalDAV's `#<start>` and Google's
+  `_<date>` — so a weekly jour fixe is filed once). Filed by hand from the
+  chip on the event (`static/js/event-customer.js`, `/tasks/event-customer`;
+  `customer` empty = "none" on purpose, which silences a wrong suggestion),
+  else `suggest()` reads it off the TITLE: legal forms dropped, whole words,
+  the longer of two nested names, and nothing at all when two customers
+  match. Used by the event's Log time button (preselects that customer's
+  project), the chip's panel (the customer's open tasks) and "Plan my day"
+  (Next actions of a customer met that day go first)
 - `colors.py` — **a row's colour, derived from the work it belongs to**
   (`User.color_by`: `none` / `project` / `customer`). `Item.color` was settable
   on a project and rendered nowhere; this reads it, **inherited** from the
