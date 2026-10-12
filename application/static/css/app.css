@@ -3043,13 +3043,15 @@ input.dt-empty:not(:focus)::-webkit-datetime-edit {
 
 /* Note button on tasks / calendar events (day view + every task row) and its
    pop-up panel (see event-notes.js, tasks/_event_note_macros.html). */
-.event-notes-btn {
+.event-notes-btn,
+.event-log-btn {
   border: 0; background: transparent; padding: 0 .25rem; cursor: pointer;
   color: var(--bs-secondary-color, #6c757d); line-height: 1;
   display: inline-flex; align-items: center; gap: .1rem; font-size: .8rem;
   opacity: .55; transition: opacity .12s ease, color .12s ease;
 }
 .event-notes-btn:hover,
+.event-log-btn:hover,
 .event-notes-btn.has-notes { opacity: 1; color: var(--bs-primary, #0d6efd); }
 .event-notes-count { font-size: .7rem; font-weight: 600; }
 /* In list rows the button sits among the other muted row actions. */

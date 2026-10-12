@@ -44,14 +44,40 @@
   }
 
   let loaded = Promise.resolve();
+  // What a calendar event's "Log time" button hands over (event_log_btn):
+  // title, day, start, end, minutes. Taken by the next load and dropped, so a
+  // later `t` opens the dialog empty again.
+  let prefill = null;
+
+  // Both the duration and the clock pair are filled: the project decides
+  // which of the two is shown and sent, and the picker may change it.
+  function applyPrefill(p) {
+    const set = (sel, v) => {
+      const el = body.querySelector(sel);
+      if (el && v) el.value = v;
+    };
+    set(".time-add-note", p.logNote);
+    set(".time-add-date", p.logDate);
+    set(".time-add-start", p.logStart);
+    set(".time-add-end", p.logEnd);
+    const min = parseInt(p.logMinutes, 10);
+    if (min > 0) {
+      const h = Math.floor(min / 60), m = min % 60;
+      set(".time-add-duration", h ? (m ? `${h}h${m}m` : `${h}h`) : `${m}m`);
+    }
+  }
 
   function load() {
+    const taken = prefill;
+    prefill = null;
     body.innerHTML = '<p class="text-muted small mb-0">Loading…</p>';
-    const url = modalEl.dataset.formUrl + "?" + new URLSearchParams(detectContext());
+    // An event is not about the task that happens to be open beside it.
+    const url = modalEl.dataset.formUrl + "?" + new URLSearchParams(taken ? {} : detectContext());
     loaded = fetch(url, { credentials: "same-origin" })
       .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
       .then((html) => {
         body.innerHTML = html;
+        if (taken) applyPrefill(taken);
         // The chips and clock buttons repeat what the fields take typed, so
         // they stay out of the tab order — note → duration is one Tab, the
         // same reasoning as the quick-add's date chips.
@@ -70,6 +96,15 @@
   }
 
   modalEl.addEventListener("show.bs.modal", load);
+
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest && ev.target.closest(".event-log-btn");
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    prefill = { ...btn.dataset };
+    modal.show();
+  });
   // Focus in ``shown`` for the same reason as quick-add.js: Bootstrap's focus
   // trap takes the caret back at the end of the fade.
   modalEl.addEventListener("shown.bs.modal", () => loaded.then(focusFirst));

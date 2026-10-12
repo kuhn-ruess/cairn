@@ -29,3 +29,25 @@
   <i class="bi bi-journal-text"></i>{% if count %}<span class="event-notes-count">{{ count }}</span>{% endif %}
 </button>
 {%- endmacro %}
+
+{# "Log time" on a calendar event: opens the global Log time dialog
+   (quick-log.js) with the event's title as the note and its day, start, end
+   and length filled in — both the duration and the clock pair, so whichever
+   way the picked project books, the meeting is already in it. Times are the
+   user's wall-clock, the same ``localdt`` the row prints. All-day events and
+   users without a team get no button: there is no length to book, or nowhere
+   to book it. #}
+{% macro event_log_btn(ev) -%}
+{% if not ev.all_day and ev.start and ev.end and (current_user.team or current_user.is_team_admin) -%}
+{% set _s = ev.start|localdt %}{% set _e = ev.end|localdt -%}
+<button type="button" class="event-log-btn"
+        title="Log time for this event" aria-label="Log time for this event"
+        data-log-note="{{ ev.title }}"
+        data-log-date="{{ _s[:10] }}"
+        data-log-start="{{ _s[11:16] }}"
+        data-log-end="{{ _e[11:16] }}"
+        data-log-minutes="{{ ((ev.end - ev.start).total_seconds() // 60)|int }}">
+  <i class="bi bi-stopwatch"></i>
+</button>
+{%- endif %}
+{%- endmacro %}
