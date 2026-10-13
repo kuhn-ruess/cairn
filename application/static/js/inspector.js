@@ -1004,26 +1004,20 @@
   });
 })();
 
-/* Inspector quick-plan: one click sets plan_date (today/tomorrow/day-after)
- * plus a short comment, saved immediately via a lightweight endpoint — no full
- * form Save. Delegated on document (not the offcanvas) so it also drives the
- * inline inspector on the task-detail page, and survives the body swap that
- * follows a normal save. */
+/* Inspector quick plan: "Next" names the step and puts the task into Next,
+ * "Done" ticks the step off (log comment, the task stays), "×" drops it.
+ * Saved at once via a lightweight endpoint, no full form Save. Delegated on
+ * document (not the offcanvas) so it also drives the inline inspector on the
+ * task-detail page, and survives the body swap that follows a normal save. */
 (function () {
-  document.addEventListener("click", async (ev) => {
-    const btn = ev.target.closest("[data-quick-plan]");
-    if (!btn) return;
-    const block = btn.closest("[data-quick-plan-block]");
-    if (!block) return;
-    ev.preventDefault();
-    const when = btn.dataset.quickPlan;
+  async function quickPlan(block, when, btn) {
     const noteEl = block.querySelector("[data-quick-plan-note]");
     const status = block.querySelector("[data-quick-plan-status]");
     const fd = new FormData();
     fd.append("csrf_token", block.dataset.csrf || "");
     fd.append("when", when);
     fd.append("plan_note", noteEl ? noteEl.value : "");
-    btn.disabled = true;
+    if (btn) btn.disabled = true;
     try {
       const resp = await fetch("/tasks/" + block.dataset.taskId + "/quick-plan", {
         method: "POST",
@@ -1032,26 +1026,55 @@
       });
       if (!resp.ok) throw new Error("quick-plan failed: " + resp.status);
       const data = await resp.json();
-      if (when === "clear" && noteEl) noteEl.value = "";
-      // Keep the inspector's own plan_date field in sync so a subsequent full
-      // Save doesn't clobber what we just set (datetime-local wants YYYY-MM-DDTHH:MM).
+      if (noteEl) noteEl.value = data.plan_note || "";
+      block.querySelectorAll('[data-quick-plan="done"], [data-quick-plan="clear"]')
+        .forEach((b) => { b.hidden = !data.plan_note; });
+      // Keep the inspector's own fields in sync so a later full Save doesn't
+      // write back what this just changed (datetime-local wants YYYY-MM-DDTHH:MM).
+      const form = block.closest("form") || document;
+      const statusField = form.querySelector('select[name="status"]');
+      if (statusField && data.status) {
+        statusField.value = data.status;
+        statusField.dispatchEvent(new Event("change", { bubbles: true }));
+      }
       const planField = document.getElementById("plan_date");
       if (planField) {
-        planField.value = data.plan_date ? data.plan_date.slice(0, 16) : "";
-        planField.dispatchEvent(new Event("change", { bubbles: true }));
+        const v = data.plan_date ? data.plan_date.slice(0, 16) : "";
+        if (planField.value !== v) {
+          planField.value = v;
+          planField.dispatchEvent(new Event("change", { bubbles: true }));
+        }
       }
       if (status) {
-        status.textContent = when === "clear" ? "Cleared" : "Planned ✓";
+        status.textContent = { next: "In Next", done: "Step done", clear: "Cleared" }[when] || "Saved";
         status.hidden = false;
         setTimeout(() => { status.hidden = true; }, 1500);
       }
-      // Refresh the list behind the panel so the comment prefix shows at once.
+      // Refresh the list behind the panel so the step shows as the name at once.
       document.dispatchEvent(new Event("bktodo:refresh-needed"));
     } catch (e) {
       if (status) { status.textContent = "Failed"; status.hidden = false; }
     } finally {
-      btn.disabled = false;
+      if (btn) btn.disabled = false;
     }
+  }
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-quick-plan]");
+    if (!btn) return;
+    const block = btn.closest("[data-quick-plan-block]");
+    if (!block) return;
+    ev.preventDefault();
+    quickPlan(block, btn.dataset.quickPlan, btn);
+  });
+  // Enter in the step field is "Next", not a submit of the whole inspector.
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter" || ev.isComposing) return;
+    const input = ev.target.closest && ev.target.closest("[data-quick-plan-note]");
+    if (!input) return;
+    const block = input.closest("[data-quick-plan-block]");
+    if (!block) return;
+    ev.preventDefault();
+    quickPlan(block, "next", block.querySelector('[data-quick-plan="next"]'));
   });
 })();
 

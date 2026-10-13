@@ -74,7 +74,8 @@
     ev.preventDefault();
     const card = cardOf(btn);
     btn.disabled = true;
-    post(btn.dataset.completeUrl, {})
+    // A quick plan step is ticked off on its own (when=done); the task stays.
+    post(btn.dataset.completeUrl, btn.dataset.when ? { when: btn.dataset.when } : {})
       .then(() => {
         card.style.maxHeight = card.offsetHeight + "px";
         void card.offsetHeight;  // start the fold from the card's own height

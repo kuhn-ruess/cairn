@@ -1,0 +1,26 @@
+{# Quick plan: a task carrying a step (``plan_note``) is called by that step
+   wherever it is listed, and its check ticks off the step, not the task
+   (POST /tasks/<id>/quick-plan, when=done). One place for both, so a list
+   that shows the step can never complete the whole task behind it. #}
+
+{% macro qp_title(task, title=None) -%}
+  {%- if task.plan_note -%}
+    <span class="task-plan-note fw-semibold">{{ task.plan_note }}</span> <span class="text-muted">({{ title or task.title }})</span>
+  {%- else -%}
+    {{ title or task.title }}
+  {%- endif -%}
+{%- endmacro %}
+
+{# The check button's form: its action and the hidden ``when`` (which is also
+   how the complete handler in sortable-tasks.js tells the two apart). #}
+{% macro qp_check_url(task) -%}
+  {{ url_for('tasks.quick_plan', task_id=task.pk) if task.plan_note else url_for('tasks.complete', task_id=task.pk) }}
+{%- endmacro %}
+
+{% macro qp_check_fields(task) -%}
+  {%- if task.plan_note -%}<input type="hidden" name="when" value="done">{%- endif -%}
+{%- endmacro %}
+
+{% macro qp_check_title(task) -%}
+  {{ 'Quick plan step done (the task stays open)' if task.plan_note else 'Complete this task' }}
+{%- endmacro %}

@@ -300,6 +300,19 @@
     const card = chip.closest("[data-task-id]");
     if (!card) return;
     const id = card.dataset.taskId;
+    // A quick plan step: tick off the step, not the task. Its plan date goes
+    // with it, so the card leaves the track; the refresh redraws the day.
+    if (chip.hasAttribute("data-quick-plan-done")) {
+      chip.disabled = true;
+      postForm(`/tasks/${id}/quick-plan`, { when: "done" })
+        .then((r) => {
+          if (!r.ok) throw new Error(r.status);
+          if (window.bktodoRefreshMain) window.bktodoRefreshMain();
+          else window.location.reload();
+        })
+        .catch(() => window.location.reload());
+      return;
+    }
     const wasDone = card.classList.contains("is-done");
     card.classList.toggle("is-done", !wasDone);
     card.setAttribute("draggable", wasDone ? "true" : "false");

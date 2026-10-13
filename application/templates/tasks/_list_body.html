@@ -7,6 +7,7 @@
 {% import "scratchpad/_ref_macro.html" as pad with context %}
 {% import "tasks/_tag_macros.html" as labels with context %}
 {% import "tasks/_color_macros.html" as rowcolor with context %}
+{% import "tasks/_quick_plan_macros.html" as qp with context %}
 {# Linked-note counts for the per-task note button. Reuse what the view already
    computed (Today), else batch once for this list (one indexed query — never
    per row). #}
@@ -62,9 +63,10 @@
           {% endif %}
           <input type="checkbox" class="form-check-input bulk-check"
                  value="{{ task.pk }}" data-bulk-scope="tasks">
-          <form method="post" action="{% if _done %}{{ url_for('tasks.reopen', task_id=task.pk) }}{% else %}{{ url_for('tasks.complete', task_id=task.pk) }}{% endif %}" class="m-0" data-task-complete-form>
+          <form method="post" action="{% if _done %}{{ url_for('tasks.reopen', task_id=task.pk) }}{% else %}{{ qp.qp_check_url(task) }}{% endif %}" class="m-0" data-task-complete-form>
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-link p-0" type="submit" title="{% if _done %}Reopen{% else %}Complete{% endif %}">
+            {% if not _done %}{{ qp.qp_check_fields(task) }}{% endif %}
+            <button class="btn btn-link p-0" type="submit" title="{% if _done %}Reopen{% else %}{{ qp.qp_check_title(task) }}{% endif %}">
               <i class="bi {% if _done %}bi-check-circle-fill text-success{% else %}bi-circle{% endif %} fs-5"></i>
             </button>
           </form>
@@ -74,7 +76,7 @@
           <a class="task-title text-decoration-none text-body"
              href="{{ url_for('tasks.detail', task_id=task.pk) }}">
             {% if task.flagged and current_user.show_field('flag', view_key=_vk) %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
-            {% if task.plan_note %}<span class="task-plan-note fw-semibold">{{ task.plan_note }}</span> <span class="text-muted">({{ task.title }})</span>{% else %}{{ task.title }}{% endif %}
+            {{ qp.qp_title(task) }}
           </a>
           <a class="task-inspector-btn" href="{{ url_for('tasks.edit', task_id=task.pk) }}"
              data-inspector-url="{{ url_for('tasks.edit', task_id=task.pk) }}"

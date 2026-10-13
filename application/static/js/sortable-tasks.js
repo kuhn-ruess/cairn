@@ -630,6 +630,13 @@
         flashError("Toggle failed");
         return;
       }
+      // A quick plan step was ticked off, not the task: the task stays and
+      // may still belong here under its own name, so redraw instead of
+      // dropping the row.
+      if (form.querySelector('input[name="when"][value="done"]')) {
+        document.dispatchEvent(new Event("bktodo:refresh-needed"));
+        return;
+      }
       if (!row) return;
       // Fade the row out and drop it from the list — no perspective in
       // the app shows both done and open together, so the row's new

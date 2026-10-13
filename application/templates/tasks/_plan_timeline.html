@@ -6,6 +6,7 @@
    Interactions (drag to reschedule, resize, "Plan my day") are wired by the
    inline plan-view JS in today.html. #}
 {% from "tasks/_event_note_macros.html" import event_note_btn, event_log_btn, event_customer_btn, task_note_btn with context %}
+{% import "tasks/_quick_plan_macros.html" as qp with context %}
 {# Row colours for everything on this page in ONE resolve: the timed task cards
    and both rails. ``task_colors`` caches per item, so asking for the union here
    costs the same as asking three times and keeps the three shapes in step. #}
@@ -164,12 +165,13 @@
                  style="--top: {{ smin - range0 }}; --dur: {{ it.duration_min }};
                         --col: {{ it.col }}; --cols: {{ it.cols }};{% if _c %} --dot: {{ _c.color }};{% endif %}">
               <button type="button" class="plan-ico plan-ico-task plan-complete"
-                      title="{{ 'Reopen' if it.done else 'Mark done' }}">
+                      {% if it.obj.plan_note and not it.done %}data-quick-plan-done{% endif %}
+                      title="{{ 'Reopen' if it.done else ('Quick plan step done (the task stays open)' if it.obj.plan_note else 'Mark done') }}">
                 <i class="bi {{ 'bi-check-circle-fill text-success' if it.done else 'bi-check2' }}"></i>
               </button>
               <div class="plan-card-body">
                 <div class="plan-card-title">
-                  <a href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
+                  <a href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ qp.qp_title(it.obj, it.title) }}</a>
                 </div>
                 <div class="plan-card-meta">{{ tspan }} · <span class="plan-card-dur">{{ it.duration_min }}m</span></div>
               </div>
@@ -211,16 +213,17 @@
       {# Complete directly instead of planning. stopPropagation so the click
          doesn't hit the pill's inspector-open handler (which would also
          preventDefault the submit); draggable=false so it doesn't drag. #}
-      <form method="post" action="{{ url_for('tasks.complete', task_id=it.obj.pk) }}"
+      <form method="post" action="{{ qp.qp_check_url(it.obj) }}"
             class="m-0 plan-rail-check" data-task-complete-form
             draggable="false" onclick="event.stopPropagation()">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-link p-0" type="submit" title="Complete this task" draggable="false">
+        {{ qp.qp_check_fields(it.obj) }}
+        <button class="btn btn-link p-0" type="submit" title="{{ qp.qp_check_title(it.obj) }}" draggable="false">
           <i class="bi bi-circle"></i>
         </button>
       </form>
       <i class="bi bi-grip-vertical plan-grip"></i>
-      <a class="plan-rail-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
+      <a class="plan-rail-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ qp.qp_title(it.obj, it.title) }}</a>
       {% include "tasks/_delegated_badge.html" %}
       {# Left over at the end of the day: back into Next actions, off the day.
          Only on the Due rail — a Next pill is already there. #}

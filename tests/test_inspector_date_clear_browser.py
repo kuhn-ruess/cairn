@@ -142,31 +142,41 @@ class InspectorDateClearBrowserTests(unittest.TestCase):
                     self.assertEqual(errors, [])
                     page.close()
 
-    def test_quick_plan_cross_clears_the_plan_date(self):
+    def test_quick_plan_sets_next_and_its_done_ends_only_the_step(self):
+        """Quick plan puts the task into Next (no date), and a full Save after
+        it keeps that; Done ticks off the step with a log comment."""
         for name, browser in self.browsers.items():
             with self.subTest(browser=name):
                 task_id = self._fresh_task()
                 page, errors = self._detail(browser, task_id)
+                done_btn = page.locator('[data-quick-plan="done"]')
+                self.assertTrue(done_btn.is_hidden())
+                page.fill("[data-quick-plan-note]", "Preis nachrechnen")
                 with page.expect_response(lambda r: "/quick-plan" in r.url):
-                    page.locator('[data-quick-plan="clear"]').click()
+                    page.press("[data-quick-plan-note]", "Enter")
                 page.wait_for_function(
-                    "document.getElementById('plan_date').value === ''")
-                self.assertIsNone(self._task(task_id).plan_date)
-                self.assertTrue(self._blank(page, "plan_date"))
-                with page.expect_response(lambda r: "/quick-plan" in r.url):
-                    page.locator('[data-quick-plan="today"]').click()
-                page.wait_for_function(
-                    "document.getElementById('plan_date').value !== ''")
-                self.assertFalse(self._blank(page, "plan_date"))
-                with page.expect_response(lambda r: "/quick-plan" in r.url):
-                    page.locator('[data-quick-plan="clear"]').click()
-                page.wait_for_function(
-                    "document.getElementById('plan_date').value === ''")
+                    "document.querySelector('select[name=status]').value === 'next'")
+                task = self._task(task_id)
+                self.assertEqual(task.status, "next")
+                self.assertEqual(task.plan_note, "Preis nachrechnen")
+                self.assertEqual(task.plan_date.replace(tzinfo=timezone.utc), WHEN)
+                self.assertTrue(done_btn.is_visible())
                 self._save(page)
-                self.assertIsNone(self._task(task_id).plan_date)
+                self.assertEqual(self._task(task_id).status, "next")
+                page.goto(self.base + f"/tasks/{task_id}")
+                page.wait_for_load_state("networkidle")
+                with page.expect_response(lambda r: "/quick-plan" in r.url):
+                    page.locator('[data-quick-plan="done"]').click()
+                page.wait_for_function(
+                    "document.querySelector('[data-quick-plan-note]').value === ''")
+                task = self._task(task_id)
+                self.assertEqual(task.plan_note, "")
+                self.assertEqual(task.status, "open")
+                self.assertIsNone(task.completed_at)
+                self.assertEqual(task.comments[-1].body,
+                                 "Quick plan done: Preis nachrechnen")
                 self.assertEqual(errors, [])
                 page.close()
-
 
 if __name__ == "__main__":
     unittest.main()

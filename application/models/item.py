@@ -349,10 +349,16 @@ class Item(Document):
     defer_date = DateTimeField()
     due_date = DateTimeField()
     plan_date = DateTimeField()
-    # Short quick-plan comment set alongside ``plan_date`` from the inspector's
-    # quick-plan block. Rendered before the task name in list views
-    # ("comment (Task name)") so a planned item reads as an intention.
+    # Quick plan: the next concrete step, typed in the inspector. Setting it
+    # puts the task into Next (``start_quick_plan``); every list shows it as
+    # the row's name ("step (Task name)"), and ticking such a row off ends the
+    # step, not the task (``end_quick_plan``).
     plan_note = StringField(default="", max_length=200)
+    # The status the task had before the quick plan put it into Next, so
+    # ending the step hands that back. Empty: no quick plan moved the status
+    # (a step set before quick plan meant Next, or the task was already Next
+    # and the value is "next").
+    plan_prev_status = StringField(default="")
     # Gantt / timeline scheduling window ("Target start" / "Target end"). Kept
     # independent of ``due_date`` (a hard deadline) and ``defer_date`` (which
     # hides a task until it passes): these two are pure planning bounds that the
@@ -1326,6 +1332,52 @@ class Item(Document):
         self.repeat_monthday = None
         self.repeat_from_completion = False
         self.save()
+        return True
+
+    def start_quick_plan(self, note: str) -> None:
+        """Quick plan: name the next step and put the task into Next.
+
+        A time is not chosen here (that is what Today's plan view is for);
+        the step is what the task is called in every list until it is done.
+        The status it had before is kept, once, for ``end_quick_plan``: a
+        second quick plan on top keeps the first one's answer. A closed task
+        is opened again, a step on it is a statement that work is left.
+        """
+        note = (note or "").strip()[:200]
+        if note and not self.plan_note:
+            closed = self.status in ("done", "dropped")
+            self.plan_prev_status = "open" if closed else (self.status or "open")
+        if self.status in ("done", "dropped"):
+            self.completed_at = None
+        self.plan_note = note
+        self.status = "next"
+
+    def end_quick_plan(self, by_user: User | None, *, log: bool = True) -> bool:
+        """Tick off the quick plan step, not the task.
+
+        Takes the step off the task, hands back the status the quick plan
+        replaced (only while the task is still in Next; a status changed by
+        hand since is a decision of its own) and drops a plan date of
+        ``today`` or earlier, which is what kept the task in Today. A plan date
+        after today is a plan for the future and stays. With ``log`` the task
+        gets a comment saying which step was done. False when there was no
+        step. The caller saves.
+        """
+        note = self.plan_note
+        if not note:
+            return False
+        if log:
+            self.comments.append(Comment(author=by_user,
+                                         body=f"Quick plan done: {note}"))
+        if self.status == "next" and self.plan_prev_status:
+            self.status = self.plan_prev_status
+        self.plan_note = ""
+        self.plan_prev_status = ""
+        if self.plan_date is not None:
+            from application.services.tzutil import local_date, resolve_tz
+            tz = resolve_tz(by_user)
+            if local_date(self.plan_date, tz) <= datetime.now(tz).date():
+                self.plan_date = None
         return True
 
     def add_comment(self, author: User, body: str) -> Comment:

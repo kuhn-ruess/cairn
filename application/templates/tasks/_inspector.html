@@ -530,33 +530,38 @@
   </div>
 
   {% if task and task.pk %}
-    {# Quick-plan: one click sets a plan date + a short comment, saved
-       immediately (no full form Save). The comment renders before the task
-       name in list views. Buttons are type=button so they never submit the
-       form; the standalone handler in inspector.js does the POST. #}
+    {# Quick plan: name the next step and put the task into Next, the same
+       status the NEXT arrow on a list row sets; the concrete time is chosen
+       in Today. Lists then show the step as the task's name, and ticking it
+       off there (or "Done" here) ends the step, not the task, with a log
+       comment. Saved at once, no full form Save; buttons are type=button so
+       they never submit the form, the handler in inspector.js POSTs. #}
+    {% if task.kind == 'task' %}
     <div class="inspector-section" data-section="quick-plan">
       <label class="form-label small text-uppercase text-muted">Quick plan</label>
       <div data-quick-plan-block data-task-id="{{ task.pk }}"
            data-csrf="{{ csrf_token() }}">
         <input type="text" class="form-control form-control-sm mb-1"
                data-quick-plan-note maxlength="200"
-               placeholder="Comment — shown before the name in lists"
+               placeholder="Next step, shown as the name in lists"
                value="{{ task.plan_note or '' }}">
         <div class="d-flex align-items-center gap-2">
           <div class="btn-group btn-group-sm">
             <button type="button" class="btn btn-outline-primary"
-                    data-quick-plan="today">Today</button>
-            <button type="button" class="btn btn-outline-primary"
-                    data-quick-plan="tomorrow">Tomorrow</button>
-            <button type="button" class="btn btn-outline-primary"
-                    data-quick-plan="dayafter">Day after</button>
+                    data-quick-plan="next"
+                    title="Put the task into Next with this step (Enter)"><i class="bi bi-arrow-right-circle"></i> Next</button>
+            <button type="button" class="btn btn-outline-success"
+                    data-quick-plan="done" {% if not task.plan_note %}hidden{% endif %}
+                    title="Step done: logs a comment, the task stays open"><i class="bi bi-check2"></i> Done</button>
             <button type="button" class="btn btn-outline-secondary"
-                    data-quick-plan="clear" title="Clear plan + comment">×</button>
+                    data-quick-plan="clear" {% if not task.plan_note %}hidden{% endif %}
+                    title="Drop the step without a log comment">×</button>
           </div>
           <span class="small text-success" data-quick-plan-status hidden></span>
         </div>
       </div>
     </div>
+    {% endif %}
   {% endif %}
 
   {% for key in (inspector_section_order or []) %}

@@ -1,5 +1,6 @@
 {% extends "layout/base.html" %}
 {% from "tasks/_event_note_macros.html" import event_note_btn, event_log_btn, event_customer_btn, task_note_btn with context %}
+{% import "tasks/_quick_plan_macros.html" as qp with context %}
 {% set page_project_sidebar = true %}
 {% set _ns = namespace(pks=[]) %}
 {% for t in tasks %}
@@ -532,16 +533,17 @@
              data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
              data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
              data-inspector-title="{{ it.obj.title }}">
-          <form method="post" action="{{ url_for('tasks.complete', task_id=it.obj.pk) }}"
+          <form method="post" action="{{ qp.qp_check_url(it.obj) }}"
                 class="m-0 plan-rail-check" data-task-complete-form
                 draggable="false" onclick="event.stopPropagation()">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-link p-0" type="submit" title="Complete this task" draggable="false">
+            {{ qp.qp_check_fields(it.obj) }}
+            <button class="btn btn-link p-0" type="submit" title="{{ qp.qp_check_title(it.obj) }}" draggable="false">
               <i class="bi bi-circle"></i>
             </button>
           </form>
           <i class="bi bi-grip-vertical plan-grip"></i>
-          <a class="plan-rail-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ it.title }}</a>
+          <a class="plan-rail-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ qp.qp_title(it.obj, it.title) }}</a>
           {% include "tasks/_delegated_badge.html" %}
           <span class="plan-rail-dur">{{ it.duration_min }}m</span>
         </div>

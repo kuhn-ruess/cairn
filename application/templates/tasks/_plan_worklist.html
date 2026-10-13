@@ -22,6 +22,7 @@
    ticked off here fades out of it (the timeline keeps showing it, struck). #}
 {% from "tasks/_tag_macros.html" import tag_chips with context %}
 {% from "tasks/_event_note_macros.html" import task_note_btn %}
+{% import "tasks/_quick_plan_macros.html" as qp with context %}
 
 {% macro wl_card(t, start=None, end=None, dur=None, colors={}) %}
   {% set _c = colors.get(t.pk|string) %}
@@ -33,15 +34,16 @@
            {% if _c %}style="--dot: {{ _c.color }};"{% endif %}>
     <header class="wl-head">
       <button type="button" class="wl-check"
-              data-complete-url="{{ url_for('tasks.complete', task_id=t.pk) }}"
-              title="Mark done" aria-label="Mark done">
+              data-complete-url="{{ qp.qp_check_url(t) }}"
+              {% if t.plan_note %}data-when="done"{% endif %}
+              title="{{ qp.qp_check_title(t) }}" aria-label="{{ qp.qp_check_title(t) }}">
         <i class="bi bi-circle"></i>
       </button>
       <div class="wl-title-wrap">
         <div class="wl-title">
           {% if t.flagged %}<i class="bi bi-flag-fill text-warning"></i>{% endif %}
           {% if t.priority %}<span class="priority-p{{ t.priority }}">P{{ t.priority }}</span>{% endif %}
-          <a href="{{ url_for('tasks.detail', task_id=t.pk) }}">{{ t.title }}</a>
+          <a href="{{ url_for('tasks.detail', task_id=t.pk) }}">{{ qp.qp_title(t) }}</a>
         </div>
         <div class="wl-meta">
           {% if start %}
