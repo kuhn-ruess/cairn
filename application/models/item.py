@@ -505,6 +505,11 @@ class Item(Document):
     # blank; client-origin tasks store the client's UID here so PUT/GET/DELETE
     # on ``<uid>.ics`` map back to the right Item. See application/views/caldav.py.
     caldav_uid = StringField()
+    # When a CalDAV client deleted this task while it was closed: Reminders'
+    # "Clear completed" tidies its list, it does not mean "trash the task".
+    # The task stays as it is and is no longer served while it stays closed
+    # (``views/caldav._dismissed``); reopening it brings it back.
+    caldav_dismissed_at = DateTimeField()
 
     # public share
     share_enabled = BooleanField(default=False)

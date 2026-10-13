@@ -38,6 +38,12 @@ parking a project holds its whole subtree back, the same rule as
 business sitting in a Reminders list; a deferred one comes back by itself once
 the date passes, because the collection's ctag counts the tasks it serves.
 
+A **DELETE never trashes a closed task.** Reminders clears completed reminders
+in bulk ("Clear completed"); that is tidying the list, not deleting the work.
+The task stays as it is in Cairn and is no longer served while it stays closed
+(``Item.caldav_dismissed_at``). An open task deleted on the device still goes to
+the trash, with its subtree, as before.
+
 Standards-pragmatic and small; expect to iterate against a real device.
 """
 import base64
@@ -303,6 +309,21 @@ def _held_back(item, nodes=None, now=None):
     return False
 
 
+_CLOSED = ("done", "dropped")
+
+
+def _dismissed(item):
+    """True if a client cleared this task from its list after it was closed
+    (see the DELETE branch of ``resource``): it is not served again until it
+    is reopened. A close newer than the dismissal counts as a new close, so a
+    task reopened and finished again shows up as finished once more."""
+    at = _aware(getattr(item, "caldav_dismissed_at", None))
+    if at is None or item.status not in _CLOSED:
+        return False
+    closed = _aware(getattr(item, "completed_at", None))
+    return closed is None or at >= closed
+
+
 def _colid_map(user):
     """Return ``({task_pk: colid}, [tasks])`` — colid is the nearest ancestor
     project's pk, or "inbox". Parked tasks are dropped here, which is the one
@@ -320,7 +341,8 @@ def _colid_map(user):
         nodes.setdefault(str(t.pk), t)
     _resolve_ancestors(nodes)
     now = _utcnow()
-    tasks = [t for t in tasks if not _held_back(t, nodes, now)]
+    tasks = [t for t in tasks
+             if not _held_back(t, nodes, now) and not _dismissed(t)]
     out, exported = {}, []
     for t in tasks:
         colid = _colid_of(t, nodes)
@@ -1134,6 +1156,14 @@ def resource(username, colid, name):
         # Same answer for a task we stopped serving because it is parked: the
         # client is catching up with a disappearance, not deleting a task.
         if _nearest_colid(item) != colid or _held_back(item):
+            return Response(status=204)
+        # A closed task is not trashed. Reminders deletes completed reminders
+        # in bulk ("Clear completed"), and that took finished tasks, their sub
+        # tasks and their history in Cairn along with it. The client only
+        # tidies its list, so the task merely stops being served.
+        if item.status in _CLOSED:
+            Item.objects(pk=item.pk).update(
+                set__caldav_dismissed_at=_utcnow())
             return Response(status=204)
         from application.services.trash import trash_item
         trash_item(item, source="caldav",
