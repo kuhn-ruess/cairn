@@ -495,6 +495,10 @@
     const { taskId } = btn.dataset;
     const form = document.createElement("div");
     form.className = "comment-edit-form mt-1";
+    // Same item as the new comment box: note-paste.js reads the task id off
+    // this action, so pasting or dropping a file here uploads and inserts it
+    // exactly like it does there.
+    form.setAttribute("data-action", `/tasks/${taskId}/comment`);
     form.innerHTML =
       '<textarea class="form-control form-control-sm mb-1" rows="3"></textarea>' +
       '<div class="d-flex gap-2">' +

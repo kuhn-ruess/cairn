@@ -20,9 +20,12 @@
   // boxes: the inspector's (name="comment_body") and the full task-detail
   // form's (the CommentForm body field, scoped to its form so we don't grab
   // unrelated name="body" fields elsewhere). Comments render through the same
-  // markdown filter as notes, so an uploaded image shows up inline.
+  // markdown filter as notes, so an uploaded image shows up inline. The box
+  // that opens when an existing comment is edited takes the same paste and
+  // drop (its wrapper carries the task's comment action, see inspector.js).
   const COMMENT_TEXTAREA_SEL =
-    'textarea[name="comment_body"], .task-detail-comment-form textarea';
+    'textarea[name="comment_body"], .task-detail-comment-form textarea, ' +
+    '.comment-edit-form textarea';
   const UPLOAD_TEXTAREA_SEL = 'textarea[name="note"], ' + COMMENT_TEXTAREA_SEL;
 
   function csrfToken() {
