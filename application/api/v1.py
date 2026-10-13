@@ -1850,6 +1850,45 @@ def mark_notifications_read():
     return jsonify({"ok": True, "unread": user.unread_notification_count})
 
 
+_CALDAV_LOG_FIELDS = ("method", "path", "status", "user_agent", "depth",
+                      "if_match", "etag", "item_id", "item_status",
+                      "sent_status", "outcome", "count", "asked")
+
+
+@api_v1_bp.get("/caldav-log")
+@token_required
+def caldav_log():
+    """The caller's own CalDAV journal (``models/caldav_log.py``), newest
+    first: what a device sent and what the server made of it. ``since`` (ISO
+    time) bounds it, ``method`` narrows it (comma separated), ``item_id``
+    follows one task."""
+    from application.models.caldav_log import CalDavRequest
+    qs = CalDavRequest.objects(user=g.current_user)
+    since = request.args.get("since")
+    if since:
+        try:
+            qs = qs.filter(created_at__gte=datetime.fromisoformat(
+                since.replace("Z", "+00:00")))
+        except ValueError:
+            return _bad_request("since must be an ISO date/time")
+    method = request.args.get("method")
+    if method:
+        qs = qs.filter(method__in=[m.strip().upper() for m in method.split(",")
+                                   if m.strip()])
+    if request.args.get("item_id"):
+        qs = qs.filter(item_id=request.args["item_id"])
+    try:
+        limit = max(1, min(int(request.args.get("limit", 200) or 200), 1000))
+    except ValueError:
+        return _bad_request("limit must be a number")
+    rows = []
+    for r in qs.order_by("-created_at").limit(limit):
+        row = {"at": r.created_at.isoformat() if r.created_at else None}
+        row.update({f: getattr(r, f) for f in _CALDAV_LOG_FIELDS})
+        rows.append(row)
+    return jsonify({"items": rows})
+
+
 @api_v1_bp.get("/openapi.json")
 def openapi_spec():
     """Public OpenAPI 3.0 spec describing every /api/v1 endpoint."""

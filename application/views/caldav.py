@@ -38,11 +38,16 @@ parking a project holds its whole subtree back, the same rule as
 business sitting in a Reminders list; a deferred one comes back by itself once
 the date passes, because the collection's ctag counts the tasks it serves.
 
-A **DELETE never trashes a closed task.** Reminders clears completed reminders
-in bulk ("Clear completed"); that is tidying the list, not deleting the work.
-The task stays as it is in Cairn and is no longer served while it stays closed
-(``Item.caldav_dismissed_at``). An open task deleted on the device still goes to
-the trash, with its subtree, as before.
+A **DELETE moves the task to the trash**, open or closed, with its subtree:
+deleting a reminder on the device is deleting it. Only a DELETE made against
+an older copy is refused (``If-Match`` names an ETag the task no longer has,
+412): the client fetches the current state, and a deliberate delete can be
+repeated on it. A request without ``If-Match`` is taken as it is.
+
+Every authenticated request is written to the **CalDAV journal**
+(``models/caldav_log.py``, 30 days): client, method, path, answer, the copy the
+client acted on and what the server made of it. It is what explains a reminder
+that vanished, which the container log cannot after the next deploy.
 
 Standards-pragmatic and small; expect to iterate against a real device.
 """
@@ -54,7 +59,7 @@ from xml.sax.saxutils import escape
 import xml.etree.ElementTree as ET
 
 from flask import (
-    Blueprint, Response, abort, current_app, redirect, request, url_for,
+    Blueprint, Response, abort, current_app, g, redirect, request, url_for,
 )
 from mongoengine import Q
 from mongoengine.errors import ValidationError
@@ -157,9 +162,62 @@ def _require(username=None):
         resp = Response("Authentication required", 401)
         resp.headers["WWW-Authenticate"] = 'Basic realm="Cairn CalDAV"'
         abort(resp)
+    g.caldav_user = user
     if username is not None and username != user.username:
         abort(403)
     return user
+
+
+def _note(**fields):
+    """Add detail to this request's journal row (see ``_journal``)."""
+    note = g.setdefault("caldav_note", {})
+    note.update(fields)
+
+
+def _item_note(item):
+    """The state of ``item`` as the request found it, for the journal."""
+    _note(item_id=str(item.pk), item_status=item.status, etag=_etag(item))
+
+
+@caldav_bp.after_request
+def _journal(response):
+    """One journal row per authenticated request. Best effort: a journal that
+    cannot be written never costs the client its answer."""
+    user = g.get("caldav_user")
+    if user is None or request.method == "OPTIONS":
+        return response
+    try:
+        from application.models.caldav_log import CalDavRequest
+        note = g.get("caldav_note") or {}
+        CalDavRequest(
+            user=user,
+            method=request.method,
+            path=request.path[:500],
+            status=response.status_code,
+            user_agent=(request.headers.get("User-Agent") or "")[:300],
+            depth=request.headers.get("Depth"),
+            if_match=(request.headers.get("If-Match") or None),
+            **note,
+        ).save()
+    except Exception:
+        current_app.logger.exception("CalDAV journal write failed")
+    return response
+
+
+def _etag_matches(header, item):
+    """Does an ``If-Match`` header name the ETag ``item`` has now? ``*`` and
+    an absent header match anything; a weak prefix is ignored, our ETags are
+    only ever strong."""
+    if not header or header.strip() == "*":
+        return True
+    current = _etag(item).strip('"')
+    for tag in header.split(","):
+        tag = tag.strip()
+        if tag.startswith("W/"):
+            tag = tag[2:]
+        if tag.strip('"') == current:
+            return True
+    return False
 
 
 # --------------------------------------------------- collections / map ----
@@ -309,21 +367,6 @@ def _held_back(item, nodes=None, now=None):
     return False
 
 
-_CLOSED = ("done", "dropped")
-
-
-def _dismissed(item):
-    """True if a client cleared this task from its list after it was closed
-    (see the DELETE branch of ``resource``): it is not served again until it
-    is reopened. A close newer than the dismissal counts as a new close, so a
-    task reopened and finished again shows up as finished once more."""
-    at = _aware(getattr(item, "caldav_dismissed_at", None))
-    if at is None or item.status not in _CLOSED:
-        return False
-    closed = _aware(getattr(item, "completed_at", None))
-    return closed is None or at >= closed
-
-
 def _colid_map(user):
     """Return ``({task_pk: colid}, [tasks])`` — colid is the nearest ancestor
     project's pk, or "inbox". Parked tasks are dropped here, which is the one
@@ -341,8 +384,7 @@ def _colid_map(user):
         nodes.setdefault(str(t.pk), t)
     _resolve_ancestors(nodes)
     now = _utcnow()
-    tasks = [t for t in tasks
-             if not _held_back(t, nodes, now) and not _dismissed(t)]
+    tasks = [t for t in tasks if not _held_back(t, nodes, now)]
     out, exported = {}, []
     for t in tasks:
         colid = _colid_of(t, nodes)
@@ -1006,6 +1048,7 @@ def collection(username, colid):
     responses = [_ok(_collection_href(user, colid),
                      _collection_props(user, label, color, tasks))]
     if request.headers.get("Depth", "0") != "0":
+        _note(count=len(tasks))
         for t in tasks:
             rprops = (f'<D:getetag>{escape(_etag(t))}</D:getetag>'
                       '<D:getcontenttype>text/calendar; component=vtodo'
@@ -1030,14 +1073,17 @@ def _report(user, colid, tasks):
         # still ask for a task it cached before the task was parked (or moved
         # away), and handing the data back would resurrect the reminder.
         visible = {str(t.pk) for t in tasks}
-        responses = []
+        responses, asked = [], 0
         for href_el in root_el.iter("{DAV:}href"):
+            asked += 1
             href = (href_el.text or "").strip()
             item = _find(user, href.rstrip("/").split("/")[-1])
             if item is not None and str(item.pk) in visible:
                 responses.append(_data_response(href, item, user))
+        _note(asked=asked, count=len(responses))
         return _multistatus(responses)
     # calendar-query (or anything else) → the whole collection
+    _note(count=len(tasks))
     return _multistatus([_data_response(_resource_href(user, colid, _uid(t)), t, user)
                          for t in tasks])
 
@@ -1110,6 +1156,8 @@ def resource(username, colid, name):
         uid = name[:-4] if name.endswith(".ics") else name
         item = _find(user, uid)
         created = item is None
+        if not created:
+            _item_note(item)
         if created:
             item = Item(owner=user, kind="task", status="open", parent=proj)
             if not uid.startswith("cairn-"):
@@ -1118,7 +1166,11 @@ def resource(username, colid, name):
             # Genuine move to a different list. (Same-list edits keep the
             # parent so a task nested in a section isn't yanked to the root.)
             item.parent = proj
+            _note(outcome="moved")
         raw = request.get_data()
+        sent = re.search(rb"^STATUS:([A-Za-z-]+)", raw or b"", re.MULTILINE)
+        if sent:
+            _note(sent_status=sent.group(1).decode("ascii", "replace")[:20])
         # Opt-in wire dump (BKTODO_CALDAV_DEBUG=1) so we can see exactly what a
         # client sends — invaluable for mapping Apple-specific fields.
         if current_app.config.get("CALDAV_DEBUG"):
@@ -1132,6 +1184,8 @@ def resource(username, colid, name):
                           else request.headers.get("If-Match")):
             abort(400)
         item.save()
+        if created:
+            _note(item_id=str(item.pk), outcome="created")
         resp = Response(status=201 if created else 204)
         resp.headers["ETag"] = _etag(item)
         return resp
@@ -1140,11 +1194,13 @@ def resource(username, colid, name):
         item = _find(user, name)
         if item is None:
             abort(404)
+        _item_note(item)
         dest_colid = _colid_from_path(request.headers.get("Destination", ""))
         if dest_colid is None:
             abort(400)
         item.parent = _resolve_collection(user, dest_colid)
         item.save()
+        _note(outcome="moved")
         return Response(status=201)
 
     if request.method == "DELETE":
@@ -1155,19 +1211,22 @@ def resource(username, colid, name):
         # here — don't trash it (handles client move = PUT-new + DELETE-old).
         # Same answer for a task we stopped serving because it is parked: the
         # client is catching up with a disappearance, not deleting a task.
+        _item_note(item)
         if _nearest_colid(item) != colid or _held_back(item):
+            _note(outcome="not served here")
             return Response(status=204)
-        # A closed task is not trashed. Reminders deletes completed reminders
-        # in bulk ("Clear completed"), and that took finished tasks, their sub
-        # tasks and their history in Cairn along with it. The client only
-        # tidies its list, so the task merely stops being served.
-        if item.status in _CLOSED:
-            Item.objects(pk=item.pk).update(
-                set__caldav_dismissed_at=_utcnow())
-            return Response(status=204)
+        # A delete made against an older copy than the one Cairn holds is not
+        # a decision about the task as it is now: the client is told so (412),
+        # fetches the current state, and can delete again.
+        if not _etag_matches(request.headers.get("If-Match"), item):
+            _note(outcome="stale")
+            resp = Response(status=412)
+            resp.headers["ETag"] = _etag(item)
+            return resp
         from application.services.trash import trash_item
         trash_item(item, source="caldav",
                    via=f"CalDAV ({_client_label()})", by=user)
+        _note(outcome="trashed")
         return Response(status=204)
 
     abort(405)

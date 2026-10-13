@@ -1814,6 +1814,41 @@ def build_openapi_spec() -> dict:
                     },
                 },
             },
+            "/caldav-log": {
+                "get": {
+                    "summary": "The caller's CalDAV journal",
+                    "tags": ["caldav"],
+                    "description": ("Every authenticated CalDAV request of the "
+                                    "last 30 days, newest first: client, method, "
+                                    "path, answer, the ETag the client acted on "
+                                    "(`if_match`) against the one the task had "
+                                    "(`etag`), the task's status before, and what "
+                                    "the server made of it (`outcome`: trashed, "
+                                    "stale, moved, created, not served here)."),
+                    "parameters": [
+                        {"name": "since", "in": "query",
+                         "schema": {"type": "string", "format": "date-time"}},
+                        {"name": "method", "in": "query",
+                         "description": "Comma separated, e.g. PUT,DELETE",
+                         "schema": {"type": "string"}},
+                        {"name": "item_id", "in": "query",
+                         "schema": {"type": "string"}},
+                        {"name": "limit", "in": "query",
+                         "schema": {"type": "integer", "default": 200,
+                                    "maximum": 1000}},
+                    ],
+                    "responses": {
+                        "200": {"description": "Journal rows",
+                                "content": {"application/json": {"schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "items": {"type": "array", "items": {
+                                            "type": "object"}},
+                                    },
+                                }}}},
+                    },
+                },
+            },
             "/notifications/read": {
                 "post": {
                     "summary": "Mark notifications read",

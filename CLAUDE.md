@@ -731,6 +731,16 @@ the counters worth reading and the first ten errors. Shown on Team → Zammad.
 **Retention is a MongoDB TTL index** on `created_at` (90 days) — there is no
 sweep to schedule and no cron that can quietly stop running.
 
+The **CalDAV journal** (`models/caldav_log.py`, collection `caldav_log`, TTL 30
+days) is the same idea for the CalDAV server: one row per authenticated
+request with client, method, path, answer, the ETag the client acted on
+(`if_match`) against the task's (`etag`), the task's status before and the
+outcome (trashed, stale, moved, created). Read it per user over
+`GET /api/v1/caldav-log`. It exists because the container log, the only other
+record of what a device sent, is gone after the next deploy. A CalDAV DELETE
+trashes the task (open or closed) unless its `If-Match` names an older ETag,
+which is answered 412.
+
 ### Configuration
 
 All settings are overridable via `BKTODO_*` env vars (see `.env.example`).
