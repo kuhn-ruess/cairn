@@ -15,12 +15,12 @@ import unittest
 
 try:
     from mongoengine import disconnect
-except ImportError:  # pragma: no cover - no mongoengine installed
+except ImportError:  # pragma: no cover (no mongoengine installed)
     disconnect = None
 
 try:
     from playwright.sync_api import sync_playwright
-except ImportError:  # pragma: no cover - no playwright installed
+except ImportError:  # pragma: no cover (no playwright installed)
     sync_playwright = None
 
 if disconnect is not None:
