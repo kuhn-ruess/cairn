@@ -15,9 +15,12 @@
   {# Every row carries its ids and both styling states, so opening one
      restyles it in place — going through a batch has to leave a mark
      where you got to, not restyle the whole list at once. The ids
-     include the older entries this row hides, so they go read with it. #}
+     include the older entries this row hides, so they go read with it.
+     A row with somewhere to go links to notifications.open_notification,
+     which marks it read and redirects: that way a middle click or "Open in
+     new tab" marks it read too, not only a plain click. #}
   <a class="dropdown-item d-flex gap-2 py-2 notif-item{% if row.unread %} notif-unread bg-body-tertiary{% endif %}"
-     href="{{ n.link or '#' }}" data-notif-ids="{{ row.ids | join(' ') }}"
+     href="{{ url_for('notifications.open_notification', ref=n.pk_ref) if n.link else '#' }}" data-notif-ids="{{ row.ids | join(' ') }}"
      style="white-space: normal;">
     <i class="bi {{ n.icon or 'bi-bell' }} mt-1 {{ 'text-primary' if row.unread else 'text-muted' }}"></i>
     <span class="flex-grow-1 lh-sm">

@@ -4,8 +4,9 @@
  * what you actually did. Opening the dropdown marks NOTHING — the badge is
  * how many are left to go through, and a batch you work through one at a
  * time has to keep saying which ones are still waiting. A row is marked read
- * when you open it (the POST rides the navigation with `keepalive`), and
- * "Mark all read" is the deliberate sweep for the rest.
+ * when you open it, by whatever means: its link goes through
+ * /notifications/<id>/open, which marks it read before redirecting. "Mark all
+ * read" is the deliberate sweep for the rest.
  *
  * It also keeps itself current: every 30 s (and at once when the tab comes
  * back into view) it asks /notifications/bell whether anything changed since
@@ -67,6 +68,19 @@
     return bell.querySelectorAll(".notif-item.notif-unread");
   }
 
+  /* A row with a link points at /notifications/<id>/open, which marks it
+     read on the server and redirects; that covers every way of opening it,
+     the context menu's "Open in new tab" included. Here the row only has to
+     LOOK read at once, in this page's bell. A row without a link has no
+     such address, so its click posts the mark-read itself. */
+  function opened(row) {
+    if (!row.classList.contains("notif-unread")) return;
+    restyle(row);
+    setBadge(unreadRows().length);
+    gen += 1;           // a list fetched before this still shows it unread
+    pendingHtml = null;
+  }
+
   bell.addEventListener("click", (ev) => {
     // Delegated, because a poll replaces the menu body this button lives in.
     if (ev.target.closest("#notifMarkAll")) {
@@ -77,28 +91,29 @@
     }
     const row = ev.target.closest(".notif-item");
     if (!row) return;
-    // Opening in a new tab/window leaves this page (and this bell) alone.
-    const newTab = ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1;
-    if (newTab) return;
-
-    const href = row.getAttribute("href") || "#";
-    if (!row.classList.contains("notif-unread")) {
-      // A notification with nowhere to go stays put instead of jumping the page.
-      if (href === "#") ev.preventDefault();
+    if ((row.getAttribute("href") || "#") !== "#") {
+      opened(row);      // the browser follows the link, in this tab or a new one
+      // A new tab leaves this page here: ask once the server has seen it.
+      if (ev.metaKey || ev.ctrlKey || ev.shiftKey) setTimeout(poll, 1500);
       return;
     }
-
+    // A notification with nowhere to go stays put instead of jumping the page.
+    ev.preventDefault();
+    if (!row.classList.contains("notif-unread")) return;
     restyle(row);
     setBadge(unreadRows().length);
     // A row stands for every entry about its task; the older ones it hides
     // go read with it, or they would linger unread where nobody can see them.
-    const done = marked(post(row.dataset.notifIds.split(" ").filter(Boolean)));
-    ev.preventDefault();
-    if (href === "#") return;
-    // Follow the link only once the row is actually marked read: the target
-    // page renders this same bell, and it must not come back still unread.
-    const go = () => window.location.assign(href);
-    done.then(go, go);
+    marked(post(row.dataset.notifIds.split(" ").filter(Boolean)));
+  });
+
+  // A middle click is no "click" event; it opens the link in a new tab.
+  bell.addEventListener("auxclick", (ev) => {
+    if (ev.button !== 1) return;
+    const row = ev.target.closest(".notif-item");
+    if (!row || (row.getAttribute("href") || "#") === "#") return;
+    opened(row);
+    setTimeout(poll, 1500);
   });
 
   /* What the page just marked read makes any list fetched before it stale —
