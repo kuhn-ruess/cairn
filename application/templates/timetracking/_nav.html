@@ -5,7 +5,11 @@
    you happened to be on. This is the same bar everywhere: what you can do
    (track / report / manage), which team you are in, and nothing else. #}
 
-{%- macro tt_nav(active, team=none, all_teams=none, can_import=false) -%}
+{#- ``can_report`` is the reporting right (manager or biller, see
+    services.timetracking.can_report). Without it the report still shows,
+    holding the user's own time only, while People and Unassigned, which are
+    the whole team's book, stay out of the bar (and answer 403). -#}
+{%- macro tt_nav(active, team=none, all_teams=none, can_import=false, can_report=false) -%}
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
   <ul class="nav nav-pills gap-1 me-auto">
     <li class="nav-item">
@@ -23,6 +27,7 @@
          href="{{ url_for('timetracking.index', team=team.pk if team else none) }}">
         <i class="bi bi-gear"></i> Customers &amp; projects</a>
     </li>
+    {% if can_report %}
     <li class="nav-item">
       <a class="nav-link py-1 {{ 'active' if active == 'people' }}"
          href="{{ url_for('timetracking.people', team=team.pk if team else none) }}"
@@ -35,6 +40,7 @@
          title="Imported time waiting to be filed on a billing project">
         <i class="bi bi-inbox"></i> Unassigned</a>
     </li>
+    {% endif %}
     <li class="nav-item">
       <a class="nav-link py-1 {{ 'active' if active == 'trash' }}"
          href="{{ url_for('timetracking.trash', team=team.pk if team else none) }}"

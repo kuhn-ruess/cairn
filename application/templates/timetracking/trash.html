@@ -2,7 +2,7 @@
 {% block title %}Deleted time · Cairn{% endblock %}
 {% block content %}
 {% import "timetracking/_nav.html" as nav with context %}
-{{ nav.tt_nav('trash', team, all_teams, can_import) }}
+{{ nav.tt_nav('trash', team, all_teams, can_import, can_report) }}
 
 <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
   <h1 class="h4 mb-0 me-auto"><i class="bi bi-trash"></i> Deleted time</h1>

@@ -1448,7 +1448,7 @@ def list_perspectives():
 #
 # The billing module is **team**-scoped, which is a different axis from the
 # owner/assignee ``_scope()`` everything above uses: what a token may read here
-# follows the team roles (``reachable_project_ids``), and what it may change
+# follows the team roles (``report_bounds``), and what it may change
 # follows team management. Reusing those two functions rather than restating
 # them is deliberate — a second definition of "may see" is how the API and the
 # UI drift apart.
@@ -1653,7 +1653,7 @@ def tt_list_entries():
     dropped, so it has to stay findable — or ``all``. ``billable`` and
     ``locked`` take ``1``/``0``."""
     from application.services.timetracking import (
-        archived_project_ids, build_report_rows, reachable_project_ids,
+        archived_project_ids, build_report_rows, report_bounds,
         resolve_period)
     from application.services.tz import user_zone
     team = _tt_team()
@@ -1670,12 +1670,15 @@ def tt_list_entries():
         return True if v == "1" else False if v == "0" else None
 
     state = args.get("state")
+    # The web report's bounds: without the reporting right, the caller's own
+    # entries only, and ``user_id`` cannot widen that.
+    scope, own_id = report_bounds(user, team)
     rows = build_report_rows(
-        team=team, scope_ids=reachable_project_ids(user, team),
+        team=team, scope_ids=scope,
         date_from=date_from, date_to=date_to,
         customer_id=args.get("customer_id") or None,
         project_id=args.get("project_id") or None,
-        user_id=args.get("user_id") or None,
+        user_id=own_id or args.get("user_id") or None,
         billable=_tri("billable"), locked=_tri("locked"),
         state=state if state in ("active", "cancelled", "all") else "active",
         archived_ids=archived_project_ids(team), viewer=user,

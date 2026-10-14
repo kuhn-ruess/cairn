@@ -2,7 +2,7 @@
 {% block title %}{{ customer.name }} · Customer{% endblock %}
 {% block content %}
 {% import "timetracking/_nav.html" as nav with context %}
-{{ nav.tt_nav('manage', team, all_teams, can_import) }}
+{{ nav.tt_nav('manage', team, all_teams, can_import, can_report) }}
 
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
   <a class="btn btn-sm btn-outline-secondary"

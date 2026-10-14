@@ -868,7 +868,7 @@ def _zammad_agent_context(user) -> dict:
     """The agent roster shown under the form: who Zammad booked time as, and
     who that is in Cairn. Empty for a solo user — there is no team to bill."""
     from application.services.permissions import team_members
-    from application.services.timetracking import default_team
+    from application.services.timetracking import can_report, default_team
     from application.services.zammad_billing import agent_rows
 
     team = default_team(user)
@@ -885,6 +885,7 @@ def _zammad_agent_context(user) -> dict:
         "members": sorted(team_members(team),
                           key=lambda m: (m.display_name or m.username or "").lower()),
         "can_map": team.is_managed_by(user),
+        "can_report": can_report(user, team),
     }
 
 

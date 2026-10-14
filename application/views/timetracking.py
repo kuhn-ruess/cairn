@@ -24,6 +24,7 @@ from application.services.timetracking import (
     ref_label,
     to_oid,
     can_bill,
+    can_report,
     cancel_entry,
     custom_values,
     day_sheet,
@@ -309,7 +310,7 @@ def index():
         all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user),
         can_file=can_bill(user, team),
-        can_import=can_bill(user, team),
+        can_import=can_bill(user, team), can_report=can_report(user, team),
         customers=customers,
         show_archive=show_archive,
         archived_count=archived_count,
@@ -867,6 +868,14 @@ def entry_edit(bucket_id, entry_id):
 # The day sheet — mite's "Zeiten erfassen": today's time, week at a glance
 # ---------------------------------------------------------------------------
 
+def _default_can_report(user) -> bool:
+    """Whether the team the module opens in grants the reporting right, for
+    the pages that link into it without naming a team."""
+    from application.services.timetracking import default_team
+    team = default_team(user)
+    return bool(team) and can_report(user, team)
+
+
 @timetracking_bp.route("/day")
 @login_required
 @team_required
@@ -877,7 +886,9 @@ def day():
     return render_template(
         "timetracking/day.html", d=day_sheet(user, d),
         today=datetime.now(user_zone(user)).date(),
-        all_teams=_user_teams(user))
+        all_teams=_user_teams(user),
+        # The day sheet names no team, and its links open the default one.
+        can_report=_default_can_report(user))
 
 
 def _report_filters(args=None):
@@ -942,7 +953,7 @@ def _report_context(args=None):
         monthly = monthly_breakdown(data["rows"], f["date_from"], f["date_to"])
     return dict(
         team=team, f=f, can_bill=can_bill(user, team), monthly=monthly,
-        can_import=can_bill(user, team),
+        can_import=can_bill(user, team), can_report=can_report(user, team),
         # Field definitions for the inline edit forms — for the projects on
         # screen, not for every project the team has, and the export exactly as
         # it will be written: the preview is the export, not a description of it.
@@ -1241,18 +1252,21 @@ def _monthly_table(monthly):
 def _grouped_report(team, f):
     """Build the customer → project → user grouping + totals for the filters."""
     from application.services.timetracking import (
-        build_report_rows, reachable_project_ids)
+        build_report_rows, report_bounds)
     from application.services.permissions import team_members
 
     from application.services.timetracking import archived_project_ids
 
     user = current_user._get_current_object()
-    scope = reachable_project_ids(user, team)
+    # Without the reporting right the report is the user's own time, whatever
+    # ``?user=`` says: the bound is applied here, never taken from the request.
+    scope, own_id = report_bounds(user, team)
     dead = archived_project_ids(team)
     rows = build_report_rows(
         team=team, scope_ids=scope,
         date_from=f["date_from"], date_to=f["date_to"],
         customer_id=f["customer_id"], project_id=f["project_id"],
+        user_id=own_id,
         billable=f["billable"], locked=f["locked"],
         state=f["state"], archived_ids=dead, viewer=user,
     )
@@ -1271,7 +1285,7 @@ def _grouped_report(team, f):
     authors.sort(key=lambda a: a["label"].lower())
     # The user filter is a plain post-filter, applied here so the options above
     # describe the whole result rather than what survived the filter.
-    pick = f["user_id"]
+    pick = None if own_id else f["user_id"]
     if pick == "none":
         rows = [r for r in rows if not r["user_id"]]
     elif (pick or "").startswith("name:"):
@@ -1330,7 +1344,7 @@ def _grouped_report(team, f):
         pq &= Q(customer=f["customer_id"])
     projects_list = [p for p in TimeTrackingProject.objects(pq).order_by("+name")
                      if str(p.id) not in dead or str(p.id) == f["project_id"]]
-    members = team_members(team)
+    members = team_members(team) if own_id is None else []
     # Grouped for the picker, so a project is always shown under the client it
     # bills to — two customers with a "Support" project are otherwise two
     # identical-looking options.
@@ -1388,6 +1402,9 @@ def people():
 
     team = _team()
     user = current_user._get_current_object()
+    # Everybody's hours, per person: that is reading the team's book.
+    if not can_report(user, team):
+        abort(403)
     rows = people_in_time(team)
     # The roster holds people an importer met but who may have no time here yet
     # (or whose time is already attributed) — show them too, so a mapping can be
@@ -1403,7 +1420,7 @@ def people():
     return render_template(
         "timetracking/people.html", team=team, all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user), rows=rows + extra,
-        can_import=can_bill(user, team),
+        can_import=can_bill(user, team), can_report=can_report(user, team),
         members=sorted(team_members(team),
                        key=lambda m: (m.display_name or m.username or "").lower()))
 
@@ -1492,6 +1509,9 @@ def unassigned():
 
     team = _team()
     user = current_user._get_current_object()
+    # Imported time of the whole team, waiting to be filed: the team's book.
+    if not can_report(user, team):
+        abort(403)
     rows = unassigned_groups(team)
     # Where the time can go: every live project of the team, labelled by
     # customer — an intake project's own customer is often not the one the
@@ -1521,7 +1541,7 @@ def unassigned():
     return render_template(
         "timetracking/unassigned.html", team=team, all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user), rows=rows, targets=targets,
-        can_import=can_bill(user, team),
+        can_import=can_bill(user, team), can_report=can_report(user, team),
         cutoff=cutoff, stale=len(stale),
         stale_minutes=sum(r["minutes"] for r in stale),
         total_minutes=sum(r["minutes"] for r in rows))
@@ -1591,7 +1611,7 @@ def trash():
     return render_template(
         "timetracking/trash.html", team=team, all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user), rows=rows,
-        can_import=can_bill(user, team),
+        can_import=can_bill(user, team), can_report=can_report(user, team),
         total_minutes=sum(r["minutes"] for r in rows))
 
 
@@ -1858,7 +1878,7 @@ def import_page():
     user = current_user._get_current_object()
     _billing_manager(team)
     return render_template("timetracking/import_mite.html", team=team,
-                           all_teams=_user_teams(user),
+                           all_teams=_user_teams(user), can_report=True,
                            can_manage=team.is_managed_by(user),
                            projects=_project_choices(team),
                            members=_member_choices(team))
@@ -2194,7 +2214,7 @@ def customer_detail(cid):
     return render_template(
         "timetracking/customer.html", team=team, all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user), can_file=can_bill(user, team),
-        can_import=can_bill(user, team),
+        can_import=can_bill(user, team), can_report=can_report(user, team),
         customer=c, projects=projects,
         minutes_by_project=minutes_by_project,
         merge_targets=merge_targets,
@@ -2424,7 +2444,7 @@ def project_detail(pid):
     return render_template(
         "timetracking/project.html", team=team, all_teams=_user_teams(user),
         can_manage=team.is_managed_by(user), can_file=can_bill(user, team),
-        can_import=can_bill(user, team),
+        can_import=can_bill(user, team), can_report=can_report(user, team),
         p=p, share_cols=share_cols,
         budget=budget_status(p, consumption.get(str(p.id))),
         # Two different numbers, and the danger zone needs the other one: the

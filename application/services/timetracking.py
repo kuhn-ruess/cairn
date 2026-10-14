@@ -2225,6 +2225,30 @@ def can_bill(user, team) -> bool:
     return team.is_managed_by(actor) or actor in (team.billers or [])
 
 
+def can_report(user, team) -> bool:
+    """The reporting right: reading the team's book, everybody's time.
+
+    The same people who bill it (managers and billers), named on its own
+    because it is a different question: what the report, the People list and
+    the Unassigned pile may show. Everyone else still has a report, of their
+    own time only (:func:`report_bounds`)."""
+    return can_bill(user, team)
+
+
+def report_bounds(user, team) -> tuple:
+    """``(scope_ids, own_user_id)`` for every reader of logged time: the web
+    report, its exports and ``/api/v1/time/entries``.
+
+    With the reporting right: the reachable projects, any author. Without it:
+    any project, but only the entries the user logged themselves. The second
+    value is a hard filter that overrides whatever user the request asked for,
+    so a hand-edited ``?user=`` never reaches a colleague's time."""
+    actor = _actor(user)
+    if can_report(actor, team):
+        return reachable_project_ids(actor, team), None
+    return None, str(actor.id)
+
+
 def set_locked(*, team, user, items, locked: bool) -> int:
     """Lock (bill) or unlock the given ``(bucket_id, entry_id)`` pairs.
 

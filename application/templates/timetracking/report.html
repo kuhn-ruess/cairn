@@ -2,10 +2,11 @@
 {% block title %}Time report{% endblock %}
 {% block content %}
 {% import "timetracking/_nav.html" as nav with context %}
-{{ nav.tt_nav('report', team, all_teams, can_import) }}
+{{ nav.tt_nav('report', team, all_teams, can_import, can_report) }}
 
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-  <h1 class="h4 mb-0 me-auto"><i class="bi bi-table"></i> Report</h1>
+  <h1 class="h4 mb-0 me-auto"><i class="bi bi-table"></i> Report
+    {% if not can_report %}<small class="text-muted fs-6">· your own time</small>{% endif %}</h1>
   <a class="btn btn-sm btn-outline-secondary"
      href="{{ url_for('timetracking.report_csv', **dict(request.args, excel='1')) }}">
     <i class="bi bi-file-earmark-spreadsheet"></i> Excel</a>
@@ -86,6 +87,10 @@
         {% endfor %}
       </select>
     </div>
+    {# Without the reporting right the report holds your own time only (the
+       server bounds it, see services.timetracking.report_bounds), so there is
+       nobody else to pick. #}
+    {% if can_report %}
     <div class="col-auto">
       <label class="form-label small mb-0">User</label>
       <select name="user" class="form-select form-select-sm">
@@ -108,6 +113,7 @@
         {% endif %}
       </select>
     </div>
+    {% endif %}
     <div class="col-auto">
       <label class="form-label small mb-0">Billable</label>
       <select name="billable" class="form-select form-select-sm">

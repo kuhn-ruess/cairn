@@ -982,7 +982,10 @@ def build_openapi_spec() -> dict:
                                     "the report page. Range: `period` (a "
                                     "preset) or `from`/`to`, which ARE the "
                                     "period when given without one; the "
-                                    "default is this month."),
+                                    "default is this month. Without the "
+                                    "reporting right (team manager or "
+                                    "biller) only the caller's own entries "
+                                    "are returned, whatever `user_id` says."),
                     "tags": ["time"],
                     "parameters": [
                         {"name": "team", "in": "query", "schema": {"type": "string", "format": "objectid"}, "description": "Team to operate on. Omitted → the caller's default team (see GET /time/teams)."},

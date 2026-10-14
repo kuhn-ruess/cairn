@@ -2,7 +2,7 @@
 {% block title %}Time — {{ d.day.strftime('%d.%m.%Y') }}{% endblock %}
 {% block content %}
 {% import "timetracking/_nav.html" as nav with context %}
-{{ nav.tt_nav('track') }}
+{{ nav.tt_nav('track', can_report=can_report) }}
 
 {# The day being looked at, and how to move between days. #}
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">

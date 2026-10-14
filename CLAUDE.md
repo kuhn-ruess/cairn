@@ -287,8 +287,12 @@ There are **two** visibility axes, and a new endpoint belongs to one of them:
   any, 404 for one they're not in — the same two answers the web module gives).
   Within a team, *structure* (customers, projects, their totals) is visible to
   every member — that is what `views.timetracking.index` shows — while *logged
-  time* is bounded by `reachable_project_ids()` and writes by
-  `Team.is_managed_by()`. Reuse those rather than restating them: a second
+  time* is bounded by `report_bounds()` and writes by
+  `Team.is_managed_by()`. `report_bounds` is the reporting right
+  (`can_report`, manager or biller): with it, `reachable_project_ids()`; without
+  it, the caller's own entries only, never widened by `?user=`/`user_id`. The
+  module's nav shows People and Unassigned only with that right, and both
+  routes answer 403 without it. Reuse those rather than restating them: a second
   definition of "may see" is how the API and the UI drift apart.
 
 `POST /notes` is also the **import** endpoint, and the three fields that make
