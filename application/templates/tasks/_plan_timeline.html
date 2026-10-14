@@ -167,7 +167,7 @@
               <button type="button" class="plan-ico plan-ico-task plan-complete"
                       {% if it.obj.plan_note and not it.done %}data-quick-plan-done{% endif %}
                       title="{{ 'Reopen' if it.done else ('Quick plan step done (the task stays open)' if it.obj.plan_note else 'Mark done') }}">
-                <i class="bi {{ 'bi-check-circle-fill text-success' if it.done else 'bi-check2' }}"></i>
+                <i class="bi {{ 'bi-check-circle-fill text-success' if it.done else 'bi-circle' }}"></i>
               </button>
               <div class="plan-card-body">
                 <div class="plan-card-title">

@@ -126,7 +126,7 @@
       if (el.dataset.inspectorUrl) card.dataset.inspectorUrl = el.dataset.inspectorUrl;
       if (el.dataset.inspectorTitle) card.dataset.inspectorTitle = el.dataset.inspectorTitle;
       card.innerHTML =
-        '<button type="button" class="plan-ico plan-ico-task plan-complete" title="Mark done"><i class="bi bi-check2"></i></button>' +
+        '<button type="button" class="plan-ico plan-ico-task plan-complete" title="Mark done"><i class="bi bi-circle"></i></button>' +
         '<div class="plan-card-body"><div class="plan-card-title"><a></a></div>' +
         '<div class="plan-card-meta"></div></div>' +
         '<span class="plan-card-resize" title="Drag to change duration"></span>';
@@ -164,7 +164,7 @@
     card.dataset.taskId = id;
     card.dataset.est = String(est);
     card.innerHTML =
-      '<button type="button" class="plan-ico plan-ico-task plan-complete" title="Mark done"><i class="bi bi-check2"></i></button>' +
+      '<button type="button" class="plan-ico plan-ico-task plan-complete" title="Mark done"><i class="bi bi-circle"></i></button>' +
       '<div class="plan-card-body"><div class="plan-card-title"><a></a></div>' +
       '<div class="plan-card-meta"></div></div>' +
       '<span class="plan-card-resize" title="Drag to change duration"></span>';
@@ -318,7 +318,7 @@
     card.setAttribute("draggable", wasDone ? "true" : "false");
     if (!wasDone) card.classList.remove("plan-card-current");
     const icon = chip.querySelector("i");
-    if (icon) icon.className = wasDone ? "bi bi-check2" : "bi bi-check-circle-fill text-success";
+    if (icon) icon.className = wasDone ? "bi bi-circle" : "bi bi-check-circle-fill text-success";
     chip.title = wasDone ? "Mark done" : "Reopen";
     postForm(`/tasks/${id}/${wasDone ? "reopen" : "complete"}`, {})
       .then((r) => { if (!r.ok) throw new Error(r.status); })
