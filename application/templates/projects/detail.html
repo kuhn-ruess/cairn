@@ -333,12 +333,6 @@
         <i class="bi bi-journal-text"></i>
       </a>
     {% endif %}
-    {% if project.time_project %}
-      <a class="btn btn-outline-secondary" href="{{ url_for('timetracking.day') }}"
-         title="Time on this project bills to {{ project.time_project.name }}">
-        <i class="bi bi-stopwatch"></i>
-      </a>
-    {% endif %}
     {% if project.owner == current_user %}
       <a class="btn btn-outline-secondary"
          href="{{ url_for('projects.import_csv', project_id=project.pk) }}"
