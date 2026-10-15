@@ -321,6 +321,11 @@
         <i class="bi bi-bullseye"></i>
       </button>
     {% endif %}
+    <button type="button" class="btn btn-outline-secondary" data-dep-graph-toggle
+            aria-pressed="false" aria-controls="project-dep-graph"
+            title="Show the dependency graph of this {{ project.kind }}">
+      <i class="bi bi-diagram-3"></i>
+    </button>
     {% set _nf = linked_notes_folder(project) %}
     {% if _nf %}
       <a class="btn btn-outline-secondary" href="{{ url_for('notes.detail', note_id=_nf.pk) }}"
@@ -399,6 +404,20 @@
       </div>
     {% endif %}
   </div>
+</div>
+
+{# The dependency graph of this project's tasks, toggled from the header
+   (dep-graph.js fetches it when first opened). An arrow to a task outside
+   ends at a dashed placeholder that opens the full graph. #}
+<div id="project-dep-graph" class="mb-3" hidden
+     data-graph-url="{{ url_for('projects.dependency_graph', project_id=project.pk) }}">
+  <div class="d-flex align-items-center gap-2 mb-1 small text-muted">
+    <i class="bi bi-diagram-3"></i>
+    <span class="me-auto">Dependencies in this {{ project.kind }}: arrows point from a prerequisite to the task waiting on it.</span>
+    <a href="{{ url_for('tasks.dependency_graph') }}" class="text-muted">Full graph</a>
+  </div>
+  <div class="dep-graph border rounded bg-body-tertiary p-2 small text-muted"
+       style="overflow: auto; max-height: 50vh;"></div>
 </div>
 
 <style>

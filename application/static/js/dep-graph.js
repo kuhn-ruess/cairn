@@ -1,10 +1,14 @@
-/* Workspace dependency graph renderer (tasks/graph.html).
+/* Dependency graph renderer: the full graph (tasks/graph.html) and the
+ * panel in a project's header (projects/detail.html), one renderer for both.
  *
  * Self-contained SVG, no external library. Reads nodes + edges from the
  * embedded #dep-graph-data JSON, lays the DAG out in columns left→right by
  * longest prerequisite chain, and draws it. Edge {from, to} means `from`
  * depends on `to`, so `to` (the prerequisite) sits one column to the left and
  * the arrow points from `to` → `from` (the direction completion flows).
+ *
+ * A node with `placeholder: true` stands for tasks outside the project the
+ * panel shows: drawn dashed, it links to the full graph.
  *
  * No-ops when #dep-graph is absent, so it's safe to load globally.
  */
@@ -13,6 +17,8 @@
   const NODE_W = 210, NODE_H = 46, GAP_X = 70, GAP_Y = 18, PAD = 24;
 
   function statusColor(n) {
+    if (n.placeholder)
+      return { fill: "transparent", stroke: "var(--bs-secondary, #6c757d)", dash: "5 4" };
     if (n.status === "done" || n.status === "dropped")
       return { fill: "var(--bs-success-bg-subtle, #d1e7dd)", stroke: "var(--bs-success, #198754)" };
     if (n.blocked)
@@ -120,6 +126,7 @@
       a.appendChild(el("rect", {
         x: p.x, y: p.y, width: NODE_W, height: NODE_H, rx: 8, ry: 8,
         fill: c.fill, stroke: c.stroke, "stroke-width": "1.5",
+        "stroke-dasharray": c.dash || "none",
       }));
       const text = el("text", {
         x: p.x + 12, y: p.y + NODE_H / 2 + 4,
@@ -127,10 +134,11 @@
       });
       if (n.status === "done" || n.status === "dropped")
         text.setAttribute("text-decoration", "line-through");
+      if (n.placeholder) text.setAttribute("font-style", "italic");
       text.textContent = truncate(n.title, 26);
       a.appendChild(text);
       const title = el("title", {});
-      title.textContent = n.title;
+      title.textContent = n.placeholder ? n.title + " (open the full graph)" : n.title;
       a.appendChild(title);
       svg.appendChild(a);
     });
@@ -139,7 +147,70 @@
     container.appendChild(svg);
   }
 
+  // The project header's panel: fetched the first time it is opened, so a
+  // project page that never shows it costs nothing. Delegated on document,
+  // because the panel lives in <main>, which a background refresh replaces.
+  async function loadPanel(panel) {
+    const box = panel.querySelector(".dep-graph");
+    if (!box || panel.dataset.loaded === "1") return;
+    panel.dataset.loaded = "1";
+    box.textContent = "Loading…";
+    let data;
+    try {
+      const resp = await fetch(panel.dataset.graphUrl, { credentials: "same-origin" });
+      if (!resp.ok) throw new Error(resp.status);
+      data = await resp.json();
+    } catch (_) {
+      panel.dataset.loaded = "";
+      box.textContent = "Could not load the dependency graph.";
+      return;
+    }
+    if (!(data.nodes || []).length) {
+      box.textContent = "No dependencies between the tasks of this project.";
+      return;
+    }
+    render(box, data);
+  }
+
+  const OPEN_KEY = "cairn:projectGraphOpen";
+  function remembered() {
+    try { return localStorage.getItem(OPEN_KEY) === "1"; } catch (_) { return false; }
+  }
+  function remember(open) {
+    try { localStorage.setItem(OPEN_KEY, open ? "1" : "0"); } catch (_) {}
+  }
+  function setPanel(open) {
+    const panel = document.getElementById("project-dep-graph");
+    if (!panel) return;
+    panel.hidden = !open;
+    document.querySelectorAll("[data-dep-graph-toggle]").forEach((b) => {
+      b.classList.toggle("active", open);
+      b.setAttribute("aria-pressed", open ? "true" : "false");
+    });
+    if (open) loadPanel(panel);
+  }
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-dep-graph-toggle]");
+    if (!btn) return;
+    const panel = document.getElementById("project-dep-graph");
+    if (!panel) return;
+    const open = panel.hidden;
+    remember(open);
+    setPanel(open);
+  });
+
   document.addEventListener("DOMContentLoaded", () => {
+    if (remembered()) setPanel(true);
+    // After a background refresh the panel is fresh server markup again
+    // (hidden, not loaded): reopen it if it was open. Wrapped here, not at
+    // load, because sortable-tasks.js defines the refresh after this file.
+    const origRefresh = window.bktodoRefreshMain;
+    if (typeof origRefresh === "function") {
+      window.bktodoRefreshMain = async function () {
+        await origRefresh.apply(this, arguments);
+        if (remembered()) setPanel(true);
+      };
+    }
     const container = document.getElementById("dep-graph");
     const dataEl = document.getElementById("dep-graph-data");
     if (!container || !dataEl) return;

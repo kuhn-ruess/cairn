@@ -1655,6 +1655,97 @@ def set_view_mode(project_id):
         project.save()
     return redirect(url_for("projects.detail", project_id=project_id))
 
+OUTSIDE_PRE = "outside-prerequisites"
+OUTSIDE_DEP = "outside-dependents"
+
+
+def _project_graph_data(project, full_url):
+    """The dependency graph of one project, for the panel in its header.
+
+    Nodes are the tasks in the project's subtree that take part in a
+    dependency. A dependency that crosses the project's border does not bring
+    the task on the other side in: its arrow ends at one of two placeholder
+    nodes ("waits on N tasks outside" on the left, "N tasks outside wait on
+    this" on the right) that link to the full graph. Two of them rather than
+    one, because a single node both before and after the project's tasks
+    would be a cycle in a left-to-right layout. The outside tasks are only
+    counted, never named: the viewer may see this project without seeing
+    them."""
+    from application.views.tasks import _graph_subtree_task_pks
+
+    subtree = _graph_subtree_task_pks(project)
+    if not subtree:
+        return {"nodes": [], "edges": []}
+    tasks = {str(t.pk): t for t in Item.objects(pk__in=subtree, kind="task")}
+    edges, outside_pre, outside_dep = set(), set(), set()
+    for sid, t in tasks.items():
+        for d in (t._data.get("depends_on") or []):
+            did = getattr(d, "id", None) or getattr(d, "pk", None)
+            if not did:
+                continue
+            did = str(did)
+            if did in tasks:
+                edges.add((sid, did))
+            else:
+                outside_pre.add(did)
+                edges.add((sid, OUTSIDE_PRE))
+    # The other direction: tasks outside that wait on one in here. Only the
+    # reference is read, never the outside task's content.
+    task_pks = [t.pk for t in tasks.values()]
+    outside = Item.objects(kind="task", depends_on__in=task_pks,
+                           pk__nin=subtree).only("pk", "depends_on") if task_pks else []
+    for o in outside:
+        for d in (o._data.get("depends_on") or []):
+            did = str(getattr(d, "id", None) or getattr(d, "pk", None) or "")
+            if did in tasks:
+                outside_dep.add(str(o.pk))
+                edges.add((OUTSIDE_DEP, did))
+    # A prerequisite that is gone (trashed, purged) is no edge in the big
+    # graph either.
+    if outside_pre:
+        alive = {str(p) for p in Item.objects(
+            pk__in=list(outside_pre), kind="task").scalar("pk")}
+        outside_pre &= alive
+        if not outside_pre:
+            edges = {e for e in edges if e[1] != OUTSIDE_PRE}
+    used = {n for e in edges for n in e}
+    nodes = [{
+        "id": nid,
+        "title": t.title,
+        "status": t.status,
+        "blocked": t.is_blocked(),
+        "url": url_for("tasks.detail", task_id=nid),
+    } for nid, t in tasks.items() if nid in used]
+    for nid, count, label in (
+        (OUTSIDE_PRE, len(outside_pre), "Waits on {} outside"),
+        (OUTSIDE_DEP, len(outside_dep), "{} outside wait on this"),
+    ):
+        if nid in used:
+            noun = "task" if count == 1 else "tasks"
+            nodes.append({"id": nid, "placeholder": True, "url": full_url,
+                          "title": label.format(f"{count} {noun}")})
+    return {"nodes": nodes, "edges": [{"from": s, "to": t} for s, t in sorted(edges)]}
+
+
+@projects_bp.route("/<project_id>/graph")
+@login_required
+def dependency_graph(project_id):
+    """JSON for the dependency graph panel in the project header (loaded
+    when the panel is opened, so a project page that never opens it pays no
+    query for it)."""
+    from flask import jsonify
+    user = current_user._get_current_object()
+    project = Item.objects(pk=project_id).first()
+    if not project or project.kind == "task":
+        abort(404)
+    if not project.can_be_viewed_by(user):
+        abort(403)
+    full_url = url_for("tasks.dependency_graph")
+    data = _project_graph_data(project, full_url)
+    data["full_url"] = full_url
+    return jsonify(data)
+
+
 @projects_bp.route("/<project_id>/sketch", methods=["POST"])
 @login_required
 def sketch(project_id):

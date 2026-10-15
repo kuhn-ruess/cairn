@@ -3811,3 +3811,10 @@ a.attachment-link::before {
   margin-right: .2em;
   vertical-align: -.125em;
 }
+
+/* Dependency graph nodes (dep-graph.js): the full graph and the project
+   header's panel. */
+.dep-graph svg { display: block; }
+.dep-node rect { transition: filter .1s ease; cursor: pointer; }
+.dep-node:hover rect { filter: brightness(1.08); }
+.dep-node text { pointer-events: none; }
