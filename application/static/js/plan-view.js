@@ -393,10 +393,14 @@
       if (j.day_over) {
         msg = `Nothing re-planned — the working day (${j.window}) is over.`;
       } else {
+        // ``waiting`` is part of ``skipped``: those did not lack room, they
+        // wait for a task that is not planned before them.
+        const noRoom = (j.skipped || 0) - (j.waiting || 0);
         const left = [];
-        if (j.skipped) left.push(`${j.skipped} left in Due`);
+        if (noRoom > 0) left.push(`${noRoom} left in Due`);
         if (j.next_left) left.push(`${j.next_left} left in Next actions`);
         if (left.length) msg = `Planned ${j.planned}; ${left.join(", ")} (no room before the day ends).`;
+        if (j.waiting) msg += ` ${j.waiting} kept in Due: they wait for a task with no slot before them ("Waits for").`;
       }
       if (j.carried) msg = `Brought ${j.carried} unfinished task(s) onto today. ` + msg;
       sessionStorage.setItem("plan_toast", msg);
@@ -407,6 +411,27 @@
     const auto = ev.target.closest("#plan-auto-btn");
     if (auto) { runAutoPlan(auto, { date: auto.dataset.date }, "Planning…"); return; }
   });
+
+  // ---------- "Pull onto day": a blocker the task waits for ----------
+  // Puts the task it waits for on this day without a time (Due rail), the
+  // same write as dragging a card back to the rail. CAPTURE phase: the button
+  // sits inside a card/pill that opens the inspector on click (see the note on
+  // "Back to Next" in task-next.js).
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest && ev.target.closest(".plan-dep-pull");
+    if (!btn) return;
+    ev.preventDefault(); ev.stopPropagation();
+    if (btn.disabled) return;
+    btn.disabled = true;
+    postForm(`/tasks/${btn.dataset.taskId}/unschedule`, { date: btn.dataset.date })
+      .then((r) => {
+        if (!r.ok) throw new Error(r.status);
+        // The event swaps <main> AND re-runs mount() here, which shows the toast.
+        sessionStorage.setItem("plan_toast", "On the day now, in Due. Plan my day places it first.");
+        document.dispatchEvent(new Event("bktodo:refresh-needed"));
+      })
+      .catch(() => { btn.disabled = false; alert("Couldn't put it on the day."); });
+  }, true);
 
   // ---------- per-render setup: centre on "now" + surface toast ----------
   function mount() {

@@ -7,6 +7,7 @@
    inline plan-view JS in today.html. #}
 {% from "tasks/_event_note_macros.html" import event_note_btn, event_log_btn, event_customer_btn, task_note_btn with context %}
 {% import "tasks/_quick_plan_macros.html" as qp with context %}
+{% from "tasks/_plan_dep_macros.html" import dep_hint with context %}
 {# Row colours for everything on this page in ONE resolve: the timed task cards
    and both rails. ``task_colors`` caches per item, so asking for the union here
    costs the same as asking three times and keeps the three shapes in step. #}
@@ -174,6 +175,7 @@
                   <a href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ qp.qp_title(it.obj, it.title) }}</a>
                 </div>
                 <div class="plan-card-meta">{{ tspan }} · <span class="plan-card-dur">{{ it.duration_min }}m</span></div>
+                {% if not it.done %}{{ dep_hint(it.obj, compact=true) }}{% endif %}
               </div>
               {# The day ran out on this one: put it back into Next actions and
                  take the stale plan date off it, in one click. Same endpoint
@@ -225,6 +227,7 @@
       <i class="bi bi-grip-vertical plan-grip"></i>
       <a class="plan-rail-link" href="{{ url_for('tasks.detail', task_id=it.obj.pk) }}">{{ qp.qp_title(it.obj, it.title) }}</a>
       {% include "tasks/_delegated_badge.html" %}
+      {{ dep_hint(it.obj, compact=true) }}
       {# Left over at the end of the day: back into Next actions, off the day.
          Only on the Due rail — a Next pill is already there. #}
       {% if back_to_next and it.obj.status != 'next' %}

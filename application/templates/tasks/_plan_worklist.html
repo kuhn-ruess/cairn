@@ -23,6 +23,7 @@
 {% from "tasks/_tag_macros.html" import tag_chips with context %}
 {% from "tasks/_event_note_macros.html" import task_note_btn %}
 {% import "tasks/_quick_plan_macros.html" as qp with context %}
+{% from "tasks/_plan_dep_macros.html" import dep_hint with context %}
 
 {% macro wl_card(t, start=None, end=None, dur=None, colors={}) %}
   {% set _c = colors.get(t.pk|string) %}
@@ -80,6 +81,7 @@
         </button>
       </div>
     </header>
+    {{ dep_hint(t) }}
 
     <div class="wl-fields">
       <label class="wl-field" title="Planned day and time (empty time = no time yet)">

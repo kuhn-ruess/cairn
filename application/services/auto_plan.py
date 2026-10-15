@@ -74,3 +74,64 @@ def plan_day(durations, busy, window_start, window_end, *, snap: int = SNAP_MIN,
         # next candidate starts after this one + the buffer
         cursor = start + need + timedelta(minutes=max(0, gap))
     return out
+
+
+def order_by_dependencies(keys, blockers):
+    """Put each candidate after what it depends on, without losing urgency.
+
+    Args:
+        keys: candidate ids, most urgent first.
+        blockers: id -> iterable of the ids of its OPEN dependencies (on the
+            list or not; a closed one must not be in there).
+
+    Returns ``(ordered, held)``. ``held`` are the candidates that cannot be
+    planned: something they wait for is not on the list, directly or further
+    down the chain. ``ordered`` is the rest, each blocker pulled in right
+    before the first candidate that waits for it, so it takes on that
+    candidate's urgency (a Next action that a due task waits for goes first,
+    not after the whole day's due work).
+    """
+    keys = list(keys)
+    on = set(keys)
+    held: set = set()
+    changed = True
+    while changed:                      # a chain: C held -> B held -> A held
+        changed = False
+        for k in keys:
+            if k in held:
+                continue
+            if any(b not in on or b in held for b in blockers.get(k, ())):
+                held.add(k)
+                changed = True
+    ordered, done = [], set()
+
+    def emit(k, path):
+        if k in done or k in path:      # path: a cycle guard, the graph is a DAG
+            return
+        path.add(k)
+        for b in blockers.get(k, ()):
+            emit(b, path)
+        path.discard(k)
+        done.add(k)
+        ordered.append(k)
+
+    for k in keys:
+        if k not in held:
+            emit(k, set())
+    return ordered, held
+
+
+def drop_unplaced_chains(keys, starts, blockers):
+    """``starts`` (aligned with ``keys``) with every candidate unplaced whose
+    blocker on the list did not get a slot. ``keys`` must already be in
+    dependency order (see ``order_by_dependencies``), so one pass carries a
+    gap down a whole chain."""
+    placed = {}
+    out = []
+    for k, st in zip(keys, starts):
+        if st is not None and any(b in placed and placed[b] is None
+                                  for b in blockers.get(k, ())):
+            st = None
+        placed[k] = st
+        out.append(st)
+    return out

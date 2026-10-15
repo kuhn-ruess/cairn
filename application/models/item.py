@@ -1071,7 +1071,7 @@ class Item(Document):
     def is_available(self, now: datetime | None = None) -> bool:
         return not self.is_blocked(now)
 
-    def _own_block(self, now: datetime) -> bool:
+    def _own_block(self, now: datetime, deps: bool = True) -> bool:
         """This item's OWN blocked state, ignoring ancestors:
           * ``status`` in ``BLOCKED_STATUS`` — parked on someone/something else
           * ``defer_date`` in the future
@@ -1087,6 +1087,10 @@ class Item(Document):
         held every task in the folder back — invisible in the available-only
         views and dropped from the CalDAV export — with nothing on screen that
         could explain why, let alone undo it.
+
+        ``deps=False`` leaves the task dependencies out (the Plan view asks
+        that: a task held back ONLY by what it depends on stays on the day,
+        with the blocker named beside it).
         """
         if self.kind == "folder":
             return False
@@ -1096,7 +1100,7 @@ class Item(Document):
             return True
         if self.followup_at and self.followup_at > now:
             return True
-        if self.blocking_dependencies():
+        if deps and self.blocking_dependencies():
             return True
         if (self.parent
                 and self.parent.kind in ("project", "section")
@@ -1112,7 +1116,7 @@ class Item(Document):
                 return True
         return False
 
-    def is_blocked(self, now: datetime | None = None) -> bool:
+    def is_blocked(self, now: datetime | None = None, own_deps: bool = True) -> bool:
         """Blocked = displayed but not actionable yet.
 
         A subtask of a blocked task is blocked too: we walk from this item up
@@ -1125,11 +1129,14 @@ class Item(Document):
         so blocked items still appear there. Depth-capped as a cycle guard;
         mongoengine caches each parent deref, and the per-node sequential query
         only fires where a node's parent is actually sequential.
+
+        ``own_deps=False`` ignores THIS item's own dependencies (an ancestor's
+        still count); see ``_own_block``.
         """
         now = now or _utcnow()
         node, depth = self, 0
         while isinstance(node, Item) and depth < 50:
-            if node._own_block(now):
+            if node._own_block(now, deps=own_deps or node is not self):
                 return True
             node = node.parent
             depth += 1

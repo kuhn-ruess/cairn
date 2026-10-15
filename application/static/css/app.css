@@ -2930,6 +2930,21 @@ input.dt-empty:not(:focus)::-webkit-datetime-edit {
   flex: 0 0 auto; font-size: .68rem; color: var(--gv-fg4);
   background: var(--gv-bg3); border-radius: 1rem; padding: 0 .45rem;
 }
+/* Plan view: what a task still waits for (its open dependencies). On a rail
+   pill it takes a line of its own under the title. A wrong order (the blocker
+   is not on the day, or comes after this task) is drawn in the warning colour. */
+.plan-dep { font-size: .7rem; color: var(--gv-fg4); display: flex; flex-direction: column; gap: .1rem; }
+.plan-dep-compact { font-size: .66rem; }
+.plan-dep-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem; min-width: 0; }
+.plan-dep-row.is-late { color: var(--gv-yellow-br); }
+.plan-dep-title { color: inherit; font-weight: 600; text-decoration: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.plan-dep-title:hover { text-decoration: underline; }
+.plan-dep-pull { font-size: inherit; line-height: 1; color: var(--gv-aqua-br); }
+.plan-rail-item:has(.plan-dep) { flex-wrap: wrap; }
+.plan-rail-item .plan-dep { flex: 1 0 100%; order: 10; padding-left: 1.6rem; }
+.wl-card > .plan-dep { margin: .1rem 0 .4rem; }
+
 /* Next rail: a task that is with somebody else, and the switch that shows them. */
 .plan-rail-delegated {
   flex: 0 0 auto; max-width: 45%;

@@ -1,0 +1,38 @@
+{# What a task on the Plan view still waits for (its open dependencies), on
+   the timeline card, the Due pill and the work list card alike. Fed by
+   ``plan_data.deps`` (views/tasks._plan_dependencies). A blocker that is not
+   on the day gets a "Pull onto day" button: it puts that task on the day
+   without a time (the Due rail), plan-view.js posts it to /unschedule with the
+   day, and the next "Plan my day" places it before the task waiting for it. #}
+{% macro dep_hint(task, compact=false) %}
+  {% set _rows = plan_data.deps.get(task.pk|string) %}
+  {% if _rows %}
+    {# The title repeats it for a short timeline card, which clips the lines. #}
+    <div class="plan-dep{% if compact %} plan-dep-compact{% endif %}" draggable="false"
+         title="Waits for: {{ _rows|map(attribute='obj.title')|join(', ') }}">
+      {% for d in _rows %}
+        <span class="plan-dep-row{% if d.late or not d.on_day %} is-late{% endif %}">
+          <i class="bi bi-diagram-2"></i>
+          <span class="plan-dep-label">Waits for</span>
+          <a href="{{ url_for('tasks.detail', task_id=d.obj.pk) }}" class="plan-dep-title">{{ d.obj.title }}</a>
+          {% if d.start %}
+            <span class="plan-dep-when">at {{ '%02d:%02d'|format(d.start.hour, d.start.minute) }}{% if d.late %}, after this one{% endif %}</span>
+          {% elif d.on_day %}
+            <span class="plan-dep-when">in Due, no time yet</span>
+          {% else %}
+            <span class="plan-dep-when">not on this day</span>
+            {% if d.pullable %}
+              <button type="button" class="btn btn-link btn-sm p-0 plan-dep-pull" draggable="false"
+                      data-task-id="{{ d.obj.pk }}" data-date="{{ plan_data.date }}"
+                      title="Put &quot;{{ d.obj.title }}&quot; on this day (Due rail). Plan my day then places it before this task.">
+                <i class="bi bi-box-arrow-in-down"></i> Pull onto day
+              </button>
+            {% elif d.obj.assigned_to %}
+              <span class="plan-dep-when">({{ d.obj.assigned_to }})</span>
+            {% endif %}
+          {% endif %}
+        </span>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endmacro %}

@@ -779,7 +779,8 @@ def _plan_classify(tasks, events, tz, day_date, now_utc):
       - timed: events + tasks planned on this day WITH a time-of-day, each
         ``{kind, obj, title, start, end, duration_min}`` (already placed).
       - allday: all-day events for the day (chips above the track).
-      - backlog: tasks with no time yet (auto-plan candidates), not blocked.
+      - backlog: tasks with no time yet (auto-plan candidates), not blocked
+        (a task that only waits for its dependencies IS in here).
       - busy: [(start, end)] intervals the auto-planner must avoid.
     """
     # Warm parent/assignee refs in bulk: is_blocked() below dereferences
@@ -813,11 +814,65 @@ def _plan_classify(tasks, events, tz, day_date, now_utc):
                 busy.append((pl, end))
         elif is_done:
             continue  # done with no time-of-day → don't clutter the backlog
-        elif not t.is_blocked(now_utc):
+        elif not t.is_blocked(now_utc, own_deps=False):
+            # Held back only by what it depends on: it stays on the day, with
+            # the blocker named beside it (``_plan_dependencies``), instead of
+            # vanishing from the rail with nothing to say why.
             backlog.append({"kind": "task", "obj": t, "title": t.title,
                             "duration_min": dur})
     timed.sort(key=lambda x: x["start"])
     return {"timed": timed, "allday": allday, "backlog": backlog, "busy": busy}
+
+
+def _plan_dependencies(user, cls):
+    """What the day's open tasks still wait for, for the Plan view to say so.
+
+    Returns ``{task pk (str): [{"obj", "on_day", "start", "late", "pullable"}]}``
+    for every open task on the day (timed or in the Due rail) that has an open
+    dependency; tasks without one are not in the map. Per blocker:
+
+    * ``on_day``: it is on this day too (timed or in the Due rail);
+    * ``start``: its time on the timeline, if it has one;
+    * ``late``: the order is wrong: the waiting task has a time and the
+      blocker ends after it starts, has no time yet, or is not on the day;
+    * ``pullable``: not on the day, and one click can put it there: the user
+      may edit it and it would show up on their plan (``_plan_mine_q``, not
+      ``someday``). Someone else's task is named, never offered.
+
+    Costs nothing for a day without dependencies (``blocking_dependencies``
+    reads the raw refs first); otherwise one query for the pullable check.
+    """
+    timed = {it["obj"].pk: it for it in cls["timed"]
+             if it["kind"] == "task" and not it.get("done")}
+    rail = {c["obj"].pk for c in cls["backlog"]}
+    waits = {}
+    for obj in [it["obj"] for it in timed.values()] + [c["obj"] for c in cls["backlog"]]:
+        deps = obj.blocking_dependencies()
+        if deps:
+            waits[obj.pk] = deps
+    if not waits:
+        return {}
+    off = {d.pk for deps in waits.values() for d in deps
+           if d.pk not in timed and d.pk not in rail}
+    pullable = set()
+    if off:
+        pullable = {i.pk for i in Item.objects(pk__in=list(off), kind="task",
+                                                status__nin=["someday"])
+                    .filter(_plan_mine_q(user)).only("id")}
+    out = {}
+    for pk, deps in waits.items():
+        me = timed.get(pk)
+        rows = []
+        for d in deps:
+            bt = timed.get(d.pk)
+            on_day = bt is not None or d.pk in rail
+            late = bool(me) and (bt is None or bt["end"] > me["start"])
+            rows.append({"obj": d, "on_day": on_day,
+                         "start": bt["start"] if bt else None, "late": late,
+                         "pullable": (not on_day and d.pk in pullable
+                                      and d.can_be_edited_by(user))})
+        out[str(pk)] = rows
+    return out
 
 
 def _assign_columns(items):
@@ -1505,6 +1560,7 @@ def today():
             if work_tt:
                 work_minutes = item_minutes(user, work_objs)
         plan_data = {
+            "deps": _plan_dependencies(user, cls),
             "layout": playout,
             "work_timed": work_timed,
             "work_paths": work_paths,
@@ -2987,7 +3043,8 @@ def plan_create():
                     "edit_url": url_for("tasks.edit", task_id=str(task.pk))})
 
 
-def _plan_grouped(cands, grouping, busy, window_start, window_end, gap):
+def _plan_grouped(cands, grouping, busy, window_start, window_end, gap,
+                  blockers=None):
     """Place ``cands`` (``[(entry, from_next)]``, most urgent first) into the
     day; returns ``(cands, starts)`` in the order they were placed.
 
@@ -2998,10 +3055,38 @@ def _plan_grouped(cands, grouping, busy, window_start, window_end, gap):
     only those are then re-ordered into blocks (a block where its most urgent
     task would have been) and placed again. What doesn't fit keeps its place
     at the end, unplaced.
+
+    ``blockers`` (task pk -> pks of its OPEN dependencies) makes the order
+    respect them, in both passes: a task is placed after everything it waits
+    for, a blocker on the list is pulled in before its first dependent, and a
+    task whose blocker is not on the list (or got no slot) is not placed at
+    all. Planning it anyway would put work on the day that cannot be started.
     """
-    from application.services.auto_plan import plan_day
+    from application.services.auto_plan import (
+        drop_unplaced_chains, order_by_dependencies, plan_day)
+    blockers = blockers or {}
     durations = lambda lst: [c["duration_min"] for c, _ in lst]
-    starts = plan_day(durations(cands), busy, window_start, window_end, gap=gap)
+    key = lambda c: c[0]["obj"].pk
+
+    def place(lst):
+        by = {key(c): c for c in lst}
+        order, held = order_by_dependencies([key(c) for c in lst], blockers)
+        ordered = [by[k] for k in order]
+        starts = plan_day(durations(ordered), busy, window_start, window_end, gap=gap)
+        kept = drop_unplaced_chains(order, starts, blockers)
+        if kept != starts:
+            # A chain lost its slot with its blocker: plan the rest again so
+            # the time it held does not stay empty. Fewer tasks ahead only
+            # ever move a task earlier, so everything placed still fits.
+            fit = [c for c, st in zip(ordered, kept) if st is not None]
+            gone = [c for c, st in zip(ordered, kept) if st is None]
+            ordered = fit + gone
+            kept = plan_day(durations(fit), busy, window_start, window_end,
+                            gap=gap) + [None] * len(gone)
+        rest = [c for c in lst if key(c) in held]
+        return ordered + rest, kept + [None] * len(rest)
+
+    cands, starts = place(cands)
     if grouping not in ("project", "customer"):
         return cands, starts
     fit = [c for c, st in zip(cands, starts) if st is not None]
@@ -3011,7 +3096,7 @@ def _plan_grouped(cands, grouping, busy, window_start, window_end, gap):
     blocks.sort(key=lambda g: min(rank[id(e)] for e in g[2]))
     by_id = {id(c[0]): c for c in fit}
     ordered = [by_id[id(e)] for _, _, entries in blocks for e in entries]
-    starts = plan_day(durations(ordered), busy, window_start, window_end, gap=gap)
+    ordered, starts = place(ordered)
     return ordered + rest, starts + [None] * len(rest)
 
 
@@ -3059,6 +3144,11 @@ def auto_plan():
     * a task that does not fit keeps its place on the DAY (midnight, i.e. no
       time-of-day) and shows up in the Due rail — it never has its
       ``plan_date`` cleared, which used to take it off the plate entirely.
+
+    **Dependencies decide the order** (``_plan_grouped``): a task is placed
+    after what it depends on, and one whose blocker is not on the day (or got
+    no slot) is not placed; it stays on the day, untimed, and the page names
+    the blocker with a "Pull onto day" button. ``waiting`` counts those.
     """
     from flask import jsonify
     from datetime import datetime as _dt, time as _t
@@ -3168,16 +3258,22 @@ def auto_plan():
         labels = customer_labels([c["obj"] for c in next_cands])
         next_cands.sort(key=lambda c: labels.get(str(c["obj"].pk)) not in meet)
     cands = [(c, False) for c in cands] + [(c, True) for c in next_cands]
+    # What each candidate still waits for. A Next action is never blocked
+    # (the pool leaves those out), so only the day's own tasks can carry any.
+    blockers = {c["obj"].pk: [d.pk for d in c["obj"].blocking_dependencies()]
+                for c, _ in cands}
     cands, starts = _plan_grouped(cands, user.plan_grouping, busy,
-                                  window_start, window_end, gap)
+                                  window_start, window_end, gap, blockers)
 
-    planned, skipped, next_left, warnings = 0, 0, 0, carry_warnings
+    planned, skipped, next_left, waiting, warnings = 0, 0, 0, 0, carry_warnings
     for (c, from_next), start in zip(cands, starts):
         task = c["obj"]
         if start is None and from_next:
             next_left += 1
             continue
         if start is None:
+            if blockers.get(task.pk):
+                waiting += 1
             # A re-plan loses the task's time — but it must NOT lose the task.
             # Clearing ``plan_date`` took it off the day altogether, and a task
             # that is neither planned, due nor flagged matches nothing in
@@ -3198,7 +3294,7 @@ def auto_plan():
         planned += 1
     return jsonify({"ok": True, "planned": planned, "skipped": skipped,
                     "next_left": next_left, "carried": carried,
-                    "warnings": warnings})
+                    "waiting": waiting, "warnings": warnings})
 
 
 @tasks_bp.route("/event-customer")
