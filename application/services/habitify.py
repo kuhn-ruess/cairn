@@ -14,8 +14,9 @@ Two calls are all this needs:
 * ``GET /habits/{id}/statistics?startDate&endDate`` for the completions, whose
   ``data.dailyProgress`` lists ``{date, totalLog, status}`` per day. A day
   with ``status == "completed"`` counts; for a habit whose goal is weekly
-  (``data.periodicity``), a day counts once anything was logged on it, since
-  Habitify judges such a habit by the week, not by the day. One request per mapped habit covers
+  (``data.periodicity``), what was logged counts, since Habitify judges such
+  a habit by the week, not by the day: every rep for a goal in reps, else
+  once per day logged. One request per mapped habit covers
   any range, so a whole cycle costs as many requests as there are mapped
   tactics.
 
@@ -137,48 +138,76 @@ def list_habits(api_key: str, *, archived: bool = False) -> list[dict]:
     return habits
 
 
-def completed_days(api_key: str, habit_id: str, first: date, last: date) -> set[date]:
-    """The days in ``first..last`` on which Habitify has the habit completed."""
+def completed_days(api_key: str, habit_id: str, first: date, last: date) -> dict[date, int]:
+    """``{day: times}`` in ``first..last`` for the habit, see
+    :func:`parse_daily_counts`."""
     payload = _fetch(f"/habits/{urllib.parse.quote(habit_id, safe='')}/statistics",
                      api_key, {"startDate": first.isoformat(),
                                "endDate": last.isoformat()})
-    return parse_completed_days(payload)
+    return parse_daily_counts(payload)
 
 
-def parse_completed_days(payload) -> set[date]:
+# Units in which a logged value is a number of times, not an amount.
+COUNT_UNITS = {"", "rep", "reps", "time", "times", "count"}
+
+
+def _counts_reps(data: dict) -> bool:
+    unit = data.get("unit")
+    if isinstance(unit, dict):
+        unit = unit.get("symbol") or unit.get("name") or unit.get("id") or ""
+    return str(unit or "").strip().lower() in COUNT_UNITS
+
+
+def parse_daily_counts(payload) -> dict[date, int]:
+    """How many times the habit counts on each day.
+
+    A daily goal counts once on a day Habitify has ``completed``. A weekly
+    goal is completed by the week: the single days on the way there are
+    "inprogress", so the days with a log are what counts, and for a goal in
+    reps (how Cairn creates "N times per week") every rep logged counts, so
+    two on one day are two of the week's N. A weekly goal in another unit
+    (minutes, km) counts the days logged."""
     data = _data(payload)
     progress = (data or {}).get("dailyProgress") if isinstance(data, dict) else None
-    # A weekly goal is completed by the week: the single days on the way
-    # there are "inprogress", so the days with a log are what counts.
     weekly = isinstance(data, dict) and data.get("periodicity") == "weekly"
-    days: set[date] = set()
+    reps = weekly and _counts_reps(data)
+    counts: dict[date, int] = {}
     for row in progress or []:
         if not isinstance(row, dict):
             continue
+        n = 1
         if weekly:
             try:
-                logged = float(row.get("totalLog") or 0) > 0
+                logged = float(row.get("totalLog") or 0)
             except (TypeError, ValueError):
-                logged = False
-            if not logged or row.get("status") in ("skipped", "failed"):
+                logged = 0
+            if logged <= 0 or row.get("status") in ("skipped", "failed"):
                 continue
+            if reps:
+                n = max(1, int(round(logged)))
         elif row.get("status") != "completed":
             continue
         try:
-            days.add(date.fromisoformat(str(row.get("date", ""))[:10]))
+            counts[date.fromisoformat(str(row.get("date", ""))[:10])] = n
         except ValueError:
             continue
-    return days
+    return counts
 
 
-def count_by_week(cycle, tid: str, days: set[date]) -> dict[str, int]:
-    """``{"<tid>:<week>": n}`` for the execution weeks those days fall in."""
+def parse_completed_days(payload) -> set[date]:
+    """The days that count at all."""
+    return set(parse_daily_counts(payload))
+
+
+def count_by_week(cycle, tid: str, days) -> dict[str, int]:
+    """``{"<tid>:<week>": n}`` for the execution weeks those days fall in.
+    ``days`` is ``{day: times}`` or a plain set of days (once each)."""
     counts: dict[str, int] = {}
     for d in days:
         w = tw.week_of(cycle, d)
         if 1 <= w <= tw.WEEKS:
             k = tw.key(tid, w)
-            counts[k] = counts.get(k, 0) + 1
+            counts[k] = counts.get(k, 0) + (days[d] if isinstance(days, dict) else 1)
     return counts
 
 
@@ -208,7 +237,7 @@ def sync_cycle(cycle, user, *, today: date, full: bool = False) -> int | None:
     counts = {k: v for k, v in (cycle.habitify_counts or {}).items()
               if int(k.rsplit(":", 1)[1]) not in weeks}
     try:
-        days_by_habit: dict[str, set[date]] = {}
+        days_by_habit: dict[str, dict[date, int]] = {}
         for t in mapped:
             if t.habitify_id not in days_by_habit:
                 days_by_habit[t.habitify_id] = completed_days(

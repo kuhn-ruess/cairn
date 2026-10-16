@@ -171,6 +171,27 @@ class HabitifyParsingTests(unittest.TestCase):
         self.assertEqual(habitify.parse_completed_days(stats),
                          {date(2026, 10, 5), date(2026, 10, 8)})
 
+    def test_weekly_rep_goal_counts_every_rep_logged(self):
+        # "3 times per week": one day with 2 reps and one with 1 is the
+        # whole week in Habitify, so it must be 3 here, not 2 days.
+        stats = {"data": {"periodicity": "weekly",
+                          "unit": {"id": "rep", "name": "rep", "symbol": "rep"},
+                          "dailyProgress": [
+            {"date": "2026-10-05", "totalLog": 2, "status": "inprogress"},
+            {"date": "2026-10-07", "totalLog": 1, "status": "completed"},
+            {"date": "2026-10-08", "totalLog": 0, "status": "completed"},
+        ]}}
+        counts = habitify.parse_daily_counts(stats)
+        self.assertEqual(counts, {date(2026, 10, 5): 2, date(2026, 10, 7): 1})
+        self.assertEqual(habitify.count_by_week(_cycle(), "gym", counts), {"gym:1": 3})
+
+    def test_weekly_goal_in_another_unit_counts_days(self):
+        stats = {"data": {"periodicity": "weekly", "unit": {"symbol": "min"},
+                          "dailyProgress": [
+            {"date": "2026-10-05", "totalLog": 45, "status": "inprogress"},
+        ]}}
+        self.assertEqual(habitify.parse_daily_counts(stats), {date(2026, 10, 5): 1})
+
     def test_frequency(self):
         self.assertEqual(habitify.frequency(7), {
             "occurrence": {"type": "daily"},
