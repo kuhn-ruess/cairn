@@ -291,9 +291,16 @@ dropping unsaved inspector edits and refreshes the list behind.
 
 The **inspector beside a task's page** leaves the note out (the page edits it in
 its own column) and posts `inspector_omit=note`, so `_apply_form` doesn't write
-a stale copy over it. Every inspector gets a chip row (`inspector-jump.js`)
-built from the sections it actually rendered: one click opens and scrolls to a
-section.
+a stale copy over it. That inspector is styled to be quiet (app.css, "The
+inspector beside a task's page"): one uppercase level (section headers), field
+labels in muted sentence case, controls without box or fill until hovered or
+focused, quick-date buttons as text links, help text only while the section has
+focus, sections divided by space and one faint hairline. The weight belongs to
+the values; do not bring back cards, rails or loud chips there. The section
+ORDER is the user's (`inspector_section_order`) and the styling never touches
+it. The jump row (`inspector-jump.js`, built from the sections actually
+rendered) is a quiet line of words in the list's side panel and hidden beside
+a task, where the folding section headers already do that job.
 
 ### The sidebar
 

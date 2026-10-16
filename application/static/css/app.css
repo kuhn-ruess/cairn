@@ -3929,59 +3929,182 @@ html.item-embed .app-main { padding: 1rem 1.4rem !important; }
   html.item-embed .task-detail-aside > .task-detail-inspector { padding-top: .75rem; }
 }
 
-/* ---- The inspector beside a task's page: flat rows like Todoist's side
-   panel instead of a stack of boxed cards, and a chip row to jump. */
+/* ---- The inspector beside a task's page (dialog and full page): a quiet
+   properties column like Todoist's side panel. The weight is in the values,
+   not in the furniture around them:
+   - one typographic level of uppercase (the section header); field labels are
+     small sentence case in a muted tone, so the column is not a wall of caps;
+   - controls read as text until pointed at: no box, no fill, the border shows
+     on hover and the yellow ring on focus, so an empty field is one quiet
+     placeholder line rather than a dark well;
+   - sections are separated by space and one faint hairline, no card, no rail;
+   - the quick-date buttons are small text links, explanatory help text shows
+     only while you work in that section;
+   - no jump chip row: the sections already carry headers and fold, and eleven
+     pills on top were the loudest thing in the column.
+   The section ORDER is the user's (inspector_section_order) and untouched. */
 .task-detail-inspector .inspector-form {
   padding: 0;
   gap: 0;
   overflow: visible;
 }
+.task-detail-inspector .insp-jump { display: none; }
 .task-detail-inspector .inspector-section {
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--gv-bg2);
+  border-top: 1px solid rgba(235, 219, 178, .06);
   border-radius: 0;
-  padding: .8rem .15rem;
+  padding: .85rem 0 .7rem;
 }
-.task-detail-inspector .inspector-section:focus-within {
-  box-shadow: inset 2px 0 0 var(--gv-yellow);
+.task-detail-inspector .inspector-section[data-section="title"] {
+  border-top: 0;
+  padding-top: .2rem;
 }
+.task-detail-inspector .inspector-section:focus-within { box-shadow: none; }
 .task-detail-inspector .inspector-section:last-of-type { margin-bottom: 0; }
-.task-detail-inspector .inspector-form .form-control-lg { font-size: 1rem; padding: .35rem .6rem; }
+
+/* Section header: the one uppercase level, small and muted. */
+.task-detail-inspector .inspector-section > h2 {
+  font-size: .68rem !important;
+  font-weight: 600;
+  letter-spacing: .07em;
+  color: var(--gv-fg4) !important;
+  margin-bottom: .55rem !important;
+}
+.task-detail-inspector .inspector-section > h2 .btn { color: var(--gv-bg4, #7c6f64) !important; font-size: .7rem; }
+/* Section headers inside the self-contained blocks (checklist, related,
+   time) follow the same scale. */
+.task-detail-inspector .inspector-section h2.h6 { font-size: .68rem !important; color: var(--gv-fg4) !important; }
+
+/* Field labels: sentence case, regular weight, muted. */
+.task-detail-inspector .inspector-section .form-label {
+  text-transform: none !important;
+  letter-spacing: 0;
+  font-size: .78rem;
+  font-weight: 400;
+  color: var(--gv-fg4) !important;
+  margin-bottom: .1rem;
+}
+/* The dialog already shows the title as its heading; the field is the editor,
+   its label is for screen readers only. */
+.task-detail-inspector [data-section="title"] > .form-label {
+  position: absolute !important;
+  width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
+}
+.task-detail-inspector .sec-fields .mt-3,
+.task-detail-inspector .sec-fields .grid-2.mt-3 { margin-top: .7rem !important; }
+.task-detail-inspector .grid-2 { gap: .4rem .9rem; }
+
+/* Controls that read as values. The negative margin lines the text up with
+   the label above it; the border only appears when it is needed. */
+.task-detail-inspector .inspector-form .form-control,
+.task-detail-inspector .inspector-form .form-select {
+  background-color: transparent;
+  border-color: transparent;
+  padding-left: .4rem;
+  margin-left: -.4rem;
+  width: calc(100% + .4rem);
+  color: var(--gv-fg1);
+  transition: border-color .12s ease, background-color .12s ease;
+}
+.task-detail-inspector .inspector-form .form-control[style*="max-width"],
+.task-detail-inspector .inspector-form .form-select[style*="max-width"] { width: 100%; }
+.task-detail-inspector .inspector-form .form-control::placeholder { color: var(--gv-bg4, #7c6f64); }
+.task-detail-inspector .inspector-form .form-control:hover,
+.task-detail-inspector .inspector-form .form-select:hover { border-color: var(--gv-bg2); }
+.task-detail-inspector .inspector-form .form-control:focus,
+.task-detail-inspector .inspector-form .form-select:focus {
+  background-color: var(--gv-bg0-hard);
+  border-color: var(--gv-yellow);
+}
+/* A listbox (project, tags) keeps a faint frame: without one its rows float. */
+.task-detail-inspector .inspector-form select[size],
+.task-detail-inspector .inspector-form select[multiple] {
+  border-color: var(--gv-bg2);
+  max-height: 7.5rem;
+}
+.task-detail-inspector .inspector-form .form-control-lg {
+  font-size: 1.02rem;
+  font-weight: 600;
+  padding-top: .3rem;
+  padding-bottom: .3rem;
+}
+
+/* Quick-date buttons: text links under the field, not a row of boxes. */
+.task-detail-inspector .quick-date-row {
+  display: flex;
+  justify-content: flex-start;
+  gap: 0 .1rem;
+  margin-top: .1rem !important;
+}
+.task-detail-inspector .quick-date-row .btn {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--gv-fg4);
+  padding: .05rem .3rem;
+  font-size: .7rem;
+}
+.task-detail-inspector .quick-date-row .btn:first-child { margin-left: -.3rem !important; }
+.task-detail-inspector .quick-date-row .btn:hover,
+.task-detail-inspector .quick-date-row .btn:focus-visible {
+  color: var(--gv-fg0, #fbf1c7);
+  background: var(--gv-bg1);
+}
+
+/* Help text: only while you are working in that section. Status lines that
+   carry an icon (last follow-up) stay. */
+.task-detail-inspector .section-collapsible div.form-text:not(:has(.bi)) { display: none; }
+.task-detail-inspector .section-collapsible span.form-text.mt-1 { display: none !important; }
+.task-detail-inspector .section-collapsible:focus-within div.form-text,
+.task-detail-inspector .section-collapsible:focus-within span.form-text.mt-1 { display: block !important; }
+/* Sub-headers inside a section (Related, Depends on) are field labels. */
+.task-detail-inspector .section-collapsible h2.h6 {
+  text-transform: none !important;
+  letter-spacing: 0;
+  font-size: .78rem !important;
+  font-weight: 400;
+}
+.task-detail-inspector .repeat-weekdays { display: flex; width: 100%; flex-wrap: nowrap; }
+.task-detail-inspector .repeat-weekdays .btn {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: .74rem;
+  padding: .1rem .2rem;
+  color: var(--gv-fg4);
+  border-color: var(--gv-bg2);
+}
+.task-detail-inspector .repeat-weekdays .btn-check:checked + .btn { color: var(--gv-bg0); }
+.task-detail-inspector .form-text { font-size: .72rem; color: var(--gv-fg4); }
+.task-detail-inspector .sec-fields hr { border-color: rgba(235, 219, 178, .06); opacity: 1; margin: .8rem 0 !important; }
+
 html.item-embed .task-detail-inspector { margin-bottom: 0; }
 html.item-embed .task-detail-inspector .inspector-footer {
   background: var(--gv-bg0-soft);
-  margin: 0 -.15rem;
-  padding: .6rem .15rem;
+  border-top-color: rgba(235, 219, 178, .06);
+  margin: 0;
+  padding: .6rem 0;
 }
 
+/* The jump row (inspector-jump.js) where it is still shown, in the list's
+   side panel: a quiet line of words, not a block of pills. */
 .insp-jump {
   display: flex;
   flex-wrap: wrap;
-  gap: .3rem;
-  padding: .5rem 0 .55rem;
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  background: var(--gv-bg0-soft);
-  border-bottom: 1px solid var(--gv-bg2);
+  gap: .1rem .75rem;
+  padding: .1rem 0 .5rem;
 }
-.offcanvas.inspector .insp-jump { margin: 0 -.85rem; padding-left: .85rem; padding-right: .85rem; }
 .insp-jump-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: .3rem;
-  padding: .12rem .55rem;
-  font-size: .75rem;
-  line-height: 1.5;
-  color: var(--gv-fg2);
-  background: var(--gv-bg1);
-  border: 1px solid var(--gv-bg2);
-  border-radius: 999px;
+  padding: 0;
+  font-size: .74rem;
+  line-height: 1.6;
+  color: var(--gv-fg4);
+  background: none;
+  border: 0;
 }
 .insp-jump-chip:hover,
-.insp-jump-chip:focus-visible { color: var(--gv-yellow-br); border-color: var(--gv-yellow); }
-.insp-jump-chip i { font-size: .8rem; }
+.insp-jump-chip:focus-visible { color: var(--gv-yellow-br); }
+.insp-jump-chip i { display: none; }
 .insp-jump-hit { animation: insp-jump-hit 1.4s ease-out; }
 @keyframes insp-jump-hit {
   from { background-color: rgba(250, 189, 47, .12); }
