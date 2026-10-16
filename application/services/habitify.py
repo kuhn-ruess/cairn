@@ -14,11 +14,11 @@ Two calls are all this needs:
 * ``GET /habits/{id}/statistics?startDate&endDate`` for the completions, whose
   ``data.dailyProgress`` lists ``{date, totalLog, status}`` per day. A day
   with ``status == "completed"`` counts; for a habit whose goal is weekly
-  (``data.periodicity``), what was logged counts, since Habitify judges such
-  a habit by the week, not by the day: every rep for a goal in reps, else
-  once per day logged. One request per mapped habit covers
-  any range, so a whole cycle costs as many requests as there are mapped
-  tactics.
+  (``data.periodicity``), Habitify judges it by the week, not by the day:
+  a goal in reps counts ``data.totalLogs``, every rep logged that week
+  (:func:`week_count`), any other unit the days with a log. One request per
+  mapped habit and Cairn week, so it is read week by week: a whole cycle
+  costs at most 12 requests per mapped habit, a background round 2.
 
 Writing happens only for tactics the user asked Cairn to manage
 (``habitify_manage``), only on the user's confirmation after a plan save, and
@@ -138,13 +138,16 @@ def list_habits(api_key: str, *, archived: bool = False) -> list[dict]:
     return habits
 
 
-def completed_days(api_key: str, habit_id: str, first: date, last: date) -> dict[date, int]:
-    """``{day: times}`` in ``first..last`` for the habit, see
-    :func:`parse_daily_counts`."""
-    payload = _fetch(f"/habits/{urllib.parse.quote(habit_id, safe='')}/statistics",
-                     api_key, {"startDate": first.isoformat(),
-                               "endDate": last.isoformat()})
-    return parse_daily_counts(payload)
+def week_stats(api_key: str, habit_id: str, first: date, last: date):
+    """Habitify's statistics for ``first..last`` (both inclusive)."""
+    return _fetch(f"/habits/{urllib.parse.quote(habit_id, safe='')}/statistics",
+                  api_key, {"startDate": first.isoformat(),
+                            "endDate": last.isoformat()})
+
+
+def completed_days(api_key: str, habit_id: str, first: date, last: date) -> set[date]:
+    """The days in ``first..last`` that count, see :func:`parse_completed_days`."""
+    return parse_completed_days(week_stats(api_key, habit_id, first, last))
 
 
 # Units in which a logged value is a number of times, not an amount.
@@ -158,56 +161,63 @@ def _counts_reps(data: dict) -> bool:
     return str(unit or "").strip().lower() in COUNT_UNITS
 
 
-def parse_daily_counts(payload) -> dict[date, int]:
-    """How many times the habit counts on each day.
+def parse_completed_days(payload) -> set[date]:
+    """The days that count, once each.
 
-    A daily goal counts once on a day Habitify has ``completed``. A weekly
-    goal is completed by the week: the single days on the way there are
-    "inprogress", so the days with a log are what counts, and for a goal in
-    reps (how Cairn creates "N times per week") every rep logged counts, so
-    two on one day are two of the week's N. A weekly goal in another unit
-    (minutes, km) counts the days logged."""
+    A daily goal counts on a day Habitify has ``completed``. A weekly goal is
+    completed by the week: the single days on the way there are
+    "inprogress", so the days with a log are what counts."""
     data = _data(payload)
     progress = (data or {}).get("dailyProgress") if isinstance(data, dict) else None
     weekly = isinstance(data, dict) and data.get("periodicity") == "weekly"
-    reps = weekly and _counts_reps(data)
-    counts: dict[date, int] = {}
+    days: set[date] = set()
     for row in progress or []:
         if not isinstance(row, dict):
             continue
-        n = 1
         if weekly:
             try:
-                logged = float(row.get("totalLog") or 0)
+                logged = float(row.get("totalLog") or 0) > 0
             except (TypeError, ValueError):
-                logged = 0
-            if logged <= 0 or row.get("status") in ("skipped", "failed"):
+                logged = False
+            if not logged or row.get("status") in ("skipped", "failed"):
                 continue
-            if reps:
-                n = max(1, int(round(logged)))
         elif row.get("status") != "completed":
             continue
         try:
-            counts[date.fromisoformat(str(row.get("date", ""))[:10])] = n
+            days.add(date.fromisoformat(str(row.get("date", ""))[:10]))
         except ValueError:
             continue
-    return counts
+    return days
 
 
-def parse_completed_days(payload) -> set[date]:
-    """The days that count at all."""
-    return set(parse_daily_counts(payload))
+def week_count(payload) -> int:
+    """The times one week's statistics count for.
+
+    A weekly goal in reps (how Cairn creates "N times per week") counts every
+    rep: ``data.totalLogs``, the sum of all values logged in the range asked
+    for. That total is used rather than adding up ``dailyProgress``, whose
+    per day values for a weekly goal can be one entry for the whole week or
+    the week's running total; either way a sum of them would be wrong. Any
+    other habit counts its days (:func:`parse_completed_days`), which can
+    only ever be too few, never too many."""
+    data = _data(payload)
+    if isinstance(data, dict) and data.get("periodicity") == "weekly" \
+            and _counts_reps(data):
+        try:
+            return max(0, int(round(float(data.get("totalLogs")))))
+        except (TypeError, ValueError):
+            pass
+    return len(parse_completed_days(payload))
 
 
-def count_by_week(cycle, tid: str, days) -> dict[str, int]:
-    """``{"<tid>:<week>": n}`` for the execution weeks those days fall in.
-    ``days`` is ``{day: times}`` or a plain set of days (once each)."""
+def count_by_week(cycle, tid: str, days: set[date]) -> dict[str, int]:
+    """``{"<tid>:<week>": n}`` for the execution weeks those days fall in."""
     counts: dict[str, int] = {}
     for d in days:
         w = tw.week_of(cycle, d)
         if 1 <= w <= tw.WEEKS:
             k = tw.key(tid, w)
-            counts[k] = counts.get(k, 0) + (days[d] if isinstance(days, dict) else 1)
+            counts[k] = counts.get(k, 0) + 1
     return counts
 
 
@@ -230,19 +240,23 @@ def sync_cycle(cycle, user, *, today: date, full: bool = False) -> int | None:
         return None
     last_week = min(current, tw.WEEKS)
     first_week = 1 if full else max(1, last_week - 1)
-    first = tw.week_range(cycle, first_week)[0]
     last = min(today, tw.week_range(cycle, last_week)[1])
     weeks = set(range(first_week, last_week + 1))
 
     counts = {k: v for k, v in (cycle.habitify_counts or {}).items()
               if int(k.rsplit(":", 1)[1]) not in weeks}
     try:
-        days_by_habit: dict[str, dict[date, int]] = {}
+        by_habit: dict[str, dict[int, int]] = {}
         for t in mapped:
-            if t.habitify_id not in days_by_habit:
-                days_by_habit[t.habitify_id] = completed_days(
-                    key, t.habitify_id, first, last)
-            counts.update(count_by_week(cycle, t.tid, days_by_habit[t.habitify_id]))
+            if t.habitify_id not in by_habit:
+                by_habit[t.habitify_id] = {
+                    w: week_count(week_stats(
+                        key, t.habitify_id, tw.week_range(cycle, w)[0],
+                        min(last, tw.week_range(cycle, w)[1])))
+                    for w in sorted(weeks)}
+            for w, n in by_habit[t.habitify_id].items():
+                if n:
+                    counts[tw.key(t.tid, w)] = n
     except HabitifyError as exc:
         cycle.habitify_error = str(exc)[:500]
         cycle.save()
@@ -251,7 +265,7 @@ def sync_cycle(cycle, user, *, today: date, full: bool = False) -> int | None:
     cycle.habitify_error = ""
     cycle.habitify_synced_at = datetime.now(timezone.utc)
     cycle.save()
-    return len(days_by_habit)
+    return len(by_habit)
 
 
 # ---- writing the plan into Habitify ---------------------------------------

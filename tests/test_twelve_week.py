@@ -171,26 +171,47 @@ class HabitifyParsingTests(unittest.TestCase):
         self.assertEqual(habitify.parse_completed_days(stats),
                          {date(2026, 10, 5), date(2026, 10, 8)})
 
-    def test_weekly_rep_goal_counts_every_rep_logged(self):
-        # "3 times per week": one day with 2 reps and one with 1 is the
-        # whole week in Habitify, so it must be 3 here, not 2 days.
-        stats = {"data": {"periodicity": "weekly",
-                          "unit": {"id": "rep", "name": "rep", "symbol": "rep"},
-                          "dailyProgress": [
-            {"date": "2026-10-05", "totalLog": 2, "status": "inprogress"},
-            {"date": "2026-10-07", "totalLog": 1, "status": "completed"},
-            {"date": "2026-10-08", "totalLog": 0, "status": "completed"},
-        ]}}
-        counts = habitify.parse_daily_counts(stats)
-        self.assertEqual(counts, {date(2026, 10, 5): 2, date(2026, 10, 7): 1})
-        self.assertEqual(habitify.count_by_week(_cycle(), "gym", counts), {"gym:1": 3})
+    # Shaped like GET /habits/{id}/statistics in Habitify's API v2 spec, for
+    # a "4 times per week" habit read for one Cairn week (Monday to Friday):
+    # 1 rep on Wednesday, 2 today, so 3 of 4.
+    WEEKLY = {"data": {"id": "h-lift", "name": "Lifting", "type": "good",
+                       "totalLogs": 3, "skips": 0, "fails": 0, "completions": 0,
+                       "unit": {"id": "rep", "name": "rep", "symbol": "rep"},
+                       "periodicity": "weekly", "avg": 0.6}}
+    PER_DAY = [{"date": "2026-10-12", "totalLog": 0, "status": "inprogress"},
+               {"date": "2026-10-13", "totalLog": 0, "status": "inprogress"},
+               {"date": "2026-10-14", "totalLog": 1, "status": "inprogress"},
+               {"date": "2026-10-15", "totalLog": 0, "status": "inprogress"},
+               {"date": "2026-10-16", "totalLog": 2, "status": "inprogress"}]
+    ONE_PER_WEEK = [{"date": "2026-10-16", "totalLog": 3, "status": "inprogress"}]
+    RUNNING = [{"date": "2026-10-14", "totalLog": 1, "status": "inprogress"},
+               {"date": "2026-10-15", "totalLog": 1, "status": "inprogress"},
+               {"date": "2026-10-16", "totalLog": 3, "status": "inprogress"}]
+
+    def _weekly(self, rows, **kw):
+        return {"data": dict(self.WEEKLY["data"], dailyProgress=rows, **kw)}
+
+    def test_weekly_rep_goal_counts_the_reps_of_the_week(self):
+        # Per day values, one entry for the week, or a running total: the
+        # week's total is 3 in every shape, never fewer and never more.
+        for rows in (self.PER_DAY, self.ONE_PER_WEEK, self.RUNNING):
+            self.assertEqual(habitify.week_count(self._weekly(rows)), 3)
+
+    def test_weekly_rep_goal_without_a_total_counts_days(self):
+        stats = self._weekly(self.RUNNING)
+        del stats["data"]["totalLogs"]
+        self.assertEqual(habitify.week_count(stats), 3)
+        stats = self._weekly(self.ONE_PER_WEEK)
+        del stats["data"]["totalLogs"]
+        self.assertEqual(habitify.week_count(stats), 1)
 
     def test_weekly_goal_in_another_unit_counts_days(self):
-        stats = {"data": {"periodicity": "weekly", "unit": {"symbol": "min"},
-                          "dailyProgress": [
-            {"date": "2026-10-05", "totalLog": 45, "status": "inprogress"},
-        ]}}
-        self.assertEqual(habitify.parse_daily_counts(stats), {date(2026, 10, 5): 1})
+        stats = self._weekly(self.PER_DAY, unit={"id": "min", "name": "minute",
+                                                 "symbol": "min"}, totalLogs=45)
+        self.assertEqual(habitify.week_count(stats), 2)
+
+    def test_daily_goal_counts_completed_days(self):
+        self.assertEqual(habitify.week_count(self.STATS), 3)
 
     def test_frequency(self):
         self.assertEqual(habitify.frequency(7), {
@@ -554,13 +575,17 @@ class TwelveWeekDbTests(unittest.TestCase):
 
         def fake(path, key, params=None):
             calls.append((path, key, params))
-            return HabitifyParsingTests.STATS
+            rows = [r for r in HabitifyParsingTests.STATS["data"]["dailyProgress"]
+                    if params["startDate"] <= r["date"] <= params["endDate"]]
+            return {"data": {"dailyProgress": rows}}
 
         with mock.patch.object(habitify, "_fetch", side_effect=fake):
             n = habitify.sync_cycle(self.cycle, self.user, today=date(2026, 10, 14), full=True)
         self.assertEqual(n, 1)
         self.assertEqual(calls[0][1], "SECRET")
-        self.assertEqual(calls[0][2], {"startDate": "2026-10-05", "endDate": "2026-10-14"})
+        self.assertEqual([c[2] for c in calls], [
+            {"startDate": "2026-10-05", "endDate": "2026-10-11"},
+            {"startDate": "2026-10-12", "endDate": "2026-10-14"}])
         self.cycle.reload()
         self.assertEqual(self.cycle.habitify_counts, {"gym:1": 2, "gym:2": 1})
         self.assertEqual(self.cycle.habitify_error, "")
