@@ -190,116 +190,35 @@
         {% endif %}
       </div>
       {% import "favorites_macros.html" as fav with context %}
-      {% if sidebar_favorites %}
-      <h6 class="text-muted small text-uppercase mb-1"><i class="bi bi-star-fill text-warning"></i> Favorites</h6>
-      <ul class="nav flex-column mb-3">
-        {% for f in sidebar_favorites %}
-          <li class="nav-fav-row d-flex align-items-center" data-fav-remove-on-unset>
-            <a class="nav-link py-1 flex-grow-1 d-flex align-items-center text-truncate" href="{{ f.url }}">
-              <i class="bi {{ f.icon }}"{% if f.color %} style="color: {{ f.color }};"{% endif %}></i>
-              <span class="ms-1 text-truncate">{{ f.label }}</span>
-            </a>
-            {{ fav.star(f.token) }}
-          </li>
-        {% endfor %}
-      </ul>
-      {% endif %}
-      <div class="d-flex align-items-center mb-1">
-        <h6 class="text-muted small text-uppercase mb-0 me-auto">Perspectives</h6>
-        <a class="text-muted small me-2" href="{{ url_for('custom_perspectives.index') }}"
-           title="Manage custom perspectives"><i class="bi bi-binoculars"></i></a>
-        <a class="text-muted small" href="{{ url_for('settings.perspectives') }}"
-           title="Customise sidebar"><i class="bi bi-sliders"></i></a>
-      </div>
-      <ul class="nav flex-column mb-3">
-        {% for p in sidebar_perspectives %}
-          {% set _c = nav_counts.get(p.key) %}
-          <li class="nav-fav-row d-flex align-items-center">
-            <a class="nav-link py-1 flex-grow-1 d-flex align-items-center" href="{{ url_for(p.endpoint) }}">
-              <i class="bi {{ p.icon }}"></i> <span class="ms-1">{{ p.label }}</span>
-              {% if _c %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ _c }}</span>{% endif %}
-            </a>
-            {{ fav.star("persp:" ~ p.key, "fav-star-hover") }}
-          </li>
-        {% endfor %}
-        {% for p in sidebar_custom_perspectives %}
-          <li class="nav-fav-row d-flex align-items-center">
-            <a class="nav-link py-1 flex-grow-1" href="{{ url_for('custom_perspectives.view', pid=p.pid) }}">
-              <i class="bi {{ p.icon }}" style="color: {{ p.color }};"></i> {{ p.name }}
-            </a>
-            {{ fav.star("cp:" ~ p.pid, "fav-star-hover") }}
-          </li>
-        {% endfor %}
-      </ul>
-      <h6 class="text-muted small text-uppercase">Organize</h6>
-      <ul class="nav flex-column">
-        {% set _org = [
-          ('projects', 'projects.index', 'bi-collection', 'Projects'),
-          ('notes', 'notes.index', 'bi-journal-text', 'Notes'),
-          ('scratchpad', 'scratchpad.index', 'bi-stars', 'Scratchpad'),
-          ('tree', 'tree.index', 'bi-diagram-3', 'Tree'),
-          ('tags', 'tags.index', 'bi-tag', 'Tags / Contexts'),
-          ('perspectives', 'custom_perspectives.index', 'bi-binoculars', 'Perspectives'),
-        ] %}
-        {% for slug, endpoint, icon, label in _org %}
-          <li class="nav-fav-row d-flex align-items-center">
-            <a class="nav-link py-1 flex-grow-1" href="{{ url_for(endpoint) }}"><i class="bi {{ icon }}"></i> {{ label }}</a>
-            {{ fav.star("org:" ~ slug, "fav-star-hover") }}
-          </li>
-        {% endfor %}
-        {% if current_user.is_premium %}
-        <li class="nav-fav-row d-flex align-items-center">
-          <a class="nav-link py-1 flex-grow-1" href="{{ url_for('twelve_week.index') }}"><i class="bi bi-bullseye"></i> 12 Week Year</a>
-          {{ fav.star("org:twelve_week", "fav-star-hover") }}
-        </li>
-        <li class="nav-fav-row d-flex align-items-center">
-          <a class="nav-link py-1 flex-grow-1" href="{{ url_for('templates.index') }}"><i class="bi bi-files"></i> Templates</a>
-          {{ fav.star("org:templates", "fav-star-hover") }}
-        </li>
-        {% endif %}
-        {% if current_user.booking and current_user.booking.enabled %}
-        <li class="nav-fav-row d-flex align-items-center">
-          <a class="nav-link py-1 flex-grow-1 d-flex align-items-center" href="{{ url_for('bookings.index') }}">
-            <i class="bi bi-calendar-check"></i> <span class="ms-1">Bookings</span>
-            {% if nav_counts.get('bookings') %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ nav_counts.get('bookings') }}</span>{% endif %}
-          </a>
-          {{ fav.star("org:bookings", "fav-star-hover") }}
-        </li>
-        {% endif %}
-        {% if current_user.team or current_user.is_team_admin %}
-        {# Customers are one concept for the whole app, so they are reachable
-           like any other list and not only from inside the time module. Same
-           page — there is only one customer list. #}
-        <li class="nav-fav-row d-flex align-items-center">
-          <a class="nav-link py-1 flex-grow-1" href="{{ url_for('timetracking.index') }}"><i class="bi bi-person-vcard"></i> Customers</a>
-          {{ fav.star("org:customers", "fav-star-hover") }}
-        </li>
-        <li class="nav-fav-row d-flex align-items-center">
-          <a class="nav-link py-1 flex-grow-1" href="{{ url_for('timetracking.day') }}"><i class="bi bi-stopwatch"></i> Time tracking</a>
-          {{ fav.star("org:timetracking", "fav-star-hover") }}
-        </li>
-        {% endif %}
-        <li class="nav-fav-row d-flex align-items-center">
-          <a class="nav-link py-1 flex-grow-1 d-flex align-items-center" href="{{ url_for('review.index') }}">
-            <i class="bi bi-arrow-clockwise"></i> <span class="ms-1">Review</span>
-            {% if nav_counts.get('review') %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ nav_counts.get('review') }}</span>{% endif %}
-          </a>
-          {{ fav.star("org:review", "fav-star-hover") }}
-        </li>
-        <li class="nav-fav-row d-flex align-items-center">
-          <a class="nav-link py-1 flex-grow-1 d-flex align-items-center" href="{{ url_for('tasks.dependency_graph') }}">
-            <i class="bi bi-diagram-3"></i> <span class="ms-1">Dependency graph</span>
-          </a>
-          {{ fav.star("org:dependency_graph", "fav-star-hover") }}
-        </li>
-        <li class="nav-fav-row d-flex align-items-center">
-          <a class="nav-link py-1 flex-grow-1 d-flex align-items-center" href="{{ url_for('trash.index') }}">
-            <i class="bi bi-trash"></i> <span class="ms-1">Trash</span>
-            {% if nav_counts.get('trash') %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ nav_counts.get('trash') }}</span>{% endif %}
-          </a>
-          {{ fav.star("org:trash", "fav-star-hover") }}
-        </li>
-      </ul>
+      {# Grouped, foldable sidebar: services/sidebar.py decides what sits in
+         which group, sidebar-groups.js folds a group and stores the choice on
+         the user, so the server renders it folded on every device. #}
+      <nav class="nav-groups" aria-label="Main">
+      {% for g in sidebar_groups %}
+        <div class="nav-group{% if g.collapsed %} is-collapsed{% endif %}" data-nav-group="{{ g.key }}">
+          <button type="button" class="nav-group-toggle"
+                  aria-expanded="{{ 'false' if g.collapsed else 'true' }}"
+                  aria-controls="nav-group-{{ g.key }}">
+            <i class="bi bi-chevron-down nav-group-chevron" aria-hidden="true"></i>
+            <span class="nav-group-label">{{ g.label }}</span>
+            {% if g.count %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count nav-group-count">{{ g.count }}</span>{% endif %}
+          </button>
+          <ul class="nav flex-column nav-group-body" id="nav-group-{{ g.key }}"{% if g.collapsed %} hidden{% endif %}>
+            {% for e in g.entries %}
+              <li class="nav-fav-row d-flex align-items-center"{% if g.key == 'favorites' %} data-fav-remove-on-unset{% endif %}>
+                <a class="nav-link py-1 flex-grow-1 d-flex align-items-center text-truncate{% if e.active %} active{% endif %}"
+                   href="{{ e.url }}"{% if e.active %} aria-current="page"{% endif %}>
+                  <i class="bi {{ e.icon }}"{% if e.color %} style="color: {{ e.color }};"{% endif %}></i>
+                  <span class="ms-1 text-truncate">{{ e.label }}</span>
+                  {% if e.count %}<span class="badge rounded-pill text-bg-secondary ms-auto nav-count">{{ e.count }}</span>{% endif %}
+                </a>
+                {% if e.fav %}{{ fav.star(e.fav, "" if g.key == 'favorites' else "fav-star-hover") }}{% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endfor %}
+      </nav>
       </div>
 
       <div class="nav-sidebar-footer">
@@ -760,6 +679,7 @@
 <script src="{{ asset('js/note-paste.js') }}"></script>
 <script src="{{ asset('js/pending-attachments.js') }}"></script>
 <script src="{{ asset('js/favorites.js') }}"></script>
+<script src="{{ asset('js/sidebar-groups.js') }}"></script>
 <script src="{{ asset('js/comment-mention.js') }}"></script>
 <script src="{{ asset('js/comment-peek.js') }}"></script>
 <script src="{{ asset('js/now-line.js') }}"></script>

@@ -579,6 +579,20 @@ def perspective_reset():
     return redirect(url_for("settings.perspectives"))
 
 
+@settings_bp.route("/sidebar-group", methods=["POST"])
+@login_required
+def sidebar_group():
+    """Fold or unfold one group of the left sidebar, remembered on the user
+    (static/js/sidebar-groups.js posts here on every toggle)."""
+    from application.services import sidebar
+    key = (request.form.get("group") or "").strip()
+    if key not in sidebar.GROUP_KEYS:
+        return jsonify({"error": "unknown group"}), 400
+    collapsed = request.form.get("collapsed") == "1"
+    sidebar.set_collapsed(current_user._get_current_object(), key, collapsed)
+    return jsonify({"ok": True, "group": key, "collapsed": collapsed})
+
+
 @settings_bp.route("/inspector-layout", methods=["GET", "POST"])
 @login_required
 def inspector_layout():

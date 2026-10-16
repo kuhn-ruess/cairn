@@ -295,6 +295,21 @@ a stale copy over it. Every inspector gets a chip row (`inspector-jump.js`)
 built from the sections it actually rendered: one click opens and scrolls to a
 section.
 
+### The sidebar
+
+The left sidebar is a set of named groups (Favorites, Focus, Follow-up, My
+perspectives, Organize, Time & customers, Plan & review, More), built in
+`services/sidebar.py` from what the context processor already loaded; the
+template only loops. Which entry sits in which group is decided there and
+nowhere else, and a new sidebar link belongs there too (plus
+`favorites.ORGANIZE_ITEMS` if it can be starred). Each group header is a
+button that folds the group; `static/js/sidebar-groups.js` posts the state to
+`/settings/sidebar-group`, stored per user in `User.sidebar_groups` (key to
+collapsed, a missing key means the group's default: Plan & review and More
+start folded), so the server renders the fold on every device. The current
+page's link is marked `active`/`aria-current`, and a folded group holding it is
+shown open on that page without changing the stored choice.
+
 ### REST API
 
 `application/api/v1.py` mounts at `/api/v1`. Auth is via `token_required`

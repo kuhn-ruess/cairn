@@ -384,6 +384,12 @@ class User(UserMixin, Document):
     # in this exact order.
     sidebar_perspectives = ListField(StringField())
 
+    # Which groups of the left sidebar this user has folded away
+    # (services/sidebar.py, GROUPS). Group key -> True collapsed / False open;
+    # a key never toggled falls back to the group's default. Kept on the user,
+    # not in localStorage, so the sidebar looks the same on every device.
+    sidebar_groups = MapField(BooleanField())
+
     # User-defined custom perspectives (max 20 enforced on save).
     from application.models.perspective import CustomPerspective as _CP  # noqa: E402
     custom_perspectives = EmbeddedDocumentListField(_CP)

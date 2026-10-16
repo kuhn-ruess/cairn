@@ -420,6 +420,21 @@ def register_filters(app):
                 from application.views.bookings import upcoming_count
                 nav_counts["bookings"] = upcoming_count(user)
 
+        # The left sidebar as collapsible groups (services/sidebar.py), built
+        # from what was loaded above, no query of its own.
+        sidebar_groups = []
+        if current_user.is_authenticated and not item_embed:
+            from flask import request as _request
+            from application.services import sidebar as _sidebar
+            sidebar_groups = _sidebar.build(
+                current_user._get_current_object(),
+                perspectives=sidebar_perspectives,
+                custom_perspectives=sidebar_custom_perspectives,
+                favorites=sidebar_favorites,
+                counts=nav_counts,
+                path=_request.path,
+            )
+
         # Active OmniFocus-style focus (folder/project/section) — drives the
         # navbar chip and is available to every template. Validates + clears
         # stale focus internally; cached on flask.g.
@@ -458,6 +473,7 @@ def register_filters(app):
             "sidebar_perspectives": sidebar_perspectives,
             "sidebar_custom_perspectives": sidebar_custom_perspectives,
             "sidebar_favorites": sidebar_favorites,
+            "sidebar_groups": sidebar_groups,
             "favorite_tokens": favorite_tokens,
             "project_tree": _project_tree,
             "notes_tree": _notes_tree,

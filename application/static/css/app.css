@@ -340,6 +340,44 @@ body > .navbar {
   letter-spacing: .05em;
 }
 
+/* Sidebar groups (services/sidebar.py): a header button per group folds it,
+   the state lives on the user. The current page's link is highlighted. */
+.app-nav-sidebar .nav-group + .nav-group { margin-top: .5rem; }
+.app-nav-sidebar .nav-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  width: 100%;
+  padding: .2rem .35rem;
+  border: 0;
+  border-radius: .25rem;
+  background: none;
+  color: var(--gv-fg4);
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  text-align: left;
+}
+.app-nav-sidebar .nav-group-toggle:hover { color: var(--gv-fg1); background: var(--gv-bg1); }
+.app-nav-sidebar .nav-group-toggle:focus-visible {
+  outline: 2px solid var(--gv-yellow);
+  outline-offset: -2px;
+}
+.app-nav-sidebar .nav-group-chevron {
+  font-size: .65rem;
+  transition: transform .15s ease;
+}
+.app-nav-sidebar .nav-group.is-collapsed .nav-group-chevron { transform: rotate(-90deg); }
+/* The summed badge only stands in for the hidden ones while folded. */
+.app-nav-sidebar .nav-group:not(.is-collapsed) .nav-group-count { display: none; }
+.app-nav-sidebar .nav-group-body { margin-top: .1rem; }
+.app-nav-sidebar .nav-link.active {
+  background: var(--gv-bg1);
+  color: var(--gv-yellow-br);
+  font-weight: 600;
+}
+
 /* task list */
 .task-row {
   display: grid;
