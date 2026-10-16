@@ -1582,6 +1582,24 @@ tr:hover .fav-star-hover,
   z-index: 2;
 }
 .nav-fav-row:hover .nav-count { visibility: hidden; }
+/* While the star floats over the row, the label gives way to it instead of
+   running underneath. */
+.nav-fav-row:has(> .fav-star-hover):hover > .nav-link { padding-right: 1.6rem; }
+/* A starred entry inside a group shows its star all the time; floating, it sat
+   on top of the row's count badge. Such a row puts the star in the flow, after
+   the badge, and keeps the badge visible. */
+.nav-fav-row:has(> .fav-star-hover.is-fav) > .fav-star-hover {
+  position: static;
+  transform: none;
+  flex: 0 0 auto;
+}
+.nav-fav-row:has(> .fav-star-hover.is-fav):hover > .nav-link { padding-right: .6rem; }
+/* A row never grows past the sidebar: Bootstrap's .nav wraps, and a wrapping
+   column takes the widest row's min-content as everyone's width, which pushed
+   every star of that group past the scroll box's edge. */
+.app-nav-sidebar .nav-group-body { flex-wrap: nowrap; }
+.nav-fav-row, .nav-fav-row > .nav-link { min-width: 0; }
+.nav-fav-row:has(> .fav-star-hover.is-fav):hover .nav-count { visibility: visible; }
 
 /* @person / +tag autocomplete dropdown in the quick-add modal */
 .qa-assignee-ac {
