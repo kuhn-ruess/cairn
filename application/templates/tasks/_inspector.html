@@ -105,7 +105,11 @@
     <div class="grid-2">
       <div>
         {{ form.defer_date.label(class="form-label small text-uppercase text-muted") }}
-        {{ form.defer_date(class="form-control form-control-sm", id="defer_date") }}
+        <div class="insp-date-field">
+          {{ form.defer_date(class="form-control form-control-sm", id="defer_date") }}
+          <button type="button" class="btn insp-date-clear" data-quick-date="defer_date" data-set="clear"
+                  title="Clear" aria-label="Clear">×</button>
+        </div>
         <div class="quick-date-row btn-group btn-group-sm mt-1">
           <button type="button" class="btn btn-outline-secondary"
                   data-quick-date="defer_date" data-set="today">Today</button>
@@ -117,13 +121,15 @@
                   data-quick-date="defer_date" data-set="add-week" title="Add a week">+1w</button>
           <button type="button" class="btn btn-outline-secondary"
                   data-quick-date="defer_date" data-set="add-month" title="Add a month">+1m</button>
-          <button type="button" class="btn btn-outline-secondary"
-                  data-quick-date="defer_date" data-set="clear">×</button>
         </div>
       </div>
       <div>
         {{ form.due_date.label(class="form-label small text-uppercase text-muted") }}
-        {{ form.due_date(class="form-control form-control-sm", id="due_date") }}
+        <div class="insp-date-field">
+          {{ form.due_date(class="form-control form-control-sm", id="due_date") }}
+          <button type="button" class="btn insp-date-clear" data-quick-date="due_date" data-set="clear"
+                  title="Clear" aria-label="Clear">×</button>
+        </div>
         <div class="quick-date-row btn-group btn-group-sm mt-1">
           <button type="button" class="btn btn-outline-secondary"
                   data-quick-date="due_date" data-set="today">Today</button>
@@ -135,14 +141,16 @@
                   data-quick-date="due_date" data-set="add-week" title="Add a week">+1w</button>
           <button type="button" class="btn btn-outline-secondary"
                   data-quick-date="due_date" data-set="add-month" title="Add a month">+1m</button>
-          <button type="button" class="btn btn-outline-secondary"
-                  data-quick-date="due_date" data-set="clear">×</button>
         </div>
       </div>
     </div>
     <div class="mt-3">
       {{ form.plan_date.label(class="form-label small text-uppercase text-muted") }}
-      {{ form.plan_date(class="form-control form-control-sm", id="plan_date") }}
+      <div class="insp-date-field">
+        {{ form.plan_date(class="form-control form-control-sm", id="plan_date") }}
+        <button type="button" class="btn insp-date-clear" data-quick-date="plan_date" data-set="clear"
+                title="Clear" aria-label="Clear">×</button>
+      </div>
       <div class="quick-date-row btn-group btn-group-sm mt-1">
         <button type="button" class="btn btn-outline-secondary"
                 data-quick-date="plan_date" data-set="today">Today</button>
@@ -154,8 +162,6 @@
                 data-quick-date="plan_date" data-set="add-week" title="Add a week">+1w</button>
         <button type="button" class="btn btn-outline-secondary"
                 data-quick-date="plan_date" data-set="add-month" title="Add a month">+1m</button>
-        <button type="button" class="btn btn-outline-secondary"
-                data-quick-date="plan_date" data-set="clear">×</button>
       </div>
       <div class="form-text small mt-1">
         When you intend to actually work on it — soft target, doesn't block.
@@ -165,26 +171,30 @@
     <div class="grid-2 mt-3">
       <div>
         {{ form.start_date.label(class="form-label small text-uppercase text-muted") }}
-        {{ form.start_date(class="form-control form-control-sm", id="start_date") }}
+        <div class="insp-date-field">
+          {{ form.start_date(class="form-control form-control-sm", id="start_date") }}
+          <button type="button" class="btn insp-date-clear" data-quick-date="start_date" data-set="clear"
+                  title="Clear" aria-label="Clear">×</button>
+        </div>
         <div class="quick-date-row btn-group btn-group-sm mt-1">
           <button type="button" class="btn btn-outline-secondary"
                   data-quick-date="start_date" data-set="today">Today</button>
           <button type="button" class="btn btn-outline-secondary"
                   data-quick-date="start_date" data-set="add-week" title="Add a week">+1w</button>
-          <button type="button" class="btn btn-outline-secondary"
-                  data-quick-date="start_date" data-set="clear">×</button>
         </div>
       </div>
       <div>
         {{ form.end_date.label(class="form-label small text-uppercase text-muted") }}
-        {{ form.end_date(class="form-control form-control-sm", id="end_date") }}
+        <div class="insp-date-field">
+          {{ form.end_date(class="form-control form-control-sm", id="end_date") }}
+          <button type="button" class="btn insp-date-clear" data-quick-date="end_date" data-set="clear"
+                  title="Clear" aria-label="Clear">×</button>
+        </div>
         <div class="quick-date-row btn-group btn-group-sm mt-1">
           <button type="button" class="btn btn-outline-secondary"
                   data-quick-date="end_date" data-set="today">Today</button>
           <button type="button" class="btn btn-outline-secondary"
                   data-quick-date="end_date" data-set="add-week" title="Add a week">+1w</button>
-          <button type="button" class="btn btn-outline-secondary"
-                  data-quick-date="end_date" data-set="clear">×</button>
         </div>
       </div>
     </div>
@@ -263,7 +273,11 @@
     <div class="grid-2">
       <div>
         {{ form.followup_at.label(class="form-label small text-uppercase text-muted") }}
-        {{ form.followup_at(class="form-control form-control-sm", id="followup_at") }}
+        <div class="insp-date-field">
+          {{ form.followup_at(class="form-control form-control-sm", id="followup_at") }}
+          <button type="button" class="btn insp-date-clear" data-quick-date="followup_at" data-set="clear"
+                  title="Clear" aria-label="Clear">×</button>
+        </div>
         <div class="quick-date-row btn-group btn-group-sm mt-1">
           <button type="button" class="btn btn-outline-secondary"
                   data-quick-date="followup_at" data-set="today">Today</button>
@@ -275,8 +289,6 @@
                   data-quick-date="followup_at" data-set="add-week" title="Add a week">+1w</button>
           <button type="button" class="btn btn-outline-secondary"
                   data-quick-date="followup_at" data-set="add-month" title="Add a month">+1m</button>
-          <button type="button" class="btn btn-outline-secondary"
-                  data-quick-date="followup_at" data-set="clear">×</button>
         </div>
         <div class="form-text small">
           Defers the task until then, and moves the defer date along whenever

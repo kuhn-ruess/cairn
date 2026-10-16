@@ -4050,7 +4050,26 @@ html.item-embed .app-main { padding: 1rem 1.4rem !important; }
    above the fold target. */
 .task-detail-inspector .inspector-section > h2 > :not([data-collapse-key]):not(.insp-ico) { position: relative; z-index: 1; }
 /* The drag grip lives in the header row, left of the chevron. */
-.task-detail-inspector .inspector-grip { top: .55rem; right: 2rem; z-index: 2; }
+/* The drag grip sits at the right edge, the chevron left of it inside the
+   header's right padding (they used to share the same spot). */
+.task-detail-inspector .inspector-grip { top: .6rem; right: .55rem; z-index: 2; }
+
+/* A date field with its clear button on the same line: the x belongs to the
+   field, not to the quick dates under it, where it wrapped onto a line of
+   its own. */
+.insp-date-field { display: flex; align-items: stretch; gap: .25rem; }
+.insp-date-field > .form-control { flex: 1 1 auto; min-width: 0; }
+.insp-date-clear {
+  flex: 0 0 auto;
+  padding: 0 .55rem;
+  line-height: 1;
+  color: var(--gv-fg4);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: .375rem;
+}
+.insp-date-clear:hover,
+.insp-date-clear:focus-visible { color: var(--gv-red-br); border-color: var(--gv-bg2); }
 
 /* Field labels: small, muted, sentence case. */
 .task-detail-inspector .inspector-section .form-label {
@@ -4122,6 +4141,17 @@ html.item-embed .app-main { padding: 1rem 1.4rem !important; }
   font-size: .7rem;
 }
 .task-detail-inspector .quick-date-row .btn:first-child { margin-left: -.3rem !important; }
+/* Half width columns: tighter, so the five quick dates stay on one line. */
+.task-detail-inspector .grid-2 .quick-date-row { gap: 0; }
+.task-detail-inspector .grid-2 .quick-date-row .btn { padding-left: .18rem; padding-right: .18rem; }
+.task-detail-inspector .grid-2 .quick-date-row .btn:first-child { margin-left: -.18rem !important; }
+/* A narrower inspector (the full page beside a sidebar) has no room for two
+   date fields side by side: one per row, each with its quick dates on one
+   line. */
+.task-detail-inspector { container: insp / inline-size; }
+@container insp (max-width: 420px) {
+  .grid-2:has(input[type="datetime-local"]) { grid-template-columns: minmax(0, 1fr); }
+}
 .task-detail-inspector .quick-date-row .btn:hover,
 .task-detail-inspector .quick-date-row .btn:focus-visible {
   color: var(--gv-yellow-br);
