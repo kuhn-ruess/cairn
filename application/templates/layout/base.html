@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-bs-theme="dark" class="gruvbox">
+<html lang="en" data-bs-theme="dark" class="gruvbox{% if item_embed %} item-embed{% endif %}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -49,6 +49,7 @@
 </head>
 <body>
 {% if current_user.is_authenticated %}
+{% if not item_embed %}
 <nav class="navbar navbar-expand-lg bg-body-tertiary border-bottom">
   <div class="container-fluid">
     <a class="navbar-brand fw-semibold d-inline-flex align-items-center gap-2" href="{{ url_for('dashboard.home') }}">
@@ -168,8 +169,10 @@
     </div>
   </div>
 </nav>
+{% endif %}
 
-<div class="app-layout {% if page_project_sidebar|default(false) %}has-project-sidebar{% endif %}">
+<div class="app-layout {% if page_project_sidebar|default(false) and not item_embed %}has-project-sidebar{% endif %}">
+    {% if not item_embed %}
     <aside class="app-nav-sidebar border-end bg-body-tertiary py-3">
       <div class="nav-sidebar-main">
       <div class="mb-3">
@@ -318,7 +321,9 @@
       </div>
     </aside>
 
-    {% if page_project_sidebar|default(false) %}
+    {% endif %}{# item_embed #}
+
+    {% if page_project_sidebar|default(false) and not item_embed %}
       {% set _request_view_args = request.view_args or {} %}
       {% with tree=project_tree(),
               current_pk=(_request_view_args.get('project_id') or page_current_pk|default(None)),
@@ -716,7 +721,7 @@
 
 {# The floating scratchpad — everywhere except on the pad's own page, where a
    second editor on the same body would fight the first. #}
-{% if request.endpoint != 'scratchpad.index' %}
+{% if request.endpoint != 'scratchpad.index' and not item_embed %}
   {% include "layout/_scratchpad_panel.html" %}
 {% endif %}
 {% endif %}
@@ -772,6 +777,7 @@
 <script src="{{ asset('js/zammad-sync.js') }}"></script>
 <script src="{{ asset('js/data-model.js') }}"></script>
 <script src="{{ asset('js/inspector-reorder.js') }}"></script>
+<script src="{{ asset('js/inspector-jump.js') }}"></script>
 <script src="{{ asset('js/today-next.js') }}"></script>
 <script src="{{ asset('js/task-next.js') }}"></script>
 <script src="{{ asset('js/event-notes.js') }}"></script>
@@ -780,6 +786,7 @@
 <script src="{{ asset('js/perspectives-order.js') }}"></script>
 <script src="{{ asset('js/notifications.js') }}"></script>
 <script src="{{ asset('js/process-inbox.js') }}"></script>
+<script src="{{ asset('js/item-modal.js') }}"></script>
 <script>
 /* Navbar Todoist sync button — fire-and-forget POST, spin while running,
    then reload to show new items. */
@@ -893,10 +900,12 @@
 </script>
 {% endif %}
 
+{% if not item_embed %}
 <footer class="text-center text-muted small py-3 border-top mt-auto">
   <a class="text-muted text-decoration-none" href="{{ url_for('dashboard.impressum') }}">Impressum</a>
   &nbsp;·&nbsp;
   <a class="text-muted text-decoration-none" href="{{ url_for('dashboard.datenschutz') }}">Datenschutz</a>
 </footer>
+{% endif %}
 </body>
 </html>

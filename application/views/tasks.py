@@ -432,7 +432,11 @@ def _apply_form(form: TaskForm, task: Item, user: User, *,
     tag_assigned = False
 
     task.title = form.title.data
-    if shown("note", "note"):
+    # The inspector beside a task's own page leaves the note out (the page
+    # edits it right next to it) and says so, so a save there never writes
+    # the note it did not show.
+    omitted = set(request.form.getlist("inspector_omit"))
+    if shown("note", "note") and "note" not in omitted:
         task.note = form.note.data or ""
     if shown("status_project", "status"):
         task.status = form.status.data

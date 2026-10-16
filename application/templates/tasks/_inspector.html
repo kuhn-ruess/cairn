@@ -458,6 +458,7 @@
       {% if task and task.pk %}data-detail-url="{{ url_for('tasks.detail', task_id=task.pk) }}"{% endif %}
       class="inspector-form" novalidate>
   {{ form.hidden_tag() }}
+  {% if inspector_inline %}<input type="hidden" name="inspector_omit" value="note">{% endif %}
 
   {# Title is pinned: always first, never reorderable/hideable. #}
   <div class="inspector-section" data-section="title">
@@ -568,7 +569,10 @@
     {# On the detail page (inline inspector) comments + subtasks render in
        their own column sections, so skip them here to avoid a duplicate.
        Everything else (incl. checklist) shows inline. #}
-    {% if key in _section_macros and not (inspector_inline and key in ("comments", "subtasks")) %}
+    {# The note too: the page shows and edits it in its own column, and a
+       second, stale copy here would write over that edit on the next save
+       (``inspector_omit`` below tells _apply_form to leave the note alone). #}
+    {% if key in _section_macros and not (inspector_inline and key in ("comments", "subtasks", "note")) %}
       {% if key in ("subtasks", "comments", "related", "checklist", "time") %}
         {# These carry their own titled header + collapse (self-contained
            includes / macros), so render as-is. #}

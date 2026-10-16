@@ -3818,3 +3818,134 @@ a.attachment-link::before {
 .dep-node rect { transition: filter .1s ease; cursor: pointer; }
 .dep-node:hover rect { filter: brightness(1.08); }
 .dep-node text { pointer-events: none; }
+
+/* ---- Item dialog (static/js/item-modal.js) ------------------------------
+   A task or note opens over the page, its own detail page in a frame. */
+.item-modal .modal-dialog { max-width: min(1200px, 94vw); }
+.item-modal .modal-content {
+  height: calc(100vh - 3.5rem);
+  overflow: hidden;
+  background: var(--gv-bg0);
+  border: 1px solid var(--gv-bg2);
+  box-shadow: 0 1rem 3rem rgba(0, 0, 0, .55);
+}
+@media (max-width: 991.98px) {
+  .item-modal .modal-dialog { max-width: none; }
+  .item-modal .modal-content { height: 100%; border: 0; }
+}
+.item-modal-bar {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .4rem .6rem .4rem .9rem;
+  border-bottom: 1px solid var(--gv-bg2);
+  background: var(--gv-bg0-soft);
+}
+.item-modal-bar .btn-link { color: var(--gv-fg3); text-decoration: none; padding: .1rem .35rem; }
+.item-modal-bar .btn-link:hover { color: var(--gv-yellow-br); }
+.item-modal-kind { color: var(--gv-fg4); }
+.item-modal-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: .85rem;
+  font-weight: 500;
+  color: var(--gv-fg3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.item-modal-frame { flex: 1 1 auto; width: 100%; border: 0; background: var(--gv-bg0); }
+
+/* The page inside that frame: no navbar, no sidebars (base.html). */
+html.item-embed .app-layout { min-height: 100vh; }
+html.item-embed .app-main { padding: 1rem 1.4rem !important; }
+/* A task on a wide dialog reads like Todoist's: content left, properties in
+   their own column on the right, each scrolling on its own. */
+@media (min-width: 992px) {
+  html.item-embed body:has(.task-detail-panes) { height: 100vh; overflow: hidden; }
+  html.item-embed body:has(.task-detail-panes) .app-layout { height: 100vh; }
+  html.item-embed .app-main:has(.task-detail-panes) {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    padding-bottom: 0 !important;
+  }
+  html.item-embed .task-detail-header { flex: 0 0 auto; }
+  html.item-embed .task-detail-panes { flex: 1 1 auto; min-height: 0; margin-top: 0; }
+  html.item-embed .task-detail-panes > .task-detail-body,
+  html.item-embed .task-detail-panes > .task-detail-aside {
+    height: 100%;
+    overflow-y: auto;
+    margin-top: 0;
+    padding-bottom: 1.5rem;
+  }
+  html.item-embed .task-detail-panes > .task-detail-aside {
+    background: var(--gv-bg0-soft);
+    border-left: 1px solid var(--gv-bg2);
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  /* Padding on the scroll box would leave a strip above the sticky chip row
+     that the sections scroll through; the panel's own top gap goes here. */
+  html.item-embed .task-detail-aside > .task-detail-inspector { padding-top: .75rem; }
+}
+
+/* ---- The inspector beside a task's page: flat rows like Todoist's side
+   panel instead of a stack of boxed cards, and a chip row to jump. */
+.task-detail-inspector .inspector-form {
+  padding: 0;
+  gap: 0;
+  overflow: visible;
+}
+.task-detail-inspector .inspector-section {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--gv-bg2);
+  border-radius: 0;
+  padding: .8rem .15rem;
+}
+.task-detail-inspector .inspector-section:focus-within {
+  box-shadow: inset 2px 0 0 var(--gv-yellow);
+}
+.task-detail-inspector .inspector-section:last-of-type { margin-bottom: 0; }
+.task-detail-inspector .inspector-form .form-control-lg { font-size: 1rem; padding: .35rem .6rem; }
+html.item-embed .task-detail-inspector { margin-bottom: 0; }
+html.item-embed .task-detail-inspector .inspector-footer {
+  background: var(--gv-bg0-soft);
+  margin: 0 -.15rem;
+  padding: .6rem .15rem;
+}
+
+.insp-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem;
+  padding: .5rem 0 .55rem;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--gv-bg0-soft);
+  border-bottom: 1px solid var(--gv-bg2);
+}
+.offcanvas.inspector .insp-jump { margin: 0 -.85rem; padding-left: .85rem; padding-right: .85rem; }
+.insp-jump-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .12rem .55rem;
+  font-size: .75rem;
+  line-height: 1.5;
+  color: var(--gv-fg2);
+  background: var(--gv-bg1);
+  border: 1px solid var(--gv-bg2);
+  border-radius: 999px;
+}
+.insp-jump-chip:hover,
+.insp-jump-chip:focus-visible { color: var(--gv-yellow-br); border-color: var(--gv-yellow); }
+.insp-jump-chip i { font-size: .8rem; }
+.insp-jump-hit { animation: insp-jump-hit 1.4s ease-out; }
+@keyframes insp-jump-hit {
+  from { background-color: rgba(250, 189, 47, .12); }
+  to { background-color: transparent; }
+}

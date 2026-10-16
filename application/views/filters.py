@@ -267,6 +267,17 @@ def register_filters(app):
         from mongoengine import Q
 
         from application.models.item import Item as Item
+        from flask import has_request_context, request as _req
+
+        # A task or note opened in the item dialog (static/js/item-modal.js)
+        # is its ordinary page inside an iframe. The layout then leaves out
+        # the navbar and the sidebars, and nothing below computes what only
+        # they show. ``Sec-Fetch-Dest`` keeps a redirect inside the frame
+        # (which drops ``?embed=1``) chrome-less too.
+        item_embed = has_request_context() and (
+            _req.args.get("embed") == "1"
+            or _req.headers.get("Sec-Fetch-Dest") == "iframe"
+        )
 
         # Container choices for the quick-add and bulk "Move to…" dropdowns.
         # Projects and folders: a folder may hold tasks (see the Item
@@ -289,7 +300,7 @@ def register_filters(app):
         # Sidebar perspectives — render from the user's custom list.
         sidebar_perspectives = []
         sidebar_custom_perspectives = []
-        if current_user.is_authenticated:
+        if current_user.is_authenticated and not item_embed:
             from application.services.perspectives import for_user as perspectives_for_user
             user = current_user._get_current_object()
             sidebar_perspectives = perspectives_for_user(user)
@@ -303,7 +314,7 @@ def register_filters(app):
         if current_user.is_authenticated:
             user = current_user._get_current_object()
             favorite_tokens = set(user.favorites or [])
-            if favorite_tokens:
+            if favorite_tokens and not item_embed:
                 from application.services.favorites import resolve_favorites
                 sidebar_favorites = resolve_favorites(user)
 
@@ -390,7 +401,7 @@ def register_filters(app):
         # Sidebar count badges — show how many items each key perspective
         # holds. Computed once per request (cheap count/narrow queries).
         nav_counts = {}
-        if current_user.is_authenticated:
+        if current_user.is_authenticated and not item_embed:
             user = current_user._get_current_object()
             from application.views.tasks import sidebar_counts
             from application.views.review import review_due_count
@@ -458,6 +469,7 @@ def register_filters(app):
             "inspector_section_order": inspector_section_order,
             "inspector_section_labels": inspector_section_labels,
             "app_version": APP_VERSION,
+            "item_embed": item_embed,
         }
 
     @app.template_filter("localdt")

@@ -270,6 +270,31 @@ mode. **The scratchpad is excluded** — its `data-vim` is hard `0` and the file
 isn't even loaded there: a pad is what you type into before the thought is
 gone, and an editor that opens in NORMAL eats the first sentence.
 
+### The item dialog
+
+A plain click on any link to `/tasks/<id>` or `/notes/<id>` opens that item in
+a dialog over the page (`static/js/item-modal.js`, like Todoist's task dialog)
+instead of replacing the page or asking for another tab. The dialog is an
+iframe holding the item's **ordinary detail page**: framed (`?embed=1`, or
+`Sec-Fetch-Dest: iframe`, which a redirect inside the frame still carries) the
+layout drops the navbar, the sidebars and the footer (`item_embed` in the
+context processor, which also skips the sidebar's queries), so nothing about a
+task or note is rendered twice and every page script keeps working. Inside the
+frame, a task or note link stacks in the same dialog (back arrow), any other
+app link leaves the dialog and opens as the page, and a frame that lands on a
+non-item page (the redirect after a delete) closes it. The address bar shows
+the open item via `replaceState`, so a reload or a copied URL is the item's deep
+link (the full page) and Back stays clean. Modifier clicks, `target=_blank`,
+links another handler already took (`defaultPrevented`), note links on the
+notes pages and phones (under 576px) keep plain navigation. Closing asks before
+dropping unsaved inspector edits and refreshes the list behind.
+
+The **inspector beside a task's page** leaves the note out (the page edits it in
+its own column) and posts `inspector_omit=note`, so `_apply_form` doesn't write
+a stale copy over it. Every inspector gets a chip row (`inspector-jump.js`)
+built from the sections it actually rendered: one click opens and scrolls to a
+section.
+
 ### REST API
 
 `application/api/v1.py` mounts at `/api/v1`. Auth is via `token_required`
