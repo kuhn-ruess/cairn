@@ -87,6 +87,8 @@ docs: note how a booking is cancelled
   anything with a judgement call in it should not.
 * A pre-commit hook bumps `APP_VERSION` in `application/__init__.py` and
   re-stages the file. Leave that version number alone in your own edits.
+  It is a single counter (593, 594, ...), no major/minor: it continues the
+  last part of the old `1.4.x` numbers, so it only ever goes up.
 
 ## Pull requests
 
