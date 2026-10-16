@@ -2,7 +2,7 @@
 <html lang="en" data-bs-theme="dark" class="gruvbox{% if item_embed %} item-embed{% endif %}">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}Cairn{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo-icon.svg') }}">
   <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32.png') }}">
@@ -52,6 +52,11 @@
 {% if not item_embed %}
 <nav class="navbar navbar-expand-lg bg-body-tertiary border-bottom">
   <div class="container-fluid">
+    {# Phones and tablets: the left sidebar is a drawer (nav-drawer.js). #}
+    <button type="button" class="btn nav-drawer-toggle d-lg-none" data-nav-drawer-toggle
+            aria-controls="app-nav-drawer" aria-expanded="false" aria-label="Open navigation">
+      <i class="bi bi-list"></i>
+    </button>
     <a class="navbar-brand fw-semibold d-inline-flex align-items-center gap-2" href="{{ url_for('dashboard.home') }}">
       <img src="{{ url_for('static', filename='img/logo-mark.svg') }}" alt="" width="22" height="22"> Cairn
     </a>
@@ -74,7 +79,7 @@
       {% endif %}
     </div>
 
-    <form class="d-flex me-3" role="search" action="{{ url_for('tasks.search') }}"
+    <form class="d-none d-sm-flex me-3" role="search" action="{{ url_for('tasks.search') }}"
           id="navbarSearchForm">
       <input class="form-control form-control-sm" type="search" name="q"
              id="navbarSearch" placeholder="Search…  (p)" aria-label="Search"
@@ -145,7 +150,7 @@
     <div class="dropdown">
       <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
               data-bs-toggle="dropdown" aria-expanded="false">
-        <i class="bi bi-person-circle"></i> {{ current_user }}
+        <i class="bi bi-person-circle"></i><span class="d-none d-sm-inline"> {{ current_user }}</span>
       </button>
       <ul class="dropdown-menu dropdown-menu-end">
         <li><a class="dropdown-item" href="{{ url_for('settings.profile') }}"><i class="bi bi-person-gear"></i> Profile</a></li>
@@ -173,8 +178,23 @@
 
 <div class="app-layout {% if page_project_sidebar|default(false) and not item_embed %}has-project-sidebar{% endif %}">
     {% if not item_embed %}
-    <aside class="app-nav-sidebar border-end bg-body-tertiary py-3">
+    <aside class="app-nav-sidebar border-end bg-body-tertiary py-3" id="app-nav-drawer"
+           aria-label="Navigation" tabindex="-1">
+      {# The drawer's own top row (below 992px): where you are, and a way out. #}
+      <div class="nav-drawer-head">
+        <span class="fw-semibold d-inline-flex align-items-center gap-2">
+          <img src="{{ url_for('static', filename='img/logo-mark.svg') }}" alt="" width="22" height="22"> Cairn
+        </span>
+        <button type="button" class="btn nav-drawer-close" data-nav-drawer-close aria-label="Close navigation">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
       <div class="nav-sidebar-main">
+      {# On a phone the navbar has no room for the search field; it moves here. #}
+      <form class="nav-drawer-search d-sm-none mb-3" role="search" action="{{ url_for('tasks.search') }}">
+        <input class="form-control" type="search" name="q" placeholder="Search…"
+               aria-label="Search" autocomplete="off" value="{{ request.args.get('q', '') }}">
+      </form>
       <div class="mb-3">
         <button type="button" class="btn btn-primary btn-sm w-100"
                 data-bs-toggle="modal" data-bs-target="#quickAddModal"
@@ -239,6 +259,11 @@
         </div>
       </div>
     </aside>
+    <div class="nav-drawer-backdrop" data-nav-drawer-close hidden></div>
+    <button type="button" class="quick-add-fab" data-bs-toggle="modal"
+            data-bs-target="#quickAddModal" aria-label="New task">
+      <i class="bi bi-plus-lg"></i>
+    </button>
 
     {% endif %}{# item_embed #}
 
@@ -680,6 +705,8 @@
 <script src="{{ asset('js/pending-attachments.js') }}"></script>
 <script src="{{ asset('js/favorites.js') }}"></script>
 <script src="{{ asset('js/sidebar-groups.js') }}"></script>
+<script src="{{ asset('js/nav-drawer.js') }}"></script>
+<script src="{{ asset('js/task-detail-tabs.js') }}"></script>
 <script src="{{ asset('js/comment-mention.js') }}"></script>
 <script src="{{ asset('js/comment-peek.js') }}"></script>
 <script src="{{ asset('js/now-line.js') }}"></script>

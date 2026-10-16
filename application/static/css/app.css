@@ -2520,7 +2520,7 @@ body.ps-resizing * {
   user-select: none;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767.98px) {
   .app-layout { flex-direction: column; }
   .app-layout > .app-nav-sidebar,
   .app-layout > .app-project-sidebar {
@@ -4218,4 +4218,339 @@ html.item-embed .task-detail-inspector .inspector-footer {
 @keyframes insp-jump-hit {
   from { background-color: rgba(250, 189, 47, .12); }
   to { background-color: transparent; }
+}
+
+/* ---- Phones and tablets ---------------------------------------------------
+   Everything below sits inside a max-width query: the desktop layout (992px
+   and up) is not touched by any of it.
+   - below 992px the left sidebar is a drawer behind the hamburger
+     (nav-drawer.js); its groups and their folded state are unchanged;
+   - below 768px (phones) lists, the task page, the inspector and the forms
+     get touch sizes: 44px targets, 16px inputs (iOS zooms into anything
+     smaller on focus), no action that only exists on hover, and room for the
+     notch and the home indicator (viewport-fit=cover in base.html). */
+.nav-drawer-toggle,
+.nav-drawer-head,
+.nav-drawer-backdrop,
+.quick-add-fab,
+.task-detail-tabs { display: none; }
+
+@media (max-width: 991.98px) {
+  .navbar > .container-fluid {
+    flex-wrap: nowrap;
+    padding-left: max(.5rem, env(safe-area-inset-left));
+    padding-right: max(.5rem, env(safe-area-inset-right));
+  }
+  .navbar .navbar-brand { margin-right: .25rem; }
+  .navbar .navbar-icon-toolbar { margin-left: .25rem !important; }
+  .nav-drawer-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin-left: -.4rem;
+    padding: 0;
+    border: 0;
+    font-size: 1.6rem;
+    color: var(--gv-fg1);
+  }
+  .nav-drawer-toggle:hover,
+  .nav-drawer-toggle:focus-visible { color: var(--gv-yellow-br); }
+
+  .app-layout > .app-nav-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1050;
+    flex: none;
+    width: min(300px, 86vw);
+    height: 100vh;
+    height: 100dvh;
+    max-height: none;
+    padding: calc(.75rem + env(safe-area-inset-top)) .75rem
+             calc(.75rem + env(safe-area-inset-bottom))
+             calc(.75rem + env(safe-area-inset-left));
+    border-right: 1px solid var(--gv-bg2) !important;
+    border-bottom: 0;
+    overscroll-behavior: contain;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform .25s ease, visibility 0s linear .25s;
+  }
+  html.nav-drawer-open .app-layout > .app-nav-sidebar {
+    transform: none;
+    visibility: visible;
+    transition: transform .25s ease;
+    box-shadow: 10px 0 40px rgba(0, 0, 0, .5);
+  }
+  .nav-drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 1049;
+    background: rgba(0, 0, 0, .5);
+    opacity: 0;
+    transition: opacity .25s ease;
+  }
+  .nav-drawer-backdrop[hidden] { display: none; }
+  html.nav-drawer-open .nav-drawer-backdrop { opacity: 1; }
+  html.nav-drawer-open body { overflow: hidden; }
+
+  .nav-drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: -.25rem 0 .5rem .25rem;
+    color: var(--gv-yellow-br);
+    font-size: 1.1rem;
+  }
+  .nav-drawer-close {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    color: var(--gv-fg3);
+    font-size: 1.15rem;
+  }
+  .nav-drawer-close:hover,
+  .nav-drawer-close:focus-visible { color: var(--gv-yellow-br); }
+  /* The whole drawer scrolls as one column; the footer follows the groups
+     instead of pinning and leaving three entries of room above it. */
+  .app-layout > .app-nav-sidebar { overflow-y: auto; }
+  .app-nav-sidebar .nav-sidebar-main { flex: 0 0 auto; overflow: visible; }
+  .app-nav-sidebar .nav-sidebar-footer { margin-top: 1rem; }
+  /* Inside the drawer: rows a thumb can hit. */
+  .app-nav-sidebar .nav-link { min-height: 44px; padding-top: 0 !important; padding-bottom: 0 !important; }
+  .app-nav-sidebar .nav-group-toggle { min-height: 40px; }
+  .app-nav-sidebar .nav-sidebar-main > .mb-3 .btn { min-height: 44px; font-size: 1rem; }
+  .app-nav-sidebar .nav-sidebar-main > .mb-3 .text-muted.small { display: none; }
+  .app-nav-sidebar .fav-star { min-width: 36px; min-height: 44px; }
+  /* A star that only appears under the cursor has no cursor here. */
+  .app-nav-sidebar .fav-star-hover:not(.is-fav) { display: none; }
+  .app-nav-sidebar .nav-sidebar-footer .nav-link { min-height: 36px; }
+  .app-nav-sidebar:focus { outline: none; }
+}
+
+@media (max-width: 767.98px) {
+  /* The project tree stacked above every page pushed the content a screen
+     down; on a phone the drawer's Projects entry is the way in. */
+  .app-layout > .app-project-sidebar { display: none; }
+  :root { --nav-height: 61px; }
+  .app-main {
+    padding-left: max(1rem, env(safe-area-inset-left)) !important;
+    padding-right: max(1rem, env(safe-area-inset-right)) !important;
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom)) !important;
+  }
+  .navbar .btn-sm,
+  .navbar .toolbar-icon { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+  .navbar .me-3, .navbar .me-2 { margin-right: .25rem !important; }
+
+  /* Projects overview: name, status and the actions; the rest is on the
+     project itself. */
+  .project-table th:nth-child(3), .project-table td:nth-child(3),
+  .project-table th:nth-child(5), .project-table td:nth-child(5),
+  .project-table th:nth-child(6), .project-table td:nth-child(6) { display: none; }
+
+  /* Task rows: the circle is a real target, the title gets the width. The
+     drag handle and the hover-only icons go; what a row still shows on the
+     right is state (a due follow-up, a running timer). */
+  .task-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: .1rem;
+    padding: .25rem 0;
+    min-height: 52px;
+  }
+  .task-row::before { left: 44px; }
+  .task-row .task-handle,
+  .task-row .task-collapse-spacer,
+  .task-row .task-inspector-btn { display: none; }
+  .task-row [data-task-complete-form] .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+  }
+  .task-row .task-collapse-toggle { width: 24px; height: 44px; margin-right: -.4rem; }
+  .task-row .task-title { font-size: 1rem; }
+  .task-row-actions > :not(.task-row-keep):not(.tt-timer-stop) { display: none !important; }
+  .task-row-actions .btn { min-width: 40px; min-height: 44px; }
+  .task-row.subtask { padding-left: .25rem; }
+
+  /* The task page: title over the full width, its actions a toolbar under
+     it, the inspector stacked below the content. */
+  .task-detail-header > .d-flex { flex-wrap: wrap; column-gap: .25rem !important; }
+  .task-detail-header > .d-flex > .me-auto { flex: 1 1 0; min-width: 0; }
+  .task-detail-header .task-detail-check {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 44px; height: 44px; margin: -.5rem 0 0 -.5rem;
+  }
+  .task-detail-title { font-size: 1.3rem; overflow-wrap: anywhere; }
+  .task-detail-actions { flex: 1 0 100%; margin-top: .6rem; }
+  .task-detail-actions > .btn,
+  .task-detail-actions > form > .btn { min-height: 44px; min-width: 48px; height: 100%; }
+  .task-detail-actions > .btn,
+  .task-detail-actions > form { flex: 1 1 0; }
+  .task-detail-actions > form > .btn { width: 100%; }
+  .task-detail-meta { font-size: .85rem; }
+
+  /* Task and Details as a segmented switch, pinned under the navbar. */
+  .task-detail-tabs {
+    display: flex;
+    gap: .25rem;
+    position: sticky;
+    top: var(--nav-height);
+    z-index: 5;
+    margin: 0 0 .9rem;
+    padding: .25rem;
+    background: var(--gv-bg0-hard);
+    border: 1px solid var(--gv-bg2);
+    border-radius: .6rem;
+  }
+  .task-detail-tabs > button {
+    flex: 1 1 0;
+    min-height: 40px;
+    border: 0;
+    border-radius: .45rem;
+    background: transparent;
+    color: var(--gv-fg3);
+    font-size: .95rem;
+    font-weight: 500;
+  }
+  .task-detail-tabs > button[aria-selected="true"] {
+    background: var(--gv-bg1);
+    color: var(--gv-fg0);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+  }
+  .task-detail-tabs > button[aria-selected="true"] .bi { color: var(--gv-yellow-br); }
+  .task-detail-panes[data-pane="body"] > .task-detail-aside,
+  .task-detail-panes[data-pane="aside"] > .task-detail-body { display: none; }
+  .task-detail-panes { --bs-gutter-y: 0; margin-top: 0; }
+  .task-detail-panes > * { margin-top: 0; }
+  /* The tab replaces the show/hide switch, and a panel hidden on the desktop
+     must still show here. */
+  #inspector-toggle { display: none; }
+  .task-detail-panes[data-pane="aside"] #inline-inspector.d-none { display: block !important; }
+  #inline-inspector > .d-flex:first-child { display: none !important; }
+
+  /* A list page's title row: the buttons keep their words on one line and
+     move under the title when they do not fit beside it. */
+  .app-main > .d-flex.align-items-center.mb-3:has(> h1) { flex-wrap: wrap; row-gap: .6rem !important; }
+  .app-main > .d-flex.align-items-center.mb-3 > h1 { flex: 1 0 100%; font-size: 1.4rem; }
+  .app-main > .d-flex.align-items-center.mb-3:has(> h1) .btn {
+    white-space: nowrap;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+  }
+
+  /* Capture is the thing a phone is for: Quick add as a round button over
+     the bottom corner, clear of the home indicator. Not on a task's own page,
+     where the bottom edge belongs to the inspector's Save. */
+  .quick-add-fab {
+    display: inline-flex;
+    position: fixed;
+    right: calc(1rem + env(safe-area-inset-right));
+    bottom: calc(1rem + env(safe-area-inset-bottom));
+    z-index: 1030;
+    width: 56px;
+    height: 56px;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 50%;
+    background: var(--gv-yellow);
+    color: var(--gv-bg0-hard);
+    font-size: 1.6rem;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .45);
+  }
+  .quick-add-fab:active { transform: scale(.96); }
+  /* A list's own plain "New task" is the same dialog the round button opens. */
+  .app-main > .d-flex.align-items-center.mb-3 > a.btn-primary[href="/tasks/new"] { display: none !important; }
+  body:has(.task-detail-panes) .quick-add-fab,
+  html.nav-drawer-open .quick-add-fab { display: none; }
+  /* Room under the last row, so the button never covers it. */
+  .app-main:has(.task-list) { padding-bottom: calc(5rem + env(safe-area-inset-bottom)) !important; }
+
+  .task-detail-inspector .inspector-section > h2 { min-height: 44px; }
+  .task-detail-inspector .quick-date-row .btn,
+  .task-detail-inspector [data-quick-date] { min-height: 32px; padding-left: .45rem; padding-right: .45rem; }
+  .inspector-footer { padding-bottom: calc(.6rem + env(safe-area-inset-bottom)) !important; }
+  .insp-date-clear { min-width: 44px; font-size: 1.1rem; }
+  /* Reordering blocks by drag is a desktop gesture; on a phone it fights
+     the scroll. */
+  .task-detail-inspector .inspector-grip { display: none; }
+  /* A date and time at 16px does not fit half a phone: one field per row. */
+  .task-detail-inspector .grid-2:has(input[type="datetime-local"]) { grid-template-columns: minmax(0, 1fr); }
+  .inspector-footer .btn { min-height: 44px; padding-left: 1rem; padding-right: 1rem; font-size: 1rem; }
+
+  /* Today's grouping switch is seven buttons wide: scroll it, never the page. */
+  .today-group-by { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .today-group-by::-webkit-scrollbar { display: none; }
+  .today-group-by > .btn { flex: 0 0 auto; }
+}
+
+/* Quick add and Log time on a phone: a full screen sheet, the button pinned
+   above the home indicator instead of scrolled out of reach. */
+@media (max-width: 575.98px) {
+  .quick-add-modal .modal-dialog {
+    margin: 0;
+    max-width: none;
+    width: 100%;
+    height: 100%;
+    min-height: 100%;
+  }
+  .quick-add-modal .modal-content {
+    height: 100%;
+    max-height: 100%;
+    border: 0;
+    border-radius: 0;
+  }
+  /* The form wraps body and footer, so it has to be the scrolling column. */
+  .quick-add-modal .modal-content > form {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+  .quick-add-modal .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding-top: calc(1rem + env(safe-area-inset-top)) !important;
+    padding-left: max(1rem, env(safe-area-inset-left)) !important;
+    padding-right: max(1rem, env(safe-area-inset-right)) !important;
+  }
+  .quick-add-modal .modal-footer {
+    flex-wrap: nowrap;
+    padding-bottom: calc(.5rem + env(safe-area-inset-bottom)) !important;
+  }
+  .quick-add-modal .modal-footer .btn { min-height: 44px; font-size: 1rem; white-space: nowrap; }
+  .quick-add-modal .modal-footer .form-check { min-width: 0; }
+  .quick-add-modal .modal-footer .btn-primary { padding-left: 1.25rem; padding-right: 1.25rem; }
+  .quick-add-modal .row.g-2 > .col { flex: 1 0 100%; }
+  .quick-add-modal .quick-date-row .btn { min-height: 36px; min-width: 44px; }
+  .quick-add-modal .pending-attachments .btn { min-height: 40px; }
+  #quickAddModal .quick-add-hint:has(.bi-keyboard) { display: none; }
+}
+
+/* 16px or iOS zooms the page into the field on focus: every phone, and a
+   tablet driven by touch. */
+@media (max-width: 767.98px), (max-width: 1199.98px) and (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]),
+  textarea,
+  select,
+  .form-control,
+  .form-select { font-size: 16px !important; }
+}
+
+/* No action may exist only under a cursor a touch screen does not have. */
+@media (hover: none) {
+  .hover-action,
+  .task-row-hover-action,
+  .tree-row-actions .tree-action-btn,
+  .task-inspector-btn { opacity: .7; }
 }

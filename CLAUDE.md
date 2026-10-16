@@ -297,7 +297,9 @@ hairline frame and a real header row (icon, sentence case title, chevron; the
 whole row folds), more space between blocks than inside them, small muted
 field labels over controls that look like controls (light frame, darker
 fill), quick-date buttons as text links, help text only while the block has
-focus. Both extremes failed with the user: cards with caps on every label and
+focus, a date's clear x on the field's own line (not wrapping under the
+quick dates), the drag grip at the header's right edge with the chevron left
+of it. Both extremes failed with the user: cards with caps on every label and
 a dark well under every field "erschlaegt", and the flat Todoist-like column
 without frames was a soup where no block could be told apart. Keep blocks
 distinct and the content inside them calm. The section ORDER is the user's
@@ -320,6 +322,30 @@ collapsed, a missing key means the group's default: Plan & review and More
 start folded), so the server renders the fold on every device. The current
 page's link is marked `active`/`aria-current`, and a folded group holding it is
 shown open on that page without changing the stored choice.
+
+### Phones and tablets
+
+All of it lives in app.css under "Phones and tablets", inside max-width or
+touch only queries, so the desktop layout (992px and up, with a mouse) is never touched; check that
+with a desktop screenshot before and after. Below 992px the left sidebar is a
+**drawer** behind the navbar's hamburger (`static/js/nav-drawer.js`: one class
+on `<html>`, `nav-drawer-open`; the sidebar is `inert` while shut; Escape, the
+backdrop and following a link close it). The groups and their per user fold
+state are the same markup, nothing about them is duplicated. Below 768px
+(phones): task rows are circle, title, and on the right only what shows a
+state (`task-row-keep`, a running timer), every other row action is on the
+task itself; the task page wraps its action buttons into a toolbar under the
+title and splits into two tabs, Task (note, subtasks, comments) and Details
+(the inspector, Save pinned to the bottom), so the inspector is one tap away
+instead of a long scroll down (`static/js/task-detail-tabs.js`);
+the project tree column is hidden (Projects in the drawer is the way in);
+Quick add opens from a round button in the bottom corner and is a full
+screen sheet below 576px. Rules that hold everywhere on a phone: 44px
+targets, inputs at 16px (iOS zooms into anything smaller on focus; also on a
+touch tablet), nothing that only appears on hover (`@media (hover: none)`),
+and `env(safe-area-inset-*)` wherever something touches an edge
+(`viewport-fit=cover` in base.html). The item dialog still falls back to
+plain navigation under 576px, which is the phone's full screen task page.
 
 ### REST API
 

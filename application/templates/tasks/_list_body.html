@@ -269,10 +269,13 @@
             </div>
           {% endif %}
         </div>
-        <div class="d-flex align-items-center gap-1">
+        {# On a phone only the actions that show a state stay (``task-row-keep``:
+           a due follow-up; a running timer shows too); the rest is one tap away on the
+           task itself. app.css, "Phones and tablets". #}
+        <div class="d-flex align-items-center gap-1 task-row-actions">
           {% if task.followup_at %}
             <form method="post" action="{{ url_for('tasks.followed_up', task_id=task.pk) }}"
-                  class="d-inline m-0" data-task-followup-form>
+                  class="d-inline m-0 task-row-keep" data-task-followup-form>
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="btn btn-sm btn-link p-0" type="submit"
                       title="Mark followed up — set next reminder{% if task.followup_every_days %} (+{{ task.followup_every_days }}d){% endif %}">

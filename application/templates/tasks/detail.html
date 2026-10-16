@@ -139,7 +139,18 @@
   </div>
 </header>
 
-<div class="row g-4 task-detail-panes">
+{# Phones: the note, subtasks and comments and the inspector are two tabs
+   instead of one long page with the inspector at its far end
+   (task-detail-tabs.js; hidden from 768px up). #}
+<div class="task-detail-tabs" role="tablist" aria-label="Task sections">
+  <button type="button" role="tab" data-task-pane="body" aria-selected="true">
+    <i class="bi bi-card-text"></i> Task
+  </button>
+  <button type="button" role="tab" data-task-pane="aside" aria-selected="false">
+    <i class="bi bi-sliders"></i> Details
+  </button>
+</div>
+<div class="row g-4 task-detail-panes" data-pane="body">
   <div class="col-lg-8 task-detail-body">
     <section class="task-detail-section task-detail-note" id="note" data-collapsible>
       <div class="d-flex align-items-center mb-2">

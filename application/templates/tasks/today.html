@@ -121,7 +121,7 @@
 <div class="today-toolbar d-flex flex-wrap align-items-center gap-2 mb-3">
   {% if view_mode == 'list' %}
     <span class="text-muted small">Group by:</span>
-    <div class="btn-group btn-group-sm" role="group">
+    <div class="btn-group btn-group-sm today-group-by" role="group">
       {% for value, label, icon in grouping_options %}
         <a href="?group={{ value }}{% if active_tag %}&tag={{ active_tag }}{% endif %}"
            class="btn btn-sm {% if grouping == value %}btn-toolbar-on{% else %}btn-outline-secondary{% endif %}">
