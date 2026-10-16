@@ -7,12 +7,21 @@
 {# Every inspector block is collapsible with a titled header + left chevron,
    exactly like the subtasks widget (section-collapse.js remembers the state per
    section). The header macro below is reused by the render loop. #}
+{#- One icon per block, so a block is found by shape before it is read. -#}
+{%- set _section_icons = {
+  "note": "journal-text", "status_project": "folder2",
+  "dates": "calendar-event", "priority_estimate": "flag",
+  "location": "geo-alt", "repeat": "arrow-repeat",
+  "review": "bell", "assigned_to": "person",
+  "related": "link-45deg",
+} -%}
 {%- macro block_header(key, label) -%}
   <h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center">
     <button type="button" class="btn btn-sm btn-link text-muted p-0 me-1"
             data-collapse-key="cairn-collapse-insp-{{ key }}" title="Show / hide">
       <i class="bi bi-chevron-down"></i>
     </button>
+    {% if key in _section_icons %}<i class="bi bi-{{ _section_icons[key] }} insp-ico" aria-hidden="true"></i>{% endif %}
     {{ label }}
   </h2>
 {%- endmacro -%}

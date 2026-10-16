@@ -291,13 +291,17 @@ dropping unsaved inspector edits and refreshes the list behind.
 
 The **inspector beside a task's page** leaves the note out (the page edits it in
 its own column) and posts `inspector_omit=note`, so `_apply_form` doesn't write
-a stale copy over it. That inspector is styled to be quiet (app.css, "The
-inspector beside a task's page"): one uppercase level (section headers), field
-labels in muted sentence case, controls without box or fill until hovered or
-focused, quick-date buttons as text links, help text only while the section has
-focus, sections divided by space and one faint hairline. The weight belongs to
-the values; do not bring back cards, rails or loud chips there. The section
-ORDER is the user's (`inspector_section_order`) and the styling never touches
+a stale copy over it. That inspector is a stack of distinct blocks (app.css,
+"The inspector beside a task's page"): each section is a faint panel with a
+hairline frame and a real header row (icon, sentence case title, chevron; the
+whole row folds), more space between blocks than inside them, small muted
+field labels over controls that look like controls (light frame, darker
+fill), quick-date buttons as text links, help text only while the block has
+focus. Both extremes failed with the user: cards with caps on every label and
+a dark well under every field "erschlaegt", and the flat Todoist-like column
+without frames was a soup where no block could be told apart. Keep blocks
+distinct and the content inside them calm. The section ORDER is the user's
+(`inspector_section_order`) and the styling never touches
 it. The jump row (`inspector-jump.js`, built from the sections actually
 rendered) is a quiet line of words in the list's side panel and hidden beside
 a task, where the folding section headers already do that job.

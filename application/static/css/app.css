@@ -3929,61 +3929,126 @@ html.item-embed .app-main { padding: 1rem 1.4rem !important; }
   html.item-embed .task-detail-aside > .task-detail-inspector { padding-top: .75rem; }
 }
 
-/* ---- The inspector beside a task's page (dialog and full page): a quiet
-   properties column like Todoist's side panel. The weight is in the values,
-   not in the furniture around them:
-   - one typographic level of uppercase (the section header); field labels are
-     small sentence case in a muted tone, so the column is not a wall of caps;
-   - controls read as text until pointed at: no box, no fill, the border shows
-     on hover and the yellow ring on focus, so an empty field is one quiet
-     placeholder line rather than a dark well;
-   - sections are separated by space and one faint hairline, no card, no rail;
-   - the quick-date buttons are small text links, explanatory help text shows
-     only while you work in that section;
-   - no jump chip row: the sections already carry headers and fold, and eleven
-     pills on top were the loudest thing in the column.
+/* ---- The inspector beside a task's page (dialog and full page): a property
+   inspector made of distinct blocks, like an issue sidebar or a settings
+   pane, not a flat list. Two earlier attempts failed in opposite ways: heavy
+   cards with caps on every label and a dark well under every field was a
+   wall; dropping all of that left a grey soup where no block could be told
+   from the next. The rules here:
+   - every section is its own block: a faint panel with a hairline frame and
+     a real header row (icon, title in sentence case, chevron; the whole row
+     folds), the body below a divider;
+   - more space between blocks than inside them, so the eye finds the block
+     first and the field second;
+   - inside, one consistent rhythm: small muted labels above controls that
+     look like controls (a light frame, slightly darker fill), yellow focus;
+   - quick-date buttons stay small text links, help text only while the
+     block has focus, so the content stays calm.
    The section ORDER is the user's (inspector_section_order) and untouched. */
+.task-detail-inspector {
+  --insp-block: rgba(235, 219, 178, .035);
+  --insp-head: rgba(235, 219, 178, .04);
+  --insp-line: rgba(235, 219, 178, .10);
+  --insp-field: rgba(29, 32, 33, .55);
+  --insp-field-line: rgba(235, 219, 178, .13);
+}
 .task-detail-inspector .inspector-form {
   padding: 0;
-  gap: 0;
+  gap: .75rem;
   overflow: visible;
 }
 .task-detail-inspector .insp-jump { display: none; }
+
+/* The block. */
 .task-detail-inspector .inspector-section {
+  background: var(--insp-block);
+  border: 1px solid var(--insp-line);
+  border-radius: .5rem;
+  padding: 0;
+  margin: 0;
+}
+.task-detail-inspector .inspector-section:focus-within {
+  border-color: rgba(235, 219, 178, .2);
+  box-shadow: none;
+}
+.task-detail-inspector .inspector-section:last-of-type { margin-bottom: .75rem; }
+.task-detail-inspector .inspector-section > .section-collapsible { padding: .7rem .8rem .8rem; }
+/* Blocks without a header carry their padding directly. The title is not a
+   block: it is the thing the blocks describe, a field on its own on top. */
+.task-detail-inspector .inspector-section[data-section="quick-plan"] { padding: .65rem .8rem .75rem; }
+.task-detail-inspector .inspector-section[data-section="title"] {
   background: transparent;
   border: 0;
-  border-top: 1px solid rgba(235, 219, 178, .06);
-  border-radius: 0;
-  padding: .85rem 0 .7rem;
+  padding: 0;
 }
-.task-detail-inspector .inspector-section[data-section="title"] {
-  border-top: 0;
-  padding-top: .2rem;
-}
-.task-detail-inspector .inspector-section:focus-within { box-shadow: none; }
-.task-detail-inspector .inspector-section:last-of-type { margin-bottom: 0; }
 
-/* Section header: the one uppercase level, small and muted. */
+/* The header row: the block's name, readable at a glance. */
 .task-detail-inspector .inspector-section > h2 {
-  font-size: .68rem !important;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  margin: 0 !important;
+  padding: .5rem 2rem .5rem .7rem;
+  background: var(--insp-head);
+  border-bottom: 1px solid var(--insp-line);
+  border-radius: calc(.5rem - 1px) calc(.5rem - 1px) 0 0;
+  font-size: .82rem !important;
   font-weight: 600;
-  letter-spacing: .07em;
-  color: var(--gv-fg4) !important;
-  margin-bottom: .55rem !important;
+  letter-spacing: 0;
+  text-transform: none !important;
+  color: var(--gv-fg1) !important;
+  user-select: none;
 }
-.task-detail-inspector .inspector-section > h2 .btn { color: var(--gv-bg4, #7c6f64) !important; font-size: .7rem; }
-/* Section headers inside the self-contained blocks (checklist, related,
-   time) follow the same scale. */
-.task-detail-inspector .inspector-section h2.h6 { font-size: .68rem !important; color: var(--gv-fg4) !important; }
+.task-detail-inspector .inspector-section > h2:has(+ .section-collapsible.d-none) {
+  border-bottom-color: transparent;
+  border-radius: calc(.5rem - 1px);
+}
+.task-detail-inspector .inspector-section > h2 > .text-muted,
+.task-detail-inspector .inspector-section > h2 .text-muted:not(.btn) { color: var(--gv-fg4) !important; font-weight: 400; }
+.insp-ico { margin-right: .35rem; }
+.task-detail-inspector .inspector-section > h2 .insp-ico { color: var(--gv-fg4); font-size: .9rem; line-height: 1; margin-right: 0; }
+/* The chevron sits at the right edge and its hit area covers the whole row,
+   so clicking the block's name folds it. */
+.task-detail-inspector .inspector-section > h2 > [data-collapse-key] {
+  position: static;
+  order: 99;
+  margin: 0 0 0 auto !important;
+  color: var(--gv-fg4) !important;
+  font-size: .78rem;
+}
+.task-detail-inspector .inspector-section > h2 > [data-collapse-key]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+}
+.task-detail-inspector .inspector-section > h2 > [data-collapse-key]:focus-visible { outline: none; }
+.task-detail-inspector .inspector-section > h2:has(> [data-collapse-key]:focus-visible) {
+  box-shadow: inset 0 0 0 2px rgba(250, 189, 47, .5);
+}
+.task-detail-inspector .inspector-section > h2:hover { color: var(--gv-fg0) !important; }
+/* Anything else in the header (time tracking's controls) stays clickable
+   above the fold target. */
+.task-detail-inspector .inspector-section > h2 > :not([data-collapse-key]):not(.insp-ico) { position: relative; z-index: 1; }
+/* The drag grip lives in the header row, left of the chevron. */
+.task-detail-inspector .inspector-grip { top: .55rem; right: 2rem; z-index: 2; }
 
-/* Field labels: sentence case, regular weight, muted. */
+/* Field labels: small, muted, sentence case. */
 .task-detail-inspector .inspector-section .form-label {
   text-transform: none !important;
   letter-spacing: 0;
-  font-size: .78rem;
-  font-weight: 400;
+  font-size: .75rem;
+  font-weight: 500;
   color: var(--gv-fg4) !important;
-  margin-bottom: .1rem;
+  margin-bottom: .25rem;
+}
+/* Quick plan has no header row; its label reads as the block's name. */
+.task-detail-inspector [data-section="quick-plan"] > .form-label {
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--gv-fg1) !important;
+  margin-bottom: .45rem;
 }
 /* The dialog already shows the title as its heading; the field is the editor,
    its label is for screen readers only. */
@@ -3992,50 +4057,43 @@ html.item-embed .app-main { padding: 1rem 1.4rem !important; }
   width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
 }
 .task-detail-inspector .sec-fields .mt-3,
-.task-detail-inspector .sec-fields .grid-2.mt-3 { margin-top: .7rem !important; }
-.task-detail-inspector .grid-2 { gap: .4rem .9rem; }
+.task-detail-inspector .sec-fields .grid-2.mt-3 { margin-top: .8rem !important; }
+.task-detail-inspector .grid-2 { gap: .6rem .75rem; }
 
-/* Controls that read as values. The negative margin lines the text up with
-   the label above it; the border only appears when it is needed. */
+/* Controls look like controls: a light frame and a slightly darker fill. */
 .task-detail-inspector .inspector-form .form-control,
 .task-detail-inspector .inspector-form .form-select {
-  background-color: transparent;
-  border-color: transparent;
-  padding-left: .4rem;
-  margin-left: -.4rem;
-  width: calc(100% + .4rem);
+  background-color: var(--insp-field);
+  border-color: var(--insp-field-line);
+  border-radius: .375rem;
   color: var(--gv-fg1);
   transition: border-color .12s ease, background-color .12s ease;
 }
-.task-detail-inspector .inspector-form .form-control[style*="max-width"],
-.task-detail-inspector .inspector-form .form-select[style*="max-width"] { width: 100%; }
 .task-detail-inspector .inspector-form .form-control::placeholder { color: var(--gv-bg4, #7c6f64); }
 .task-detail-inspector .inspector-form .form-control:hover,
-.task-detail-inspector .inspector-form .form-select:hover { border-color: var(--gv-bg2); }
+.task-detail-inspector .inspector-form .form-select:hover { border-color: rgba(235, 219, 178, .24); }
 .task-detail-inspector .inspector-form .form-control:focus,
 .task-detail-inspector .inspector-form .form-select:focus {
   background-color: var(--gv-bg0-hard);
   border-color: var(--gv-yellow);
+  box-shadow: 0 0 0 .15rem rgba(215, 153, 33, .2);
 }
-/* A listbox (project, tags) keeps a faint frame: without one its rows float. */
 .task-detail-inspector .inspector-form select[size],
-.task-detail-inspector .inspector-form select[multiple] {
-  border-color: var(--gv-bg2);
-  max-height: 7.5rem;
-}
+.task-detail-inspector .inspector-form select[multiple] { max-height: 7.5rem; }
+/* The title is the one large value. */
 .task-detail-inspector .inspector-form .form-control-lg {
   font-size: 1.02rem;
   font-weight: 600;
-  padding-top: .3rem;
-  padding-bottom: .3rem;
+  padding: .35rem .6rem;
 }
 
-/* Quick-date buttons: text links under the field, not a row of boxes. */
+/* Quick-date buttons: small text links under the field. */
 .task-detail-inspector .quick-date-row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-start;
   gap: 0 .1rem;
-  margin-top: .1rem !important;
+  margin-top: .15rem !important;
 }
 .task-detail-inspector .quick-date-row .btn {
   flex: 0 0 auto;
@@ -4048,40 +4106,43 @@ html.item-embed .app-main { padding: 1rem 1.4rem !important; }
 .task-detail-inspector .quick-date-row .btn:first-child { margin-left: -.3rem !important; }
 .task-detail-inspector .quick-date-row .btn:hover,
 .task-detail-inspector .quick-date-row .btn:focus-visible {
-  color: var(--gv-fg0, #fbf1c7);
-  background: var(--gv-bg1);
+  color: var(--gv-yellow-br);
+  background: rgba(235, 219, 178, .06);
 }
 
-/* Help text: only while you are working in that section. Status lines that
+/* Help text: only while you are working in that block. Status lines that
    carry an icon (last follow-up) stay. */
 .task-detail-inspector .section-collapsible div.form-text:not(:has(.bi)) { display: none; }
 .task-detail-inspector .section-collapsible span.form-text.mt-1 { display: none !important; }
 .task-detail-inspector .section-collapsible:focus-within div.form-text,
 .task-detail-inspector .section-collapsible:focus-within span.form-text.mt-1 { display: block !important; }
-/* Sub-headers inside a section (Related, Depends on) are field labels. */
+/* Sub-headers inside a block (Related, Depends on) read as field labels. */
 .task-detail-inspector .section-collapsible h2.h6 {
   text-transform: none !important;
   letter-spacing: 0;
-  font-size: .78rem !important;
-  font-weight: 400;
+  font-size: .75rem !important;
+  font-weight: 500;
+  color: var(--gv-fg4) !important;
 }
 .task-detail-inspector .repeat-weekdays { display: flex; width: 100%; flex-wrap: nowrap; }
 .task-detail-inspector .repeat-weekdays .btn {
   flex: 1 1 0;
   min-width: 0;
   font-size: .74rem;
-  padding: .1rem .2rem;
-  color: var(--gv-fg4);
-  border-color: var(--gv-bg2);
+  padding: .15rem .2rem;
+  color: var(--gv-fg3);
+  background: var(--insp-field);
+  border-color: var(--insp-field-line);
 }
-.task-detail-inspector .repeat-weekdays .btn-check:checked + .btn { color: var(--gv-bg0); }
+.task-detail-inspector .repeat-weekdays .btn-check:checked + .btn { color: var(--gv-bg0); background: var(--gv-yellow); border-color: var(--gv-yellow); }
 .task-detail-inspector .form-text { font-size: .72rem; color: var(--gv-fg4); }
-.task-detail-inspector .sec-fields hr { border-color: rgba(235, 219, 178, .06); opacity: 1; margin: .8rem 0 !important; }
+.task-detail-inspector .form-check-label { font-size: .875rem; color: var(--gv-fg2); }
+.task-detail-inspector .sec-fields hr { border-color: var(--insp-line); opacity: 1; margin: .85rem 0 !important; }
 
 html.item-embed .task-detail-inspector { margin-bottom: 0; }
 html.item-embed .task-detail-inspector .inspector-footer {
   background: var(--gv-bg0-soft);
-  border-top-color: rgba(235, 219, 178, .06);
+  border-top-color: var(--insp-line);
   margin: 0;
   padding: .6rem 0;
 }
