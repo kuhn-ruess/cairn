@@ -8,9 +8,12 @@ timezone, 500 requests per minute per account. A key is made in the app under
 Settings > API and needs a paid Habitify plan; a key from the older v1 API
 gets 403 here.
 
-Two calls are all this needs:
+Three calls are all this needs:
 
 * ``GET /habits`` (paged, ``limit`` up to 100) for the picker on the plan page;
+* ``GET /habits/{id}`` once per mapped habit and round, for its goal: a
+  frequency changed in Habitify ("4 times per week" to 3) becomes the
+  tactic's ``per_week`` (:func:`habit_per_week`);
 * ``GET /habits/{id}/statistics?startDate&endDate`` for the completions, whose
   ``data.dailyProgress`` lists ``{date, totalLog, status}`` per day. A day
   with ``status == "completed"`` counts; for a habit whose goal is weekly
@@ -18,7 +21,8 @@ Two calls are all this needs:
   a goal in reps counts ``data.totalLogs``, every rep logged that week
   (:func:`week_count`), any other unit the days with a log. One request per
   mapped habit and Cairn week, so it is read week by week: a whole cycle
-  costs at most 12 requests per mapped habit, a background round 2.
+  costs at most 13 requests per mapped habit (the goal included), a
+  background round 3.
 
 Writing happens only for tactics the user asked Cairn to manage
 (``habitify_manage``), only on the user's confirmation after a plan save, and
@@ -145,6 +149,46 @@ def week_stats(api_key: str, habit_id: str, first: date, last: date):
                             "endDate": last.isoformat()})
 
 
+def get_habit(api_key: str, habit_id: str):
+    """``GET /habits/{id}``: the habit with its ``goals`` and ``occurrence``."""
+    return _fetch(f"/habits/{urllib.parse.quote(habit_id, safe='')}", api_key)
+
+
+def habit_per_week(payload) -> int | None:
+    """How many times a week the habit asks for, read from its goal.
+
+    A weekly goal in reps is "N times per week" (how :func:`frequency`
+    writes it). A daily goal is once on every day it occurs: 7 for a daily
+    habit, the number of weekdays for one on fixed weekdays. Anything else
+    (amounts, monthly goals, intervals) has no plain answer: None, and the
+    tactic keeps what it has."""
+    data = _data(payload)
+    if not isinstance(data, dict):
+        return None
+    goals = [g for g in data.get("goals") or [] if isinstance(g, dict)]
+    active = [g for g in goals if g.get("isActive") is not False]
+    goal = (active or goals or [None])[-1]
+    if goal is None:
+        return None
+    try:
+        value = float(goal.get("value"))
+    except (TypeError, ValueError):
+        return None
+    if goal.get("periodicity") == "weekly" and _counts_reps({"unit": goal.get("unit")}):
+        n = int(round(value))
+    elif goal.get("periodicity") == "daily" and value <= 1:
+        occ = data.get("occurrence") or {}
+        if occ.get("type") == "daily":
+            n = 7
+        elif occ.get("type") == "weekDays" and isinstance(occ.get("days"), list):
+            n = len(set(occ["days"]))
+        else:
+            return None
+    else:
+        return None
+    return n if 1 <= n <= 7 else None
+
+
 def completed_days(api_key: str, habit_id: str, first: date, last: date) -> set[date]:
     """The days in ``first..last`` that count, see :func:`parse_completed_days`."""
     return parse_completed_days(week_stats(api_key, habit_id, first, last))
@@ -247,8 +291,10 @@ def sync_cycle(cycle, user, *, today: date, full: bool = False) -> int | None:
               if int(k.rsplit(":", 1)[1]) not in weeks}
     try:
         by_habit: dict[str, dict[int, int]] = {}
+        targets: dict[str, int | None] = {}
         for t in mapped:
             if t.habitify_id not in by_habit:
+                targets[t.habitify_id] = habit_per_week(get_habit(key, t.habitify_id))
                 by_habit[t.habitify_id] = {
                     w: week_count(week_stats(
                         key, t.habitify_id, tw.week_range(cycle, w)[0],
@@ -257,6 +303,7 @@ def sync_cycle(cycle, user, *, today: date, full: bool = False) -> int | None:
             for w, n in by_habit[t.habitify_id].items():
                 if n:
                     counts[tw.key(t.tid, w)] = n
+            _take_target(t, targets[t.habitify_id])
     except HabitifyError as exc:
         cycle.habitify_error = str(exc)[:500]
         cycle.save()
@@ -266,6 +313,21 @@ def sync_cycle(cycle, user, *, today: date, full: bool = False) -> int | None:
     cycle.habitify_synced_at = datetime.now(timezone.utc)
     cycle.save()
     return len(by_habit)
+
+
+def _take_target(tactic, per_week: int | None) -> None:
+    """The habit's frequency as Habitify has it now becomes the tactic's.
+
+    Except while a managed tactic's own change waits to be written there
+    (``per_week`` differs from what was last written): that is the user's
+    newer word, and the confirmation sends it."""
+    if per_week is None or per_week == tactic.per_week:
+        return
+    if tactic.habitify_manage and tactic.habitify_per_week != tactic.per_week:
+        return
+    tactic.per_week = per_week
+    if tactic.habitify_manage:
+        tactic.habitify_per_week = per_week
 
 
 # ---- writing the plan into Habitify ---------------------------------------

@@ -13,7 +13,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 # Public app version, surfaced in the nav footer, the About page and the
 # OpenAPI info. ONE number, bumped by the pre-commit hook on every commit; it
 # continues the counter of the old 1.4.x scheme (1.4.592 was the last).
-APP_VERSION = "599"
+APP_VERSION = "600"
 
 # Pull settings out of a local ``.env`` file if one exists. Doesn't override
 # values that are already set in the real environment.

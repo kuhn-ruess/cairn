@@ -223,6 +223,35 @@ class HabitifyParsingTests(unittest.TestCase):
                 "goal": {"periodicity": "weekly", "value": n, "unit": "rep"}})
         self.assertEqual(habitify.frequency(0)["goal"]["value"], 1)
 
+    # Shaped like GET /habits/{id} in Habitify's API v2 spec.
+    @staticmethod
+    def _habit(goals, occurrence=None):
+        return {"id": "h-gym", "name": "Gym", "occurrence": occurrence or {"type": "daily"},
+                "goals": goals}
+
+    def test_habit_per_week_reads_the_goal(self):
+        weekly = {"id": "g", "periodicity": "weekly", "value": 3, "unit": "rep",
+                  "isActive": True}
+        self.assertEqual(habitify.habit_per_week(self._habit([weekly])), 3)
+        self.assertEqual(habitify.habit_per_week({"data": self._habit([weekly])}), 3)
+        old = dict(weekly, value=4, isActive=False)
+        self.assertEqual(habitify.habit_per_week(self._habit([old, weekly])), 3)
+        daily = {"id": "g", "periodicity": "daily", "value": 1, "unit": "rep"}
+        self.assertEqual(habitify.habit_per_week(self._habit([daily])), 7)
+        self.assertEqual(habitify.habit_per_week(self._habit(
+            [daily], {"type": "weekDays", "days": [1, 3, 5]})), 3)
+
+    def test_habit_per_week_without_a_plain_answer(self):
+        for goals, occ in (
+                ([], None),
+                ([{"periodicity": "weekly", "value": 30, "unit": "min"}], None),
+                ([{"periodicity": "monthly", "value": 3, "unit": "rep"}], None),
+                ([{"periodicity": "weekly", "value": 12, "unit": "rep"}], None),
+                ([{"periodicity": "daily", "value": 1, "unit": "rep"}],
+                 {"type": "intervalDays", "interval": 2})):
+            self.assertIsNone(habitify.habit_per_week(self._habit(goals, occ)))
+        self.assertIsNone(habitify.habit_per_week("nonsense"))
+
     def test_count_by_week_ignores_days_outside_the_execution_weeks(self):
         c = _cycle()
         days = {date(2026, 10, 5), date(2026, 10, 7), date(2026, 10, 12),
@@ -575,6 +604,9 @@ class TwelveWeekDbTests(unittest.TestCase):
 
         def fake(path, key, params=None):
             calls.append((path, key, params))
+            if path == "/habits/h-gym":
+                return {"data": HabitifyParsingTests._habit(
+                    [{"periodicity": "weekly", "value": 3, "unit": "rep"}])}
             rows = [r for r in HabitifyParsingTests.STATS["data"]["dailyProgress"]
                     if params["startDate"] <= r["date"] <= params["endDate"]]
             return {"data": {"dailyProgress": rows}}
@@ -584,6 +616,7 @@ class TwelveWeekDbTests(unittest.TestCase):
         self.assertEqual(n, 1)
         self.assertEqual(calls[0][1], "SECRET")
         self.assertEqual([c[2] for c in calls], [
+            None,
             {"startDate": "2026-10-05", "endDate": "2026-10-11"},
             {"startDate": "2026-10-12", "endDate": "2026-10-14"}])
         self.cycle.reload()
@@ -599,6 +632,40 @@ class TwelveWeekDbTests(unittest.TestCase):
         self.cycle.reload()
         self.assertEqual(self.cycle.habitify_error, "refused")
         self.assertEqual(self.cycle.habitify_counts, {"gym:1": 2, "gym:2": 1})
+
+    def _sync_with_goal(self, value):
+        def fake(path, key, params=None):
+            if params is None:
+                return {"data": HabitifyParsingTests._habit(
+                    [{"periodicity": "weekly", "value": value, "unit": "rep"}])}
+            return {"data": {"dailyProgress": []}}
+
+        with mock.patch.object(habitify, "_fetch", side_effect=fake):
+            habitify.sync_cycle(self.cycle, self.user, today=date(2026, 10, 14))
+        self.cycle.reload()
+        return self.cycle.tactic("gym")
+
+    def test_sync_takes_a_frequency_changed_in_habitify(self):
+        from application.services.crypto import encrypt_for_user
+        self.user.habitify_api_key = encrypt_for_user(self.user, "SECRET")
+        self.user.save()
+        t = self._sync_with_goal(2)
+        self.assertEqual(t.per_week, 2)
+
+        # Managed and in step with Habitify: Habitify's change wins and is
+        # recorded as what Habitify has, so no write back is proposed.
+        t.habitify_manage, t.per_week, t.habitify_per_week = True, 4, 4
+        t.habitify_start, t.habitify_end = tw.habitify_window(t, self.cycle)
+        self.cycle.save()
+        t = self._sync_with_goal(3)
+        self.assertEqual((t.per_week, t.habitify_per_week), (3, 3))
+        self.assertEqual(habitify.pending_changes(self.cycle), [])
+
+        # A change made in Cairn and not yet written there stays.
+        t.per_week = 5
+        self.cycle.save()
+        t = self._sync_with_goal(3)
+        self.assertEqual((t.per_week, t.habitify_per_week), (5, 3))
 
     def test_background_round_only_reads_due_cycles_with_a_key(self):
         from application.services.crypto import encrypt_for_user
