@@ -274,22 +274,42 @@
   </div>
   <div class="btn-group">
     <div class="btn-group" role="group">
+      {# In a project the main button adds a SECTION (the usual first step
+         when laying one out) and Task moves into the menu. Elsewhere a
+         section cannot live, so Task stays the main button there. #}
+      {% if project.kind == 'project' %}
+      <a class="btn btn-primary" href="{{ url_for('projects.create', section=1, parent=project.pk) }}"
+         data-inspector-url="{{ url_for('projects.create', section=1, parent=project.pk) }}"
+         data-inspector-title="New section in {{ project.name }}">
+        <i class="bi bi-plus-lg"></i> Section
+      </a>
+      {% else %}
       <a class="btn btn-primary" href="{{ url_for('tasks.create', project=project.pk) }}"
          data-inspector-url="{{ url_for('tasks.create', project=project.pk) }}"
          data-inspector-title="New task in {{ project.name }}">
         <i class="bi bi-plus-lg"></i> Task
       </a>
+      {% endif %}
       <button type="button" class="btn btn-primary dropdown-toggle dropdown-toggle-split"
               data-bs-toggle="dropdown" aria-expanded="false">
         <span class="visually-hidden">More new-item options</span>
       </button>
       <ul class="dropdown-menu">
+        {% if project.kind == 'project' %}
+        <li><a class="dropdown-item"
+               href="{{ url_for('tasks.create', project=project.pk) }}"
+               data-inspector-url="{{ url_for('tasks.create', project=project.pk) }}"
+               data-inspector-title="New task in {{ project.name }}">
+          <i class="bi bi-check2-square"></i> Task
+        </a></li>
+        {% else %}
         <li><a class="dropdown-item"
                href="{{ url_for('projects.create', section=1, parent=project.pk) }}"
                data-inspector-url="{{ url_for('projects.create', section=1, parent=project.pk) }}"
                data-inspector-title="New section in {{ project.name }}">
           <i class="bi bi-bookmark-plus"></i> Section
         </a></li>
+        {% endif %}
         <li><a class="dropdown-item"
                href="{{ url_for('projects.create', parent=project.pk) }}"
                data-inspector-url="{{ url_for('projects.create', parent=project.pk) }}"
