@@ -140,7 +140,24 @@ def comment(c, task_pk=None) -> dict[str, Any]:
         "author": user_brief(c.author),
         "author_name": c.author_name,
         "is_external": c.is_external,
+        "id": c.uid or None,
         "body": rewrite_attachment_urls(c.body, task_pk) if task_pk else c.body,
+        "created_at": iso(c.created_at),
+    }
+
+
+def commit(c) -> dict[str, Any]:
+    """A commit registered on a task (``Item.commits``). ``url`` is the
+    commit's web page (the entry's own, else from ``COMMIT_URL_TEMPLATES``),
+    null when neither knows the repo."""
+    from application.services.commits import commit_url
+    return {
+        "repo": c.repo,
+        "sha": c.sha,
+        "subject": c.subject or None,
+        "url": commit_url(c),
+        "comment_id": c.comment_id or None,
+        "author": user_brief(c.author),
         "created_at": iso(c.created_at),
     }
 
@@ -248,6 +265,7 @@ def task_compact(t) -> dict[str, Any]:
         "created_at": iso(t.created_at),
         "updated_at": iso(t.updated_at),
         "completed_at": iso(t.completed_at),
+        "commit_count": len(t.commits or []),
         **last_comment_fields(t),
     }
 
@@ -332,6 +350,7 @@ def task(t) -> dict[str, Any]:
         "comments": [comment(c, t.pk) for c in
                      sorted(t.comments or [], key=_comment_time)],
         **last_comment_fields(t),
+        "commits": [commit(c) for c in (t.commits or [])],
         "attachments": [attachment(t.pk, f) for f in (t.note_files or [])],
         "note_images": [note_image(t.pk, i) for i in (t.note_images or [])],
         "created_at": iso(t.created_at),

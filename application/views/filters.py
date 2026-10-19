@@ -603,6 +603,9 @@ def register_filters(app):
 
     app.jinja_env.globals["linked_notes_folder"] = linked_notes_folder
 
+    from application.services.commits import commit_url
+    app.jinja_env.globals["commit_url"] = commit_url
+
     @app.template_filter("ticketref")
     def ticketref(value):
         """A ticket reference as it is normally written: ``#4711`` (Zammad),

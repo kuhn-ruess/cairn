@@ -106,6 +106,12 @@ class Comment(EmbeddedDocument):
     body = StringField(required=True)
     created_at = DateTimeField(default=_utcnow)
     is_public = BooleanField(default=False)
+    # A stable handle on one comment, minted by ``Item.add_comment`` (the app
+    # and the API both go through it), so a commit can say which comment it
+    # belongs to (``CommitRef.comment_id``). Comments from before it, and the
+    # ones the importers append, have none; the UI addresses comments by
+    # index and never needed one.
+    uid = StringField()
 
     @property
     def is_external(self) -> bool:
@@ -121,6 +127,25 @@ class Comment(EmbeddedDocument):
         if self.author:
             return self.author.display_name or self.author.username
         return self.external_author or "Unknown"
+
+
+class CommitRef(EmbeddedDocument):
+    """A commit made for this task, registered by whoever made it (usually an
+    agent working the task), so a review can jump straight to the change.
+    ``repo`` is the repository's short name (``cmdbsyncer``), ``sha`` the hash
+    as given (full 40 characters preferred, short accepted; lower case).
+    ``url`` is the commit's web page when the caller named it or sent the
+    remote; otherwise the link is derived from ``COMMIT_URL_TEMPLATES`` at
+    render time (``services.commits.commit_url``). ``comment_id`` is the
+    ``Comment.uid`` it belongs to, if any. Deduplicated on (repo, sha) by
+    ``services.commits.add_commits``; nothing removes an entry."""
+    repo = StringField(required=True, max_length=200)
+    sha = StringField(required=True, max_length=64)
+    subject = StringField(max_length=500)
+    url = StringField(max_length=1000)
+    comment_id = StringField()
+    author = ReferenceField(User)
+    created_at = DateTimeField(default=_utcnow)
 
 
 class ChecklistItem(EmbeddedDocument):
@@ -427,6 +452,9 @@ class Item(Document):
 
     # comments live with the item
     comments = EmbeddedDocumentListField(Comment)
+
+    # commits made for this item (see CommitRef), in registration order
+    commits = EmbeddedDocumentListField(CommitRef)
 
     # simple checklist (checkbox + text) on a task
     checklist = EmbeddedDocumentListField(ChecklistItem)
@@ -1388,7 +1416,8 @@ class Item(Document):
         return True
 
     def add_comment(self, author: User, body: str) -> Comment:
-        comment = Comment(author=author, body=body)
+        from uuid import uuid4
+        comment = Comment(author=author, body=body, uid=uuid4().hex)
         self.comments.append(comment)
         self.save()
         return comment

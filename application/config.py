@@ -96,6 +96,32 @@ class BaseConfig:
     # keeps them inline for a deployment that runs Redis but no worker.
     BOOKING_MAILS_IN_BACKGROUND = True
 
+    # Where a commit registered on a task links to (``services.commits``):
+    # repo name (case-insensitive) -> a URL template with ``{sha}``, or the
+    # repo's git remote, which is turned into its forge's commit page. An
+    # entry's own ``url`` (or the ``remote`` sent with it) wins. Without a
+    # match the hash shows as copyable text. Add or override one repo with
+    # BKTODO_COMMIT_URL_TEMPLATES__<repo>=<template or remote>; a JSON object
+    # in BKTODO_COMMIT_URL_TEMPLATES replaces the whole map.
+    COMMIT_URL_TEMPLATES = {
+        "cairn": "https://github.com/Bastian-Kuhn/cairn",
+        "cairn-ios": "https://github.com/Bastian-Kuhn/cairn-ios",
+        "cairn-site": "https://github.com/Bastian-Kuhn/cairn-site",
+        "dotfiles": "https://github.com/Bastian-Kuhn/dotfiles",
+        "ansible": "https://github.com/Bastian-Kuhn/ansible",
+        "eventmanager": "https://github.com/Bastian-Kuhn/eventmanager",
+        "checkmk-fork": "https://github.com/Bastian-Kuhn/checkmk",
+        "cmdbsyncer": "https://github.com/kuhn-ruess/cmdbsyncer",
+        "cmdbsyncer-docs": "https://github.com/kuhn-ruess/cmdbsyncer-docs",
+        "cmdbsyncer-enterprise": "https://github.com/kuhn-ruess/cmdbsyncer-enterprise",
+        "cmdbsyncer-homepage": "https://github.com/kuhn-ruess/cmdbsyncer-homepage",
+        "cmdbsyncer-inventory": "https://github.com/kuhn-ruess/cmdbsyncer-inventory",
+        "cmdbsyncer-testing": "https://github.com/kuhn-ruess/cmdbsyncer-testing",
+        "checkmk-checks": "https://github.com/kuhn-ruess/Checkmk-Checks",
+        "homepage": "https://github.com/kuhn-ruess/homepage",
+        "orbvis": "https://github.com/kuhn-ruess/orbvis",
+    }
+
     # IANA timezone name attached to Google Calendar events when the
     # task's datetime is naive (the datetime-local form input has no
     # offset). Set via BKTODO_DEFAULT_TZ in env, e.g. ``Europe/Berlin``.

@@ -650,11 +650,15 @@ def upload_attachment(task_id):
 def add_comment(task_id):
     """A comment, as JSON ``{"body": ...}`` or as multipart with a ``body``
     field and any number of ``file`` parts. The files are attached to the task
-    and linked at the end of the comment; with files the body may be empty."""
+    and linked at the end of the comment; with files the body may be empty.
+    JSON may carry ``commits`` (the list ``POST /tasks/<id>/commits`` takes):
+    they are registered with this comment, and checked before anything is
+    stored, so a refused list leaves no comment behind either."""
     user = g.current_user
     task = Item.objects(pk=task_id).first()
     if not task or not task.can_be_viewed_by(user):
         return _bad_request("not found", 404)
+    commits = None
     if request.files or (request.mimetype or "").startswith("multipart/"):
         body = (request.form.get("body") or "").strip()
         files = [f for f in request.files.getlist("file") if f]
@@ -662,21 +666,54 @@ def add_comment(task_id):
         data = request.get_json(silent=True) or {}
         body = (data.get("body") or "").strip()
         files = []
+        commits = data.get("commits")
     if not body and not files:
         return _bad_request("body is required")
+    if commits is not None:
+        from application.services.commits import parse_commits
+        commits, error = parse_commits(commits)
+        if error:
+            return _bad_request(error)
     if files:
         stored = _add_uploads(task, files)
         if isinstance(stored, tuple):
             return _bad_request(*stored)
         links = "\n".join(_attachment_markdown(task, s) for s in stored)
         body = f"{body}\n\n{links}" if body else links
-    task.add_comment(user, body)
+    comment = task.add_comment(user, body)
+    if commits:
+        from application.services.commits import apply_commits
+        apply_commits(task, user, commits, comment_id=comment.uid)
     # Same notifications a comment written in the app fires — an answer posted
     # by an agent has to reach its reader the same way one typed into the form
     # does.
     from application.services.notifications import notify_new_comment
     notify_new_comment(task, body, by_user=user)
     return jsonify(ser_task(task)), 201
+
+@api_v1_bp.post("/tasks/<task_id>/commits")
+@token_required
+def add_commits(task_id):
+    """Register commits made for a task: ``{"commits": [{"repo", "sha",
+    "subject"?, "url"?, "remote"?}], "comment_id"?}``. Same visibility as a
+    comment. A (repo, sha) already registered is not added twice; a longer
+    hash or a missing subject/link fills the stored entry in. Returns the
+    task's whole commit list and how many were new."""
+    from application.api.serializers import commit as ser_commit
+    from application.services.commits import add_commits as register
+    user = g.current_user
+    task = Item.objects(pk=task_id).first()
+    if not task or not task.can_be_viewed_by(user):
+        return _bad_request("not found", 404)
+    data = request.get_json(silent=True) or {}
+    added, error = register(task, user, data.get("commits"),
+                            comment_id=(data.get("comment_id") or None))
+    if error:
+        return _bad_request(error)
+    return jsonify({"added": added,
+                    "commits": [ser_commit(c) for c in task.commits]}), (
+                        201 if added else 200)
+
 
 @api_v1_bp.post("/tasks/<task_id>/tags")
 @token_required

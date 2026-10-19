@@ -227,12 +227,26 @@ Tokens are issued with `flask --app wsgi:app cairn issue-token <user>`.
 | GET/PATCH/DELETE | `/api/v1/tasks/<id>` | single task |
 | POST | `/api/v1/tasks/<id>/complete` | complete + spawn next recurrence |
 | POST | `/api/v1/tasks/<id>/assign` | `{ "user_id": "..." }` or `null` |
-| POST | `/api/v1/tasks/<id>/comments` | `{ "body": "..." }` |
+| POST | `/api/v1/tasks/<id>/comments` | `{ "body": "...", "commits": [...]? }` |
+| POST | `/api/v1/tasks/<id>/commits` | `{ "commits": [{ "repo": "...", "sha": "...", "subject": "..."? }], "comment_id": "..."? }` |
 | GET/POST | `/api/v1/projects` | list / create projects |
 | GET/PATCH/DELETE | `/api/v1/projects/<id>` | single project |
 | POST | `/api/v1/projects/<id>/review` | mark reviewed |
 | GET/POST | `/api/v1/tags` | list / create tags |
 | PATCH/DELETE | `/api/v1/tags/<id>` | single tag |
+
+**Commits** made for a task are registered on it, so a review can jump to
+the change: `POST /api/v1/tasks/<id>/commits` (or `commits` on the comment
+that reports the work, which ties them to that comment). Each entry takes
+`repo`, `sha` (full hash preferred, short accepted) and optionally `subject`,
+`url` or `remote` (the git remote, turned into the forge's commit page). A
+(repo, sha) is stored once. `GET /api/v1/tasks/<id>` returns them as
+`commits` (each with its resolved `url`), the compact row as `commit_count`,
+and the task page lists them with the short hash linked. Repos without a
+`url`/`remote` are linked through `COMMIT_URL_TEMPLATES` in
+`application/config.py` (repo name to `{sha}` template or remote; add one
+with `BKTODO_COMMIT_URL_TEMPLATES__<repo>=...`); an unknown repo shows the
+hash as copyable text.
 
 Task list query params: `status`, `status_not`, `project_id`, `tag_id`,
 `flagged=true`, `assigned_to_me=true`, `mine=true`, `awaiting_reply=true`,

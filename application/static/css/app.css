@@ -2645,6 +2645,16 @@ body.ps-resizing * {
   color: var(--gv-bg0);
 }
 
+/* Commits registered on a task (tasks/_commits.html): a quiet list under the
+   related blocks, and the same hash as a chip under the comment it belongs to. */
+.task-commits .task-commit { border-top: 1px solid var(--gv-bg2); min-width: 0; }
+.task-commits .task-commit:first-child { border-top: none; }
+.task-commit-subject { min-width: 0; }
+.task-commit-age { white-space: nowrap; }
+.commit-ref { white-space: nowrap; }
+.commit-sha { font-size: .8rem; }
+.comment-commits { display: flex; flex-wrap: wrap; gap: .25rem .9rem; margin-top: .25rem; color: var(--gv-fg4); }
+
 .task-detail-side { padding: .75rem 1rem; background: var(--gv-bg0-soft); border-radius: .35rem; }
 .task-detail-dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .75rem; }
 .task-detail-dl dt { color: var(--gv-fg4); font-weight: 400; font-size: .8rem; align-self: center; }

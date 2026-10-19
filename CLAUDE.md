@@ -395,6 +395,15 @@ somewhere by default. Serving (`_note_file_response`, web and API alike) is
 text) and a download for everything else, always with `nosniff`: the stored
 type is whatever the uploader claimed.
 
+**Commits** made for a task live on it (`Item.commits`, `CommitRef`: repo,
+sha, subject, url, comment_id, author), registered over
+`POST /tasks/<id>/commits` or as `commits` on `POST /tasks/<id>/comments`
+(which ties them to that comment via `Comment.uid`, minted only by
+`Item.add_comment`). `services/commits.py` owns the dedupe on (repo, sha),
+short and full hash being one commit, and the link: the entry's `url`, else
+`COMMIT_URL_TEMPLATES` (config, repo name to template or git remote). The
+task page lists them and shows each under its comment (`tasks/_commits.html`).
+
 `application/api/openapi.py` is the hand-written spec served at
 `/api/v1/openapi.json` and rendered at `/api/v1/docs`. Add a path there for
 every route you add — `tests/test_time_api.py` asserts the two agree.

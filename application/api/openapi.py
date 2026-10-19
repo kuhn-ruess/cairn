@@ -228,6 +228,30 @@ def build_openapi_spec() -> dict:
                     "properties": {"error": {"type": "string"}},
                     "required": ["error"],
                 },
+                "CommitIn": {
+                    "type": "object", "required": ["repo", "sha"],
+                    "properties": {
+                        "repo": {"type": "string", "description": "Repository short name, e.g. `cmdbsyncer`."},
+                        "sha": {"type": "string", "description": "Commit hash, 4 to 64 hex characters; the full one preferred."},
+                        "subject": {"type": "string", "description": "The commit's first line."},
+                        "url": {"type": "string", "description": "The commit's web page (http/https); wins over everything."},
+                        "remote": {"type": "string", "description": "The repo's git remote (`git@github.com:org/repo.git`); "
+                                                                     "turned into the forge's commit page, credentials dropped."},
+                    },
+                },
+                "Commit": {
+                    "type": "object",
+                    "properties": {
+                        "repo": {"type": "string"},
+                        "sha": {"type": "string"},
+                        "subject": {"type": "string", "nullable": True},
+                        "url": {"type": "string", "nullable": True,
+                                "description": "Commit web page; null when no link is known."},
+                        "comment_id": {"type": "string", "nullable": True},
+                        "author": {"type": "object", "nullable": True, "description": "Brief user record of who registered it."},
+                        "created_at": {"type": "string", "format": "date-time"},
+                    },
+                },
                 "Task": {
                     "type": "object",
                     "properties": {
@@ -314,6 +338,15 @@ def build_openapi_spec() -> dict:
                         "comments": {
                             "type": "array", "items": {"type": "object"},
                             "description": "Oldest first by created_at. Not in the compact row.",
+                        },
+                        "commits": {
+                            "type": "array", "items": {"$ref": "#/components/schemas/Commit"},
+                            "description": "Commits registered on the task, in registration order. "
+                                           "Not in the compact row, which carries commit_count.",
+                        },
+                        "commit_count": {
+                            "type": "integer",
+                            "description": "Compact row only: how many commits are registered.",
                         },
                         "last_comment_at": {
                             "type": "string", "format": "date-time", "nullable": True,
@@ -1271,6 +1304,40 @@ def build_openapi_spec() -> dict:
                     },
                 },
             },
+            "/tasks/{task_id}/commits": {
+                "parameters": [
+                    {"name": "task_id", "in": "path", "required": True, "schema": {"type": "string"}},
+                ],
+                "post": {
+                    "summary": "Register commits made for a task",
+                    "tags": ["tasks"],
+                    "description": ("Appends to the task's `commits` (same visibility as a comment: "
+                                    "owner, assignee or a share). Deduplicated on (repo, sha): a "
+                                    "short hash and its full form are one commit, the longer one is "
+                                    "kept, a missing subject or url is filled in. Nothing is ever "
+                                    "removed. The link is the entry's `url`, else the one derived "
+                                    "from `remote`, else the server's COMMIT_URL_TEMPLATES by repo; "
+                                    "without any the hash is shown as text."),
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {
+                            "type": "object", "required": ["commits"],
+                            "properties": {
+                                "commits": {"type": "array", "minItems": 1,
+                                            "items": {"$ref": "#/components/schemas/CommitIn"}},
+                                "comment_id": {"type": "string",
+                                               "description": "`id` of the task comment these belong to."},
+                            },
+                        }}},
+                    },
+                    "responses": {
+                        "201": {"description": "At least one new entry: `{added, commits}`"},
+                        "200": {"description": "All already registered: `{added: 0, commits}`"},
+                        "400": {"description": "Invalid entry or unknown comment_id"},
+                        "404": {"description": "Not found"},
+                    },
+                },
+            },
             "/tasks/{task_id}/comments": {
                 "parameters": [
                     {"name": "task_id", "in": "path", "required": True, "schema": {"type": "string"}},
@@ -1295,6 +1362,13 @@ def build_openapi_spec() -> dict:
                                     "properties": {
                                         "body": {"type": "string"},
                                         "is_public": {"type": "boolean"},
+                                        "commits": {
+                                            "type": "array",
+                                            "items": {"$ref": "#/components/schemas/CommitIn"},
+                                            "description": "Commits to register with this comment "
+                                                           "(see POST /tasks/{task_id}/commits). "
+                                                           "Checked first: a refused list stores nothing.",
+                                        },
                                     },
                                 },
                             },

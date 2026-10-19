@@ -285,6 +285,9 @@
       </section>
     {% endif %}
 
+    {% import "tasks/_commits.html" as commits_ui %}
+    {{ commits_ui.commits_section(task) }}
+
     <section class="task-detail-section" id="comments" data-collapsible>
       <h2 class="h6 text-muted small text-uppercase mb-2 d-flex align-items-center">
         <button type="button" class="btn btn-sm btn-link text-muted p-0 me-1"
@@ -356,6 +359,9 @@
             </div>
             <div class="comment-text md-body">{{ c.body|markdown }}</div>
             <div class="comment-raw d-none">{{ c.body }}</div>
+            {% if c.uid and task.commits %}
+              {{ commits_ui.commit_chips(task.commits|selectattr('comment_id', 'equalto', c.uid)|list) }}
+            {% endif %}
           </div>
         </div>
       {% else %}

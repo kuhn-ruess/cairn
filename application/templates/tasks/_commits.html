@@ -1,0 +1,47 @@
+{# Commits registered on a task (Item.commits, POST /api/v1/tasks/<id>/commits).
+   The short hash is always shown and copyable, the full one in its title;
+   it links to the commit's web page when commit_url() knows one. #}
+{% macro commit_sha(c) -%}
+  {%- set _url = commit_url(c) -%}
+  <span class="commit-ref" title="{{ c.repo }} {{ c.sha }}">
+    {%- if _url -%}
+      <a class="commit-sha font-monospace" href="{{ _url }}" target="_blank" rel="noopener noreferrer">{{ c.sha[:8] }}</a>
+    {%- else -%}
+      <code class="commit-sha">{{ c.sha[:8] }}</code>
+    {%- endif -%}
+    <button type="button" class="btn btn-link btn-sm p-0 ms-1 text-muted commit-copy"
+            data-sha="{{ c.sha }}" title="Copy full hash"
+            onclick="navigator.clipboard && navigator.clipboard.writeText(this.dataset.sha); this.innerHTML='<i class=&quot;bi bi-check2&quot;></i>';"><i class="bi bi-clipboard"></i></button>
+  </span>
+{%- endmacro %}
+
+{% macro commit_chips(commits) -%}
+  {%- if commits -%}
+  <div class="comment-commits small">
+    {%- for c in commits %}
+      <span class="comment-commit"><i class="bi bi-git text-muted"></i> <span class="text-muted">{{ c.repo }}</span> {{ commit_sha(c) }}</span>
+    {%- endfor %}
+  </div>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro commits_section(item) -%}
+{% if item.commits %}
+  <section class="task-detail-section" id="commits">
+    <h2 class="h6 text-muted small text-uppercase mb-2">
+      Commits <span class="text-muted">({{ item.commits|length }})</span>
+    </h2>
+    <ul class="list-unstyled mb-0 task-commits">
+      {% for c in item.commits|reverse %}
+        <li class="task-commit d-flex align-items-baseline gap-2 small py-1">
+          <i class="bi bi-git text-muted"></i>
+          <span class="text-muted task-commit-repo">{{ c.repo }}</span>
+          {{ commit_sha(c) }}
+          <span class="task-commit-subject me-auto text-truncate">{{ c.subject or '' }}</span>
+          <span class="text-muted task-commit-age" title="{{ c.created_at|localdt }}">{{ c.created_at|timeago }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+{% endif %}
+{%- endmacro %}
