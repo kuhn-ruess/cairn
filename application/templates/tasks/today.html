@@ -212,13 +212,17 @@
   <div class="cal-event" style="border-left-color: {{ ev.calendar_color }};">
     <div class="cal-event-main">
       <span class="cal-event-time">
-        {% if ev.all_day %}all day{% else %}{{ ev.start|localdt }} – {{ ev.end|localdt }}{% endif %}
+        {% if ev.all_day %}all day
+        {% elif ev.start|localdate == ev.end|localdate %}{{ ev.start|localtime }} – {{ ev.end|localtime }}
+        {% else %}{{ ev.start|localdt }} – {{ ev.end|localdt }}{% endif %}
       </span>
       <span class="cal-event-title">
         {% if ev.url %}<a href="{{ ev.url }}" target="_blank" rel="noopener">{{ ev.title }}</a>
         {% else %}{{ ev.title }}{% endif %}
       </span>
-      {% if ev.location %}<span class="cal-event-loc"><i class="bi bi-geo-alt"></i> {{ ev.location }}</span>{% endif %}
+      {% if ev.location %}<span class="cal-event-loc" title="{{ ev.location }}"><i class="bi bi-geo-alt"></i>
+        {% if ev.location.startswith(('https://', 'http://')) %}<a href="{{ ev.location }}" target="_blank" rel="noopener">{{ ev.location.split('/')[2] }}</a>
+        {% else %}{{ ev.location }}{% endif %}</span>{% endif %}
       <span class="cal-event-cal" style="color: {{ ev.calendar_color }};">{{ ev.calendar_name }}</span>
       {% set _cust = event_customers.get(ev.uid) if ev.uid else None %}
       {{ event_customer_btn(ev, _cust) }}

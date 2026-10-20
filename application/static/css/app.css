@@ -692,14 +692,26 @@ body.is-dragging .task-list.is-empty[data-target-project]:hover {
   white-space: nowrap;
   font-size: .78rem;
   min-width: 120px;
+  flex-shrink: 0;
 }
-.cal-event-title { flex: 1; color: var(--gv-fg1); }
+.cal-event-title { flex: 1; min-width: 8rem; color: var(--gv-fg1); }
 .cal-event-title a { color: var(--gv-fg1); text-decoration: none; }
 .cal-event-title a:hover { color: var(--gv-yellow-br); }
 .cal-event-loc, .cal-event-cal {
   font-size: .72rem;
   color: var(--gv-fg4);
 }
+/* One line, cut with an ellipsis: a Teams join URL is 300 characters
+   and would otherwise squeeze the title into a column of single words */
+.cal-event-loc {
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-event-loc a { color: inherit; }
+.cal-event-cal, .cal-event-main > .btn, .cal-event-main > button { flex-shrink: 0; }
 .cal-swatch {
   width: 14px; height: 14px;
   border-radius: 50%;

@@ -506,6 +506,12 @@ def register_filters(app):
             pass
         return value.strftime("%Y-%m-%d %H:%M")
 
+    @app.template_filter("localtime")
+    def localtime(value):
+        """Wall-clock ``HH:MM`` of ``localdt``, for a row that already sits
+        under its day."""
+        return localdt(value)[11:]
+
     @app.template_filter("localdate")
     def localdate(value):
         """Calendar day of a stored datetime in the user's wall-clock — the
