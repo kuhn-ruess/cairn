@@ -131,3 +131,50 @@ class QuickAddProjectPickerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(connect is None, "mongoengine not installed")
+class QuickAddDateWordTests(QuickAddProjectPickerTests):
+    # Borrows the picker tests' database setup; their own tests run there.
+    test_offers_the_task_tree = None
+    test_no_folder_of_the_notes_tree = None
+    test_nothing_that_hangs_inside_the_notes_tree = None
+    test_the_picker_is_one_searchable_field = None
+
+    """A date word typed into Quick Add ("heute", "freitag") PLANS the task:
+    reported as "wenn man bei quickadd heute ausfuellt, wird nicht mehr das
+    plandatum ausgefuellt". The day lands at local midnight (the app's "this
+    day"), the deadline stays empty, and the Plan picker still wins."""
+
+    def _add(self, **data):
+        from flask import g
+        g.pop("_login_user", None)
+        client = self.app.test_client()
+        with client.session_transaction() as sess:
+            sess["_user_id"] = str(self.kuhn.pk)
+            sess["_fresh"] = True
+        resp = client.post("/tasks/quick-add", json=data)
+        self.assertEqual(resp.status_code, 200, resp.get_data(as_text=True))
+        return self.Item.objects(pk=resp.get_json()["task"]["id"]).first()
+
+    def test_heute_sets_the_plan_date(self):
+        from datetime import datetime, timezone
+        from application.services.tzutil import resolve_tz
+        task = self._add(text="Angebot schreiben heute")
+        self.assertEqual(task.title, "Angebot schreiben")
+        self.assertIsNone(task.due_date)
+        tz = resolve_tz(self.kuhn)
+        planned = task.plan_date.astimezone(tz)
+        self.assertEqual((planned.hour, planned.minute), (0, 0))
+        self.assertEqual(planned.date(), datetime.now(timezone.utc).date())
+
+    def test_the_plan_picker_wins(self):
+        from application.services.tzutil import resolve_tz
+        task = self._add(text="Angebot heute", plan_date="2026-12-01T09:00")
+        planned = task.plan_date.astimezone(resolve_tz(self.kuhn))
+        self.assertEqual(planned.strftime("%Y-%m-%d %H:%M"), "2026-12-01 09:00")
+
+    def test_due_comes_only_from_its_picker(self):
+        task = self._add(text="Angebot heute", due_date="2026-12-24T12:00")
+        self.assertIsNotNone(task.due_date)
+        self.assertIsNotNone(task.plan_date)

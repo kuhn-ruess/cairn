@@ -2509,8 +2509,13 @@ def quick_add():
         return jsonify({"error": "Couldn't extract a title from the input."}), 400
 
     # Explicit datetime-local pickers (naive wall-clock → attach the user's tz).
-    # An explicit Due wins over a date token parsed from the text.
+    # A date word in the text ("heute", "freitag") PLANS the task: it is the
+    # day you mean to do it, not a deadline. It lands at local midnight, which
+    # the app reads as "this day" (and which gets no reminder); an explicit
+    # Plan picker wins over it.
     from application.services.tz import attach_user_tz
+    text_plan = (attach_user_tz(datetime.combine(parsed.due_date.date(), datetime.min.time()), user)
+                 if parsed.due_date else None)
 
     def _parse_local(value):
         s = (value or "").strip()
@@ -2532,8 +2537,8 @@ def quick_add():
         tags=parsed.tags,
         priority=parsed.priority,
         defer_date=_parse_local(data.get("defer_date")),
-        due_date=_parse_local(data.get("due_date")) or parsed.due_date,
-        plan_date=_parse_local(data.get("plan_date")),
+        due_date=_parse_local(data.get("due_date")),
+        plan_date=_parse_local(data.get("plan_date")) or text_plan,
         flagged=parsed.flagged,
         status="open",
     )
@@ -2550,6 +2555,7 @@ def quick_add():
             "tags": [str(t) for t in (task.tags or [])],
             "priority": task.priority,
             "due_date": task.due_date.isoformat() if task.due_date else None,
+            "plan_date": task.plan_date.isoformat() if task.plan_date else None,
             "flagged": task.flagged,
             "assignee": str(task.assigned_to) if task.assigned_to else None,
         },
