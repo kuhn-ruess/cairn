@@ -256,6 +256,7 @@
          data-task-id="{{ it.obj.pk }}"
          data-est="{{ it.obj.estimated_minutes or 30 }}"
          data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
+         data-item-path="{{ url_for('tasks.detail', task_id=it.obj.pk) }}"
          data-inspector-title="{{ it.obj.title }}"
          style="--cal-est-min: {{ it.obj.estimated_minutes or 30 }};
                 --cal-top-min: {{ it.start.minute if it.start else 0 }};">
@@ -536,6 +537,7 @@
              draggable="true"
              data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
              data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
+             data-item-path="{{ url_for('tasks.detail', task_id=it.obj.pk) }}"
              data-inspector-title="{{ it.obj.title }}">
           <form method="post" action="{{ qp.qp_check_url(it.obj) }}"
                 class="m-0 plan-rail-check" data-task-complete-form

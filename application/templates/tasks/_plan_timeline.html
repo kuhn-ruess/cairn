@@ -161,6 +161,7 @@
                  draggable="{{ 'false' if it.done else 'true' }}"
                  data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
                  data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
+                 data-item-path="{{ url_for('tasks.detail', task_id=it.obj.pk) }}"
                  data-inspector-title="{{ it.obj.title }}"
                  {% if _c %}title="{{ _c.label }}"{% endif %}
                  style="--top: {{ smin - range0 }}; --dur: {{ it.duration_min }};
@@ -210,6 +211,7 @@
          draggable="true"
          data-task-id="{{ it.obj.pk }}" data-est="{{ it.duration_min }}"
          data-inspector-url="{{ url_for('tasks.edit', task_id=it.obj.pk) }}"
+         data-item-path="{{ url_for('tasks.detail', task_id=it.obj.pk) }}"
          data-inspector-title="{{ it.obj.title }}"
          {% if _c %}style="--dot: {{ _c.color }};" title="{{ _c.label }}"{% endif %}>
       {# Complete directly instead of planning. stopPropagation so the click

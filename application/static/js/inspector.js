@@ -990,6 +990,16 @@
     const trigger = ev.target.closest("[data-inspector-url]");
     if (!trigger) return;
     ev.preventDefault();
+    // A whole card that IS a task (Today's calendar pills, the Next rail, the
+    // plan's cards) opens the task in the item dialog, like every link to a
+    // task does; the inspector is for the buttons that say so. Phones keep
+    // the panel, the dialog there would be a full page anyway.
+    const itemPath = trigger.dataset.itemPath;
+    if (itemPath && window.CairnItemModal
+        && !window.matchMedia("(max-width: 575.98px)").matches) {
+      window.CairnItemModal.open(itemPath, trigger);
+      return;
+    }
     // Loading another item replaces the panel body — same loss as closing it.
     if (!confirmDiscardDraft()) return;
     openInspector(trigger.dataset.inspectorUrl, trigger.dataset.inspectorTitle);
