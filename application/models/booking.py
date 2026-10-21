@@ -196,6 +196,11 @@ class Booking(Document):
     calendar_id = StringField(default="")   # ExternalCalendar.pk_ref
     event_id = StringField(default="")
     event_error = StringField(default="")
+    # The host's address as the write calendar knows it, which is what the
+    # event and every mail about it name as ORGANIZER: Apple Calendar applies
+    # a guest's acceptance only to a meeting organised by one of the
+    # account's own addresses, and that need not be the Cairn login address.
+    organizer_email = StringField(max_length=255, default="")
 
     created_at = DateTimeField(default=_utcnow)
     pk_ref = ObjectIdField(default=lambda: ObjectId())

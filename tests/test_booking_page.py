@@ -161,6 +161,15 @@ class BookingPageTests(unittest.TestCase):
 
         svc._write_event = fake_write
 
+        # The real ``_write_event`` asks the calendar for the host's address;
+        # by default it names none and the Cairn login address stands in.
+        from application.services import calendar_writeback
+        self.organizer = ""
+        real_organizer = calendar_writeback.organizer_address
+        calendar_writeback.organizer_address = lambda cal, user: self.organizer
+        self.addCleanup(setattr, calendar_writeback, "organizer_address",
+                        real_organizer)
+
     def tearDown(self):
         self.svc.busy_intervals = self._busy
         self.svc.busy_events = self._events
@@ -867,6 +876,45 @@ class BookingPageTests(unittest.TestCase):
         self.assertEqual(wrote["organizer"], ("book-test", "b@example.com"))
         self.assertEqual([p["email"] for p in wrote["attendees"]],
                          ["b@example.com", "bob@example.com"])
+
+    def test_the_organizer_is_the_address_the_calendar_knows(self):
+        """Nextcloud knows the host as another address than Cairn does. Apple
+        Calendar applies an acceptance only to a meeting organised by one of
+        the account's own addresses, so that one is the ORGANIZER everywhere:
+        on the event, in the guest's invitation and in the cancellation."""
+        from application.services import calendar_writeback
+
+        wrote = {}
+        real = calendar_writeback.create_event
+        calendar_writeback.create_event = lambda cal, user, **kw: (
+            wrote.update(kw) or {"id": kw["uid"]})
+        self.addCleanup(setattr, calendar_writeback, "create_event", real)
+        self.svc._write_event = self._write
+        self.organizer = "host@cloud.example.com"
+        sent = self._capture_attachments()
+
+        self.save_page()
+        self.book(self.first_slot())
+        self.assertEqual(wrote["organizer"], ("book-test", "host@cloud.example.com"))
+        self.assertEqual([p["email"] for p in wrote["attendees"]],
+                         ["host@cloud.example.com", "bob@example.com"])
+        # The host's notice still goes to the Cairn account's address.
+        self.assertEqual(sent[0][0], "b@example.com")
+        data = sent[1][2][0][2].replace(b"\r\n ", b"")
+        self.assertIn(b"ORGANIZER;CN=book-test:mailto:host@cloud.example.com", data)
+
+        with self.app.app_context():
+            booking = self.Booking.objects.get(owner=self.user)
+            self.assertEqual(booking.organizer_email, "host@cloud.example.com")
+            sent.clear()
+            real_delete = calendar_writeback.delete_event
+            calendar_writeback.delete_event = lambda cal, user, event_id: None
+            self.addCleanup(setattr, calendar_writeback, "delete_event",
+                            real_delete)
+            self.svc.cancel(self.User.objects.get(pk=self.user.pk), booking)
+        data = sent[0][2][0][2].replace(b"\r\n ", b"")
+        self.assertIn(b"METHOD:CANCEL", data)
+        self.assertIn(b"ORGANIZER;CN=book-test:mailto:host@cloud.example.com", data)
 
     def _capture_mail(self):
         from application.services import mail

@@ -460,7 +460,8 @@ def _write_event(user, page, booking) -> None:
     because an ics PUT timed out — the owner sees it, on the booking."""
     from application.services.booking_ics import booking_uid, participants
     from application.services.calendar_sync import CalendarError
-    from application.services.calendar_writeback import create_event
+    from application.services.calendar_writeback import (
+        create_event, organizer_address)
 
     cal = user.find_calendar(page.write_calendar_id) if page.write_calendar_id else None
     if cal is None:
@@ -479,6 +480,8 @@ def _write_event(user, page, booking) -> None:
     if booking.note:
         body.extend(["", booking.note])
     host_name = user.display_name or user.username
+    booking.organizer_email = organizer_address(cal, user) or user.email or ""
+    host_email = booking.organizer_email
     try:
         created = create_event(
             cal, user,
@@ -493,9 +496,9 @@ def _write_event(user, page, booking) -> None:
             # organizer, both as attendees. Otherwise the guest's acceptance
             # arrives for a UID this calendar has never seen.
             uid=booking_uid(booking),
-            organizer=(host_name, user.email) if user.email else None,
+            organizer=(host_name, host_email) if host_email else None,
             attendees=participants(booking, host_name=host_name,
-                                   host_email=user.email or ""))
+                                   host_email=host_email))
         booking.calendar_id = str(cal.pk_ref)
         booking.event_id = created.get("id") or ""
     except CalendarError as exc:
@@ -568,7 +571,8 @@ def send_confirmations(user, booking) -> None:
     # (``_write_event``). The host only gets the file when that write failed:
     # a second copy, dropped into some other calendar, is a second event the
     # replies then may or may not find.
-    invite = [attachment(booking, host_name=host_name, host_email=user.email or "")]
+    invite = [attachment(booking, host_name=host_name,
+                         host_email=booking.organizer_email or user.email or "")]
     host_invite = invite if not booking.event_id else None
     where = f"Where: {booking.meeting_url}\n" if booking.meeting_url else ""
     # The host is the one who needs to know whose room this is: a link they
@@ -648,8 +652,10 @@ def cancel(user, booking, *, notify: bool = True) -> list:
             f"{host_name} on {stamp} ({user_zone(user)}) has been cancelled.\n\n"
             "The attached file removes it from your calendar. You're welcome "
             "to book another time.\n",
-            attachments=[attachment(booking, host_name=host_name,
-                                    host_email=user.email or "", cancel=True)],
+            attachments=[attachment(
+                booking, host_name=host_name,
+                host_email=booking.organizer_email or user.email or "",
+                cancel=True)],
         )
     elif notify and booking.email and not smtp_configured():
         warnings.append("No SMTP is configured, so the guest wasn't told.")

@@ -917,6 +917,52 @@ def _caldav_home(at: str, props, auth: str) -> "tuple[str, str]":
                 p_props, f"{{{CALDAV_NS}}}schedule-default-calendar-URL", p_at))
 
 
+_CALDAV_ADDRESS_BODY = (
+    '<?xml version="1.0" encoding="utf-8"?>'
+    '<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
+    '<d:prop><d:current-user-principal/><c:calendar-user-address-set/></d:prop>'
+    '</d:propfind>'
+)
+
+
+def _mailtos(props) -> list[str]:
+    el = _prop(props, f"{{{CALDAV_NS}}}calendar-user-address-set")
+    if el is None:
+        return []
+    out = []
+    for href in el.findall("{DAV:}href"):
+        value = (href.text or "").strip()
+        if value.lower().startswith("mailto:") and value[7:]:
+            out.append(value[7:])
+    return out
+
+
+def caldav_user_address(calendar, user, prefer: str = "") -> str:
+    """The mail address the server knows this account by (RFC 6638
+    ``calendar-user-address-set`` on the principal), ``""`` when it names none.
+
+    A calendar client decides "I organised this" by comparing the ORGANIZER
+    with exactly these addresses. A booking that names the Cairn login address
+    instead (``mail@…`` against Nextcloud's ``bastian.kuhn@…``) is somebody
+    else's meeting to Apple Calendar, which then cannot apply the guest's
+    acceptance. ``prefer`` wins when the server lists it among several."""
+    auth = _caldav_auth_header(calendar, user)
+    at, text = _caldav_propfind(_with_slash(calendar.caldav_url or ""), auth,
+                                _CALDAV_ADDRESS_BODY, "0")
+    responses = _dav_responses(text, at)
+    props = responses[0][1] if responses else []
+    found = _mailtos(props)
+    principal = _prop_href(props, "{DAV:}current-user-principal", at)
+    if not found and principal:
+        p_at, p_text = _caldav_propfind(principal, auth, _CALDAV_ADDRESS_BODY, "0")
+        p_resp = _dav_responses(p_text, p_at)
+        found = _mailtos(p_resp[0][1]) if p_resp else []
+    for addr in found:
+        if prefer and addr.lower() == prefer.lower():
+            return addr
+    return found[0] if found else ""
+
+
 def _well_known_caldav(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     return urllib.parse.urlunsplit(

@@ -493,7 +493,12 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   for the same reason `free_slots` is). It is ONE meeting everywhere: one UID
   per booking (`booking_uid`), the same in the guest's invitation, in the event
   `_write_event` puts into the host's calendar and in the cancellation; the
-  host is ORGANIZER and both sides are ATTENDEEs; the mail is an iMIP
+  host is ORGANIZER and both sides are ATTENDEEs, under the address the WRITE
+  CALENDAR knows the host by (`calendar_writeback.organizer_address`: CalDAV's
+  `calendar-user-address-set`, Google's account; kept on
+  `Booking.organizer_email`), not the Cairn login: Apple Calendar applies an
+  acceptance only to a meeting one of the account's own addresses organised.
+  The mail is an iMIP
   `METHOD:REQUEST` (`text/calendar; method=REQUEST`). It was `PUBLISH` with a
   host event under its own random UID, and the guest's acceptance then arrived
   for an event the host's calendar did not have. The host's CalDAV copy marks

@@ -209,3 +209,72 @@ class WalkTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+PRINCIPAL_ADDRESSES = """<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:response>
+    <d:href>/remote.php/dav/principals/users/alice/</d:href>
+    <d:propstat><d:prop>
+      <c:calendar-user-address-set>
+        <d:href>mailto:alice@kuhn-ruess.de</d:href>
+        <d:href>mailto:alice@example.com</d:href>
+        <d:href>/remote.php/dav/principals/users/alice/</d:href>
+      </c:calendar-user-address-set>
+      </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+</d:multistatus>"""
+
+CALENDAR_PRINCIPAL = """<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:response>
+    <d:href>/remote.php/dav/calendars/alice/personal/</d:href>
+    <d:propstat><d:prop>
+      <d:current-user-principal><d:href>/remote.php/dav/principals/users/alice/</d:href></d:current-user-principal>
+      </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+    <d:propstat><d:prop><c:calendar-user-address-set/></d:prop>
+      <d:status>HTTP/1.1 404 Not Found</d:status></d:propstat>
+  </d:response>
+</d:multistatus>"""
+
+
+class UserAddressTests(unittest.TestCase):
+    """The address an account is known by on the server, which a booking's
+    event has to name as ORGANIZER for Apple Calendar to apply a reply."""
+
+    COLLECTION = HOME + "personal/"
+    PRINCIPAL = "https://cloud.example.com/remote.php/dav/principals/users/alice/"
+
+    def setUp(self):
+        self.answers = {self.COLLECTION: CALENDAR_PRINCIPAL,
+                        self.PRINCIPAL: PRINCIPAL_ADDRESSES}
+        self._real = cs._caldav_propfind
+        self._auth = cs._caldav_auth_header
+        cs._caldav_propfind = lambda url, auth, body, depth: (url, self.answers[url])
+        cs._caldav_auth_header = lambda calendar, user: "Basic x"
+
+    def tearDown(self):
+        cs._caldav_propfind = self._real
+        cs._caldav_auth_header = self._auth
+
+    def cal(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(caldav_url=self.COLLECTION)
+
+    def test_the_principal_names_the_address(self):
+        self.assertEqual(cs.caldav_user_address(self.cal(), None),
+                         "alice@kuhn-ruess.de")
+
+    def test_the_cairn_address_wins_when_the_server_lists_it_too(self):
+        self.assertEqual(
+            cs.caldav_user_address(self.cal(), None, prefer="Alice@Example.com"),
+            "alice@example.com")
+
+    def test_an_address_the_server_does_not_list_is_not_taken(self):
+        self.assertEqual(
+            cs.caldav_user_address(self.cal(), None, prefer="other@example.com"),
+            "alice@kuhn-ruess.de")
+
+    def test_a_server_without_addresses_names_none(self):
+        self.answers[self.PRINCIPAL] = CALENDAR_PRINCIPAL
+        self.assertEqual(cs.caldav_user_address(self.cal(), None), "")

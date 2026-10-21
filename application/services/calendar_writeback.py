@@ -22,6 +22,7 @@ from application.services.calendar_sync import (
     caldav_create_event,
     caldav_delete_event,
     caldav_patch_event,
+    caldav_user_address,
     google_create_event,
     google_delete_event,
     google_patch_event,
@@ -51,6 +52,20 @@ def create_event(cal, user, **kw):
     if cal.provider == "caldav":
         return caldav_create_event(cal, user, **kw)
     return google_create_event(cal, user, **kw)
+
+
+def organizer_address(cal, user) -> str:
+    """The address this calendar's account is known by, the one an event in it
+    has to name as ORGANIZER for its replies to be applied (``""`` when it
+    can't be told). Google's organizer is the account that owns the calendar;
+    a CalDAV server is asked."""
+    if cal.provider == "caldav":
+        try:
+            return caldav_user_address(cal, user, prefer=user.email or "")
+        except CalendarError as exc:
+            log.info("no organizer address from %s: %s", cal.account_label, exc)
+            return ""
+    return cal.account_email or ""
 
 
 def _patch_event(cal, user, event_id, **kw):
