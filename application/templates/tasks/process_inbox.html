@@ -43,33 +43,37 @@
             {{ form.note(class="form-control", rows="3") }}
           </div>
 
-          <div class="row g-2 mb-3">
-            <div class="col-md-6">
-              {{ form.project.label(class="form-label small text-uppercase text-muted") }}
-              {{ form.project(class="form-select form-select-sm",
-                              size="5",
-                              **{"data-searchable-select": "1",
-                                 "data-searchable-placeholder": "Search projects…"}) }}
-              <div class="form-text small">
-                Don't see the right project?
-                <a href="{{ url_for('projects.create') }}"
-                   data-inspector-url="{{ url_for('projects.create') }}"
-                   data-inspector-title="New project">Create one</a> first.
-              </div>
+          {# The project gets the whole width: its options are full paths
+             ("Kuhn & Rueß GmbH / Kunden / …"), and in half a column the part
+             that tells two of them apart was cut off. #}
+          <div class="mb-3">
+            {{ form.project.label(class="form-label small text-uppercase text-muted") }}
+            {{ form.project(class="form-select form-select-sm",
+                            size="5",
+                            **{"data-searchable-select": "1",
+                               "data-searchable-placeholder": "Search projects…"}) }}
+            <div class="form-text small">
+              Don't see the right project?
+              <a href="{{ url_for('projects.create') }}"
+                 data-inspector-url="{{ url_for('projects.create') }}"
+                 data-inspector-title="New project">Create one</a> first.
             </div>
-            <div class="col-md-6">
-              <div class="mb-2">
-                {{ form.status.label(class="form-label small text-uppercase text-muted") }}
-                {{ form.status(class="form-select form-select-sm") }}
-              </div>
-              <div class="mb-2">
-                {{ form.priority.label(class="form-label small text-uppercase text-muted") }}
-                {{ form.priority(class="form-select form-select-sm") }}
-              </div>
-              <div class="mb-2">
-                {{ form.assigned_to.label(class="form-label small text-uppercase text-muted") }}
-                {{ form.assigned_to(class="form-select form-select-sm") }}
-              </div>
+          </div>
+
+          <div class="row g-2 mb-3 align-items-end">
+            <div class="col-md-4">
+              {{ form.status.label(class="form-label small text-uppercase text-muted") }}
+              {{ form.status(class="form-select form-select-sm") }}
+            </div>
+            <div class="col-md-4">
+              {{ form.priority.label(class="form-label small text-uppercase text-muted") }}
+              {{ form.priority(class="form-select form-select-sm") }}
+            </div>
+            <div class="col-md-4">
+              {{ form.assigned_to.label(class="form-label small text-uppercase text-muted") }}
+              {{ form.assigned_to(class="form-select form-select-sm") }}
+            </div>
+            <div class="col-12">
               <div class="form-check">
                 {{ form.flagged(class="form-check-input") }}
                 {{ form.flagged.label(class="form-check-label") }}
