@@ -323,6 +323,15 @@ start folded), so the server renders the fold on every device. The current
 page's link is marked `active`/`aria-current`, and a folded group holding it is
 shown open on that page without changing the stored choice.
 
+On a desktop both columns can be **hidden for room**: the two buttons left of
+the brand in the navbar (or `b` / `⇧B`) hide the navigation
+(`static/js/nav-sidebar.js`) and the project tree (`project-sidebar.js`).
+Hidden means gone, not a rail: the navbar is where they come back from. Each is
+one class on `<html>` (`cairn-nav-collapsed`, `cairn-ps-collapsed`) kept in
+localStorage and set by the head script in base.html before paint, so it is
+per browser on purpose (laptop vs. big monitor). Not `[`/`]`: on a German Mac
+they need Option, and a key with a modifier is never a shortcut here.
+
 ### Phones and tablets
 
 All of it lives in app.css under "Phones and tablets", inside max-width or

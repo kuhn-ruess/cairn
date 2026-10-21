@@ -43,6 +43,10 @@
       if (localStorage.getItem("cairn.projectSidebar.collapsed") === "1") {
         document.documentElement.classList.add("cairn-ps-collapsed");
       }
+      // The left navigation, hidden on a desktop for room (nav-sidebar.js).
+      if (localStorage.getItem("cairn.navSidebar.collapsed") === "1") {
+        document.documentElement.classList.add("cairn-nav-collapsed");
+      }
     } catch (e) { /* localStorage may be blocked */ }
   })();
   </script>
@@ -57,6 +61,21 @@
             aria-controls="app-nav-drawer" aria-expanded="false" aria-label="Open navigation">
       <i class="bi bi-list"></i>
     </button>
+    {# Desktop: hide or show the left navigation for room (nav-sidebar.js). #}
+    <button type="button" class="btn nav-sidebar-toggle" data-nav-sidebar-toggle
+            aria-controls="app-nav-drawer" aria-expanded="true"
+            title="Hide navigation (b)" aria-label="Hide navigation">
+      <i class="bi bi-layout-sidebar"></i>
+    </button>
+    {% if page_project_sidebar|default(false) %}
+    {# The project tree's own switch lives here too, so a hidden tree leaves
+       no rail behind just to hold its button (project-sidebar.js). #}
+    <button type="button" class="btn nav-sidebar-toggle" data-ps-toggle
+            aria-controls="project-sidebar" aria-expanded="true"
+            title="Hide project tree (⇧B)" aria-label="Hide project tree">
+      <i class="bi bi-layout-sidebar-inset"></i>
+    </button>
+    {% endif %}
     <a class="navbar-brand fw-semibold d-inline-flex align-items-center gap-2" href="{{ url_for('dashboard.home') }}">
       <img src="{{ url_for('static', filename='img/logo-mark.svg') }}" alt="" width="22" height="22"> Cairn
     </a>
@@ -502,6 +521,8 @@
               <dt class="col-4"><kbd>d</kbd></dt><dd class="col-8">Delete cursor task</dd>
               <dt class="col-4"><kbd>m</kbd></dt><dd class="col-8">Move cursor task to project</dd>
               <dt class="col-4"><kbd>n</kbd></dt><dd class="col-8">Mark cursor task next / un-next</dd>
+              <dt class="col-4"><kbd>b</kbd></dt><dd class="col-8">Hide / show the navigation</dd>
+              <dt class="col-4"><kbd>⇧</kbd>+<kbd>b</kbd></dt><dd class="col-8">Hide / show the project tree</dd>
               <dt class="col-4"><kbd>?</kbd></dt><dd class="col-8">Show this list</dd>
             </dl>
           </div>
@@ -706,6 +727,7 @@
 <script src="{{ asset('js/favorites.js') }}"></script>
 <script src="{{ asset('js/sidebar-groups.js') }}"></script>
 <script src="{{ asset('js/nav-drawer.js') }}"></script>
+<script src="{{ asset('js/nav-sidebar.js') }}"></script>
 <script src="{{ asset('js/task-detail-tabs.js') }}"></script>
 <script src="{{ asset('js/comment-mention.js') }}"></script>
 <script src="{{ asset('js/comment-peek.js') }}"></script>

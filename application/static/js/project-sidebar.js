@@ -36,18 +36,28 @@
       });
     }
 
-    // Collapse / expand toggle — flips a class on <html> and saves the
-    // new state. The head script in base.html reads the same key on
-    // every page load, so the state survives navigation.
-    const toggle = sidebar.querySelector(".ps-toggle");
-    if (toggle) {
-      toggle.addEventListener("click", (e) => {
-        e.preventDefault();
-        const next = !root.classList.contains(HTML_CLASS);
-        root.classList.toggle(HTML_CLASS, next);
-        try { localStorage.setItem(KEY_COLLAPSED, next ? "1" : "0"); } catch (e) {}
+    // Hide / show: the button in the tree's header and the one in the
+    // navbar (the only way back once the tree is hidden, because a hidden
+    // tree takes no room at all). Flips a class on <html> and saves it; the
+    // head script in base.html reads the same key on every page load.
+    const toggles = document.querySelectorAll("[data-ps-toggle]");
+    const sync = () => {
+      const hidden = root.classList.contains(HTML_CLASS);
+      const label = hidden ? "Show project tree" : "Hide project tree";
+      toggles.forEach((t) => {
+        t.setAttribute("aria-expanded", hidden ? "false" : "true");
+        t.setAttribute("aria-label", label);
+        t.title = label + " (⇧B)";
       });
-    }
+    };
+    toggles.forEach((t) => t.addEventListener("click", (e) => {
+      e.preventDefault();
+      const next = !root.classList.contains(HTML_CLASS);
+      root.classList.toggle(HTML_CLASS, next);
+      try { localStorage.setItem(KEY_COLLAPSED, next ? "1" : "0"); } catch (e) {}
+      sync();
+    }));
+    sync();
 
     // Drag-to-resize via custom handle. CSS resize-handle was flaky
     // inside the flex parent — this gives us precise control.

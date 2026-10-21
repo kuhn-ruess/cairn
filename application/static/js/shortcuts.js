@@ -159,6 +159,23 @@
       return;
     }
 
+    // b / B, not [ / ]: on a German Mac the brackets need Option, and a key
+    // with a modifier is never a shortcut here.
+    if (e.key === "b" && window.CairnNavSidebar) {
+      e.preventDefault();
+      window.CairnNavSidebar.toggle();
+      return;
+    }
+
+    if (e.key === "B") {
+      const ps = document.querySelector("[data-ps-toggle]");
+      if (ps) {
+        e.preventDefault();
+        ps.click();
+      }
+      return;
+    }
+
     if (e.key === "?") {
       e.preventDefault();
       const m = document.getElementById("shortcutsModal");

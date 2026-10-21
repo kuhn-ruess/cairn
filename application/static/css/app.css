@@ -2457,16 +2457,32 @@ body.is-dragging .sp-row[data-sp-id]:hover,
   display: flex;
   flex-direction: column;
 }
-html.cairn-ps-collapsed .app-project-sidebar {
-  flex-basis: var(--project-sidebar-collapsed-width);
-  width: var(--project-sidebar-collapsed-width);
-}
-html.cairn-ps-collapsed .app-project-sidebar .ps-title,
-html.cairn-ps-collapsed .app-project-sidebar .ps-action,
-html.cairn-ps-collapsed .app-project-sidebar .ps-body,
-html.cairn-ps-collapsed .app-project-sidebar .ps-resizer {
+/* The left navigation hidden for room — desktop only; below 992px it is
+   the drawer and this class means nothing (nav-sidebar.js). */
+.nav-sidebar-toggle {
   display: none;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  margin-left: -.35rem;
+  margin-right: .35rem;
+  padding: 0;
+  border: 0;
+  font-size: 1.1rem;
 }
+/* .navbar in front: the navbar's own button colour outranks a lone class. */
+.navbar .nav-sidebar-toggle { color: var(--gv-fg4); }
+.navbar .nav-sidebar-toggle:hover,
+.navbar .nav-sidebar-toggle:focus-visible { color: var(--gv-yellow-br); }
+@media (min-width: 992px) {
+  .nav-sidebar-toggle { display: inline-flex; }
+  html.cairn-nav-collapsed .navbar [data-nav-sidebar-toggle],
+  html.cairn-ps-collapsed .navbar [data-ps-toggle] { color: var(--gv-yellow); }
+  html.cairn-nav-collapsed .app-layout > .app-nav-sidebar { display: none; }
+}
+/* Hidden means gone: the switch to bring it back is in the navbar. */
+html.cairn-ps-collapsed .app-project-sidebar { display: none; }
 .app-project-sidebar .ps-header {
   display: flex;
   align-items: center;
