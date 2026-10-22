@@ -1106,15 +1106,33 @@ class BookingPageTests(unittest.TestCase):
         self.assertEqual(self.client.get("/book/alice/photo").status_code, 404)
 
     # -- embedding on someone else's site ---------------------------------
-    def test_the_page_may_be_framed_by_anyone(self):
+    def test_the_embed_may_be_framed_by_anyone(self):
         """The proxy sends X-Frame-Options: SAMEORIGIN for everything; a
         browser that sees frame-ancestors ignores it, which is why the policy
         has to come from here."""
         self.save_page()
-        resp = self.client.get("/book/alice")
+        resp = self.client.get("/book/alice?embed=1")
         self.assertEqual(resp.headers["Content-Security-Policy"],
                          "frame-ancestors *")
         self.assertNotIn("X-Frame-Options", resp.headers)
+
+    def test_the_page_on_its_own_is_not_framable(self):
+        """Only the embed is opened up; the page on Cairn's own address keeps
+        the same-origin rule."""
+        self.save_page()
+        resp = self.client.get("/book/alice")
+        self.assertEqual(resp.headers["Content-Security-Policy"],
+                         "frame-ancestors 'self'")
+        self.assertEqual(resp.headers["X-Frame-Options"], "SAMEORIGIN")
+
+    def test_the_form_post_inside_the_frame_stays_framable(self):
+        self.save_page()
+        resp = self.client.post("/book/alice/book?embed=1&bare=1", data={
+            "start": self.first_slot(), "duration": "30", "name": "Bob",
+            "email": "bob@example.com", "note": "", "tz": "Europe/Berlin",
+            "form_token": self.form_token()})
+        self.assertEqual(resp.headers["Content-Security-Policy"],
+                         "frame-ancestors *")
 
     def test_the_allowed_ancestors_are_configurable(self):
         self.save_page()
@@ -1122,7 +1140,7 @@ class BookingPageTests(unittest.TestCase):
         self.app.config["BOOKING_FRAME_ANCESTORS"] = "https://example.com"
         try:
             self.assertEqual(
-                self.client.get("/book/alice").headers["Content-Security-Policy"],
+                self.client.get("/book/alice?embed=1").headers["Content-Security-Policy"],
                 "frame-ancestors https://example.com")
         finally:
             self.app.config["BOOKING_FRAME_ANCESTORS"] = old
@@ -1174,6 +1192,74 @@ class BookingPageTests(unittest.TestCase):
         self.save_page()
         body = self.client.get("/book/alice?embed=1&theme=pink").get_data(as_text=True)
         self.assertIn("prefers-color-scheme", body)
+
+    def test_a_bare_embed_shows_only_the_booking(self):
+        self.save_page(title="Talk to me", intro="Hi there.")
+        normal = self.client.get("/book/alice?embed=1").get_data(as_text=True)
+        self.assertIn("Talk to me", normal)
+        self.assertIn("Powered by", normal)
+        bare = self.client.get("/book/alice?embed=1&bare=1").get_data(as_text=True)
+        self.assertIn('<body class="embed bare">', bare)
+        self.assertNotIn('class="book-title', bare)
+        self.assertNotIn("Hi there.", bare)
+        self.assertNotIn("Powered by", bare)
+        self.assertIn('id="slots"', bare)
+        self.assertIn("cairnBooking", bare)
+        # The form carries the dress, so the confirmation is bare too.
+        self.assertIn("/book/alice/book?embed=1&amp;bare=1", bare)
+
+    def test_the_options_do_nothing_outside_an_embed(self):
+        self.save_page()
+        plain = self.client.get("/book/alice?bare=1&compact=1&accent=ff0000"
+                                ).get_data(as_text=True)
+        self.assertIn('<body class="">', plain)
+        self.assertIn("Powered by", plain)
+        self.assertNotIn("#ff0000", plain)
+
+    def test_an_accent_colours_the_buttons_and_nonsense_is_dropped(self):
+        self.save_page()
+        body = self.client.get("/book/alice?embed=1&accent=%234F8A2C"
+                               ).get_data(as_text=True)
+        self.assertIn("--bs-primary: #4f8a2c", body)
+        self.assertIn("79, 138, 44", body)
+        self.assertIn("accent=4f8a2c", body)
+        evil = self.client.get("/book/alice?embed=1&accent=red;}body{x"
+                               ).get_data(as_text=True)
+        self.assertNotIn("--bs-primary: #", evil)
+        self.assertNotIn("body{x", evil)
+
+    def test_compact_tightens_the_page(self):
+        self.save_page()
+        body = self.client.get("/book/alice?embed=1&compact=1").get_data(as_text=True)
+        self.assertIn('<body class="embed compact">', body)
+
+    def test_lang_de_speaks_german_down_to_the_confirmation(self):
+        self.save_page()
+        page = self.client.get("/book/alice?embed=1&bare=1&lang=de"
+                               ).get_data(as_text=True)
+        self.assertIn('<html lang="de"', page)
+        self.assertIn("Zeit wählen", page)
+        self.assertIn("Termin buchen", page)
+        self.assertIn('data-lang="de"', page)
+        self.assertIn("Tage mit freien Zeiten", page)   # the script's wording
+        resp = self.client.post("/book/alice/book?embed=1&bare=1&lang=de", data={
+            "start": self.first_slot(), "duration": "30", "name": "Bob",
+            "email": "bob@example.com", "note": "", "tz": "Europe/Berlin",
+            "form_token": self.form_token()})
+        done = resp.get_data(as_text=True)
+        self.assertIn("Ihr Termin steht", done)
+        self.assertIn('<body class="embed bare">', done)
+        english = self.client.get("/book/alice?embed=1&lang=xx").get_data(as_text=True)
+        self.assertIn("Pick a time", english)
+        self.assertIn('<html lang="en"', english)
+
+    def test_an_embed_is_transparent_all_the_way_up(self):
+        """app.css paints html too; a transparent body alone still shows a
+        box inside the host site."""
+        self.save_page()
+        body = self.client.get("/book/alice?embed=1").get_data(as_text=True)
+        self.assertIn('class="embed"', body.split("<head>")[0])
+        self.assertIn("html.embed, body.embed { background: transparent; }", body)
 
     def test_the_settings_page_hands_out_a_snippet(self):
         self.save_page()

@@ -18,6 +18,20 @@
   // The host, logged in and looking at their own page. The server decides
   // this; the flag only says whether to ask for the panel.
   var IS_OWNER = script.dataset.owner === "1";
+  // ?lang= on the page: the visitor's wording and the locale every date is
+  // written in. Without it the browser's own locale, as always.
+  var LOCALE = script.dataset.lang || undefined;
+  var STRINGS = (function () {
+    try { return JSON.parse(script.dataset.strings || "{}"); }
+    catch (e) { return {}; }
+  })();
+  function t(text, fields) {
+    var out = STRINGS[text] || text;
+    Object.keys(fields || {}).forEach(function (k) {
+      out = out.split("{" + k + "}").join(String(fields[k]));
+    });
+    return out;
+  }
   var GUEST_TZ = (function () {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; }
     catch (e) { return "UTC"; }
@@ -30,7 +44,7 @@
   var tzName = document.getElementById("tz-name");
 
   function fmt(iso, opts) {
-    return new Intl.DateTimeFormat(undefined,
+    return new Intl.DateTimeFormat(LOCALE,
       Object.assign({ timeZone: zone }, opts)).format(new Date(iso));
   }
 
@@ -65,7 +79,7 @@
   // people this page is handed to expect.
   var WEEK_START = (function () {
     try {
-      var loc = new Intl.Locale(navigator.language);
+      var loc = new Intl.Locale(LOCALE || navigator.language);
       var info = loc.weekInfo || (loc.getWeekInfo && loc.getWeekInfo());
       if (info && info.firstDay) { return info.firstDay % 7; }  // 7 (Sun) → 0
     } catch (e) { /* fall through */ }
@@ -107,7 +121,7 @@
     if (!keys.length) {
       var none = document.createElement("div");
       none.className = "text-muted small";
-      none.textContent = "No free times in the next weeks. Try a shorter appointment.";
+      none.textContent = t("No free times in the next weeks. Try a shorter appointment.");
       slotsBox.appendChild(none);
       return;
     }
@@ -136,7 +150,7 @@
     }));
     var title = document.createElement("div");
     title.className = "book-cal-title";
-    title.textContent = new Intl.DateTimeFormat(undefined,
+    title.textContent = new Intl.DateTimeFormat(LOCALE,
       { month: "long", year: "numeric" }).format(civil(shownMonth + "-01"));
     head.appendChild(title);
     head.appendChild(arrow("›", shownMonth < last, function () {
@@ -150,7 +164,7 @@
       var wd = document.createElement("div");
       wd.className = "book-cal-wd";
       // 2024-01-07 was a Sunday, so day-of-week i is that date plus i.
-      wd.textContent = new Intl.DateTimeFormat(undefined, {
+      wd.textContent = new Intl.DateTimeFormat(LOCALE, {
         weekday: "short", timeZone: "UTC"
       }).format(new Date(Date.UTC(2024, 0, 7 + (WEEK_START + w) % 7)));
       grid.appendChild(wd);
@@ -172,8 +186,8 @@
 
     var count = document.createElement("div");
     count.className = "book-tz mt-2";
-    count.textContent = days.length === 1 ? "1 day with free times"
-      : days.length + " days with free times";
+    count.textContent = days.length === 1 ? t("1 day with free times")
+      : t("{n} days with free times", { n: days.length });
     box.appendChild(count);
     return box;
   }
@@ -216,7 +230,7 @@
       (blocked ? "" : "<span class='book-cal-dot'></span>");
     b.setAttribute("aria-label", blocked
       ? (busyByDay[key] || []).length + " appointments, nothing free"
-      : day.slots.length + " free times");
+      : t("{n} free times", { n: day.slots.length }));
     b.addEventListener("click", function () {
       chosenKey = key;
       render(slots);
@@ -245,7 +259,7 @@
     box.className = "book-times";
     var head = document.createElement("div");
     head.className = "book-day-name";
-    head.textContent = new Intl.DateTimeFormat(undefined, {
+    head.textContent = new Intl.DateTimeFormat(LOCALE, {
       weekday: "long", day: "numeric", month: "long"
     }).format(civil(chosenKey));
     box.appendChild(head);
@@ -306,7 +320,7 @@
           ? " — including the " + rules.buffer_minutes + "-minute buffer around each appointment."
           : ".");
     }
-    return "Nothing free on this day.";
+    return t("Nothing free on this day.");
   }
 
   function openHoursFor(key) {
@@ -404,7 +418,7 @@
     b.className = "btn btn-sm btn-outline-secondary book-cal-arrow";
     b.textContent = glyph;
     b.disabled = !enabled;
-    b.setAttribute("aria-label", glyph === "‹" ? "Previous month" : "Next month");
+    b.setAttribute("aria-label", glyph === "‹" ? t("Previous month") : t("Next month"));
     if (enabled) { b.addEventListener("click", onClick); }
     return b;
   }
@@ -433,7 +447,7 @@
     slotsBox.textContent = "";
     var loading = document.createElement("div");
     loading.className = "text-muted small";
-    loading.textContent = "Loading free times…";
+    loading.textContent = t("Loading free times…");
     slotsBox.appendChild(loading);
     form.classList.add("d-none");
     fetch(SLOTS_URL + "?duration=" + encodeURIComponent(duration), {
@@ -441,7 +455,7 @@
     }).then(function (r) {
       return r.json().then(function (data) { return { ok: r.ok, data: data }; });
     }).then(function (res) {
-      if (!res.ok) { throw new Error(res.data.error || "Free times couldn't be loaded."); }
+      if (!res.ok) { throw new Error(res.data.error || t("Free times couldn't be loaded.")); }
       current = res.data.slots || [];
       currentBusy = res.data.busy || [];
       dayStates = res.data.days || {};
@@ -460,7 +474,7 @@
 
   function showZone() {
     tzName.textContent = zone === HOST_TZ && HOST_NAME
-      ? zone + " (" + HOST_NAME + "'s time)" : zone;
+      ? zone + " (" + t("{name}'s time", { name: HOST_NAME }) + ")" : zone;
   }
 
   document.getElementById("durations").addEventListener("click", function (ev) {
@@ -503,7 +517,7 @@
     cancelBtn.disabled = on;
     submitBtn.querySelector(".spinner-border").classList.toggle("d-none", !on);
     submitBtn.querySelector(".book-submit-label").textContent =
-      on ? "Booking…" : "Confirm booking";
+      on ? t("Booking…") : t("Confirm booking");
     busyNote.classList.toggle("d-none", !on);
   }
 

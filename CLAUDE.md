@@ -476,7 +476,17 @@ Non-trivial logic that doesn't belong in a view or model lives here:
   blueprint: the logged-in app has every reason to refuse being framed. app.css
   is dark-only, so an embed redefines the handful of `--gv-*` variables the
   page uses and follows the visitor's `prefers-color-scheme`, `?theme=` wins.
-  Settings hands out the paste-ready snippet. **Where you meet** is a page
+  Settings hands out the paste-ready snippet. **Only an embed is framable**:
+  without `embed` the blueprint answers `frame-ancestors 'self'` plus
+  `X-Frame-Options: SAMEORIGIN`. The embed's other options are read and
+  checked in `services/booking_embed.py` (pure): `bare=1` (only the booking,
+  no photo, title, intro or "Powered by" line), `compact=1`, `accent=<hex>`
+  (validated to hex digits before it reaches the inline `<style>`) and
+  `lang=de` (the visitor's wording in template, `booking-page.js` via
+  `data-strings`, and the confirmation; `t()` returns `Markup` and escapes
+  its fields). The first three count only inside an embed, `lang` everywhere,
+  and the form POST carries them all (`carried`) so the confirmation stays
+  dressed the same way. Server side error texts stay English. **Where you meet** is a page
   setting with three answers (`BookingPage.meeting_mode`): nothing, one fixed
   link, or a **fresh Teams meeting per booking** — the only thing
   `services/msgraph.py` exists for (delegated consent per user, because a

@@ -1,12 +1,14 @@
 <!doctype html>
 {# Standalone this is a Cairn page and stays dark. Embedded it sits inside
    somebody else's site, so it follows the visitor's light/dark setting unless
-   the embed URL says ?theme=light or ?theme=dark. #}
-<html lang="en" data-bs-theme="{{ 'light' if theme == 'light' else 'dark' }}">
+   the embed URL says ?theme=light or ?theme=dark. The other embed options
+   (bare, compact, accent, lang) are read in services/booking_embed.py. #}
+<html lang="{{ lang or 'en' }}" class="{{ 'embed' if embed else '' }}"
+      data-bs-theme="{{ 'light' if theme == 'light' else 'dark' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ page.title or ('Book time with ' ~ host_name) }}</title>
+  <title>{{ page.title or t('Book time with {name}', name=host_name) }}</title>
   <meta name="robots" content="noindex, nofollow">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
@@ -34,8 +36,19 @@
     .book-wrap { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
     /* Embedded, the surrounding page supplies the frame and the background:
        ours would otherwise paint a dark box inside a light site. */
-    body.embed { background: transparent; }
+    /* app.css paints html as well as body, so both have to let go. */
+    html.embed, body.embed { background: transparent; }
     body.embed .book-wrap { padding: 1rem 1rem 1.5rem; max-width: none; }
+    /* bare: the surrounding page has its own heading, so the booking starts
+       right at the first question. */
+    body.bare .book-wrap > :first-child { margin-top: 0 !important; }
+    /* compact: for a narrow column beside other content. */
+    body.compact .book-wrap { padding: .5rem .5rem 1rem; }
+    body.compact .book-section { margin-top: 1.1rem; }
+    body.compact .book-pick { gap: 1rem 1.25rem; }
+    body.compact .book-cal { width: 15.5rem; }
+    body.compact .book-cal-day, body.compact .book-cal-none { font-size: .78rem; }
+    body.compact .book-slot { min-width: 4.75rem; }
     .book-title { font-weight: 600; letter-spacing: -.01em; margin: 0; }
     .book-sub { color: var(--gv-fg4); font-size: .85rem; margin-top: .25rem; }
     .book-intro { color: var(--gv-fg3); white-space: pre-wrap; margin: 1.25rem 0 0;
@@ -98,27 +111,47 @@
     .book-tz { font-size: .8rem; color: var(--gv-fg4); }
     .book-face { width: 72px; height: 72px; border-radius: 50%; object-fit: cover;
                  flex: 0 0 72px; background: var(--gv-bg2); }
+    {% if accent %}{% set hex, rgb, fg = accent %}
+    /* accent: the host site's colour on the buttons and links. Checked to be
+       hex digits before it got here. */
+    :root, :root[data-bs-theme] {
+      --bs-primary: #{{ hex }}; --bs-primary-rgb: {{ rgb|join(', ') }};
+      --bs-link-color: #{{ hex }}; --bs-link-color-rgb: {{ rgb|join(', ') }};
+      --bs-link-hover-color: #{{ hex }}; --bs-link-hover-color-rgb: {{ rgb|join(', ') }};
+    }
+    .btn-primary, .btn-primary:hover, .btn-primary:focus, .btn-primary:active,
+    .btn-primary:disabled {
+      background: #{{ hex }}; border-color: #{{ hex }}; color: {{ fg }};
+    }
+    .btn-primary:hover { filter: brightness(.92); }
+    .btn-link, .btn-link:hover, a { color: #{{ hex }}; }
+    .btn-outline-secondary:hover { border-color: #{{ hex }}; }
+    .form-control:focus { border-color: #{{ hex }};
+      box-shadow: 0 0 0 .2rem rgba({{ rgb|join(', ') }}, .25); }
+    {% endif %}
   </style>
 </head>
-<body class="{{ "embed" if embed else "" }}">
+<body class="{{ ['embed' if embed, 'bare' if bare, 'compact' if compact]|select|join(' ') }}">
 <div class="book-wrap">
+  {% if not bare %}
   <div class="d-flex align-items-center gap-3">
     {% if has_photo %}
       <img class="book-face" src="{{ url_for('booking.photo', slug=page.slug) }}" alt="">
     {% endif %}
     <div>
-      <h1 class="book-title h3">{{ page.title or ('Book time with ' ~ host_name) }}</h1>
+      <h1 class="book-title h3">{{ page.title or t('Book time with {name}', name=host_name) }}</h1>
       <div class="book-sub">{{ host_name }}</div>
     </div>
   </div>
   {% if page.intro %}<div class="book-intro">{{ page.intro }}</div>{% endif %}
+  {% endif %}
 
   {% if error %}
     <div class="alert alert-warning mt-3 py-2 small">{{ error }}</div>
   {% endif %}
 
   <div class="book-section">
-    <h2>How long?</h2>
+    <h2>{{ t("How long?") }}</h2>
     <div class="btn-group" role="group" id="durations">
       {% for d in durations %}
         <button type="button" data-duration="{{ d }}"
@@ -130,20 +163,20 @@
 
   <div class="book-section">
     <div class="d-flex align-items-baseline gap-2">
-      <h2 class="me-auto">Pick a time</h2>
+      <h2 class="me-auto">{{ t("Pick a time") }}</h2>
       <span class="book-tz">
-        Times in <span id="tz-name">…</span>
-        <button type="button" class="btn btn-link btn-sm p-0 align-baseline" id="tz-toggle">switch</button>
+        {{ t("Times in") }} <span id="tz-name">…</span>
+        <button type="button" class="btn btn-link btn-sm p-0 align-baseline" id="tz-toggle">{{ t("switch") }}</button>
       </span>
     </div>
     <div id="slots" class="mt-2">
-      <div class="text-muted small">Loading free times…</div>
+      <div class="text-muted small">{{ t("Loading free times…") }}</div>
     </div>
   </div>
 
   <form class="book-section d-none" id="book-form" method="post"
-        action="{{ url_for('booking.book', slug=page.slug, embed=1 if embed else None) }}">
-    <h2>Your details</h2>
+        action="{{ url_for('booking.book', slug=page.slug, **carry) }}">
+    <h2>{{ t("Your details") }}</h2>
     <input type="hidden" name="start" id="start">
     <input type="hidden" name="duration" id="duration">
     <input type="hidden" name="tz" id="tz">
@@ -155,64 +188,62 @@
        vocabulary knows: a browser filling this on the visitor's behalf is a
        real person refused, which is worse than a bot let through. #}
     <div class="book-hp" aria-hidden="true">
-      <label for="{{ honeypot }}">Leave this field empty</label>
+      <label for="{{ honeypot }}">{{ t("Leave this field empty") }}</label>
       <input id="{{ honeypot }}" name="{{ honeypot }}" type="text" value=""
              tabindex="-1" autocomplete="off">
     </div>
     <div class="alert alert-secondary py-2 small" id="chosen"></div>
     <div class="row g-2">
       <div class="col-sm-6">
-        <label class="form-label small" for="name">Your name</label>
+        <label class="form-label small" for="name">{{ t("Your name") }}</label>
         <input class="form-control form-control-sm" id="name" name="name" required
                maxlength="120">
       </div>
       <div class="col-sm-6">
-        <label class="form-label small" for="email">Your email</label>
+        <label class="form-label small" for="email">{{ t("Your email") }}</label>
         <input class="form-control form-control-sm" type="email" id="email" name="email"
                required maxlength="255">
       </div>
       <div class="col-12">
         <label class="form-label small" for="meeting_url">
-          Your meeting link (optional)
+          {{ t("Your meeting link (optional)") }}
         </label>
         <input class="form-control form-control-sm" type="url" id="meeting_url"
                name="meeting_url" maxlength="500" placeholder="https://…">
         <div class="form-text small">
           {% if page.meeting_mode == 'teams' %}
-            Paste your own room to meet there instead. Leave it empty and you
-            get a Microsoft Teams link.
+            {{ t("teams_hint") }}
           {% elif page.meeting_mode == 'link' %}
-            Paste your own room to meet there instead. Leave it empty and
-            {{ host_name }}'s link is used.
+            {{ t("link_hint", name=host_name) }}
           {% else %}
-            If you'd like to meet in your own room, paste the link — it goes
-            into both confirmations and the calendar entry.
+            {{ t("own_hint") }}
           {% endif %}
         </div>
       </div>
       <div class="col-12">
-        <label class="form-label small" for="note">What's it about? (optional)</label>
+        <label class="form-label small" for="note">{{ t("What's it about? (optional)") }}</label>
         <textarea class="form-control form-control-sm" id="note" name="note" rows="3"
                   maxlength="2000"></textarea>
       </div>
     </div>
     <button class="btn btn-primary btn-sm mt-3" id="book-submit">
       <span class="spinner-border spinner-border-sm me-1 d-none" aria-hidden="true"></span>
-      <span class="book-submit-label">Confirm booking</span>
+      <span class="book-submit-label">{{ t("Confirm booking") }}</span>
     </button>
-    <button type="button" class="btn btn-link btn-sm mt-3" id="cancel">Pick another time</button>
+    <button type="button" class="btn btn-link btn-sm mt-3" id="cancel">{{ t("Pick another time") }}</button>
     {# Shown while the booking is being made: it writes the calendar entry
        (and maybe a Teams meeting) before it answers, which takes seconds, and
        a page that looks idle that long gets reloaded. #}
     <div class="small text-muted mt-2 d-none" id="book-busy" role="status" aria-live="polite">
-      Booking your appointment, please wait. This can take a few seconds.
-      Please don't reload the page.
+      {{ t("busy_note") }}
     </div>
   </form>
 
+  {% if not bare %}
   <p class="book-tz {{ 'mt-4' if embed else 'mt-5' }} mb-0">
-    Powered by <a href="https://cairn-app.de/" target="_blank" rel="noopener">Cairn</a> · {{ host_tz }} is {{ host_name }}'s timezone
+    Powered by <a href="https://cairn-app.de/" target="_blank" rel="noopener">Cairn</a> · {{ t("{tz} is {name}'s timezone", tz=host_tz, name=host_name) }}
   </p>
+  {% endif %}
 </div>
 
 {% if embed %}
@@ -244,6 +275,8 @@
         data-slots-url="{{ url_for('booking.slots', slug=page.slug) }}"
         data-host-tz="{{ host_tz }}"
         data-host-name="{{ host_name }}"
-        data-owner="{{ 1 if is_owner else 0 }}"></script>
+        data-owner="{{ 1 if is_owner else 0 }}"
+        data-lang="{{ lang }}"
+        data-strings='{{ js_strings|tojson }}'></script>
 </body>
 </html>

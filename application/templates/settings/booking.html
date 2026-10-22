@@ -388,7 +388,15 @@
     <div class="form-text small">
       The embedded page follows the visitor's light/dark setting. Add
       <code>&amp;theme=light</code> or <code>&amp;theme=dark</code> to the URL
-      to fix it to one.
+      to fix it to one. More options for the URL:
+      <code>&amp;bare=1</code> shows only the booking itself (no photo, title,
+      intro or "Powered by" line, for a page that has its own heading),
+      <code>&amp;compact=1</code> tightens the spacing for a narrow column,
+      <code>&amp;accent=4f8a2c</code> colours the buttons and links in your
+      site's colour (hex, without <code>#</code>), and
+      <code>&amp;lang=de</code> switches the wording to German.
+      The frame is only allowed on sites listed in
+      <code>BKTODO_BOOKING_FRAME_ANCESTORS</code> (default: any).
     </div>
   </div>
 </div>

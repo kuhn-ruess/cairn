@@ -45,7 +45,15 @@ def _allow_framing(resp):
     reason to refuse being framed. ``frame-ancestors`` also has to be here
     rather than in the proxy, because a browser that sees it ignores the
     ``X-Frame-Options: SAMEORIGIN`` the proxy sends for everything — which is
-    the header that would otherwise make an embed show an empty box."""
+    the header that would otherwise make an embed show an empty box.
+
+    Only an embed (``?embed=1``, which the form POST inside the frame carries
+    too) is opened up. The page on its own address is not meant to sit in
+    somebody's frame without saying so, and keeps the same-origin rule."""
+    if not request.args.get("embed"):
+        resp.headers["X-Frame-Options"] = "SAMEORIGIN"
+        resp.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
+        return resp
     resp.headers.pop("X-Frame-Options", None)
     resp.headers["Content-Security-Policy"] = (
         "frame-ancestors " + (current_app.config.get("BOOKING_FRAME_ANCESTORS") or "*"))
@@ -117,8 +125,7 @@ def _render_page(user, error=None, status=200):
         error=error,
         # Embedded: the surrounding site supplies the page, so this one drops
         # its outer margins and reports its height to the frame.
-        embed=bool(request.args.get("embed")),
-        theme=_theme(),
+        **_dress(),
     )
     return html if status == 200 else (html, status)
 
@@ -290,9 +297,20 @@ def book(slug):
 def _done(user, booking):
     return render_template("public/booking_done.html", host=user,
                            host_name=user.display_name or user.username,
-                           booking=booking,
-                           embed=bool(request.args.get("embed")),
-                           theme=_theme())
+                           booking=booking, **_dress())
+
+
+def _dress() -> dict:
+    """What the URL asked the page to look like (``services/booking_embed``),
+    ready for the template: the options, the wording, and the query the form
+    has to carry so the confirmation stays dressed the same way."""
+    from application.services import booking_embed
+    opts = booking_embed.options(request.args)
+    theme = _theme()
+    return dict(opts, theme=theme,
+                t=booking_embed.translator(opts["lang"]),
+                js_strings=booking_embed.js_strings(opts["lang"]),
+                carry=booking_embed.carried(opts, theme))
 
 
 def _theme() -> str:
